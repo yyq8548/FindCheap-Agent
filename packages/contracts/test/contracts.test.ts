@@ -228,6 +228,47 @@ describe("commerce contracts", () => {
     }
   });
 
+  it.each([
+    "javascript:alert(1)",
+    "file:///etc/passwd",
+    "ftp://merchant.example/products/1",
+    "https://user:secret@merchant.example/products/1"
+  ])("rejects unsafe public merchant URLs: %s", (merchantUrl) => {
+    expect(() =>
+      MerchantOfferSchema.parse({
+        offerId: "o1",
+        merchantId: "m1",
+        merchantProductId: "sku1",
+        sellerName: "Merchant",
+        condition: "NEW",
+        matchStatus: "SIMILAR",
+        inventoryStatus: "IN_STOCK",
+        merchantUrl,
+        evidenceRefs: ["e1"],
+        checkedAt: "2026-08-13T12:00:00.000Z",
+        expiresAt: "2026-08-13T12:15:00.000Z"
+      })
+    ).toThrow();
+  });
+
+  it("accepts HTTPS merchant and affiliate URLs without credentials", () => {
+    expect(() =>
+      ComparisonOfferSchema.parse({
+        ...comparisonOffer("EXACT"),
+        affiliateUrl: "https://affiliate.example/click?offer=1"
+      })
+    ).not.toThrow();
+  });
+
+  it.each(["javascript:alert(1)", "file:///tmp/a", "ftp://affiliate.example/a"])(
+    "rejects unsafe comparison affiliate URLs: %s",
+    (affiliateUrl) => {
+      expect(() =>
+        ComparisonOfferSchema.parse({ ...comparisonOffer("EXACT"), affiliateUrl })
+      ).toThrow();
+    }
+  );
+
   it("accepts status-scoped comparison rankings and deterministic exact evidence", () => {
     const regularQuote = quote("regular");
     const memberQuote = quote("member");

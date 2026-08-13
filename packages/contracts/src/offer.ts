@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { MoneySchema } from "./money.js";
+import { HttpsUrlSchema } from "./url.js";
 
 export const MatchStatusSchema = z.enum([
   "EXACT",
@@ -8,6 +9,11 @@ export const MatchStatusSchema = z.enum([
   "INSUFFICIENT"
 ]);
 export const QuoteStatusSchema = z.enum(["VERIFIED", "ESTIMATED", "CONDITIONAL"]);
+export const CouponStackingPolicySchema = z.enum([
+  "STACKABLE_WITH_MEMBERSHIP",
+  "NOT_STACKABLE_WITH_MEMBERSHIP"
+]);
+export type CouponStackingPolicy = z.infer<typeof CouponStackingPolicySchema>;
 
 const UtcTimestampSchema = z.string().datetime();
 
@@ -87,7 +93,7 @@ export const MerchantOfferSchema = z
     condition: z.enum(["NEW", "REFURBISHED", "USED"]),
     matchStatus: MatchStatusSchema,
     inventoryStatus: z.enum(["IN_STOCK", "OUT_OF_STOCK", "UNKNOWN"]),
-    merchantUrl: z.string().url(),
+    merchantUrl: HttpsUrlSchema,
     evidenceRefs: z.array(z.string()).min(1),
     matchEvidence: z.array(MatchEvidenceSchema).default([]),
     checkedAt: UtcTimestampSchema,

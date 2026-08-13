@@ -1,4 +1,9 @@
-import type { CanonicalProduct, MerchantOffer, PriceQuote } from "../../contracts/src/index.js";
+import type {
+  CanonicalProduct,
+  CouponStackingPolicy,
+  MerchantOffer,
+  PriceQuote
+} from "../../contracts/src/index.js";
 
 export const tables = {
   products: "products",
@@ -18,7 +23,7 @@ export type StoredMerchantOffer = Omit<MerchantOffer, "checkedAt" | "expiresAt">
 
 export type StoredPriceQuote = Omit<PriceQuote, "checkedAt" | "expiresAt"> & {
   zipCode: string;
-  membershipContext: JsonObject;
+  membershipContext: { memberships: string[] };
   checkedAt: Timestamp;
   expiresAt: Timestamp;
 };
@@ -39,7 +44,7 @@ export interface StoredCoupon {
   code?: string;
   discountRule: JsonObject;
   eligibility: JsonObject;
-  stackingRule: string;
+  stackingRule: CouponStackingPolicy;
   verificationStatus: string;
   evidenceRefs: string[];
   validFrom: Timestamp;

@@ -6,7 +6,11 @@ import {
   type CanonicalProduct,
   type ComparisonResult
 } from "../../../packages/contracts/src/index.js";
-import { calculatePriceOptions, type QuoteInput } from "../../../packages/pricing/src/index.js";
+import {
+  QuoteInputSchema,
+  calculatePriceOptions,
+  type QuoteInput
+} from "../../../packages/pricing/src/index.js";
 import { matchProduct, type CandidateProduct } from "../../../packages/product-identity/src/index.js";
 import { rankExactOffers } from "../../../packages/ranking/src/rank-offers.js";
 
@@ -14,7 +18,11 @@ export const CompareInputSchema = z
   .object({
     query: z.string().min(2).max(300),
     zipCode: z.string().regex(/^\d{5}$/),
-    memberships: z.array(z.string().min(1)).max(30).default([])
+    memberships: z
+      .array(z.string().min(1))
+      .max(30)
+      .default([])
+      .transform((memberships) => [...new Set(memberships)].sort())
   })
   .strict();
 
@@ -27,11 +35,10 @@ export type ComparableOffer = {
   sellerName: string;
   merchantUrl: string;
   product: CandidateProduct;
-  quote?: QuoteInput;
 };
 
 export interface CurrentOfferRepository {
-  /** Returns candidates with current quotes only; stale database quotes are excluded by the repository. */
+  /** Resolves the product and returns unquoted merchant candidates. */
   search(query: string): Promise<OfferSearchResult>;
 }
 
@@ -41,8 +48,11 @@ export type OfferSearchResult =
 
 export type CompareDeps = {
   offers: CurrentOfferRepository;
+  quoteExactOffer(candidate: ComparableOffer, context: QuoteContext): Promise<QuoteInput>;
   clock: { now(): Date };
 };
+
+export type QuoteContext = Pick<CompareInput, "zipCode" | "memberships">;
 
 type EvaluatedOffer =
   | { kind: "exact"; offer: ComparisonOffer }
@@ -62,7 +72,9 @@ export async function compareProducts(input: CompareInput, deps: CompareDeps): P
   }
   const now = deps.clock.now();
   const evaluated = await Promise.all(
-    search.candidates.map((candidate) => evaluateCandidate(candidate, search.product, parsedInput, now))
+    search.candidates.map((candidate) =>
+      evaluateCandidate(candidate, search.product, parsedInput, now, deps.quoteExactOffer)
+    )
   );
   const exactOffers = evaluated.flatMap((result) => result.kind === "exact" ? [result.offer] : []);
   const similarOffers = evaluated.flatMap((result) => result.kind === "similar" ? [result.offer] : []);
@@ -80,25 +92,13 @@ export async function compareProducts(input: CompareInput, deps: CompareDeps): P
   });
 }
 
-function evaluateCandidate(
+async function evaluateCandidate(
   candidate: ComparableOffer,
   product: CanonicalProduct,
   input: CompareInput,
-  now: Date
-): EvaluatedOffer {
-  try {
-    return classifyCandidate(candidate, product, input, now);
-  } catch {
-    return { kind: "question", question: "Some merchant data could not be verified." };
-  }
-}
-
-function classifyCandidate(
-  candidate: ComparableOffer,
-  product: CanonicalProduct,
-  input: CompareInput,
-  now: Date
-): EvaluatedOffer {
+  now: Date,
+  quoteExactOffer: CompareDeps["quoteExactOffer"]
+): Promise<EvaluatedOffer> {
   const decision = matchProduct(candidate.product, product);
   if (decision.status === "SIMILAR") {
     return {
@@ -119,37 +119,38 @@ function classifyCandidate(
   if (decision.status === "INSUFFICIENT") {
     return { kind: "question", question: "Please provide a model number or GTIN before comparing prices." };
   }
+  const quote = QuoteInputSchema.parse(
+    await quoteExactOffer(candidate, {
+      zipCode: input.zipCode,
+      memberships: input.memberships
+    })
+  );
   if (
-    !candidate.quote ||
-    candidate.quote.offerId !== candidate.offerId ||
-    Date.parse(candidate.quote.expiresAt) <= now.getTime()
+    quote.offerId !== candidate.offerId ||
+    Date.parse(quote.expiresAt) <= now.getTime()
   ) {
     return { kind: "question", question: "A current price is unavailable for an exact product match." };
   }
 
-  try {
-    const prices = calculatePriceOptions(candidate.quote, {
-      memberships: input.memberships,
-      isFirstOrder: false,
-      hasSubscription: false,
-      paymentMethods: [],
-      zipCode: input.zipCode
-    });
-    return {
-      kind: "exact",
-      offer: ComparisonOfferSchema.parse({
-        offerId: candidate.offerId,
-        merchantId: candidate.merchantId,
-        sellerName: candidate.sellerName,
-        matchStatus: "EXACT",
-        regularQuote: prices.regularQuote,
-        ...(prices.memberQuote ? { memberQuote: prices.memberQuote } : {}),
-        rankingQuote: prices.rankingQuote,
-        merchantUrl: candidate.merchantUrl,
-        recommendationReasons: decision.evidence
-      })
-    };
-  } catch {
-    return { kind: "question", question: "Some merchant prices could not be verified." };
-  }
+  const prices = calculatePriceOptions(quote, {
+    memberships: input.memberships,
+    isFirstOrder: false,
+    hasSubscription: false,
+    paymentMethods: [],
+    zipCode: input.zipCode
+  });
+  return {
+    kind: "exact",
+    offer: ComparisonOfferSchema.parse({
+      offerId: candidate.offerId,
+      merchantId: candidate.merchantId,
+      sellerName: candidate.sellerName,
+      matchStatus: "EXACT",
+      regularQuote: prices.regularQuote,
+      ...(prices.memberQuote ? { memberQuote: prices.memberQuote } : {}),
+      rankingQuote: prices.rankingQuote,
+      merchantUrl: candidate.merchantUrl,
+      recommendationReasons: decision.evidence
+    })
+  };
 }

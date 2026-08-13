@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { CanonicalProduct } from "../../contracts/src/index.js";
-import { matchProduct, type CandidateProduct } from "../src/index.js";
+import {
+  CandidateProductSchema,
+  matchProduct,
+  normalizeGtin,
+  type CandidateProduct
+} from "../src/index.js";
 
 const canonicalTv = (): CanonicalProduct => ({
   productId: "tv-1",
@@ -97,6 +102,32 @@ describe("matchProduct", () => {
       matchProduct(candidateWithoutMpn({ gtins: ["0-12345-67890-5"] }), canonicalTv())
     ).toEqual({ status: "EXACT", evidence: ["GTIN exact"] });
   });
+
+  it.each(["prefix-12345678-suffix", "", "not-a-gtin", "1234567", "123456789012345"])(
+    "rejects malformed merchant candidate GTIN input: %s",
+    (gtin) => {
+      expect(() => CandidateProductSchema.parse(candidateWithoutMpn({ gtins: [gtin] }))).toThrow();
+      expect(() => matchProduct(candidateWithoutMpn({ gtins: [gtin] }), canonicalTv())).toThrow();
+    }
+  );
+
+  it.each([
+    ["012345678905", "012345678905"],
+    ["0-12345-67890-5", "012345678905"],
+    ["0 12345 67890 5", "012345678905"]
+  ])("accepts deliberately supported GTIN form %s", (gtin, normalized) => {
+    expect(normalizeGtin(gtin)).toBe(normalized);
+    expect(CandidateProductSchema.parse(candidateWithoutMpn({ gtins: [gtin] })).gtins).toEqual([
+      normalized
+    ]);
+  });
+
+  it.each(["", "letters", "prefix-12345678-suffix", "---"])(
+    "never normalizes invalid GTIN input into a comparable identity: %s",
+    (gtin) => {
+      expect(normalizeGtin(gtin)).toBeUndefined();
+    }
+  );
 
   it("never upgrades semantic similarity to exact", () => {
     const result = matchProduct(

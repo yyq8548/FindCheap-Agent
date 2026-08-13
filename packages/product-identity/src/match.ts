@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { CanonicalProduct } from "../../contracts/src/index.js";
 import { normalizeGtin, normalizeToken } from "./normalize.js";
 
@@ -6,20 +7,34 @@ export type MatchDecision = {
   evidence: string[];
 };
 
-export type CandidateProduct = {
-  brand: string;
-  mpn?: string;
-  gtins: string[];
-  title: string;
-  variantDimensions: Record<string, string>;
-  coreSimilarity: number;
-};
+const CandidateGtinSchema = z.string().transform((value, context) => {
+  const normalized = normalizeGtin(value);
+  if (!normalized) {
+    context.addIssue({ code: "custom", message: "GTIN must contain 8 to 14 digits with only spaces or hyphens as separators" });
+    return z.NEVER;
+  }
+  return normalized;
+});
+
+export const CandidateProductSchema = z
+  .object({
+    brand: z.string().min(1),
+    mpn: z.string().min(1).optional(),
+    gtins: z.array(CandidateGtinSchema),
+    title: z.string().min(1),
+    variantDimensions: z.record(z.string(), z.string()),
+    coreSimilarity: z.number().min(0).max(1)
+  })
+  .strict();
+
+export type CandidateProduct = z.input<typeof CandidateProductSchema>;
 
 export function matchProduct(candidate: CandidateProduct, product: CanonicalProduct): MatchDecision {
-  const canonicalGtins = new Set(product.gtins.map(normalizeGtin));
-  const sameGtin = candidate.gtins.some((gtin) => canonicalGtins.has(normalizeGtin(gtin)));
-  const normalizedBrand = normalizeToken(candidate.brand);
-  const normalizedMpn = candidate.mpn ? normalizeToken(candidate.mpn) : "";
+  const parsedCandidate = CandidateProductSchema.parse(candidate);
+  const canonicalGtins = new Set(product.gtins.flatMap((gtin) => normalizeGtin(gtin) ?? []));
+  const sameGtin = parsedCandidate.gtins.some((gtin) => canonicalGtins.has(gtin));
+  const normalizedBrand = normalizeToken(parsedCandidate.brand);
+  const normalizedMpn = parsedCandidate.mpn ? normalizeToken(parsedCandidate.mpn) : "";
   const normalizedCanonicalBrand = normalizeToken(product.brand);
   const normalizedCanonicalMpn = product.manufacturerPartNumber
     ? normalizeToken(product.manufacturerPartNumber)
@@ -34,13 +49,13 @@ export function matchProduct(candidate: CandidateProduct, product: CanonicalProd
   );
 
   if (!sameGtin && !sameMpn) {
-    return candidate.coreSimilarity >= 0.75
+    return parsedCandidate.coreSimilarity >= 0.75
       ? { status: "SIMILAR", evidence: ["core attributes similar; identity absent"] }
       : { status: "INSUFFICIENT", evidence: ["identity absent"] };
   }
 
   const variantIssues = Object.entries(product.variantDimensions).flatMap(([key, value]) => {
-    const candidateValue = candidate.variantDimensions[key];
+    const candidateValue = parsedCandidate.variantDimensions[key];
     if (candidateValue === undefined) return [`variant missing: ${key}`];
     return candidateValue === value ? [] : [`variant conflict: ${key}`];
   });

@@ -5,6 +5,21 @@ jobs:
     runs-on: ubuntu-latest
     env:
       COREPACK_ENABLE_PROJECT_SPEC: "0"
+      DATABASE_URL: postgresql://shopping:local-only@127.0.0.1:5432/shopping
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: shopping
+          POSTGRES_PASSWORD: local-only
+          POSTGRES_DB: shopping
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U shopping -d shopping"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -12,5 +27,11 @@ jobs:
       - run: corepack enable
       - run: corepack prepare pnpm@10 --activate
       - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
+      - name: Wait for PostgreSQL 17
+        run: until pg_isready -h 127.0.0.1 -p 5432 -U shopping -d shopping; do sleep 1; done
+      - run: pnpm db:migrate
+      - run: pnpm test:integration
+      - run: pnpm eval:matching -- --min-exact-precision=0.98

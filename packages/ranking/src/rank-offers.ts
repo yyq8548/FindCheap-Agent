@@ -1,4 +1,4 @@
-import { ComparisonOfferSchema } from "../../contracts/src/index.js";
+import type { ComparisonOfferSchema } from "../../contracts/src/index.js";
 
 export type ComparisonOffer = ReturnType<typeof ComparisonOfferSchema.parse>;
 export type RankingContext = { memberships: string[] };

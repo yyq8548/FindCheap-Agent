@@ -23,7 +23,12 @@ type OfferParts = {
   fee?: number;
   taxVerified?: boolean;
   shippingVerified?: boolean;
-  coupon?: { cents: number; verified?: boolean; eligibility?: CouponEligibilityRule[] };
+  coupon?: {
+    cents: number;
+    verified?: boolean;
+    eligibility?: CouponEligibilityRule[];
+    stackingPolicy?: "STACKABLE_WITH_MEMBERSHIP" | "NOT_STACKABLE_WITH_MEMBERSHIP";
+  };
 };
 
 const offer = (parts: OfferParts = {}): QuoteInput => ({
@@ -39,7 +44,8 @@ const offer = (parts: OfferParts = {}): QuoteInput => ({
         coupon: {
           amountCents: parts.coupon.cents,
           verificationStatus: parts.coupon.verified === false ? "UNVERIFIED" : "VERIFIED",
-          eligibility: parts.coupon.eligibility ?? []
+          eligibility: parts.coupon.eligibility ?? [],
+          stackingPolicy: parts.coupon.stackingPolicy ?? "STACKABLE_WITH_MEMBERSHIP"
         }
       }
     : {})
@@ -116,4 +122,60 @@ describe("calculatePriceOptions", () => {
       calculatePriceOptions(offerWithMemberDiscount(100, 200), user({ memberships: ["costco"] }))
     ).toThrow();
   });
+
+  it("stacks an eligible coupon with a membership discount when explicitly allowed", () => {
+    const prices = calculatePriceOptions(
+      {
+        ...offerWithMemberDiscount(1000, 200),
+        coupon: {
+          amountCents: 100,
+          verificationStatus: "VERIFIED",
+          eligibility: [],
+          stackingPolicy: "STACKABLE_WITH_MEMBERSHIP"
+        }
+      },
+      user({ memberships: ["costco"] })
+    );
+
+    expect(prices.regularQuote.deliveredPrice.amountCents).toBe(900);
+    expect(prices.memberQuote?.quote.deliveredPrice.amountCents).toBe(700);
+    expect(prices.memberQuote?.quote.lineItems.map((item) => item.kind)).toEqual([
+      "ITEM",
+      "MEMBERSHIP",
+      "COUPON",
+      "SHIPPING",
+      "TAX",
+      "MANDATORY_FEE"
+    ]);
+    expect(Number.isInteger(prices.memberQuote?.quote.deliveredPrice.amountCents)).toBe(true);
+  });
+
+  it.each([
+    [300, 200, "COUPON", 700],
+    [100, 200, "MEMBERSHIP", 800]
+  ] as const)(
+    "selects the better %s discount when coupon and membership cannot stack",
+    (couponCents, membershipCents, selectedKind, expectedTotal) => {
+      const prices = calculatePriceOptions(
+        {
+          ...offerWithMemberDiscount(1000, membershipCents),
+          coupon: {
+            amountCents: couponCents,
+            verificationStatus: "VERIFIED",
+            eligibility: [],
+            stackingPolicy: "NOT_STACKABLE_WITH_MEMBERSHIP"
+          }
+        },
+        user({ memberships: ["costco"] })
+      );
+
+      const member = prices.memberQuote?.quote;
+      expect(prices.regularQuote.deliveredPrice.amountCents).toBe(1000 - couponCents);
+      expect(member?.deliveredPrice.amountCents).toBe(expectedTotal);
+      expect(member?.lineItems.filter((item) => ["COUPON", "MEMBERSHIP"].includes(item.kind))).toHaveLength(1);
+      expect(member?.lineItems.find((item) => item.kind === selectedKind)?.condition).toMatch(/does not stack/i);
+      expect(member?.eligibilityConditions.join(" ")).toMatch(/does not stack/i);
+      expect(Number.isInteger(member?.deliveredPrice.amountCents)).toBe(true);
+    }
+  );
 });

@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { PriceQuoteSchema, type PriceQuote } from "../../contracts/src/index.js";
+import {
+  CouponStackingPolicySchema,
+  PriceQuoteSchema,
+  type PriceQuote
+} from "../../contracts/src/index.js";
 import {
   CouponEligibilityRuleSchema,
   UserPriceContextSchema,
@@ -31,7 +35,8 @@ export const QuoteInputSchema = z
       .object({
         amountCents: cents,
         verificationStatus: z.enum(["VERIFIED", "UNVERIFIED", "EXPIRED"]),
-        eligibility: z.array(CouponEligibilityRuleSchema)
+        eligibility: z.array(CouponEligibilityRuleSchema),
+        stackingPolicy: CouponStackingPolicySchema
       })
       .strict()
       .optional()
@@ -46,31 +51,73 @@ export type PriceOptions = {
   rankingQuote: PriceQuote;
 };
 
-const line = (kind: "ITEM" | "COUPON" | "MEMBERSHIP" | "SHIPPING" | "TAX" | "MANDATORY_FEE", amountCents: number) => ({
+const line = (
+  kind: "ITEM" | "COUPON" | "MEMBERSHIP" | "SHIPPING" | "TAX" | "MANDATORY_FEE",
+  amountCents: number,
+  condition?: string
+) => ({
   kind,
   amount: { amountCents, currency: "USD" as const },
-  label: kind
+  label: kind,
+  ...(condition ? { condition } : {})
 });
 
-function collectConditions(input: QuoteInput, includeMemberDiscount: boolean): string[] {
+type DiscountSelection = {
+  coupon: boolean;
+  membership: boolean;
+  stackingCondition?: string;
+};
+
+function selectDiscounts(
+  input: QuoteInput,
+  user: UserPriceContext,
+  includeMemberDiscount: boolean
+): DiscountSelection {
+  const couponEligible = Boolean(
+    input.coupon?.verificationStatus === "VERIFIED" &&
+      input.coupon.eligibility.every((rule) => ruleSatisfied(rule, user))
+  );
+  if (!includeMemberDiscount || !input.membershipDiscount) {
+    return { coupon: couponEligible, membership: false };
+  }
+  if (
+    !couponEligible ||
+    !input.coupon ||
+    input.coupon?.stackingPolicy === "STACKABLE_WITH_MEMBERSHIP"
+  ) {
+    return { coupon: couponEligible, membership: true };
+  }
+
+  const couponWins = input.coupon.amountCents > input.membershipDiscount.amountCents;
+  return {
+    coupon: couponWins,
+    membership: !couponWins,
+    stackingCondition: couponWins
+      ? "Coupon does not stack with membership; coupon discount selected"
+      : "Coupon does not stack with membership; membership discount selected"
+  };
+}
+
+function collectConditions(input: QuoteInput, selection: DiscountSelection): string[] {
   return [
-    ...(includeMemberDiscount && input.membershipDiscount
+    ...(selection.membership && input.membershipDiscount
       ? [`Requires membership: ${input.membershipDiscount.programName}`]
       : []),
-    ...(input.coupon ? input.coupon.eligibility.map(describeRule) : [])
+    ...(input.coupon ? input.coupon.eligibility.map(describeRule) : []),
+    ...(selection.stackingCondition ? [selection.stackingCondition] : [])
   ];
 }
 
 function composeQuote(input: QuoteInput, user: UserPriceContext, includeMemberDiscount: boolean): PriceQuote {
-  const couponEligible =
-    input.coupon?.verificationStatus === "VERIFIED" &&
-    input.coupon.eligibility.every((rule) => ruleSatisfied(rule, user));
+  const selection = selectDiscounts(input, user, includeMemberDiscount);
   const lines = [
     line("ITEM", input.itemPriceCents),
-    ...(includeMemberDiscount && input.membershipDiscount
-      ? [line("MEMBERSHIP", -input.membershipDiscount.amountCents)]
+    ...(selection.membership && input.membershipDiscount
+      ? [line("MEMBERSHIP", -input.membershipDiscount.amountCents, selection.stackingCondition)]
       : []),
-    ...(couponEligible && input.coupon ? [line("COUPON", -input.coupon.amountCents)] : []),
+    ...(selection.coupon && input.coupon
+      ? [line("COUPON", -input.coupon.amountCents, selection.stackingCondition)]
+      : []),
     line("SHIPPING", input.shippingCents),
     line("TAX", input.taxCents),
     line("MANDATORY_FEE", input.mandatoryFeeCents)
@@ -89,7 +136,7 @@ function composeQuote(input: QuoteInput, user: UserPriceContext, includeMemberDi
       input.taxVerified && input.shippingVerified && input.evidenceRefs.length > 0
         ? "VERIFIED"
         : "ESTIMATED",
-    eligibilityConditions: collectConditions(input, includeMemberDiscount),
+    eligibilityConditions: collectConditions(input, selection),
     evidenceRefs: input.evidenceRefs,
     checkedAt: input.checkedAt,
     expiresAt: input.expiresAt

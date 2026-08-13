@@ -41,7 +41,7 @@ const fixtureQuote = (overrides: Partial<StoredPriceQuote> = {}): StoredPriceQuo
   quoteId: "quote-1",
   offerId: "offer-1",
   zipCode: "10001",
-  membershipContext: { tier: "none" },
+  membershipContext: { memberships: [] },
   status: "VERIFIED",
   deliveredPrice: { amountCents: 1299, currency: "USD" as const },
   lineItems: [{ kind: "ITEM", amount: { amountCents: 1299, currency: "USD" as const }, label: "Item" }],
@@ -84,10 +84,50 @@ describe("commerce repositories", () => {
       expiresAt: new Date(now.getTime() - 60_000)
     }));
 
-    const rows = await offers.findComparableOffers("product-1", now);
+    const rows = await offers.findComparableOffers(
+      "product-1",
+      { zipCode: "10001", memberships: [] },
+      now
+    );
 
     expect(rows.map((row) => row.quoteId)).toEqual(["q1"]);
     expect(rows[0]?.evidenceRefs).toEqual(["evidence-1"]);
+    const junction = await db.query<{ quote_id: string; evidence_id: string }>(
+      "SELECT quote_id, evidence_id FROM quote_evidence WHERE quote_id = $1 ORDER BY evidence_id",
+      ["q1"]
+    );
+    expect(junction.rows).toEqual([{ quote_id: "q1", evidence_id: "evidence-1" }]);
+  });
+
+  it("filters quotes by ZIP and order-independent membership context", async () => {
+    await Promise.all([
+      offers.saveQuote(fixtureQuote({ quoteId: "fl-regular", zipCode: "33433" })),
+      offers.saveQuote(fixtureQuote({
+        quoteId: "fl-member",
+        zipCode: "33433",
+        membershipContext: { memberships: ["prime", "costco"] }
+      })),
+      offers.saveQuote(fixtureQuote({ quoteId: "ny-regular", zipCode: "10001" })),
+      offers.saveQuote(fixtureQuote({
+        quoteId: "ny-member",
+        zipCode: "10001",
+        membershipContext: { memberships: ["costco"] }
+      }))
+    ]);
+
+    const floridaMember = await offers.findComparableOffers(
+      "product-1",
+      { zipCode: "33433", memberships: ["costco", "prime", "costco"] },
+      now
+    );
+    const newYorkRegular = await offers.findComparableOffers(
+      "product-1",
+      { zipCode: "10001", memberships: [] },
+      now
+    );
+
+    expect(floridaMember.map((row) => row.quoteId)).toEqual(["fl-member"]);
+    expect(newYorkRegular.map((row) => row.quoteId)).toEqual(["ny-regular"]);
   });
 
   it("upserts canonical products and merchant offers", async () => {
@@ -152,7 +192,7 @@ describe("commerce repositories", () => {
       code: "SAVE10",
       discountRule: { type: "PERCENT", value: 10 },
       eligibility: { minimumCents: 1000 },
-      stackingRule: "NOT_STACKABLE",
+      stackingRule: "NOT_STACKABLE_WITH_MEMBERSHIP",
       verificationStatus: "VERIFIED",
       evidenceRefs: ["evidence-1"],
       validFrom: now,
@@ -165,5 +205,115 @@ describe("commerce repositories", () => {
     );
 
     expect(result.rows).toEqual([{ code: "SAVE10", evidence_refs: ["evidence-1"] }]);
+  });
+
+  it("deduplicates quote evidence junction references", async () => {
+    await offers.saveQuote(fixtureQuote({ evidenceRefs: ["evidence-1", "evidence-1"] }));
+
+    const result = await db.query<{ evidence_id: string }>(
+      "SELECT evidence_id FROM quote_evidence WHERE quote_id = $1",
+      ["quote-1"]
+    );
+    expect(result.rows).toEqual([{ evidence_id: "evidence-1" }]);
+  });
+
+  it("rolls back a quote when its evidence reference is unknown", async () => {
+    await expect(
+      offers.saveQuote(fixtureQuote({ quoteId: "unknown-evidence", evidenceRefs: ["missing"] }))
+    ).rejects.toThrow();
+
+    const quoteRows = await db.query<{ id: string }>(
+      "SELECT id FROM price_quotes WHERE id = $1",
+      ["unknown-evidence"]
+    );
+    const junctionRows = await db.query<{ quote_id: string }>(
+      "SELECT quote_id FROM quote_evidence WHERE quote_id = $1",
+      ["unknown-evidence"]
+    );
+    expect(quoteRows.rows).toEqual([]);
+    expect(junctionRows.rows).toEqual([]);
+  });
+
+  it("does not let older offer, quote, or evidence refreshes regress newer state", async () => {
+    const newer = new Date(now.getTime() + 60_000);
+    const older = new Date(now.getTime() - 60_000);
+    await offers.saveEvidence({
+      evidenceId: "evidence-2",
+      merchantId: "merchant-1",
+      sourceUrl: "https://merchant.example/new",
+      sourceType: "MERCHANT_PAGE",
+      contentHash: "sha256:new",
+      capturedAt: newer,
+      metadata: { version: "new" }
+    });
+
+    await offers.saveOffer({
+      ...offer,
+      sellerName: "New Seller",
+      evidenceRefs: ["evidence-2"],
+      checkedAt: newer,
+      expiresAt: new Date(newer.getTime() + 10 * 60_000)
+    });
+    await offers.saveQuote(fixtureQuote({
+      deliveredPrice: { amountCents: 1099, currency: "USD" },
+      evidenceRefs: ["evidence-2"],
+      checkedAt: newer,
+      expiresAt: new Date(newer.getTime() + 5 * 60_000)
+    }));
+
+    await offers.saveEvidence({
+      evidenceId: "evidence-2",
+      merchantId: "merchant-1",
+      sourceUrl: "https://merchant.example/old",
+      sourceType: "RETAILER_FEED",
+      contentHash: "sha256:old",
+      capturedAt: older,
+      metadata: { version: "old" }
+    });
+    await offers.saveOffer({
+      ...offer,
+      sellerName: "Old Seller",
+      evidenceRefs: ["evidence-1"],
+      checkedAt: older,
+      expiresAt: new Date(older.getTime() + 10 * 60_000)
+    });
+    await offers.saveQuote(fixtureQuote({
+      deliveredPrice: { amountCents: 1599, currency: "USD" },
+      evidenceRefs: ["evidence-1"],
+      checkedAt: older,
+      expiresAt: new Date(older.getTime() + 5 * 60_000)
+    }));
+
+    const state = await db.query<{
+      seller_name: string;
+      delivered_price_cents: number;
+      source_url: string;
+      content_hash: string;
+      metadata: { version: string };
+      offer_evidence: string[];
+      quote_evidence: string[];
+    }>(
+      `SELECT o.seller_name, q.delivered_price_cents, e.source_url, e.content_hash, e.metadata,
+              array_agg(DISTINCT oe.evidence_id ORDER BY oe.evidence_id) AS offer_evidence,
+              array_agg(DISTINCT qe.evidence_id ORDER BY qe.evidence_id) AS quote_evidence
+       FROM merchant_offers o
+       JOIN price_quotes q ON q.offer_id = o.id
+       JOIN evidence e ON e.id = $1
+       JOIN offer_evidence oe ON oe.offer_id = o.id
+       JOIN quote_evidence qe ON qe.quote_id = q.id
+       WHERE o.id = $2 AND q.id = $3
+       GROUP BY o.seller_name, q.delivered_price_cents, e.source_url, e.content_hash, e.metadata`,
+      ["evidence-2", "offer-1", "quote-1"]
+    );
+
+    expect(state.rows).toEqual([{
+      seller_name: "New Seller",
+      delivered_price_cents: 1099,
+      source_url: "https://merchant.example/new",
+      content_hash: "sha256:new",
+      metadata: { version: "new" },
+      offer_evidence: ["evidence-2"],
+      quote_evidence: ["evidence-2"]
+    }]);
   });
 });

@@ -42,7 +42,7 @@ const assertKeys = (
   context: string
 ): void => {
   const unexpected = Object.keys(record).find((key) => !allowed.includes(key));
-  if (unexpected) throw formatError(line, `${context} contains unrecognized field \"${unexpected}\"`);
+  if (unexpected) throw formatError(line, `${context} contains unrecognized field "${unexpected}"`);
 };
 
 const requiredString = (record: Record<string, unknown>, key: string, line: number): string => {

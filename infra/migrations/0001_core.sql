@@ -1,5 +1,3 @@
-BEGIN;
-
 CREATE TABLE products (
   id text PRIMARY KEY,
   brand text NOT NULL,
@@ -66,7 +64,9 @@ CREATE TABLE coupons (
   code text,
   discount_rule jsonb NOT NULL,
   eligibility jsonb NOT NULL,
-  stacking_rule text NOT NULL,
+  stacking_rule text NOT NULL CHECK (
+    stacking_rule IN ('STACKABLE_WITH_MEMBERSHIP', 'NOT_STACKABLE_WITH_MEMBERSHIP')
+  ),
   verification_status text NOT NULL,
   evidence_refs text[] NOT NULL DEFAULT '{}',
   valid_from timestamptz NOT NULL,
@@ -90,5 +90,3 @@ CREATE TABLE coupon_evidence (
   evidence_id text NOT NULL REFERENCES evidence(id),
   PRIMARY KEY (coupon_id, evidence_id)
 );
-
-COMMIT;

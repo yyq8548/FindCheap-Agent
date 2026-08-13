@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { MatchStatusSchema, PriceQuoteSchema } from "./offer.js";
+import { HttpsUrlSchema } from "./url.js";
 
 const MemberQuoteSchema = z
   .object({
@@ -19,8 +20,8 @@ export const ComparisonOfferSchema = z
     regularQuote: PriceQuoteSchema,
     memberQuote: MemberQuoteSchema.optional(),
     rankingQuote: PriceQuoteSchema,
-    affiliateUrl: z.string().url().optional(),
-    merchantUrl: z.string().url(),
+    affiliateUrl: HttpsUrlSchema.optional(),
+    merchantUrl: HttpsUrlSchema,
     recommendationReasons: z.array(z.string())
   })
   .strict()
@@ -47,7 +48,7 @@ export const SimilarComparisonOfferSchema = z
     merchantId: z.string(),
     sellerName: z.string(),
     matchStatus: z.literal("SIMILAR"),
-    merchantUrl: z.string().url(),
+    merchantUrl: HttpsUrlSchema,
     recommendationReasons: z.array(z.string())
   })
   .strict();
