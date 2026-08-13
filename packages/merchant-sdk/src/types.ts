@@ -71,6 +71,11 @@ export type RefreshResult = {
   checkedAt: string;
 };
 
+export type RefreshOfferInput = { merchantProductId: string; sourceVersion: string };
+
+/** Offer and its supporting raw evidence captured as one adapter operation. */
+export type RefreshOfferResult = RefreshResult & { offer: RawMerchantOffer | null };
+
 export type RefreshPriceInput = QuoteDeliveredPriceInput & { sourceVersion: string };
 
 /** Quote and its supporting raw evidence captured as one adapter operation. */
@@ -102,6 +107,7 @@ export interface MerchantAdapter {
   getCoupons(input: CouponQuery): Promise<RawCoupon[]>;
   buildAffiliateLink(input: AffiliateLinkInput): Promise<AffiliateLinkResult>;
   refreshProduct(merchantProductId: string): Promise<RefreshResult>;
+  refreshOffer(input: RefreshOfferInput): Promise<RefreshOfferResult>;
   refreshPrice(input: RefreshPriceInput): Promise<RefreshPriceResult>;
   healthCheck(): Promise<MerchantHealth>;
   evidence(entityId: string): Promise<EvidenceRecord[]>;

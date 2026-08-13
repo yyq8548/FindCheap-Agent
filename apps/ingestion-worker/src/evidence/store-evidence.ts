@@ -1,4 +1,11 @@
 import { createHash } from "node:crypto";
+import {
+  requireHttpsUrl,
+  requireMetadata,
+  requireRawEvidence,
+  requireSourceType,
+  requireStrictTimestamp
+} from "../../../../packages/merchant-sdk/src/index.js";
 import { stableRecordId, type SourceIdentity } from "../jobs/refresh-identity.js";
 
 export type EvidenceWrite = {
@@ -23,6 +30,7 @@ export type EvidenceSaveResult =
   | {
     status: "CONFLICT";
     evidenceId: string;
+    conflictEvidenceId: string;
     expectedContentHash: string;
     actualContentHash: string;
   };
@@ -35,6 +43,7 @@ export interface EvidenceRepository {
 export class SourceVersionConflictError extends Error {
   constructor(
     readonly evidenceId: string,
+    readonly conflictEvidenceId: string,
     readonly expectedContentHash: string,
     readonly actualContentHash: string
   ) {
@@ -58,7 +67,11 @@ export async function storeEvidence(
     metadata: Record<string, string>;
   }
 ): Promise<StoredEvidence> {
-  if (input.rawContent.length === 0) throw new Error("raw evidence must not be empty");
+  requireHttpsUrl(input.sourceUrl);
+  requireRawEvidence(input.rawContent);
+  requireMetadata(input.metadata);
+  requireSourceType(input.sourceType);
+  requireStrictTimestamp(input.capturedAt, "capturedAt");
   const contentHash = sha256(input.rawContent);
   const write: EvidenceWrite = {
     id: stableRecordId("evidence", input.sourceIdentity.key),
@@ -80,6 +93,7 @@ export async function storeEvidence(
   if (result.status === "CONFLICT") {
     throw new SourceVersionConflictError(
       result.evidenceId,
+      result.conflictEvidenceId,
       result.expectedContentHash,
       result.actualContentHash
     );

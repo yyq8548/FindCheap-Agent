@@ -9,6 +9,8 @@ export type PriceAnomaly = {
 export type QuarantineRecord = PriceAnomaly & {
   merchantId: string;
   merchantProductId: string;
+  primaryEvidenceId: string;
+  externalEvidenceRefs: string[];
   evidenceRefs: string[];
   checkedAt: string;
   quoteContext: { zipCode: string; memberships: string[] };
@@ -21,6 +23,9 @@ export type QuarantineRecord = PriceAnomaly & {
   sourceUrl: string;
   rawEvidence: string;
   metadata: Record<string, string>;
+  primaryEvidenceId: string;
+  conflictEvidenceId: string;
+  externalEvidenceRefs: string[];
   evidenceRefs: string[];
   checkedAt: string;
   quoteContext: { zipCode: string; memberships: string[] };

@@ -112,6 +112,15 @@ function adapter(
       url: input.merchantUrl,
       kind: "NORMAL" as const
     })),
+    refreshOffer: vi.fn(async (input) => ({
+      merchantProductId: input.merchantProductId,
+      sourceVersion: input.sourceVersion,
+      sourceUrl: refresh.sourceUrl,
+      rawEvidence: refresh.rawEvidence,
+      metadata: refresh.metadata,
+      checkedAt: refresh.checkedAt,
+      offer: merchantOffer
+    })),
     refreshProduct: vi.fn(async () => refresh),
     refreshPrice: vi.fn(async (input) => ({
       merchantProductId: input.merchantProductId,
@@ -153,6 +162,7 @@ function productDeps(merchantAdapter = adapter()) {
         : {
           status: "CONFLICT",
           evidenceId: existing.id,
+          conflictEvidenceId: canonicalizeProductRefreshJob(productJob).idempotencyKey,
           expectedContentHash: existing.contentHash,
           actualContentHash: write.contentHash
         };
@@ -191,6 +201,7 @@ function priceDeps(previousPriceCents = 10_000, currentQuote = quote()) {
         : {
           status: "CONFLICT" as const,
           evidenceId: existing.id,
+          conflictEvidenceId: canonicalizePriceRefreshJob(priceJob).idempotencyKey,
           expectedContentHash: existing.contentHash,
           actualContentHash: write.contentHash
         };
@@ -210,6 +221,8 @@ function priceDeps(previousPriceCents = 10_000, currentQuote = quote()) {
         merchantId: input.quote.merchantId,
         merchantProductId: input.quote.merchantProductId,
         quoteContext: input.quote.quoteContext,
+        primaryEvidenceId: input.quote.primaryEvidenceId,
+        externalEvidenceRefs: input.quote.externalEvidenceRefs,
         evidenceRefs: input.quote.evidenceRefs,
         checkedAt: input.quote.checkedAt,
         ...anomaly
@@ -252,6 +265,17 @@ describe("refreshProduct", () => {
     await expect(refreshProduct(productJob, deps)).resolves.toMatchObject({ status: "PUBLISHED" });
 
     expect(evidenceSave).toHaveBeenCalledBefore(offerUpsert);
+  });
+
+  it("uses one atomic offer refresh without legacy follow-up reads", async () => {
+    const merchantAdapter = adapter();
+    const { deps } = productDeps(merchantAdapter);
+
+    await refreshProduct(productJob, deps);
+
+    expect(merchantAdapter.refreshOffer).toHaveBeenCalledOnce();
+    expect(merchantAdapter.refreshProduct).not.toHaveBeenCalled();
+    expect(merchantAdapter.getOffer).not.toHaveBeenCalled();
   });
 
   it("does not publish when durable evidence storage fails", async () => {
@@ -435,7 +459,9 @@ describe("refreshPrice", () => {
     expect(quarantineSave).toHaveBeenLastCalledWith(
       expect.objectContaining({
         reason: "SOURCE_VERSION_CONFLICT",
-        evidenceRefs: [expect.stringMatching(/^[a-f0-9]{64}$/u)]
+        primaryEvidenceId: expect.stringMatching(/^[a-f0-9]{64}$/u),
+        conflictEvidenceId: expect.stringMatching(/^[a-f0-9]{64}$/u),
+        externalEvidenceRefs: ["adapter-evidence"]
       }),
       expect.stringMatching(/^[a-f0-9]{64}$/u)
     );

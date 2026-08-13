@@ -1,4 +1,10 @@
-import type { MerchantAdapter, RawPriceQuote } from "../../../../packages/merchant-sdk/src/index.js";
+import {
+  requireEvidenceRefs,
+  requireMetadata,
+  requireQuoteShape,
+  type MerchantAdapter,
+  type RawPriceQuote
+} from "../../../../packages/merchant-sdk/src/index.js";
 import {
   SourceVersionConflictError,
   storeEvidence,
@@ -30,6 +36,8 @@ export type PublishedQuote = RawPriceQuote & {
   sourceIdentityKey: string;
   sourceVersion: string;
   quoteContext: { zipCode: string; memberships: string[] };
+  primaryEvidenceId: string;
+  externalEvidenceRefs: string[];
   deliveredPriceCents: number;
   evidenceRefs: string[];
 };
@@ -116,6 +124,9 @@ export async function refreshPrice(
   }
   requireSafeSourceUrl(raw.sourceUrl);
   requireEvidenceSupportsEntity(raw.checkedAt, quote, now, deps.freshness);
+  requireMetadata(raw.metadata);
+  requireQuoteShape(quote);
+  requireEvidenceRefs(quote.evidenceRefs, "quote external evidence refs");
   const currentPriceCents = deliveredPriceCents(quote);
 
   const identity = priceSourceIdentity(canonicalJob);
@@ -139,9 +150,12 @@ export async function refreshPrice(
         sourceVersion: identity.sourceVersion,
         sourceUrl: raw.sourceUrl,
         rawEvidence: raw.rawEvidence,
-        metadata: raw.metadata,
+        metadata: { ...raw.metadata, sourceCheckedAt: raw.checkedAt },
         quoteContext: { zipCode: canonicalJob.zipCode, memberships: canonicalJob.memberships },
-        evidenceRefs: [error.evidenceId],
+        evidenceRefs: [...new Set([...quote.evidenceRefs, error.evidenceId])],
+        primaryEvidenceId: error.evidenceId,
+        conflictEvidenceId: error.conflictEvidenceId,
+        externalEvidenceRefs: [...new Set(quote.evidenceRefs)],
         checkedAt: raw.checkedAt,
         reason: "SOURCE_VERSION_CONFLICT",
         expectedContentHash: error.expectedContentHash,
@@ -159,6 +173,8 @@ export async function refreshPrice(
     sourceIdentityKey: identity.key,
     sourceVersion: identity.sourceVersion,
     quoteContext: { zipCode: canonicalJob.zipCode, memberships: canonicalJob.memberships },
+    primaryEvidenceId: evidence.id,
+    externalEvidenceRefs: [...new Set(quote.evidenceRefs)],
     deliveredPriceCents: currentPriceCents,
     evidenceRefs
   };

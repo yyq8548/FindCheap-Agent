@@ -4,12 +4,14 @@ import { runMerchantContractSuite } from "../src/index.js";
 
 const fixtureContext = () => ({
   search: { query: "wireless headphones", limit: 5 },
+  offerRefresh: { merchantProductId: "sku-1", sourceVersion: "v1" },
   priceRefresh: {
     merchantProductId: "sku-1",
     zipCode: "10001",
     memberships: [],
     sourceVersion: "v1"
-  }
+  },
+  maxSourceEntitySkewMs: 30_000
 });
 
 const validOffer = (): MerchantProductCandidate => ({
@@ -46,6 +48,21 @@ const adapterWith = (offers: MerchantProductCandidate[]): MerchantAdapter => ({
   buildAffiliateLink: async () => ({
     url: "https://merchant.example/products/sku-1",
     kind: "NORMAL"
+  }),
+  refreshOffer: async (input) => ({
+    merchantProductId: input.merchantProductId,
+    sourceVersion: input.sourceVersion,
+    sourceUrl: "https://merchant.example/products/sku-1",
+    rawEvidence: "{\"offer\":1000}",
+    metadata: { sourceType: "api" },
+    checkedAt: "2026-08-13T12:00:00.000Z",
+    offer: {
+      ...validOffer(),
+      sellerName: "Merchant A",
+      condition: "NEW",
+      inventoryStatus: "IN_STOCK",
+      itemPriceCents: 1000
+    }
   }),
   refreshProduct: async () => ({
     merchantProductId: "sku-1",
@@ -98,8 +115,8 @@ describe("merchant adapter contract suite", () => {
     );
 
     expect(report.failures).toContain("offer evidenceRefs must not be empty");
-    expect(report.failures).toContain("expiresAt must be after checkedAt");
-    expect(report.failures).toContain("currency must be USD");
+    expect(report.failures).toContain("offer expiresAt must be after checkedAt");
+    expect(report.failures).toContain("offer currency must be USD");
   });
 
   it("accepts a valid adapter", async () => {
@@ -114,7 +131,7 @@ describe("merchant adapter contract suite", () => {
       fixtureContext()
     );
 
-    expect(report.failures).toContain("expiresAt must be after checkedAt");
+    expect(report.failures).toContain("offer checkedAt must be strict RFC3339");
   });
 
   it("fails closed for impossible calendar timestamps", async () => {
@@ -123,7 +140,7 @@ describe("merchant adapter contract suite", () => {
       fixtureContext()
     );
 
-    expect(report.failures).toContain("expiresAt must be after checkedAt");
+    expect(report.failures).toContain("offer checkedAt must be strict RFC3339");
   });
 
   it("requires at least one nonblank evidence reference", async () => {
@@ -162,7 +179,43 @@ describe("merchant adapter contract suite", () => {
 
     const report = await runMerchantContractSuite(() => invalid, fixtureContext());
 
-    expect(report.failures).toContain("price refresh sourceVersion must match request");
-    expect(report.failures).toContain("price refresh rawEvidence must not be empty");
+    expect(report.failures).toContain("price refresh identity must match request");
+    expect(report.failures).toContain("raw evidence is empty or exceeds 5000000 UTF-8 bytes");
+  });
+
+  it("validates atomic offer evidence and entity bounds", async () => {
+    const invalid = adapterWith([validOffer()]);
+    invalid.refreshOffer = async (input) => ({
+      merchantProductId: input.merchantProductId,
+      sourceVersion: input.sourceVersion,
+      sourceUrl: "http://merchant.example/products/sku-1",
+      rawEvidence: "{}",
+      metadata: { sourceType: "api" },
+      checkedAt: "2026-08-13T12:02:00.000Z",
+      offer: {
+        ...validOffer(),
+        sellerName: "Merchant A",
+        condition: "NEW",
+        inventoryStatus: "IN_STOCK",
+        itemPriceCents: Number.POSITIVE_INFINITY
+      }
+    });
+
+    const report = await runMerchantContractSuite(() => invalid, fixtureContext());
+    expect(report.failures).toContain("source URL must be credential-free HTTPS");
+    expect(report.failures).toContain("offer item price must be a non-negative safe integer");
+    expect(report.failures).toContain("source evidence time does not match entity checkedAt");
+  });
+
+  it("rejects multibyte evidence above the UTF-8 byte limit", async () => {
+    const invalid = adapterWith([validOffer()]);
+    const original = invalid.refreshPrice;
+    invalid.refreshPrice = async (input) => ({
+      ...await original(input),
+      rawEvidence: "界".repeat(1_666_667)
+    });
+
+    const report = await runMerchantContractSuite(() => invalid, fixtureContext());
+    expect(report.failures).toContain("raw evidence is empty or exceeds 5000000 UTF-8 bytes");
   });
 });

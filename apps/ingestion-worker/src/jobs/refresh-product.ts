@@ -1,4 +1,10 @@
-import type { MerchantAdapter, RawMerchantOffer } from "../../../../packages/merchant-sdk/src/index.js";
+import {
+  requireEvidenceRefs,
+  requireMetadata,
+  requireOfferShape,
+  type MerchantAdapter,
+  type RawMerchantOffer
+} from "../../../../packages/merchant-sdk/src/index.js";
 import { storeEvidence, type EvidenceRepository } from "../evidence/store-evidence.js";
 import {
   canonicalizeProductRefreshJob,
@@ -20,6 +26,8 @@ export type PublishedOffer = RawMerchantOffer & {
   offerId: string;
   sourceIdentityKey: string;
   sourceVersion: string;
+  primaryEvidenceId: string;
+  externalEvidenceRefs: string[];
   evidenceRefs: string[];
 };
 
@@ -90,8 +98,11 @@ export async function refreshProduct(
   if (stopped) return stopped;
 
   const adapter = deps.adapters.get(canonicalJob.merchantId);
-  const raw = await adapter.refreshProduct(canonicalJob.merchantProductId);
-  const offer = await adapter.getOffer(canonicalJob.merchantProductId);
+  const raw = await adapter.refreshOffer({
+    merchantProductId: canonicalJob.merchantProductId,
+    sourceVersion: canonicalJob.sourceVersion
+  });
+  const offer = raw.offer;
   const now = deps.clock.now();
 
   if (raw.merchantProductId !== canonicalJob.merchantProductId) {
@@ -102,6 +113,7 @@ export async function refreshProduct(
   }
   requireSafeSourceUrl(raw.sourceUrl);
   requireEvidenceFreshness(raw.checkedAt, now, deps.freshness);
+  requireMetadata(raw.metadata);
 
   if (!offer) {
     await storeEvidence(deps.evidence, {
@@ -121,6 +133,8 @@ export async function refreshProduct(
     throw new Error("offer does not match requested merchant product");
   }
   requireEvidenceSupportsEntity(raw.checkedAt, offer, now, deps.freshness);
+  requireOfferShape(offer);
+  requireEvidenceRefs(offer.evidenceRefs, "offer external evidence refs");
 
   const identity = productSourceIdentity(canonicalJob);
   const evidence = await storeEvidence(deps.evidence, {
@@ -137,6 +151,8 @@ export async function refreshProduct(
     offerId: stableRecordId("offer", identity.key),
     sourceIdentityKey: identity.key,
     sourceVersion: identity.sourceVersion,
+    primaryEvidenceId: evidence.id,
+    externalEvidenceRefs: [...new Set(offer.evidenceRefs)],
     evidenceRefs: [...new Set([...offer.evidenceRefs, evidence.id])]
   };
   await deps.offers.upsert(published, stableRecordId("offer", identity.key));
