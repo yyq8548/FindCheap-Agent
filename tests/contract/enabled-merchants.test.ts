@@ -5,7 +5,11 @@ import { fileURLToPath } from "node:url";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { validateEnabledMerchants, type MerchantGatePaths } from "../../scripts/validate-enabled-merchants.js";
+import {
+  loadGateApprovedMerchantConfigs,
+  validateEnabledMerchants,
+  type MerchantGatePaths
+} from "../../scripts/validate-enabled-merchants.js";
 
 const repositoryRoot = fileURLToPath(new URL("../..", import.meta.url));
 const cleanupPaths: string[] = [];
@@ -70,6 +74,15 @@ async function fixture(options: {
 }
 
 describe("enabled merchant quality gate", () => {
+  it("loads zero runtime configs from the unaudited seed catalog without weakening the gate", async () => {
+    await expect(loadGateApprovedMerchantConfigs({
+      root: repositoryRoot,
+      catalogPath: "config/merchants/catalog.yaml",
+      enabledDirectory: "config/merchants/enabled",
+      decisionsDirectory: "docs/product/merchant-decisions"
+    })).resolves.toEqual([]);
+  });
+
   it("reports the seed catalog's intentional pre-audit minimum failure", async () => {
     const report = await validateEnabledMerchants({
       root: repositoryRoot,
@@ -249,5 +262,20 @@ describe("enabled merchant quality gate", () => {
     });
 
     expect(await validateEnabledMerchants(paths)).toEqual({ minimum: 1, enabledCount: 1, failures: [] });
+    await expect(loadGateApprovedMerchantConfigs(paths)).resolves.toMatchObject([{
+      merchantId: "approved-shop",
+      candidate: { id: "approved-shop", enabled: true },
+      config: { merchantId: "approved-shop", source: { type: "http" } }
+    }]);
+  });
+
+  it("fails closed instead of returning any runtime configs when one gate check fails", async () => {
+    const paths = await fixture({
+      candidates: [{ ...approvedCandidate(), legalReview: "not_started" }],
+      configs: [{ file: "approved-shop.yaml", value: enabledConfig() }],
+      decisions: [{ file: "approved-shop.md", value: decisionMarkdown() }]
+    });
+
+    await expect(loadGateApprovedMerchantConfigs(paths)).rejects.toThrow(/CATALOG_AUDIT_GATE_FAILED/u);
   });
 });

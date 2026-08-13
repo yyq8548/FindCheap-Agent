@@ -2,9 +2,12 @@
   "name": "ai-transaction-agent",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=22 <23" },
+  "engines": {
+    "node": ">=22 <23"
+  },
   "packageManager": "pnpm@10.34.5",
   "scripts": {
+    "build:ingestion": "pnpm --filter @shopping-agent/ingestion-worker build",
     "build:mcp": "pnpm --filter @shopping-agent/mcp-server build",
     "lint": "eslint .",
     "typecheck": "tsc -b --pretty false",
@@ -19,14 +22,15 @@
   },
   "dependencies": {
     "bullmq": "^6.1.0",
+    "ioredis": "^5.11.1",
     "pg": "^8.16.3",
     "yaml": "^2.4.2",
     "zod": "^3.25.76"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
-    "@types/pg": "^8.15.5",
     "@types/node": "^22",
+    "@types/pg": "^8.15.5",
     "eslint": "^9",
     "tsx": "^4.20.5",
     "typescript": "^5.9",

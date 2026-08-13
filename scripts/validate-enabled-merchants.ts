@@ -1,5 +1,5 @@
 import { lstat, readdir, readFile } from "node:fs/promises";
-import { isAbsolute, relative, resolve } from "node:path";
+import { basename, isAbsolute, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { parse } from "yaml";
@@ -7,6 +7,7 @@ import { parse } from "yaml";
 import {
   MerchantSourceConfigSchema,
   parseMerchantSourceConfig,
+  type MerchantSourceConfig,
   type MerchantSourceConfigInput
 } from "../packages/merchant-adapters/src/configured/source-config.js";
 import { MerchantCatalogSchema, selectForBuild, type MerchantCatalog } from "../config/merchants/schema.js";
@@ -43,6 +44,17 @@ export type MerchantGateReport = {
   minimum: number;
   enabledCount: number;
   failures: MerchantGateFailure[];
+};
+
+export type GateApprovedMerchantConfig = {
+  merchantId: string;
+  candidate: MerchantCatalog["candidates"][number];
+  config: MerchantSourceConfig;
+};
+
+type MerchantGateInspection = {
+  report: MerchantGateReport;
+  approvedConfigs: GateApprovedMerchantConfig[];
 };
 
 type ConfigFile = { name: string; path: string };
@@ -216,19 +228,23 @@ function parseEnabledConfig(value: unknown): { merchantId: string; config: Merch
   return { merchantId: parsed.merchantId, config: parsed };
 }
 
-/** Validates only audited, enabled configuration; it never performs merchant network requests. */
-export async function validateEnabledMerchants(paths: MerchantGatePaths): Promise<MerchantGateReport> {
-  const minimum = paths.minimum ?? 1;
-  if (!Number.isInteger(minimum) || minimum < 1 || minimum > 20) throw new Error("minimum must be an integer from 1 through 20");
+async function inspectEnabledMerchants(
+  paths: MerchantGatePaths,
+  minimum: number
+): Promise<MerchantGateInspection> {
   const root = resolve(paths.root);
   const failures: MerchantGateFailure[] = [];
+  const approvedConfigs: GateApprovedMerchantConfig[] = [];
   let enabledDirectory: string;
   let decisionsDirectory: string;
   try {
     enabledDirectory = resolveConfined(root, paths.enabledDirectory);
     decisionsDirectory = resolveConfined(root, paths.decisionsDirectory);
   } catch {
-    return { minimum, enabledCount: 0, failures: [failure("GATE_PATH_INVALID"), failure("MINIMUM_ENABLED_MERCHANTS", undefined, `requires ${minimum}, found 0`)] };
+    return {
+      report: { minimum, enabledCount: 0, failures: [failure("GATE_PATH_INVALID"), ...(minimum > 0 ? [failure("MINIMUM_ENABLED_MERCHANTS", undefined, `requires ${minimum}, found 0`)] : [])] },
+      approvedConfigs
+    };
   }
   const enabledDirectoryStatus = await directoryStatus(enabledDirectory);
   const decisionsDirectoryStatus = await directoryStatus(decisionsDirectory);
@@ -239,7 +255,10 @@ export async function validateEnabledMerchants(paths: MerchantGatePaths): Promis
   try {
     catalog = await loadCatalog(root, paths.catalogPath);
   } catch {
-    return { minimum, enabledCount: 0, failures: [...failures, failure("CATALOG_INVALID"), failure("MINIMUM_ENABLED_MERCHANTS", undefined, `requires ${minimum}, found 0`)] };
+    return {
+      report: { minimum, enabledCount: 0, failures: [...failures, failure("CATALOG_INVALID"), ...(minimum > 0 ? [failure("MINIMUM_ENABLED_MERCHANTS", undefined, `requires ${minimum}, found 0`)] : [])] },
+      approvedConfigs
+    };
   }
 
   const catalogById = new Map<string, MerchantCatalog["candidates"][number]>();
@@ -298,8 +317,9 @@ export async function validateEnabledMerchants(paths: MerchantGatePaths): Promis
       failures.push(failure("AFFILIATE_STATUS_MISMATCH", merchantId));
       continue;
     }
+    let config: MerchantSourceConfig;
     try {
-      parseMerchantSourceConfig(parsed.config, candidate);
+      config = parseMerchantSourceConfig(parsed.config, candidate);
     } catch {
       failures.push(failure("CONFIG_CATALOG_ALIGNMENT_FAILED", merchantId));
       continue;
@@ -310,12 +330,35 @@ export async function validateEnabledMerchants(paths: MerchantGatePaths): Promis
       continue;
     }
     validMerchantIds.add(merchantId);
+    approvedConfigs.push({ merchantId, candidate, config });
   }
 
   if (validMerchantIds.size < minimum) {
     failures.push(failure("MINIMUM_ENABLED_MERCHANTS", undefined, `requires ${minimum}, found ${validMerchantIds.size}`));
   }
-  return { minimum, enabledCount: validMerchantIds.size, failures };
+  return { report: { minimum, enabledCount: validMerchantIds.size, failures }, approvedConfigs };
+}
+
+/** Validates only audited, enabled configuration; it never performs merchant network requests. */
+export async function validateEnabledMerchants(paths: MerchantGatePaths): Promise<MerchantGateReport> {
+  const minimum = paths.minimum ?? 1;
+  if (!Number.isInteger(minimum) || minimum < 1 || minimum > 20) {
+    throw new Error("minimum must be an integer from 1 through 20");
+  }
+  return (await inspectEnabledMerchants(paths, minimum)).report;
+}
+
+/** Returns an all-or-nothing runtime snapshot of configs that passed the same audit gate. */
+export async function loadGateApprovedMerchantConfigs(
+  paths: MerchantGatePaths
+): Promise<GateApprovedMerchantConfig[]> {
+  const inspection = await inspectEnabledMerchants(paths, 0);
+  if (inspection.report.failures.length > 0) {
+    throw new Error(`merchant configuration gate failed: ${inspection.report.failures
+      .map((entry) => [entry.code, entry.merchantId, entry.detail].filter(Boolean).join(":"))
+      .join(", ")}`);
+  }
+  return inspection.approvedConfigs;
 }
 
 function parseArguments(arguments_: string[]): MerchantGatePaths {
@@ -344,7 +387,11 @@ async function main(): Promise<void> {
   if (report.failures.length > 0) process.exitCode = 1;
 }
 
-if (process.argv[1] !== undefined && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
+if (
+  process.argv[1] !== undefined &&
+  fileURLToPath(import.meta.url) === resolve(process.argv[1]) &&
+  /^validate-enabled-merchants\.(?:[cm]?js|ts)$/u.test(basename(process.argv[1]))
+) {
   void main().catch((error: unknown) => {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;

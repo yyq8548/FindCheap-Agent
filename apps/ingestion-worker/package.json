@@ -1,0 +1,24 @@
+{
+  "name": "@shopping-agent/ingestion-worker",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/runtime/bootstrap.ts"
+  },
+  "scripts": {
+    "build": "esbuild src/main.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/main.js",
+    "dev": "tsx src/main.ts",
+    "start": "node dist/main.js"
+  },
+  "dependencies": {
+    "bullmq": "^6.1.0",
+    "ioredis": "^5.11.1",
+    "pg": "^8.16.3",
+    "yaml": "^2.4.2",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "tsx": "^4.20.5"
+  }
+}
