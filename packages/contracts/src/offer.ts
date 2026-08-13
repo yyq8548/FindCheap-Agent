@@ -11,6 +11,31 @@ export const QuoteStatusSchema = z.enum(["VERIFIED", "ESTIMATED", "CONDITIONAL"]
 
 const UtcTimestampSchema = z.string().datetime();
 
+export const MatchEvidenceSchema = z.discriminatedUnion("type", [
+  z
+    .object({
+      type: z.literal("GTIN"),
+      gtin: z.string().regex(/^\d{8,14}$/),
+      source: z.enum(["MERCHANT_PAGE", "MANUFACTURER_PAGE", "RETAILER_FEED"])
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("BRAND_MPN"),
+      brand: z.string().min(1),
+      manufacturerPartNumber: z.string().min(1),
+      source: z.enum(["MERCHANT_PAGE", "MANUFACTURER_PAGE", "RETAILER_FEED"])
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("SEMANTIC"),
+      source: z.enum(["LLM", "EMBEDDING"]),
+      confidence: z.number().min(0).max(1)
+    })
+    .strict()
+]);
+
 export const PriceLineItemSchema = z
   .object({
     kind: z.enum(["ITEM", "COUPON", "MEMBERSHIP", "SHIPPING", "TAX", "MANDATORY_FEE"]),
@@ -64,11 +89,24 @@ export const MerchantOfferSchema = z
     inventoryStatus: z.enum(["IN_STOCK", "OUT_OF_STOCK", "UNKNOWN"]),
     merchantUrl: z.string().url(),
     evidenceRefs: z.array(z.string()).min(1),
+    matchEvidence: z.array(MatchEvidenceSchema),
     checkedAt: UtcTimestampSchema,
     expiresAt: UtcTimestampSchema
   })
   .strict()
   .superRefine((offer, ctx) => {
+    if (
+      offer.matchStatus === "EXACT" &&
+      !offer.matchEvidence.some(
+        (evidence) => evidence.type === "GTIN" || evidence.type === "BRAND_MPN"
+      )
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["matchEvidence"],
+        message: "exact offer requires GTIN or BRAND_MPN match evidence"
+      });
+    }
     if (Date.parse(offer.expiresAt) <= Date.parse(offer.checkedAt)) {
       ctx.addIssue({
         code: "custom",

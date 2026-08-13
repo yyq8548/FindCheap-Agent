@@ -23,7 +23,22 @@ export const ComparisonOfferSchema = z
     merchantUrl: z.string().url(),
     recommendationReasons: z.array(z.string())
   })
-  .strict();
+  .strict()
+  .superRefine((offer, ctx) => {
+    const quotesEqual = (left: unknown, right: unknown) =>
+      JSON.stringify(left) === JSON.stringify(right);
+    const expectedQuote = offer.memberQuote?.eligible
+      ? offer.memberQuote.quote
+      : offer.regularQuote;
+
+    if (!quotesEqual(offer.rankingQuote, expectedQuote)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["rankingQuote"],
+        message: "rankingQuote must use the eligible member quote or regular quote"
+      });
+    }
+  });
 
 export const ComparisonResultSchema = z
   .object({
@@ -32,6 +47,26 @@ export const ComparisonResultSchema = z
     similarOffers: z.array(ComparisonOfferSchema),
     questions: z.array(z.string())
   })
-  .strict();
+  .strict()
+  .superRefine((result, ctx) => {
+    result.exactOffers.forEach((offer, index) => {
+      if (offer.matchStatus !== "EXACT") {
+        ctx.addIssue({
+          code: "custom",
+          path: ["exactOffers", index, "matchStatus"],
+          message: "exactOffers require EXACT match status"
+        });
+      }
+    });
+    result.similarOffers.forEach((offer, index) => {
+      if (offer.matchStatus !== "SIMILAR") {
+        ctx.addIssue({
+          code: "custom",
+          path: ["similarOffers", index, "matchStatus"],
+          message: "similarOffers require SIMILAR match status"
+        });
+      }
+    });
+  });
 
 export type ComparisonResult = z.infer<typeof ComparisonResultSchema>;
