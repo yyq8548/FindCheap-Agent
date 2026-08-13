@@ -199,9 +199,19 @@ export async function startIngestionRuntime(
   let queueFailures = 0;
 
   const closeResources = async (): Promise<void> => {
-    if (workers !== undefined) await Promise.all([workers.product.close(), workers.price.close()]);
-    if (queues !== undefined) await Promise.all([queues.product.close(), queues.price.close()]);
-    await db.close();
+    const errors: unknown[] = [];
+    const closeGroup = async (actions: Array<() => Promise<void>>): Promise<void> => {
+      const results = await Promise.allSettled(actions.map(async (action) => action()));
+      for (const result of results) if (result.status === "rejected") errors.push(result.reason);
+    };
+    if (workers !== undefined) {
+      await closeGroup([async () => workers!.product.close(), async () => workers!.price.close()]);
+    }
+    if (queues !== undefined) {
+      await closeGroup([async () => queues!.product.close(), async () => queues!.price.close()]);
+    }
+    await closeGroup([async () => db.close()]);
+    if (errors.length > 0) throw new AggregateError(errors, "ingestion runtime shutdown failed");
   };
 
   try {
@@ -253,7 +263,9 @@ export async function startIngestionRuntime(
             clock,
             freshness
           });
-          controls.circuitBreaker.recordSuccess(job.data.merchantId);
+          if (outcome.status === "PUBLISHED" || outcome.status === "NOT_FOUND") {
+            controls.circuitBreaker.recordSuccess(job.data.merchantId);
+          }
           return outcome;
         } catch (error) {
           controls.circuitBreaker.recordFailure(job.data.merchantId);
@@ -273,7 +285,9 @@ export async function startIngestionRuntime(
             clock,
             freshness
           });
-          controls.circuitBreaker.recordSuccess(job.data.merchantId);
+          if (outcome.status === "PUBLISHED" || outcome.status === "QUARANTINED") {
+            controls.circuitBreaker.recordSuccess(job.data.merchantId);
+          }
           return outcome;
         } catch (error) {
           controls.circuitBreaker.recordFailure(job.data.merchantId);

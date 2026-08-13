@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
+import type { Processor } from "bullmq";
+
 import type { Database } from "../../../packages/db/src/client.js";
 import type { GateApprovedMerchantConfig } from "../../../scripts/validate-enabled-merchants.js";
 import type { ConfiguredSource } from "../../../packages/merchant-adapters/src/configured/configured-adapter.js";
@@ -172,5 +174,55 @@ describe("ingestion runtime bootstrap", () => {
       }
     })).rejects.toThrow(/CONFIG_INVALID/u);
     expect(createDatabase).not.toHaveBeenCalled();
+  });
+
+  it("keeps an open circuit open when the worker short-circuits without a source call", async () => {
+    const events: string[] = [];
+    const capture = vi.fn(async () => { throw new Error("source unavailable"); });
+    let productHandler: Processor;
+    const queue = {
+      add: vi.fn(async () => undefined),
+      waitUntilReady: vi.fn(async () => undefined),
+      close: vi.fn(async () => undefined)
+    };
+    const worker = {
+      on: vi.fn(),
+      waitUntilReady: vi.fn(async () => undefined),
+      close: vi.fn(async () => undefined)
+    };
+    const runtime = await startIngestionRuntime({
+      environment: {
+        DATABASE_URL: "postgresql://shopping:local-only@127.0.0.1:5432/shopping",
+        REDIS_URL: "redis://127.0.0.1:6379/0",
+        INGESTION_CIRCUIT_FAILURE_THRESHOLD: "1"
+      },
+      logger: { info: vi.fn() },
+      factories: {
+        loadConfigs: async () => [entry],
+        createDatabase: () => fakeDatabase(events),
+        createSource: () => ({ ...fakeSource(), capture }),
+        createPersistence: () => ({
+          evidence: { save: vi.fn() },
+          offers: { upsert: vi.fn() },
+          quotes: { commit: vi.fn() },
+          quarantine: { save: vi.fn() }
+        }),
+        createQueues: () => ({ product: queue, price: queue }) as never,
+        createWorkers: (_connection, handlers) => {
+          productHandler = handlers.product;
+          return { product: worker, price: worker } as never;
+        }
+      }
+    });
+    const job = {
+      data: { merchantId: candidate.id, merchantProductId: "sku-1", sourceVersion: "v1" }
+    } as never;
+
+    await expect(productHandler!(job)).rejects.toThrow(/source unavailable/i);
+    await expect(productHandler!(job)).resolves.toEqual({ status: "CIRCUIT_OPEN" });
+    await expect(productHandler!(job)).resolves.toEqual({ status: "CIRCUIT_OPEN" });
+    expect(capture).toHaveBeenCalledTimes(1);
+    expect(runtime.health().circuitOpen).toEqual([candidate.id]);
+    await runtime.close();
   });
 });

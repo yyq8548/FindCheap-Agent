@@ -66,7 +66,10 @@ describe("BullMQ refresh integration", () => {
     const expiresAt = new Date(now.getTime() + 300_000).toISOString();
     const evidence = inMemoryEvidenceRepository();
     const publications = new Map<string, PublishedOffer>();
+    let publicationAttempts = 0;
     const upsert = vi.fn(async (offer: PublishedOffer, idempotencyKey: string) => {
+      publicationAttempts += 1;
+      if (publicationAttempts === 1) throw new Error("injected transient publication failure");
       if (!publications.has(idempotencyKey)) publications.set(idempotencyKey, offer);
     });
     const adapter = {
@@ -102,7 +105,6 @@ describe("BullMQ refresh integration", () => {
     workers = createRefreshWorkers(connection, {
       product: async (job) => {
         attempts += 1;
-        if (attempts === 1) throw new Error("injected transient Redis worker failure");
         return refreshProduct(job.data, {
           adapters: { get: () => adapter },
           evidence: { save: evidence.save },
@@ -138,9 +140,9 @@ describe("BullMQ refresh integration", () => {
     });
 
     expect(attempts).toBe(2);
-    expect(evidence.save).toHaveBeenCalledTimes(1);
+    expect(evidence.save).toHaveBeenCalledTimes(2);
     expect(evidence.records).toHaveLength(1);
-    expect(upsert).toHaveBeenCalledTimes(1);
+    expect(upsert).toHaveBeenCalledTimes(2);
     expect(publications).toHaveLength(1);
     expect(await queues.product.getJobCounts("failed", "active", "waiting", "delayed"))
       .toEqual({ failed: 0, active: 0, waiting: 0, delayed: 0 });
