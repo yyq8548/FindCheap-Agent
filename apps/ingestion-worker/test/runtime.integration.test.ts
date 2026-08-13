@@ -117,7 +117,7 @@ describe("production ingestion runtime integration", () => {
     const sourceVersion = `runtime-${randomUUID()}`;
     const prefix = `runtime-${randomUUID()}`;
     runtime = await startIngestionRuntime({
-      environment: { DATABASE_URL: isolatedDatabaseUrl, REDIS_URL: redisUrl },
+      environment: { DATABASE_URL: databaseUrl, REDIS_URL: redisUrl },
       logger: { info: () => undefined },
       factories: {
         loadConfigs: async () => [entry],

@@ -100,6 +100,22 @@ describe("ingestion runtime bootstrap", () => {
     expect(createDatabase).not.toHaveBeenCalled();
   });
 
+  it("never emits production database or Redis credentials in health logs", async () => {
+    const info = vi.fn();
+    const runtime = await startIngestionRuntime({
+      environment: {
+        NODE_ENV: "production",
+        DATABASE_URL: "postgresql://worker:database-secret@db.example/shopping?sslmode=verify-full",
+        REDIS_URL: "rediss://worker:redis-secret@redis.example:6380/0"
+      },
+      logger: { info },
+      factories: { loadConfigs: async () => [] }
+    });
+
+    expect(JSON.stringify(info.mock.calls)).not.toMatch(/database-secret|redis-secret/u);
+    await runtime.close();
+  });
+
   it("boots an approved nonzero registry and closes workers, queues, then PostgreSQL", async () => {
     const events: string[] = [];
     const productAdd = vi.fn(async () => undefined);
@@ -224,5 +240,82 @@ describe("ingestion runtime bootstrap", () => {
     expect(capture).toHaveBeenCalledTimes(1);
     expect(runtime.health().circuitOpen).toEqual([candidate.id]);
     await runtime.close();
+  });
+
+  it("preserves the startup error while attempting every cleanup and attaching cleanup failures", async () => {
+    const events: string[] = [];
+    const primary = new Error("primary worker startup failure");
+    const cleanupWorker = new Error("worker cleanup failure");
+    const cleanupQueue = new Error("queue cleanup failure");
+    const cleanupDatabase = new Error("database cleanup failure");
+    const productQueue = {
+      add: vi.fn(),
+      waitUntilReady: vi.fn(async () => undefined),
+      async close() { events.push("product.queue.close"); throw cleanupQueue; }
+    };
+    const priceQueue = {
+      add: vi.fn(),
+      waitUntilReady: vi.fn(async () => undefined),
+      async close() { events.push("price.queue.close"); }
+    };
+    const productWorker = {
+      on: vi.fn(),
+      async waitUntilReady() { throw primary; },
+      async close() { events.push("product.worker.close"); throw cleanupWorker; }
+    };
+    const priceWorker = {
+      on: vi.fn(),
+      waitUntilReady: vi.fn(async () => undefined),
+      async close() { events.push("price.worker.close"); }
+    };
+    const database: Database = {
+      connect: vi.fn(async () => undefined),
+      async close() { events.push("db.close"); throw cleanupDatabase; },
+      async query() { return { rows: [] }; },
+      async transaction(work) { return work({ query: async () => ({ rows: [] }) }); }
+    };
+
+    let caught: unknown;
+    try {
+      await startIngestionRuntime({
+        environment: {
+          DATABASE_URL: "postgresql://shopping:local-only@127.0.0.1:5432/shopping",
+          REDIS_URL: "redis://127.0.0.1:6379/0"
+        },
+        logger: { info: vi.fn() },
+        factories: {
+          loadConfigs: async () => [entry],
+          createDatabase: () => database,
+          createSource: () => fakeSource(),
+          createPersistence: () => ({
+            evidence: { save: vi.fn() },
+            offers: { upsert: vi.fn() },
+            quotes: { commit: vi.fn() },
+            quarantine: { save: vi.fn() }
+          }),
+          createQueues: () => ({ product: productQueue, price: priceQueue }) as never,
+          createWorkers: () => ({ product: productWorker, price: priceWorker }) as never
+        }
+      });
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBe(primary);
+    expect((caught as Error).message).toBe("primary worker startup failure");
+    expect((caught as Error).name).toBe("Error");
+    expect((caught as Error).stack).toBe(primary.stack);
+    expect((caught as Error & { cleanupErrors: unknown[] }).cleanupErrors).toEqual([
+      cleanupWorker,
+      cleanupQueue,
+      cleanupDatabase
+    ]);
+    expect(events).toEqual([
+      "product.worker.close",
+      "price.worker.close",
+      "product.queue.close",
+      "price.queue.close",
+      "db.close"
+    ]);
   });
 });

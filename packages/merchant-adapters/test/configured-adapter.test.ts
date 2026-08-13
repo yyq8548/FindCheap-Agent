@@ -100,9 +100,10 @@ function standardDependencies(
 }
 
 async function fixtureReader(source: "feed" | "jsonld" | "http", body: string): Promise<SourceReader> {
-  const safeFetch = vi.fn(async () =>
-    new Response(body, { headers: { "content-type": sourceDetails[source].contentType } })
-  );
+  const safeFetch = vi.fn(async (input: { url: string }) => ({
+    response: new Response(body, { headers: { "content-type": sourceDetails[source].contentType } }),
+    finalUrl: input.url
+  }));
   if (source === "feed") {
     return createFeedReader(
       {

@@ -23,13 +23,14 @@ export function createHttpReader(
   const url = buildConfiguredUrl(config.host, config.resourcePath);
 
   const capture = async () => {
-    const response = await fetchConfigured(url, config.allowedHosts, dependencies);
+    const fetched = await fetchConfigured(url, config.allowedHosts, dependencies);
+    const { response } = fetched;
     ensureSuccessfulJson(response);
     const rawBody = await response.text();
     return sourceReadSnapshot(
       parseMappedRecords(rawBody, config.recordsPath, config.fields),
       rawBody,
-      response.url || url,
+      fetched.finalUrl,
       dependencies
     );
   };

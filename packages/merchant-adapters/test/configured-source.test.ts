@@ -69,10 +69,11 @@ function auditedCandidate() {
   };
 }
 
-function response(body: string, url: string): Response {
-  return new class extends Response {
-    override get url(): string { return url; }
-  }(body, { headers: { "content-type": "application/json" } });
+function response(body: string, url: string) {
+  return {
+    response: new Response(body, { headers: { "content-type": "application/json" } }),
+    finalUrl: url
+  };
 }
 
 function dependencies(safeFetch: SafeFetcher): ConfiguredSourceDriverDependencies {

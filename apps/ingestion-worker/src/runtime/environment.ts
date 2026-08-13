@@ -52,7 +52,12 @@ function parseMerchantSet(value: string | undefined): ReadonlySet<string> {
   return new Set(merchants);
 }
 
-function parseDatabaseUrl(value: string | undefined): string | undefined {
+const ALLOWED_DATABASE_QUERY_PARAMETERS = new Set(["sslmode", "application_name"]);
+
+function parseDatabaseUrl(
+  value: string | undefined,
+  nodeEnvironment: IngestionEnvironment["nodeEnvironment"]
+): string | undefined {
   if (value === undefined) return undefined;
   let url: URL;
   try {
@@ -62,6 +67,34 @@ function parseDatabaseUrl(value: string | undefined): string | undefined {
   }
   if (!new Set(["postgres:", "postgresql:"]).has(url.protocol) || url.hostname === "") {
     throw new Error("DATABASE_URL must be a PostgreSQL URL");
+  }
+  if (url.hash !== "") throw new Error("DATABASE_URL fragment is not supported");
+  const keys = [...url.searchParams.keys()];
+  if (keys.some((key) => !ALLOWED_DATABASE_QUERY_PARAMETERS.has(key))) {
+    throw new Error("DATABASE_URL contains an unsupported query parameter");
+  }
+  if (new Set(keys).size !== keys.length) {
+    throw new Error("DATABASE_URL contains a duplicate query parameter");
+  }
+  const applicationName = url.searchParams.get("application_name");
+  if (applicationName !== null && (
+    applicationName.length === 0 ||
+    applicationName.length > 64 ||
+    [...applicationName].some((character) => {
+      const code = character.charCodeAt(0);
+      return code <= 31 || code === 127;
+    })
+  )) {
+    throw new Error("DATABASE_URL application_name is invalid");
+  }
+  if (nodeEnvironment === "production") {
+    const password = url.password === "" ? undefined : decodeURIComponent(url.password);
+    if (password === undefined || password.length === 0) {
+      throw new Error("production PostgreSQL password is required");
+    }
+    if (url.searchParams.get("sslmode") !== "verify-full") {
+      throw new Error("production PostgreSQL must use sslmode=verify-full");
+    }
   }
   return value;
 }
@@ -107,7 +140,7 @@ function parseRedisUrl(
 
 export function parseIngestionEnvironment(input: EnvironmentInput): IngestionEnvironment {
   const nodeEnvironment = NodeEnvironmentSchema.parse(input.NODE_ENV ?? "development");
-  const databaseUrl = parseDatabaseUrl(input.DATABASE_URL);
+  const databaseUrl = parseDatabaseUrl(input.DATABASE_URL, nodeEnvironment);
   const redis = parseRedisUrl(input.REDIS_URL, nodeEnvironment);
   return {
     nodeEnvironment,

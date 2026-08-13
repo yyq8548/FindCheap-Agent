@@ -18,7 +18,8 @@ export function createJsonLdReader(
   const url = buildConfiguredUrl(config.host, config.resourcePath);
 
   const capture = async () => {
-    const response = await fetchConfigured(url, config.allowedHosts, dependencies);
+    const fetched = await fetchConfigured(url, config.allowedHosts, dependencies);
+    const { response } = fetched;
     if (!response.ok) throw new Error(`merchant source returned HTTP ${response.status}`);
     const contentType = response.headers.get("content-type");
     if (contentType === null || !/(?:text\/html|application\/xhtml\+xml)/i.test(contentType)) {
@@ -28,7 +29,7 @@ export function createJsonLdReader(
     return sourceReadSnapshot(
       parseProductJsonLd(rawBody),
       rawBody,
-      response.url || url,
+      fetched.finalUrl,
       dependencies
     );
   };

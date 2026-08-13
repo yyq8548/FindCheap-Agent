@@ -1,11 +1,12 @@
 import { z } from "zod";
 
 import {
-  safeFetch as defaultSafeFetch,
+  safeFetchWithProvenance as defaultSafeFetch,
   type FetchPolicy,
   type ResolveHost,
   type SafeFetchInput,
-  type SafeRequest
+  type SafeRequest,
+  type SafeFetchResponse
 } from "../../../../apps/ingestion-worker/src/network/safe-fetch.js";
 
 export const FieldPathSchema = z
@@ -81,7 +82,10 @@ export type SourceReader = {
   read(): Promise<RawMerchantRecord[]>;
   capture(): Promise<SourceReadSnapshot>;
 };
-export type SafeFetcher = (input: SafeFetchInput, policy: FetchPolicy) => Promise<Response>;
+export type SafeFetcher = (
+  input: SafeFetchInput,
+  policy: FetchPolicy
+) => Promise<SafeFetchResponse>;
 
 export type ReaderDependencies = {
   safeFetch?: SafeFetcher;
@@ -112,13 +116,14 @@ export function createFeedReader(
   const url = buildConfiguredUrl(network.host, network.resourcePath);
 
   const capture = async (): Promise<SourceReadSnapshot> => {
-    const response = await fetchConfigured(url, network.allowedHosts, dependencies);
+    const fetched = await fetchConfigured(url, network.allowedHosts, dependencies);
+    const { response } = fetched;
     ensureSuccessfulJson(response);
     const rawBody = await response.text();
     return sourceReadSnapshot(
       parseMappedRecords(rawBody, recordsPath, fields),
       rawBody,
-      response.url || url,
+      fetched.finalUrl,
       dependencies
     );
   };
@@ -179,7 +184,7 @@ export async function fetchConfigured(
   url: string,
   allowedHosts: readonly string[],
   dependencies: ReaderDependencies
-): Promise<Response> {
+): Promise<SafeFetchResponse> {
   const fetcher = dependencies.safeFetch ?? defaultSafeFetch;
   const policy: FetchPolicy = { allowedHosts };
   if (dependencies.resolve !== undefined) policy.resolve = dependencies.resolve;

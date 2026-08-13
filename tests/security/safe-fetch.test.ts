@@ -9,6 +9,7 @@ import {
   MAX_RESPONSE_BYTES,
   createPinnedRequest,
   safeFetch,
+  safeFetchWithProvenance,
   type FetchPolicy,
   type ResolvedAddress
 } from "../../apps/ingestion-worker/src/network/safe-fetch.js";
@@ -25,6 +26,33 @@ function policy(overrides: Partial<FetchPolicy> = {}): FetchPolicy {
 }
 
 describe("safeFetch", () => {
+  it("returns the canonical validated final URL after multiple redirects", async () => {
+    const request = vi.fn(async (url: URL) => {
+      if (url.pathname === "/start") {
+        return new Response(null, {
+          status: 302,
+          headers: { location: "https://SHOP.EXAMPLE./middle" }
+        });
+      }
+      if (url.pathname === "/middle") {
+        return new Response(null, {
+          status: 307,
+          headers: { location: "/final?q=1#not-sent" }
+        });
+      }
+      return new Response("final", { status: 200 });
+    });
+
+    const result = await safeFetchWithProvenance(
+      { url: "https://shop.example/start#caller-fragment" },
+      policy({ request })
+    );
+
+    expect(result.finalUrl).toBe("https://shop.example/final?q=1");
+    await expect(result.response.text()).resolves.toBe("final");
+    expect(request).toHaveBeenCalledTimes(3);
+  });
+
   it.each([
     "http://127.0.0.1/x",
     "http://169.254.169.254/latest/meta-data",

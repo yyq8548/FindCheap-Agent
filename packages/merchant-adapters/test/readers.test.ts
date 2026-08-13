@@ -15,9 +15,10 @@ const publicResolve: FetchPolicy["resolve"] = async () => [
 ];
 
 function fetcher(body: string, contentType = "application/json") {
-  return vi.fn<SafeFetcher>(async (_input: SafeFetchInput, _policy: FetchPolicy) =>
-    new Response(body, { headers: { "content-type": contentType } })
-  );
+  return vi.fn<SafeFetcher>(async (input: SafeFetchInput, _policy: FetchPolicy) => ({
+    response: new Response(body, { headers: { "content-type": contentType } }),
+    finalUrl: input.url
+  }));
 }
 
 const fields = {
@@ -36,6 +37,41 @@ const fields = {
 } as const;
 
 describe("configured source readers", () => {
+  it("captures the validated final URL after multiple safe redirect hops", async () => {
+    const redirectResolve: FetchPolicy["resolve"] = async () => [
+      { address: "93.184.216.34", family: 4 }
+    ];
+    const request: FetchPolicy["request"] = async (url) => {
+      if (url.hostname === "data.shop.example") {
+        return new Response(null, {
+          status: 302,
+          headers: { location: "https://cdn.shop.example/v2/products.json" }
+        });
+      }
+      if (url.pathname === "/v2/products.json") {
+        return new Response(null, {
+          status: 307,
+          headers: { location: "/final/products.json?revision=2#fragment" }
+        });
+      }
+      return new Response(JSON.stringify({ payload: { products: [{ id: "sku-final", name: "Final" }] } }), {
+        headers: { "content-type": "application/json" }
+      });
+    };
+    const reader = createFeedReader({
+      host: "data.shop.example",
+      resourcePath: "/feeds/products.json",
+      allowedHosts: ["data.shop.example", "cdn.shop.example"],
+      recordsPath: "payload.products",
+      fields: { merchantProductId: "id", title: "name" }
+    }, { resolve: redirectResolve, request });
+
+    await expect(reader.capture()).resolves.toMatchObject({
+      sourceUrl: "https://cdn.shop.example/final/products.json?revision=2",
+      records: [{ merchantProductId: "sku-final", title: "Final" }]
+    });
+  });
+
   it("reads a configured feed and emits only declared fields", async () => {
     const safeFetcher = fetcher(
       JSON.stringify({

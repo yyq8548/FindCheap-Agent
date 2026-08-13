@@ -95,6 +95,11 @@ export type FetchPolicy = {
 
 export type SafeFetchInput = { url: string };
 
+export type SafeFetchResponse = {
+  response: Response;
+  finalUrl: string;
+};
+
 const defaultResolve: ResolveHost = async (hostname) =>
   lookup(hostname, { all: true, verbatim: true });
 
@@ -182,6 +187,14 @@ export function createPinnedRequest(
 }
 
 export async function safeFetch(input: SafeFetchInput, policy: FetchPolicy): Promise<Response> {
+  return (await safeFetchWithProvenance(input, policy)).response;
+}
+
+/** Returns the buffered response plus the final URL validated at the last redirect hop. */
+export async function safeFetchWithProvenance(
+  input: SafeFetchInput,
+  policy: FetchPolicy
+): Promise<SafeFetchResponse> {
   const allowedHosts = normalizeAllowedHosts(policy.allowedHosts);
   const resolve = policy.resolve ?? defaultResolve;
   const request = policy.request ?? defaultRequest;
@@ -224,7 +237,11 @@ export async function safeFetch(input: SafeFetchInput, policy: FetchPolicy): Pro
       await response.body?.cancel().catch(() => undefined);
       throw error;
     }
-    return bufferResponse(response, MAX_RESPONSE_BYTES);
+    const buffered = await bufferResponse(response, MAX_RESPONSE_BYTES);
+    const finalUrl = new URL(current.href);
+    finalUrl.hostname = normalizeHostname(current.hostname);
+    finalUrl.hash = "";
+    return { response: buffered, finalUrl: finalUrl.href };
   }
 
   throw new Error("redirect limit exceeded");

@@ -305,7 +305,22 @@ export async function startIngestionRuntime(
       workers.price.waitUntilReady()
     ]);
   } catch (error) {
-    await closeResources();
+    try {
+      await closeResources();
+    } catch (cleanupError) {
+      const cleanupErrors = cleanupError instanceof AggregateError
+        ? cleanupError.errors
+        : [cleanupError];
+      const primary = error instanceof Error ? error : new Error("ingestion runtime startup failed", {
+        cause: error
+      });
+      Object.defineProperty(primary, "cleanupErrors", {
+        value: cleanupErrors,
+        enumerable: false,
+        configurable: true
+      });
+      throw primary;
+    }
     throw error;
   }
 
