@@ -47,9 +47,10 @@ const candidate = (overrides: Record<string, unknown> = {}) => ({
 const deps = (candidates = [candidate()]): CompareDeps => ({
   offers: {
     async search() {
-      return { product: canonicalProduct, candidates };
+      return { status: "RESOLVED", product: canonicalProduct, candidates };
     }
-  }
+  },
+  clock: { now: () => new Date("2026-08-13T12:00:00.000Z") }
 });
 
 describe("POST /v1/comparisons", () => {
@@ -104,7 +105,8 @@ describe("POST /v1/comparisons", () => {
         async search() {
           throw new Error("merchant credentials: secret");
         }
-      }
+      },
+      clock: { now: () => new Date("2026-08-13T12:00:00.000Z") }
     });
     const response = await app.inject({
       method: "POST",
@@ -118,6 +120,68 @@ describe("POST /v1/comparisons", () => {
 });
 
 describe("compareProducts", () => {
+  it("does not expose a quote that expires exactly at the injected clock time", async () => {
+    const staleAtBoundary = candidate({
+      quote: { ...quote("offer-exact", 100000), expiresAt: "2026-08-13T12:00:00.000Z" }
+    });
+    const clockedDeps = {
+      ...deps([staleAtBoundary]),
+      clock: { now: () => new Date("2026-08-13T12:00:00.000Z") }
+    } as CompareDeps;
+
+    const result = await compareProducts(
+      { query: "OLED65C4PUA", zipCode: "33433", memberships: [] },
+      clockedDeps
+    );
+
+    expect(result.exactOffers).toEqual([]);
+    expect(result.questions).toContain("A current price is unavailable for an exact product match.");
+  });
+
+  it("exposes an exact quote that expires after the injected clock time", async () => {
+    const clockedDeps = {
+      ...deps([candidate({
+        quote: { ...quote("offer-exact", 100000), expiresAt: "2026-08-13T12:00:01.000Z" }
+      })]),
+      clock: { now: () => new Date("2026-08-13T12:00:00.000Z") }
+    } as CompareDeps;
+
+    const result = await compareProducts(
+      { query: "OLED65C4PUA", zipCode: "33433", memberships: [] },
+      clockedDeps
+    );
+
+    expect(result.exactOffers.map((offer) => offer.offerId)).toEqual(["offer-exact"]);
+  });
+
+  it("returns repository clarification without reading candidate data", async () => {
+    const ambiguousDeps = {
+      offers: {
+        async search() {
+          return {
+            status: "NEEDS_CLARIFICATION",
+            questions: ["Which AirPods model would you like to compare?"],
+            get candidates() {
+              throw new Error("candidate data must not be classified or quoted");
+            }
+          };
+        }
+      }
+    } as unknown as CompareDeps;
+
+    const result = await compareProducts(
+      { query: "AirPods", zipCode: "33433", memberships: [] },
+      ambiguousDeps
+    );
+
+    expect(result).toEqual({
+      productId: "",
+      exactOffers: [],
+      similarOffers: [],
+      questions: ["Which AirPods model would you like to compare?"]
+    });
+  });
+
   it("returns a clarification question instead of guessing a variant", async () => {
     const result = await compareProducts(
       { query: "AirPods", zipCode: "33433", memberships: [] },

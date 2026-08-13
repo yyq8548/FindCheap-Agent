@@ -32,10 +32,17 @@ export type ComparableOffer = {
 
 export interface CurrentOfferRepository {
   /** Returns candidates with current quotes only; stale database quotes are excluded by the repository. */
-  search(query: string): Promise<{ product: CanonicalProduct; candidates: ComparableOffer[] }>;
+  search(query: string): Promise<OfferSearchResult>;
 }
 
-export type CompareDeps = { offers: CurrentOfferRepository };
+export type OfferSearchResult =
+  | { status: "RESOLVED"; product: CanonicalProduct; candidates: ComparableOffer[] }
+  | { status: "NEEDS_CLARIFICATION"; questions: string[] };
+
+export type CompareDeps = {
+  offers: CurrentOfferRepository;
+  clock: { now(): Date };
+};
 
 type EvaluatedOffer =
   | { kind: "exact"; offer: ComparisonOffer }
@@ -45,8 +52,17 @@ type EvaluatedOffer =
 export async function compareProducts(input: CompareInput, deps: CompareDeps): Promise<ComparisonResult> {
   const parsedInput = CompareInputSchema.parse(input);
   const search = await deps.offers.search(parsedInput.query);
+  if (search.status === "NEEDS_CLARIFICATION") {
+    return ComparisonResultSchema.parse({
+      productId: "",
+      exactOffers: [],
+      similarOffers: [],
+      questions: search.questions
+    });
+  }
+  const now = deps.clock.now();
   const evaluated = await Promise.all(
-    search.candidates.map((candidate) => evaluateCandidate(candidate, search.product, parsedInput))
+    search.candidates.map((candidate) => evaluateCandidate(candidate, search.product, parsedInput, now))
   );
   const exactOffers = evaluated.flatMap((result) => result.kind === "exact" ? [result.offer] : []);
   const similarOffers = evaluated.flatMap((result) => result.kind === "similar" ? [result.offer] : []);
@@ -67,10 +83,11 @@ export async function compareProducts(input: CompareInput, deps: CompareDeps): P
 function evaluateCandidate(
   candidate: ComparableOffer,
   product: CanonicalProduct,
-  input: CompareInput
+  input: CompareInput,
+  now: Date
 ): EvaluatedOffer {
   try {
-    return classifyCandidate(candidate, product, input);
+    return classifyCandidate(candidate, product, input, now);
   } catch {
     return { kind: "question", question: "Some merchant data could not be verified." };
   }
@@ -79,7 +96,8 @@ function evaluateCandidate(
 function classifyCandidate(
   candidate: ComparableOffer,
   product: CanonicalProduct,
-  input: CompareInput
+  input: CompareInput,
+  now: Date
 ): EvaluatedOffer {
   const decision = matchProduct(candidate.product, product);
   if (decision.status === "SIMILAR") {
@@ -101,7 +119,11 @@ function classifyCandidate(
   if (decision.status === "INSUFFICIENT") {
     return { kind: "question", question: "Please provide a model number or GTIN before comparing prices." };
   }
-  if (!candidate.quote || candidate.quote.offerId !== candidate.offerId) {
+  if (
+    !candidate.quote ||
+    candidate.quote.offerId !== candidate.offerId ||
+    Date.parse(candidate.quote.expiresAt) <= now.getTime()
+  ) {
     return { kind: "question", question: "A current price is unavailable for an exact product match." };
   }
 
