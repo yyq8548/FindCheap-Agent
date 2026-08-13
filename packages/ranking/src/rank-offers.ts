@@ -14,7 +14,7 @@ export function rankExactOffers(
       left.rankingQuote.deliveredPrice.amountCents -
         right.rankingQuote.deliveredPrice.amountCents ||
       freshnessScore(right) - freshnessScore(left) ||
-      left.offerId.localeCompare(right.offerId)
+      compareOfferIds(left.offerId, right.offerId)
     );
 }
 
@@ -23,24 +23,19 @@ function selectRankingQuote(
   memberships: string[]
 ): ComparisonOffer {
   const memberQuote = offer.memberQuote;
-  if (
-    memberQuote !== undefined &&
-    memberQuote.eligible &&
-    !memberships.includes(memberQuote.programId)
-  ) {
-    return {
-      ...offer,
-      memberQuote: { ...memberQuote, eligible: false },
-      rankingQuote: offer.regularQuote
-    };
-  }
-
   return {
     ...offer,
-    rankingQuote: memberQuote?.eligible ? memberQuote.quote : offer.regularQuote
+    rankingQuote:
+      memberQuote?.eligible && memberships.includes(memberQuote.programId)
+        ? memberQuote.quote
+        : offer.regularQuote
   };
 }
 
 function freshnessScore(offer: ComparisonOffer): number {
   return Date.parse(offer.rankingQuote.checkedAt);
+}
+
+function compareOfferIds(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
 }

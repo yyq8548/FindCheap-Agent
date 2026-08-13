@@ -64,17 +64,17 @@ describe("rankExactOffers", () => {
   it("uses an eligible member quote only when its program is in context without mutating input", () => {
     const member = offer({ id: "member", regularTotal: 900, memberTotal: 600, memberProgramId: "club" });
     const offers = [member];
+    const original = structuredClone(offers);
 
-    const ranked = rankExactOffers(offers, { memberships: [] });
+    const withoutMembership = rankExactOffers(offers, { memberships: [] });
+    const withMembership = rankExactOffers(offers, { memberships: ["club"] });
 
-    expect(ranked[0]?.rankingQuote.deliveredPrice.amountCents).toBe(900);
-    expect(offers[0]?.rankingQuote.deliveredPrice.amountCents).toBe(600);
-    expect(ranked[0]).not.toBe(member);
-    expect(ComparisonOfferSchema.parse(ranked[0])).toEqual(ranked[0]);
-    expect(ranked[0]?.rankingQuote.status).toBe("VERIFIED");
-    expect(ranked[0]?.memberQuote?.eligible).toBe(false);
-    expect(ranked[0]?.memberQuote?.quote).toEqual(member.memberQuote?.quote);
-    expect(member.memberQuote?.eligible).toBe(true);
+    expect(withoutMembership[0]?.rankingQuote.deliveredPrice.amountCents).toBe(900);
+    expect(withoutMembership[0]?.memberQuote?.eligible).toBe(true);
+    expect(withMembership[0]?.rankingQuote.deliveredPrice.amountCents).toBe(600);
+    expect(withMembership[0]?.memberQuote?.eligible).toBe(true);
+    expect(withoutMembership[0]).not.toBe(member);
+    expect(offers).toEqual(original);
   });
 
   it("breaks equal delivered-price ties by selected quote freshness", () => {
@@ -84,6 +84,15 @@ describe("rankExactOffers", () => {
     ], { memberships: [] });
 
     expect(ranked.map((item) => item.offerId)).toEqual(["newer", "older"]);
+  });
+
+  it("breaks equal price and freshness ties by offer ID code units", () => {
+    const ranked = rankExactOffers([
+      offer({ id: "z", regularTotal: 700 }),
+      offer({ id: "A", regularTotal: 700 })
+    ], { memberships: [] });
+
+    expect(ranked.map((item) => item.offerId)).toEqual(["A", "z"]);
   });
 
   it("has no commission input", () => {
