@@ -8,11 +8,17 @@
     "lint": "eslint .",
     "typecheck": "tsc -b --pretty false",
     "test": "vitest run",
-    "test:integration": "vitest run --config vitest.integration.ts"
+    "test:integration": "vitest run --config vitest.integration.ts",
+    "db:migrate": "tsx packages/db/src/migrate.ts"
+  },
+  "dependencies": {
+    "pg": "^8.16.3"
   },
   "devDependencies": {
+    "@types/pg": "^8.15.5",
     "@types/node": "^22",
     "eslint": "^9",
+    "tsx": "^4.20.5",
     "typescript": "^5.9",
     "vitest": "^3"
   }
