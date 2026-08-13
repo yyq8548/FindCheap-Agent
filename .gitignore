@@ -1,0 +1,14 @@
+node_modules/
+dist/
+coverage/
+.env
+.env.*
+!.env.example
+.worktrees/
+.superpowers/sdd/
+artifacts/
+*.log
+__pycache__/
+.pytest_cache/
+.venv/
+
