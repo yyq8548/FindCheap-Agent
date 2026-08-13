@@ -130,6 +130,23 @@ describe("commerce repositories", () => {
     expect(newYorkRegular.map((row) => row.quoteId)).toEqual(["ny-regular"]);
   });
 
+  it("matches mixed-case and non-ASCII membership IDs as an unordered set", async () => {
+    const memberships = ["Member-A", "\u{10000}-club", "\uE000-club"];
+    await offers.saveQuote(fixtureQuote({
+      quoteId: "unicode-member",
+      membershipContext: { memberships }
+    }));
+
+    const rows = await offers.findComparableOffers(
+      "product-1",
+      { zipCode: "10001", memberships: ["\uE000-club", "Member-A", "\u{10000}-club"] },
+      now
+    );
+
+    expect(rows.map((row) => row.quoteId)).toEqual(["unicode-member"]);
+    expect(rows[0]?.membershipContext.memberships).toEqual(["Member-A", "\u{10000}-club", "\uE000-club"]);
+  });
+
   it("upserts canonical products and merchant offers", async () => {
     await products.upsert({ ...product, title: "Acme Model 1 Updated" });
     await offers.saveOffer({ ...offer, sellerName: "Acme Outlet" });

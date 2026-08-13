@@ -169,24 +169,31 @@ export function createOfferRepository(db: Database): OfferRepository {
       });
     },
     async findComparableOffers(productId, context, now) {
-      const memberships = unique(context.memberships).sort();
+      const memberships = unique(context.memberships);
       const result = await db.query<PriceQuoteRow>(
         `SELECT q.*
          FROM price_quotes q
          INNER JOIN merchant_offers o ON o.id = q.offer_id
          WHERE o.product_id = $1
            AND q.zip_code = $2
-           AND COALESCE(
-             (
-               SELECT jsonb_agg(member ORDER BY member)
-               FROM (
-                 SELECT DISTINCT jsonb_array_elements_text(
-                   COALESCE(q.membership_context->'memberships', '[]'::jsonb)
-                 ) AS member
-               ) AS canonical_members
-             ),
-             '[]'::jsonb
-           ) = to_jsonb($3::text[])
+           AND NOT EXISTS (
+             SELECT stored.member COLLATE "C"
+             FROM jsonb_array_elements_text(
+               COALESCE(q.membership_context->'memberships', '[]'::jsonb)
+             ) AS stored(member)
+             EXCEPT
+             SELECT requested.member COLLATE "C"
+             FROM unnest($3::text[]) AS requested(member)
+           )
+           AND NOT EXISTS (
+             SELECT requested.member COLLATE "C"
+             FROM unnest($3::text[]) AS requested(member)
+             EXCEPT
+             SELECT stored.member COLLATE "C"
+             FROM jsonb_array_elements_text(
+               COALESCE(q.membership_context->'memberships', '[]'::jsonb)
+             ) AS stored(member)
+           )
            AND q.expires_at > $4
          ORDER BY q.expires_at DESC, q.id ASC`,
         [productId, context.zipCode, memberships, now]
