@@ -1,0 +1,81 @@
+import { z } from "zod";
+import { MoneySchema } from "./money.js";
+
+export const MatchStatusSchema = z.enum([
+  "EXACT",
+  "NEEDS_CONFIRMATION",
+  "SIMILAR",
+  "INSUFFICIENT"
+]);
+export const QuoteStatusSchema = z.enum(["VERIFIED", "ESTIMATED", "CONDITIONAL"]);
+
+const UtcTimestampSchema = z.string().datetime();
+
+export const PriceLineItemSchema = z
+  .object({
+    kind: z.enum(["ITEM", "COUPON", "MEMBERSHIP", "SHIPPING", "TAX", "MANDATORY_FEE"]),
+    amount: MoneySchema,
+    label: z.string().min(1),
+    condition: z.string().min(1).optional()
+  })
+  .strict();
+
+export const PriceQuoteSchema = z
+  .object({
+    quoteId: z.string().min(1),
+    offerId: z.string().min(1),
+    status: QuoteStatusSchema,
+    deliveredPrice: MoneySchema,
+    lineItems: z.array(PriceLineItemSchema),
+    eligibilityConditions: z.array(z.string()),
+    evidenceRefs: z.array(z.string()),
+    checkedAt: UtcTimestampSchema,
+    expiresAt: UtcTimestampSchema
+  })
+  .strict()
+  .superRefine((quote, ctx) => {
+    if (quote.status === "VERIFIED" && quote.evidenceRefs.length === 0) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["evidenceRefs"],
+        message: "verified quote requires evidence"
+      });
+    }
+    if (Date.parse(quote.expiresAt) <= Date.parse(quote.checkedAt)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["expiresAt"],
+        message: "expiresAt must be after checkedAt"
+      });
+    }
+  });
+
+export type PriceQuote = z.infer<typeof PriceQuoteSchema>;
+
+export const MerchantOfferSchema = z
+  .object({
+    offerId: z.string().min(1),
+    merchantId: z.string().min(1),
+    merchantProductId: z.string().min(1),
+    productId: z.string().min(1).optional(),
+    sellerName: z.string().min(1),
+    condition: z.enum(["NEW", "REFURBISHED", "USED"]),
+    matchStatus: MatchStatusSchema,
+    inventoryStatus: z.enum(["IN_STOCK", "OUT_OF_STOCK", "UNKNOWN"]),
+    merchantUrl: z.string().url(),
+    evidenceRefs: z.array(z.string()).min(1),
+    checkedAt: UtcTimestampSchema,
+    expiresAt: UtcTimestampSchema
+  })
+  .strict()
+  .superRefine((offer, ctx) => {
+    if (Date.parse(offer.expiresAt) <= Date.parse(offer.checkedAt)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["expiresAt"],
+        message: "expiresAt must be after checkedAt"
+      });
+    }
+  });
+
+export type MerchantOffer = z.infer<typeof MerchantOfferSchema>;
