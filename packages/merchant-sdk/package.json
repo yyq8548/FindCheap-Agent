@@ -1,0 +1,5 @@
+{
+  "name": "@shopping-agent/merchant-sdk",
+  "private": true,
+  "type": "module"
+}
