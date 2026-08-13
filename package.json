@@ -9,7 +9,8 @@
     "typecheck": "tsc -b --pretty false",
     "test": "vitest run",
     "test:integration": "vitest run --config vitest.integration.ts",
-    "db:migrate": "tsx packages/db/src/migrate.ts"
+    "db:migrate": "tsx packages/db/src/migrate.ts",
+    "eval:matching": "tsx scripts/evaluate-matching.ts"
   },
   "dependencies": {
     "pg": "^8.16.3"

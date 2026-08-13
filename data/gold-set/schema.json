@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Product matching gold set case",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["caseId", "expected", "canonical", "candidate"],
+  "properties": {
+    "caseId": { "type": "string", "minLength": 1 },
+    "expected": {
+      "type": "string",
+      "enum": ["EXACT", "NEEDS_CONFIRMATION", "SIMILAR", "INSUFFICIENT"]
+    },
+    "canonical": { "$ref": "#/$defs/canonicalProduct" },
+    "candidate": { "$ref": "#/$defs/candidateProduct" }
+  },
+  "$defs": {
+    "canonicalProduct": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "productId",
+        "brand",
+        "gtins",
+        "title",
+        "categoryPath",
+        "attributes",
+        "variantDimensions"
+      ],
+      "properties": {
+        "productId": { "type": "string", "minLength": 1 },
+        "brand": { "type": "string", "minLength": 1 },
+        "manufacturerPartNumber": { "type": "string", "minLength": 1 },
+        "gtins": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^\\d{8,14}$" }
+        },
+        "title": { "type": "string", "minLength": 1 },
+        "categoryPath": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "attributes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "value", "source", "confidence"],
+            "properties": {
+              "name": { "type": "string", "minLength": 1 },
+              "value": { "type": "string", "minLength": 1 },
+              "unit": { "type": "string", "minLength": 1 },
+              "source": { "type": "string", "minLength": 1 },
+              "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+            }
+          }
+        },
+        "variantDimensions": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    },
+    "candidateProduct": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["brand", "gtins", "title", "variantDimensions", "coreSimilarity"],
+      "properties": {
+        "brand": { "type": "string", "minLength": 1 },
+        "mpn": { "type": "string", "minLength": 1 },
+        "gtins": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "title": { "type": "string", "minLength": 1 },
+        "variantDimensions": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "coreSimilarity": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    }
+  }
+}
