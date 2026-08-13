@@ -31,3 +31,19 @@ Score every dimension from 0 to 1. The weighted score is data Ã— 25 + identity Ã
 - Weighted score is at least 70.
 
 The seed catalog deliberately selects zero merchants. It is a candidate universe, not a claim of approval or data authorization.
+
+## Enabled merchant gate
+
+`pnpm merchants:gate -- --minimum 10` remains intentionally blocked until external audit inputs are complete. For each real merchant, add only verified configuration in `config/merchants/enabled/<merchant-id>.yaml` and a corresponding decision record in `docs/product/merchant-decisions/<merchant-id>.md`.
+
+Each decision record must contain these exact headings, then end with nonblank `Reviewer:` and ISO `Date:` fields under `## Approval signatures and date`:
+
+- `## Data authorization and terms evidence`
+- `## Affiliate/deep-link status`
+- `## Source PoC and allowed hosts`
+- `## 100-SKU identity completeness sample`
+- `## ZIP, shipping, tax, Coupon, and membership behavior`
+- `## Maintenance and failure risks`
+- `## Approval signatures and date`
+
+The gate rejects inline secrets, unknown configuration fields, path escapes, symlinked files, duplicate merchant configurations, unaudited catalog entries, and missing decision records. It performs no merchant network proof-of-concept; authorization, terms, affiliate status, source evidence, and 100-SKU sampling remain external human audit inputs.

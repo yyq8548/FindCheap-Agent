@@ -14,7 +14,8 @@
     "test:crawl4ai-runtime": "python scripts/test-crawl4ai-runtime.py",
     "db:migrate": "tsx packages/db/src/migrate.ts",
     "eval:matching": "tsx scripts/evaluate-matching.ts",
-    "merchants:score": "tsx scripts/score-merchants.ts"
+    "merchants:score": "tsx scripts/score-merchants.ts",
+    "merchants:gate": "tsx scripts/validate-enabled-merchants.ts"
   },
   "dependencies": {
     "bullmq": "^6.1.0",
