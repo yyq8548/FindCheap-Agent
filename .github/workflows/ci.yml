@@ -6,6 +6,7 @@ jobs:
     env:
       COREPACK_ENABLE_PROJECT_SPEC: "0"
       DATABASE_URL: postgresql://shopping:local-only@127.0.0.1:5432/shopping
+      REDIS_URL: redis://127.0.0.1:6379/0
     services:
       postgres:
         image: postgres:17
@@ -20,6 +21,15 @@ jobs:
           --health-interval 2s
           --health-timeout 5s
           --health-retries 30
+      redis:
+        image: redis:7.4-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -27,6 +37,7 @@ jobs:
         with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
       - run: pnpm build:mcp
+      - run: pnpm build:ingestion
       - run: git diff --exit-code -- plugins/shopping-agent/dist/mcp-server.js
       - run: git diff --exit-code -- plugins/shopping-agent/dist/mcp-server.meta.json
       - run: git diff --exit-code -- plugins/shopping-agent/THIRD_PARTY_NOTICES.md
@@ -34,8 +45,29 @@ jobs:
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
+      - name: Smoke bundled ingestion worker with zero configured merchants
+        shell: bash
+        run: |
+          output="$(env -u DATABASE_URL -u REDIS_URL -u MERCHANT_MINIMUM_ENABLED node apps/ingestion-worker/dist/main.js)"
+          echo "$output"
+          printf '%s\n' "$output" | node --input-type=module -e '
+            let raw = "";
+            for await (const chunk of process.stdin) raw += chunk;
+            const health = JSON.parse(raw);
+            if (health.event !== "ingestion.disabled" || health.status !== "disabled") process.exit(1);
+            if (health.enabledMerchants.length !== 0 || health.workersRunning !== false) process.exit(1);
+          '
       - name: Wait for PostgreSQL 17
         run: until pg_isready -h 127.0.0.1 -p 5432 -U shopping -d shopping; do sleep 1; done
+      - name: Wait for Redis 7.4
+        run: >-
+          node --input-type=module -e '
+            import Redis from "ioredis";
+            const redis = new Redis(process.env.REDIS_URL, { lazyConnect: true });
+            await redis.connect();
+            if (await redis.ping() !== "PONG") process.exitCode = 1;
+            await redis.quit();
+          '
       - run: pnpm db:migrate
       - run: pnpm test:integration
       - run: pnpm eval:matching -- --min-exact-precision=0.98
