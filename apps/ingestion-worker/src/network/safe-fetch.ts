@@ -11,7 +11,52 @@ const MAX_REDIRECTS = 3;
 
 type Ipv6Prefix = { words: readonly number[]; bits: number };
 
+// Static snapshot of IANA's ALLOCATED rows, last updated 2025-10-10.
+// All unlisted 2000::/3 space is reserved for future allocation and fails closed.
+// https://www.iana.org/assignments/ipv6-unicast-address-assignments/
+const IPV6_IANA_ALLOCATED_GLOBAL_UNICAST: readonly Ipv6Prefix[] = [
+  { words: [0x2001, 0x0000], bits: 23 },
+  { words: [0x2001, 0x0200], bits: 23 },
+  { words: [0x2001, 0x0400], bits: 23 },
+  { words: [0x2001, 0x0600], bits: 23 },
+  { words: [0x2001, 0x0800], bits: 22 },
+  { words: [0x2001, 0x0c00], bits: 23 },
+  { words: [0x2001, 0x0e00], bits: 23 },
+  { words: [0x2001, 0x1200], bits: 23 },
+  { words: [0x2001, 0x1400], bits: 22 },
+  { words: [0x2001, 0x1800], bits: 23 },
+  { words: [0x2001, 0x1a00], bits: 23 },
+  { words: [0x2001, 0x1c00], bits: 22 },
+  { words: [0x2001, 0x2000], bits: 19 },
+  { words: [0x2001, 0x4000], bits: 23 },
+  { words: [0x2001, 0x4200], bits: 23 },
+  { words: [0x2001, 0x4400], bits: 23 },
+  { words: [0x2001, 0x4600], bits: 23 },
+  { words: [0x2001, 0x4800], bits: 23 },
+  { words: [0x2001, 0x4a00], bits: 23 },
+  { words: [0x2001, 0x4c00], bits: 23 },
+  { words: [0x2001, 0x5000], bits: 20 },
+  { words: [0x2001, 0x8000], bits: 19 },
+  { words: [0x2001, 0xa000], bits: 20 },
+  { words: [0x2001, 0xb000], bits: 20 },
+  { words: [0x2002], bits: 16 },
+  { words: [0x2003], bits: 18 },
+  { words: [0x2400], bits: 12 },
+  { words: [0x2410], bits: 12 },
+  { words: [0x2600], bits: 12 },
+  { words: [0x2610], bits: 23 },
+  { words: [0x2620], bits: 23 },
+  { words: [0x2630], bits: 12 },
+  { words: [0x2800], bits: 12 },
+  { words: [0x2a00], bits: 12 },
+  { words: [0x2a10], bits: 12 },
+  { words: [0x2c00], bits: 12 }
+];
+
 const IPV6_PROTOCOL_ASSIGNMENTS: Ipv6Prefix = { words: [0x2001, 0], bits: 23 };
+// Globally reachable sub-prefixes from IANA's special-purpose registry,
+// last updated 2025-10-09. The rest of 2001::/23 remains non-global.
+// https://www.iana.org/assignments/iana-ipv6-special-registry/
 const IPV6_PROTOCOL_GLOBAL_EXCEPTIONS: readonly Ipv6Prefix[] = [
   { words: [0x2001, 0x0001, 0, 0, 0, 0, 0, 1], bits: 128 },
   { words: [0x2001, 0x0001, 0, 0, 0, 0, 0, 2], bits: 128 },
@@ -268,8 +313,9 @@ export function isForbiddenIp(address: string): boolean {
   }
 
   const ipv4Compatible = words.slice(0, 6).every((word) => word === 0);
-  const first = words[0] ?? 0;
-  const outsideGlobalUnicast = (first & 0xe000) !== 0x2000;
+  const allocatedGlobalUnicast = IPV6_IANA_ALLOCATED_GLOBAL_UNICAST.some((prefix) =>
+    matchesIpv6Prefix(words, prefix)
+  );
   const nonGlobalPrefix = IPV6_NON_GLOBAL_PREFIXES.some((prefix) =>
     matchesIpv6Prefix(words, prefix)
   );
@@ -279,7 +325,7 @@ export function isForbiddenIp(address: string): boolean {
   );
   return (
     ipv4Compatible ||
-    outsideGlobalUnicast ||
+    !allocatedGlobalUnicast ||
     nonGlobalPrefix ||
     (protocolAssignment && !globalProtocolException)
   );
