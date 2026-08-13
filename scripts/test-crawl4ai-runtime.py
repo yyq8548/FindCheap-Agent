@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import platform
 import shutil
 import subprocess
 import sys
@@ -129,6 +130,11 @@ def main() -> int:
     if os.environ.get("RUN_CRAWL4AI_RUNTIME_SMOKE") != "1":
         print("SKIP: set RUN_CRAWL4AI_RUNTIME_SMOKE=1 to run destructive, task-scoped Docker smoke")
         return 0
+    if platform.machine().lower() not in {"x86_64", "amd64"}:
+        raise RuntimeError("Task6 namespace syscall smoke requires an x86_64/AMD64 host")
+    docker_arch = run("info", "--format", "{{.Architecture}}", capture=True).stdout.strip()
+    if docker_arch not in {"x86_64", "amd64"}:
+        raise RuntimeError("Task6 namespace syscall smoke requires an x86_64/AMD64 Docker engine")
 
     suffix = uuid.uuid4().hex[:8]
     prefix = f"shopping-task6-{suffix}"
@@ -193,7 +199,7 @@ def main() -> int:
             }
         (temp_root / "merchants.json").write_text(json.dumps(merchants), encoding="utf-8")
         (temp_root / "allowed-hosts.txt").write_text(
-            "shop.test\nbad.test\ndisallow.test\nredirect.test\npage-redirect.test\nrebind.test\n",
+            "shop.test\nbad.test\ndisallow.test\nredirect.test\npage-redirect.test\nevil.test\nrebind.test\n",
             encoding="ascii",
         )
         (temp_root / "worker.Dockerfile").write_text(
@@ -228,6 +234,7 @@ def main() -> int:
             ("disallow-origin", "93.184.216.36", "disallow", "good"),
             ("redirect-origin", "93.184.216.37", "redirect", "good"),
             ("page-redirect-origin", "93.184.216.38", "page-redirect", "good"),
+            ("evil-origin", "93.184.216.39", "evil", "good"),
         ]
         for label, address, mode, cert_name in origins:
             name = container(label)
@@ -250,7 +257,7 @@ def main() -> int:
             "--add-host", "disallow.test:93.184.216.36",
             "--add-host", "redirect.test:93.184.216.37",
             "--add-host", "page-redirect.test:93.184.216.38",
-            "--add-host", "evil.test:93.184.216.34",
+            "--add-host", "evil.test:93.184.216.39",
             "--add-host", "sub.shop.test:93.184.216.34",
             "--add-host", "rebind.test:93.184.216.34",
         ]
@@ -392,14 +399,23 @@ def main() -> int:
                 assert "Cookie isolated" in body and "CANARY LEAKED" not in body, body
             else:
                 assert "Synthetic member price" in body, body
+        status, body = api_status(worker, "shop", "/catalog/p/js")
+        assert status == 200 and "JS dynamic price: $17" in body, (status, body)
         status, body = api_status(worker, "shop", "/catalog/p/oversized")
         assert status == 502 and "rawEvidence" not in body, (status, body)
+        status, body = api_status(worker, "shop", "/catalog/p/chunked-oversized")
+        assert status == 502 and "upstream size limit" in body, (status, body)
         status, body = api_status(worker, "disallow")
         assert status == 403 and "robots" in body.lower(), (status, body)
         status, body = api_status(worker, "redirect")
         assert status == 403 and "robots" in body.lower(), (status, body)
         status, body = api_status(worker, "page-redirect")
-        assert status in {403, 502}, (status, body)
+        assert status == 403 and json.loads(body) == {
+            "detail": "crawler left the audited host"
+        }, (status, body)
+        evil_origin = next(name for name in containers if name.endswith("-evil-origin"))
+        evil_logs = run("logs", evil_origin, capture=True, check=False)
+        assert "EVIL_ORIGIN_REACHED" in evil_logs.stdout, evil_logs.stdout + evil_logs.stderr
 
         exact_host_code = (
             "import urllib.request,urllib.error;"

@@ -111,9 +111,54 @@ def test_persistent_crawl4ai_client_serializes_and_recycles_context(monkeypatch)
     assert browser_args["storage_state"] is None
     assert browser_args["ignore_https_errors"] is False
     assert browser_args["extra_args"] == []
-    assert browser_args["text_mode"] is True
+    assert "text_mode" not in browser_args
     assert browser_args["light_mode"] is True
     assert [name for name, _ in state.hooks] == ["on_page_context_created"]
+
+
+def test_page_budget_stops_chunked_main_document_during_streaming():
+    handlers = {}
+
+    class Session:
+        def __init__(self, page):
+            self.page = page
+
+        def on(self, name, handler):
+            handlers[name] = handler
+
+        async def send(self, name):
+            if name == "Page.stopLoading":
+                self.page.stopped = True
+
+    class Context:
+        async def new_cdp_session(self, page):
+            return Session(page)
+
+    class Page:
+        stopped = False
+        closed = False
+
+        async def close(self):
+            self.closed = True
+
+    async def exercise():
+        page = Page()
+        state = await Crawl4AIClient._install_page_budget(page, Context())
+        handlers["Network.requestWillBeSent"](
+            {"type": "Document", "requestId": "main"}
+        )
+        for _ in range(33):
+            handlers["Network.dataReceived"](
+                {"requestId": "main", "dataLength": 65_536, "encodedDataLength": 0}
+            )
+        await state["abort_task"]
+        return page, state
+
+    page, state = run(exercise())
+
+    assert state["detail"] == "merchant document exceeds the upstream size limit"
+    assert page.stopped is True
+    assert page.closed is True
 
 
 def approved_settings(*, egress_enforced: bool = True) -> WorkerSettings:
@@ -225,11 +270,24 @@ def test_openapi_and_interactive_docs_are_disabled():
         assert client.get("/redoc").status_code == 404
 
 
-def invoke_body_limit(*, headers=(), chunks=(b"",), path="/extract", method="POST"):
+def invoke_body_limit(
+    *,
+    headers=(),
+    chunks=(b"",),
+    path="/extract",
+    method="POST",
+    receive_delays=(),
+    complete=True,
+    read_timeout_seconds=2,
+):
     sent = []
     received_body = bytearray()
     queue = [
-        {"type": "http.request", "body": chunk, "more_body": index < len(chunks) - 1}
+        {
+            "type": "http.request",
+            "body": chunk,
+            "more_body": index < len(chunks) - 1 or not complete,
+        }
         for index, chunk in enumerate(chunks)
     ]
 
@@ -243,6 +301,11 @@ def invoke_body_limit(*, headers=(), chunks=(b"",), path="/extract", method="POS
         await send({"type": "http.response.body", "body": b""})
 
     async def receive():
+        index = len(chunks) - len(queue)
+        if index < len(receive_delays):
+            await asyncio.sleep(receive_delays[index])
+        if not queue:
+            await asyncio.Future()
         return queue.pop(0)
 
     async def send(message):
@@ -261,7 +324,11 @@ def invoke_body_limit(*, headers=(), chunks=(b"",), path="/extract", method="POS
         "client": ("127.0.0.1", 1),
         "server": ("test", 80),
     }
-    run(RequestBodyLimitMiddleware(downstream)(scope, receive, send))
+    run(
+        RequestBodyLimitMiddleware(
+            downstream, read_timeout_seconds=read_timeout_seconds
+        )(scope, receive, send)
+    )
     status = next(message["status"] for message in sent if message["type"] == "http.response.start")
     return status, bytes(received_body)
 
@@ -287,6 +354,22 @@ def test_body_cap_rejects_duplicate_content_length_and_preserves_health_get():
         headers=((b"content-length", b"2"), (b"content-length", b"2")), chunks=(b"{}",)
     )[0] == 400
     assert invoke_body_limit(path="/health", method="GET", chunks=(b"",))[0] == 204
+
+
+def test_body_cap_times_out_slow_or_incomplete_request_without_affecting_health():
+    assert invoke_body_limit(
+        chunks=(b"{}",), receive_delays=(0.02,), read_timeout_seconds=0.01
+    )[0] == 408
+    assert invoke_body_limit(
+        chunks=(b"{",), complete=False, read_timeout_seconds=0.01
+    )[0] == 408
+    assert invoke_body_limit(
+        path="/health",
+        method="GET",
+        chunks=(b"",),
+        receive_delays=(0.02,),
+        read_timeout_seconds=0.01,
+    )[0] == 204
 
 
 @pytest.mark.parametrize(

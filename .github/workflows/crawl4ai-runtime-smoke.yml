@@ -12,6 +12,7 @@ on:
       - "tests/runtime/**"
       - "tests/security/crawler-egress.test.ts"
   push:
+    branches: [main]
     paths:
       - ".github/workflows/crawl4ai-runtime-smoke.yml"
       - "docker-compose.yml"
@@ -30,6 +31,7 @@ permissions:
 
 jobs:
   runtime-smoke:
+    # Namespace syscall probes below are intentionally x86_64-specific.
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:

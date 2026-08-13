@@ -49,6 +49,7 @@ def main(output: Path) -> None:
         "disallow.test",
         "redirect.test",
         "page-redirect.test",
+        "evil.test",
     ]
     good_cert = (
         x509.CertificateBuilder()

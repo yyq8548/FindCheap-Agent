@@ -5,6 +5,7 @@ import hashlib
 import ipaddress
 import re
 import socket
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Awaitable, Callable, Protocol
@@ -22,6 +23,7 @@ from .robots import FIXED_USER_AGENT, SecureRobotsPolicy
 MAX_EVIDENCE_BYTES = 2_000_000
 MAX_UPSTREAM_DOCUMENT_BYTES = 2 * 1024 * 1024
 MAX_REQUEST_BODY_BYTES = 2_048
+REQUEST_BODY_TIMEOUT_SECONDS = 2
 REQUEST_TIMEOUT_SECONDS = 15
 CRAWL_TIMEOUT_SECONDS = 10
 SOURCE_VERSION = "crawl4ai-0.9.2"
@@ -64,9 +66,15 @@ Sanitizer = Callable[[str], Awaitable[str]]
 class RequestBodyLimitMiddleware:
     """Reject oversized extract bodies before Starlette allocates/parses JSON."""
 
-    def __init__(self, app: ASGIApp, limit: int = MAX_REQUEST_BODY_BYTES):
+    def __init__(
+        self,
+        app: ASGIApp,
+        limit: int = MAX_REQUEST_BODY_BYTES,
+        read_timeout_seconds: float = REQUEST_BODY_TIMEOUT_SECONDS,
+    ):
         self.app = app
         self.limit = limit
+        self.read_timeout_seconds = read_timeout_seconds
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http" or scope["method"] != "POST" or scope["path"] != "/extract":
@@ -94,21 +102,30 @@ class RequestBodyLimitMiddleware:
             return
 
         body = bytearray()
-        while True:
-            message = await receive()
-            if message["type"] == "http.disconnect":
-                return
-            chunk = message.get("body", b"")
-            if len(body) + len(chunk) > self.limit:
-                await JSONResponse(
-                    {"detail": "request body exceeds the size limit"},
-                    status_code=413,
-                    headers={"Connection": "close"},
-                )(scope, receive, send)
-                return
-            body.extend(chunk)
-            if not message.get("more_body", False):
-                break
+        try:
+            async with asyncio.timeout(self.read_timeout_seconds):
+                while True:
+                    message = await receive()
+                    if message["type"] == "http.disconnect":
+                        return
+                    chunk = message.get("body", b"")
+                    if len(body) + len(chunk) > self.limit:
+                        await JSONResponse(
+                            {"detail": "request body exceeds the size limit"},
+                            status_code=413,
+                            headers={"Connection": "close"},
+                        )(scope, receive, send)
+                        return
+                    body.extend(chunk)
+                    if not message.get("more_body", False):
+                        break
+        except TimeoutError:
+            await JSONResponse(
+                {"detail": "request body timed out"},
+                status_code=408,
+                headers={"Connection": "close"},
+            )(scope, receive, send)
+            return
 
         delivered = False
 
@@ -290,6 +307,51 @@ class Crawl4AIClient:
         self._proxy_url = proxy_url
         self._crawler = None
         self._lock = asyncio.Lock()
+        self._active_budget = None
+
+    @staticmethod
+    async def _install_page_budget(page, context):
+        session = await context.new_cdp_session(page)
+        state = {
+            "document_id": None,
+            "document_bytes": 0,
+            "page_bytes": 0,
+            "detail": None,
+            "abort_task": None,
+        }
+
+        async def abort() -> None:
+            with suppress(Exception):
+                await session.send("Page.stopLoading")
+            with suppress(Exception):
+                await page.close()
+
+        def exceed(detail: str) -> None:
+            if state["detail"] is None:
+                state["detail"] = detail
+                state["abort_task"] = asyncio.create_task(abort())
+
+        def request_started(event: dict) -> None:
+            if event.get("type") == "Document" and state["document_id"] is None:
+                state["document_id"] = event.get("requestId")
+
+        def data_received(event: dict) -> None:
+            size = max(
+                int(event.get("dataLength", 0)),
+                int(event.get("encodedDataLength", 0)),
+            )
+            state["page_bytes"] += size
+            if event.get("requestId") == state["document_id"]:
+                state["document_bytes"] += size
+                if state["document_bytes"] > MAX_UPSTREAM_DOCUMENT_BYTES:
+                    exceed("merchant document exceeds the upstream size limit")
+            if state["page_bytes"] > MAX_UPSTREAM_DOCUMENT_BYTES:
+                exceed("merchant page exceeds the upstream size limit")
+
+        session.on("Network.requestWillBeSent", request_started)
+        session.on("Network.dataReceived", data_received)
+        await session.send("Network.enable")
+        return state
 
     async def crawl(self, url: str, profile: str) -> CrawlOutput:
         from crawl4ai import (  # type: ignore[import-not-found]
@@ -309,7 +371,6 @@ class Crawl4AIClient:
             browser_type="chromium",
             headless=True,
             verbose=False,
-            text_mode=True,
             light_mode=True,
             user_agent=FIXED_USER_AGENT,
             proxy_config=ProxyConfig(server=self._proxy_url),
@@ -352,6 +413,9 @@ class Crawl4AIClient:
                 self._crawler = AsyncWebCrawler(config=browser)
                 await self._crawler.start()
                 async def block_non_document_resources(page, **_):
+                    budget = await self._install_page_budget(page, page.context)
+                    self._active_budget = budget
+
                     async def close_oversized_document(response):
                         try:
                             if response.request.resource_type != "document":
@@ -363,6 +427,9 @@ class Crawl4AIClient:
                                 and raw_length.isdecimal()
                                 and int(raw_length) > MAX_UPSTREAM_DOCUMENT_BYTES
                             ):
+                                budget["detail"] = (
+                                    "merchant document exceeds the upstream size limit"
+                                )
                                 await page.close()
                         except Exception:
                             return
@@ -385,7 +452,23 @@ class Crawl4AIClient:
                 self._crawler.crawler_strategy.set_hook(
                     "on_page_context_created", block_non_document_resources
                 )
-            result = await self._crawler.arun(url=url, config=run)
+            self._active_budget = None
+            try:
+                result = await self._crawler.arun(url=url, config=run)
+            except Exception:
+                if self._active_budget and self._active_budget["detail"]:
+                    raise HTTPException(
+                        status_code=502, detail=self._active_budget["detail"]
+                    )
+                raise
+            finally:
+                budget = self._active_budget
+                if budget and budget["abort_task"]:
+                    with suppress(Exception):
+                        await budget["abort_task"]
+
+            if budget and budget["detail"]:
+                raise HTTPException(status_code=502, detail=budget["detail"])
 
         markdown = getattr(result, "markdown", "")
         raw = getattr(markdown, "raw_markdown", markdown)

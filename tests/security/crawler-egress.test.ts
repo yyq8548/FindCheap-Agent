@@ -144,6 +144,10 @@ describe("crawl4ai runtime boundary", () => {
     expect(workerSource).toContain("create_isolated_context=True");
     expect(workerSource).toContain("max_pages_before_recycle=1");
     expect(workerSource).toContain("check_robots_txt=False");
+    expect(workerSource).not.toContain("text_mode=True");
+    expect(workerSource).toContain('session.on("Network.dataReceived"');
+    expect(workerSource).toContain('session.on("Network.requestWillBeSent"');
+    expect(workerSource).toContain("REQUEST_BODY_TIMEOUT_SECONDS = 2");
   });
 
   it("scopes destructive smoke assets and runs for relevant PRs and pushes", () => {
@@ -159,6 +163,9 @@ describe("crawl4ai runtime boundary", () => {
     expect(smoke).toContain("for name in reversed(images)");
     expect(workflow).toContain("pull_request:");
     expect(workflow).toContain("push:");
+    expect(workflow).toContain("branches: [main]");
+    expect(workflow).toContain("runs-on: ubuntu-24.04");
+    expect(smoke).toContain('platform.machine().lower() not in {"x86_64", "amd64"}');
     expect(workflow).toContain("concurrency:");
     expect(workflow).toContain("cancel-in-progress: true");
     expect(workflow).toMatch(/actions\/checkout@[0-9a-f]{40}/u);

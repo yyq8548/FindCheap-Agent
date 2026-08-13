@@ -9,6 +9,8 @@ MODE = os.environ["ORIGIN_MODE"]
 
 
 class Handler(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+
     def do_GET(self) -> None:
         if self.path == "/robots.txt":
             if MODE == "redirect":
@@ -33,9 +35,41 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_header("Location", "https://evil.test/catalog/p/1")
                 self.end_headers()
                 return
+            if MODE == "evil":
+                print("EVIL_ORIGIN_REACHED", flush=True)
+                body = b"<html><main>Evil redirect destination</main></html>"
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+            if self.path == "/catalog/p/chunked-oversized":
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html")
+                self.send_header("Transfer-Encoding", "chunked")
+                self.end_headers()
+                try:
+                    for _ in range(34):
+                        chunk = b"x" * 65_536
+                        self.wfile.write(f"{len(chunk):X}\r\n".encode("ascii"))
+                        self.wfile.write(chunk + b"\r\n")
+                        self.wfile.flush()
+                    self.wfile.write(b"0\r\n\r\n")
+                except (BrokenPipeError, ConnectionResetError, ssl.SSLError):
+                    pass
+                return
             leaked = False
             if self.path == "/catalog/p/oversized":
                 body = b"<html><main>" + b"x" * 2_100_000 + b"</main></html>"
+            elif self.path == "/catalog/p/js":
+                body = (
+                    b"<html><main>pending</main><script>"
+                    b"document.querySelector('main').textContent="
+                    b"['JS dynamic',' price: $17'].join('');"
+                    b"</script></html>"
+                )
+                assert b"JS dynamic price: $17" not in body
             elif self.path == "/catalog/p/2":
                 leaked = "task6-canary=present" in self.headers.get("Cookie", "")
                 body = (
