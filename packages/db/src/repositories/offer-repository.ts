@@ -7,7 +7,7 @@ type PriceQuoteRow = {
   zip_code: string;
   membership_context: { memberships: string[] };
   status: StoredPriceQuote["status"];
-  delivered_price_cents: number;
+  delivered_price_cents: string | number;
   line_items: StoredPriceQuote["lineItems"];
   eligibility_conditions: string[];
   evidence_refs: string[];
@@ -171,10 +171,12 @@ export function createOfferRepository(db: Database): OfferRepository {
     async findComparableOffers(productId, context, now) {
       const memberships = unique(context.memberships);
       const result = await db.query<PriceQuoteRow>(
-        `SELECT q.*
+        `SELECT DISTINCT ON (q.offer_id) q.*
          FROM price_quotes q
          INNER JOIN merchant_offers o ON o.id = q.offer_id
          WHERE o.product_id = $1
+           AND o.match_status = 'EXACT'
+           AND o.expires_at > $4
            AND q.zip_code = $2
            AND NOT EXISTS (
              SELECT stored.member COLLATE "C"
@@ -195,7 +197,7 @@ export function createOfferRepository(db: Database): OfferRepository {
              ) AS stored(member)
            )
            AND q.expires_at > $4
-         ORDER BY q.expires_at DESC, q.id ASC`,
+         ORDER BY q.offer_id, q.checked_at DESC, q.expires_at DESC, q.id ASC`,
         [productId, context.zipCode, memberships, now]
       );
       return result.rows.map(toStoredPriceQuote);
@@ -232,11 +234,19 @@ function toStoredPriceQuote(row: PriceQuoteRow): StoredPriceQuote {
     zipCode: row.zip_code,
     membershipContext: row.membership_context,
     status: row.status,
-    deliveredPrice: { amountCents: row.delivered_price_cents, currency: "USD" },
+    deliveredPrice: { amountCents: safeCents(row.delivered_price_cents), currency: "USD" },
     lineItems: row.line_items,
     eligibilityConditions: row.eligibility_conditions,
     evidenceRefs: row.evidence_refs,
     checkedAt: row.checked_at,
     expiresAt: row.expires_at
   };
+}
+
+function safeCents(value: string | number): number {
+  const parsed = typeof value === "number" ? value : Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) {
+    throw new Error("stored delivered price is outside the safe integer range");
+  }
+  return parsed;
 }

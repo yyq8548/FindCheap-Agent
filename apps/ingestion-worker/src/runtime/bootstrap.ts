@@ -10,6 +10,7 @@ import {
 } from "../../../../scripts/validate-enabled-merchants.js";
 import { createDatabase, type Database } from "../../../../packages/db/src/client.js";
 import { createIngestionPersistence } from "../../../../packages/db/src/repositories/ingestion-repository.js";
+import { createPromotionRepository } from "../../../../packages/db/src/repositories/promotion-repository.js";
 import { createConfiguredAdapter } from "../../../../packages/merchant-adapters/src/configured/configured-adapter.js";
 import { createConfiguredSource } from "../../../../packages/merchant-adapters/src/configured/configured-source.js";
 import type { EvidenceRecord, MerchantAdapter } from "../../../../packages/merchant-sdk/src/index.js";
@@ -53,6 +54,7 @@ type RuntimeFactories = {
   createDatabase(connectionString: string): Database;
   createSource(entry: GateApprovedMerchantConfig): ReturnType<typeof createConfiguredSource>;
   createPersistence: typeof createIngestionPersistence;
+  createPromotions: typeof createPromotionRepository;
   createQueues(connection: ConnectionOptions): RefreshQueues;
   createWorkers(
     connection: ConnectionOptions,
@@ -169,6 +171,7 @@ export async function startIngestionRuntime(
     createDatabase,
     createSource: (entry) => createConfiguredSource(entry.config, entry.candidate, { clock }),
     createPersistence: createIngestionPersistence,
+    createPromotions: createPromotionRepository,
     createQueues: createRefreshQueues,
     createWorkers: createRefreshWorkers,
     ...options.factories
@@ -217,6 +220,7 @@ export async function startIngestionRuntime(
   try {
     await db.connect();
     const persistence = factories.createPersistence(db);
+    const promotions = factories.createPromotions(db);
     const adapters = new Map<string, MerchantAdapter>();
     for (const entry of entries) {
       const source = sources.get(entry.merchantId);
@@ -266,6 +270,10 @@ export async function startIngestionRuntime(
           if (outcome.status === "PUBLISHED" || outcome.status === "NOT_FOUND") {
             controls.circuitBreaker.recordSuccess(job.data.merchantId);
           }
+          if (outcome.status === "PUBLISHED") {
+            await promotions.promoteProduct(outcome.offerId);
+            await promotions.promotePendingQuotes(job.data.merchantId, job.data.merchantProductId);
+          }
           return outcome;
         } catch (error) {
           controls.circuitBreaker.recordFailure(job.data.merchantId);
@@ -287,6 +295,9 @@ export async function startIngestionRuntime(
           });
           if (outcome.status === "PUBLISHED" || outcome.status === "QUARANTINED") {
             controls.circuitBreaker.recordSuccess(job.data.merchantId);
+          }
+          if (outcome.status === "PUBLISHED") {
+            await promotions.promoteQuote(outcome.quoteId);
           }
           return outcome;
         } catch (error) {

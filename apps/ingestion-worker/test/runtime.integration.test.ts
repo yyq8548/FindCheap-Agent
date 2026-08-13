@@ -135,14 +135,18 @@ describe("production ingestion runtime integration", () => {
       sourceVersion
     };
     await Promise.all([runtime.enqueueProduct(job), runtime.enqueueProduct({ ...job })]);
-    await waitForCount("merchant_product_staging", 1);
+    await waitForCount("merchant_promotion_decisions", 1);
 
     const counts = await Promise.all([
       inspectDb.query<{ count: string }>("SELECT count(*)::text AS count FROM ingestion_evidence"),
       inspectDb.query<{ count: string }>("SELECT count(*)::text AS count FROM merchant_product_staging"),
-      inspectDb.query<{ count: string }>("SELECT count(*)::text AS count FROM ingestion_idempotency")
+      inspectDb.query<{ count: string }>("SELECT count(*)::text AS count FROM ingestion_idempotency"),
+      inspectDb.query<{ count: string }>("SELECT count(*)::text AS count FROM merchant_promotion_decisions")
     ]);
-    expect(counts.map((result) => Number(result.rows[0]?.count))).toEqual([1, 1, 1]);
+    expect(counts.map((result) => Number(result.rows[0]?.count))).toEqual([1, 1, 1, 1]);
+    await expect(inspectDb.query<{ status: string }>(
+      "SELECT status FROM merchant_promotion_decisions"
+    )).resolves.toEqual({ rows: [{ status: "NO_MATCH" }] });
 
     await runtime.close();
     expect(runtime.health()).toMatchObject({ status: "stopped", workersRunning: false });

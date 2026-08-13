@@ -303,7 +303,7 @@ describe("commerce repositories", () => {
 
     const state = await db.query<{
       seller_name: string;
-      delivered_price_cents: number;
+      delivered_price_cents: string;
       source_url: string;
       content_hash: string;
       metadata: { version: string };
@@ -325,7 +325,7 @@ describe("commerce repositories", () => {
 
     expect(state.rows).toEqual([{
       seller_name: "New Seller",
-      delivered_price_cents: 1099,
+      delivered_price_cents: "1099",
       source_url: "https://merchant.example/new",
       content_hash: "sha256:new",
       metadata: { version: "new" },

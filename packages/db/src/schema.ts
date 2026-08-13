@@ -16,7 +16,8 @@ export const tables = {
   ingestionIdempotency: "ingestion_idempotency",
   merchantProductStaging: "merchant_product_staging",
   merchantQuoteStaging: "merchant_quote_staging",
-  merchantIngestionQuarantine: "merchant_ingestion_quarantine"
+  merchantIngestionQuarantine: "merchant_ingestion_quarantine",
+  merchantPromotionDecisions: "merchant_promotion_decisions"
 } as const;
 
 export type Timestamp = Date | string;
