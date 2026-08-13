@@ -88,4 +88,35 @@ describe("merchant adapter contract suite", () => {
 
     expect(report.failures).toContain("expiresAt must be after checkedAt");
   });
+
+  it("fails closed for impossible calendar timestamps", async () => {
+    const report = await runMerchantContractSuite(
+      () => adapterWith([{ ...validOffer(), checkedAt: "2026-02-30T12:00:00Z" }]),
+      fixtureContext()
+    );
+
+    expect(report.failures).toContain("expiresAt must be after checkedAt");
+  });
+
+  it("requires at least one nonblank evidence reference", async () => {
+    const report = await runMerchantContractSuite(
+      () => adapterWith([{ ...validOffer(), evidenceRefs: ["  "] }]),
+      fixtureContext()
+    );
+
+    expect(report.failures).toContain("offer evidenceRefs must not be empty");
+  });
+
+  it("accepts valid ISO timestamps with numeric offsets", async () => {
+    const report = await runMerchantContractSuite(
+      () => adapterWith([{
+        ...validOffer(),
+        checkedAt: "2026-08-13T08:00:00-04:00",
+        expiresAt: "2026-08-13T08:15:00-04:00"
+      }]),
+      fixtureContext()
+    );
+
+    expect(report.failures).toEqual([]);
+  });
 });
