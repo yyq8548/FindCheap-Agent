@@ -1,0 +1,27 @@
+{
+  "products": [
+    {
+      "id": "sku-feed-1",
+      "name": "Acme Wireless Headphones",
+      "brand": "Acme",
+      "gtins": ["0012345678905"],
+      "mpn": "AC-WH-1",
+      "price": "129.99",
+      "currency": "USD",
+      "availability": "InStock",
+      "url": "https://shop.example/products/sku-feed-1",
+      "internalCost": "42.00"
+    },
+    {
+      "id": "sku-feed-2",
+      "name": "Acme USB-C Charger",
+      "brand": "Acme",
+      "gtins": ["0012345678912"],
+      "mpn": "AC-CH-2",
+      "price": "29.99",
+      "currency": "USD",
+      "availability": "OutOfStock",
+      "url": "https://shop.example/products/sku-feed-2"
+    }
+  ]
+}
