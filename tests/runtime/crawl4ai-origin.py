@@ -28,10 +28,28 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(policy)
             return
         if self.path.startswith("/catalog/p/"):
-            body = b"<html><main>Synthetic member price: $19</main></html>"
-            self.send_response(200)
+            if MODE == "page-redirect":
+                self.send_response(302)
+                self.send_header("Location", "https://evil.test/catalog/p/1")
+                self.end_headers()
+                return
+            leaked = False
+            if self.path == "/catalog/p/oversized":
+                body = b"<html><main>" + b"x" * 2_100_000 + b"</main></html>"
+            elif self.path == "/catalog/p/2":
+                leaked = "task6-canary=present" in self.headers.get("Cookie", "")
+                body = (
+                    b"<html><main>COOKIE CANARY LEAKED</main></html>"
+                    if leaked
+                    else b"<html><main>Cookie isolated</main></html>"
+                )
+            else:
+                body = b"<html><main>Synthetic member price: $19</main></html>"
+            self.send_response(500 if leaked else 200)
             self.send_header("Content-Type", "text/html")
             self.send_header("Content-Length", str(len(body)))
+            if self.path == "/catalog/p/1":
+                self.send_header("Set-Cookie", "task6-canary=present; Path=/; Secure")
             self.end_headers()
             self.wfile.write(body)
             return

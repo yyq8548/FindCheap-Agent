@@ -2,6 +2,28 @@ name: Crawl4AI runtime smoke
 
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/crawl4ai-runtime-smoke.yml"
+      - "docker-compose.yml"
+      - "infra/docker/crawl4ai*"
+      - "scripts/test-crawl4ai-runtime.py"
+      - "services/crawl4ai-worker/**"
+      - "tests/runtime/**"
+      - "tests/security/crawler-egress.test.ts"
+  push:
+    paths:
+      - ".github/workflows/crawl4ai-runtime-smoke.yml"
+      - "docker-compose.yml"
+      - "infra/docker/crawl4ai*"
+      - "scripts/test-crawl4ai-runtime.py"
+      - "services/crawl4ai-worker/**"
+      - "tests/runtime/**"
+      - "tests/security/crawler-egress.test.ts"
+
+concurrency:
+  group: crawl4ai-runtime-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read

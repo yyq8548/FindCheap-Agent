@@ -44,7 +44,12 @@ def main(output: Path) -> None:
     (output / "ca.crt").write_bytes(ca_cert.public_bytes(serialization.Encoding.PEM))
 
     good_key = key()
-    good_names = ["shop.test", "disallow.test", "redirect.test"]
+    good_names = [
+        "shop.test",
+        "disallow.test",
+        "redirect.test",
+        "page-redirect.test",
+    ]
     good_cert = (
         x509.CertificateBuilder()
         .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, good_names[0])]))

@@ -18,6 +18,7 @@ sys.path.insert(0, str(SERVICE_ROOT))
 
 from app.config import ConfigurationError, WorkerSettings  # noqa: E402
 from app.main import Crawl4AIClient, CrawlOutput, ExtractionService, create_app  # noqa: E402
+from app.main import RequestBodyLimitMiddleware  # noqa: E402
 from app.models import ExtractRequest  # noqa: E402
 
 
@@ -44,7 +45,9 @@ class AllowRobots:
 
 
 def test_persistent_crawl4ai_client_serializes_and_recycles_context(monkeypatch):
-    state = SimpleNamespace(starts=0, closes=0, active=0, max_active=0, browsers=[])
+    state = SimpleNamespace(
+        starts=0, closes=0, active=0, max_active=0, browsers=[], hooks=[]
+    )
 
     class FakeConfig:
         def __init__(self, **kwargs):
@@ -53,6 +56,9 @@ def test_persistent_crawl4ai_client_serializes_and_recycles_context(monkeypatch)
     class FakeAsyncWebCrawler:
         def __init__(self, config):
             self.config = config
+            self.crawler_strategy = SimpleNamespace(
+                set_hook=lambda name, hook: state.hooks.append((name, hook))
+            )
             state.browsers.append(config)
 
         async def start(self):
@@ -105,6 +111,9 @@ def test_persistent_crawl4ai_client_serializes_and_recycles_context(monkeypatch)
     assert browser_args["storage_state"] is None
     assert browser_args["ignore_https_errors"] is False
     assert browser_args["extra_args"] == []
+    assert browser_args["text_mode"] is True
+    assert browser_args["light_mode"] is True
+    assert [name for name, _ in state.hooks] == ["on_page_context_created"]
 
 
 def approved_settings(*, egress_enforced: bool = True) -> WorkerSettings:
@@ -216,6 +225,70 @@ def test_openapi_and_interactive_docs_are_disabled():
         assert client.get("/redoc").status_code == 404
 
 
+def invoke_body_limit(*, headers=(), chunks=(b"",), path="/extract", method="POST"):
+    sent = []
+    received_body = bytearray()
+    queue = [
+        {"type": "http.request", "body": chunk, "more_body": index < len(chunks) - 1}
+        for index, chunk in enumerate(chunks)
+    ]
+
+    async def downstream(scope, receive, send):
+        while True:
+            message = await receive()
+            received_body.extend(message.get("body", b""))
+            if not message.get("more_body", False):
+                break
+        await send({"type": "http.response.start", "status": 204, "headers": []})
+        await send({"type": "http.response.body", "body": b""})
+
+    async def receive():
+        return queue.pop(0)
+
+    async def send(message):
+        sent.append(message)
+
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": method,
+        "scheme": "http",
+        "path": path,
+        "raw_path": path.encode(),
+        "query_string": b"",
+        "headers": list(headers),
+        "client": ("127.0.0.1", 1),
+        "server": ("test", 80),
+    }
+    run(RequestBodyLimitMiddleware(downstream)(scope, receive, send))
+    status = next(message["status"] for message in sent if message["type"] == "http.response.start")
+    return status, bytes(received_body)
+
+
+def test_body_cap_counts_actual_missing_forged_and_chunked_bodies():
+    assert invoke_body_limit(chunks=(b"{}",)) == (204, b"{}")
+    assert invoke_body_limit(headers=((b"content-length", b"2"),), chunks=(b"{}",)) == (
+        204,
+        b"{}",
+    )
+    assert invoke_body_limit(headers=((b"content-length", b"1"),), chunks=(b"x" * 2049,))[0] == 413
+    assert invoke_body_limit(headers=((b"transfer-encoding", b"chunked"),), chunks=(b"x" * 1024, b"y" * 1025))[0] == 413
+    assert invoke_body_limit(chunks=(b"x" * 2048, b"y"))[0] == 413
+
+
+@pytest.mark.parametrize("value", [b"-1", b"02048", b"+1", b"2, 2", b""])
+def test_body_cap_rejects_noncanonical_content_length(value):
+    assert invoke_body_limit(headers=((b"content-length", value),), chunks=(b"{}",))[0] == 400
+
+
+def test_body_cap_rejects_duplicate_content_length_and_preserves_health_get():
+    assert invoke_body_limit(
+        headers=((b"content-length", b"2"), (b"content-length", b"2")), chunks=(b"{}",)
+    )[0] == 400
+    assert invoke_body_limit(path="/health", method="GET", chunks=(b"",))[0] == 204
+
+
 @pytest.mark.parametrize(
     "resource_path",
     [
@@ -233,6 +306,17 @@ def test_openapi_and_interactive_docs_are_disabled():
         "/catalog/p/1#fragment",
         "/catalog/p/1?not-allowed=yes",
         "/catalog/p/1?variant=" + "x" * 129,
+        "/catalog/p/a b",
+        "/catalog/p/a;b",
+        "/catalog/p/café",
+        "/catalog/p/a%3Bb",
+        "/catalog/p/%31",
+        "/catalog/p/1?variant=blue+red",
+        "/catalog/p/1?variant=%62lue",
+        "/catalog/p/1?variant=%2562lue",
+        "/catalog/p/1?variant=blue;debug",
+        "/catalog/p/1?variant=blue&variant=red",
+        "/catalog/p/1?",
     ],
 )
 def test_resource_path_rejects_network_and_parser_escape(resource_path: str):
@@ -280,6 +364,12 @@ def test_unknown_disabled_or_unapproved_merchant_is_forbidden():
         {"auditState": "in_review"},
         {"legalReview": "not_started"},
         {"provenSource": "http"},
+        {"baseUrl": "https://shop.example/cat alog/"},
+        {
+            "profiles": {
+                "product": {"allowedPathPrefixes": ["/catalog/p;"]}
+            }
+        },
     ],
 )
 def test_configuration_rejects_non_audited_or_unsafe_merchants(change: dict[str, object]):
@@ -389,6 +479,46 @@ def test_rejects_oversized_evidence_without_returning_debug_material():
     with pytest.raises(HTTPException) as error:
         run(service.extract(request))
     assert error.value.status_code == 502
+
+
+@pytest.mark.parametrize("raw", ["", "  \n\t", "<script>only()</script>"])
+def test_rejects_empty_evidence_after_sanitization(raw):
+    output = CrawlOutput(
+        raw_evidence=raw,
+        final_url="https://shop.example/catalog/p/1",
+        redirect_chain=(),
+    )
+    service, _ = make_service(output=output)
+    request = ExtractRequest(
+        merchantId="shop", resourcePath="/catalog/p/1", extractionProfile="product"
+    )
+    with pytest.raises(HTTPException) as error:
+        run(service.extract(request))
+    assert error.value.status_code == 502
+
+
+def test_postprocessing_remains_inside_request_deadline():
+    async def slow_sanitizer(_raw: str) -> str:
+        await asyncio.sleep(0.05)
+        return "late"
+
+    crawler = FakeCrawler(
+        CrawlOutput("safe", "https://shop.example/catalog/p/1", ())
+    )
+    service = ExtractionService(
+        approved_settings(),
+        crawler_factory=lambda _: crawler,
+        resolver=public_resolver,
+        robots_policy=AllowRobots(),
+        sanitizer=slow_sanitizer,
+        request_timeout_seconds=0.01,
+    )
+    request = ExtractRequest(
+        merchantId="shop", resourcePath="/catalog/p/1", extractionProfile="product"
+    )
+    with pytest.raises(HTTPException) as error:
+        run(service.extract(request))
+    assert error.value.status_code == 504
 
 
 def test_rejects_unsuccessful_crawl_result():

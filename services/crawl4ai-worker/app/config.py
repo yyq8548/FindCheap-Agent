@@ -18,6 +18,7 @@ HOST_PATTERN = re.compile(
     r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
 )
 QUERY_KEY_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,40}$")
+AUDITED_PATH_PATTERN = re.compile(r"^/[A-Za-z0-9/_.+\-]+$")
 
 
 class ConfigurationError(ValueError):
@@ -40,6 +41,7 @@ class _ProfileModel(BaseModel):
                 or "\\" in prefix
                 or "?" in prefix
                 or "#" in prefix
+                or not AUDITED_PATH_PATTERN.fullmatch(prefix)
                 or any(segment in {".", ".."} for segment in prefix.split("/"))
             ):
                 raise ValueError("path prefixes must be normalized absolute paths")
@@ -94,6 +96,7 @@ class _MerchantModel(BaseModel):
             or parsed.query
             or parsed.fragment
             or not parsed.path.startswith("/")
+            or not AUDITED_PATH_PATTERN.fullmatch(parsed.path)
             or "//" in parsed.path
             or "\\" in parsed.path
             or any(segment in {".", ".."} for segment in parsed.path.split("/"))

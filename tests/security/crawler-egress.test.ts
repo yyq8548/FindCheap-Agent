@@ -54,16 +54,41 @@ describe("crawl4ai runtime boundary", () => {
   it("uses a deny-by-default syscall profile", () => {
     const profile = JSON.parse(
       readFileSync(resolve(root, "infra/docker/crawl4ai-seccomp.json"), "utf8")
-    ) as { defaultAction: string; syscalls: Array<{ action: string; names: string[] }> };
+    ) as {
+      defaultAction: string;
+      syscalls: Array<{
+        action: string;
+        names: string[];
+        errnoRet?: number;
+        args?: Array<{ index: number; value: number; valueTwo?: number; op: string }>;
+      }>;
+    };
 
     expect(profile.defaultAction).toBe("SCMP_ACT_ERRNO");
     expect(profile.syscalls.length).toBeGreaterThan(0);
-    expect(profile.syscalls.every((entry) => entry.action === "SCMP_ACT_ALLOW")).toBe(true);
-    const allowed = new Set(profile.syscalls.flatMap((entry) => entry.names));
+    const genericAllow = profile.syscalls[0];
+    expect(genericAllow?.action).toBe("SCMP_ACT_ALLOW");
+    const allowed = new Set(genericAllow?.names ?? []);
     expect(allowed.has("mount")).toBe(false);
     expect(allowed.has("ptrace")).toBe(false);
     expect(allowed.has("bpf")).toBe(false);
     expect(allowed.has("keyctl")).toBe(false);
+    expect(allowed.has("clone")).toBe(false);
+    expect(allowed.has("clone3")).toBe(false);
+    const clone = profile.syscalls.find((entry) => entry.names.includes("clone"));
+    expect(clone).toMatchObject({
+      action: "SCMP_ACT_ALLOW",
+      args: [
+        {
+          index: 0,
+          value: 2114060288,
+          valueTwo: 0,
+          op: "SCMP_CMP_MASKED_EQ"
+        }
+      ]
+    });
+    const clone3 = profile.syscalls.find((entry) => entry.names.includes("clone3"));
+    expect(clone3).toMatchObject({ action: "SCMP_ACT_ERRNO", errnoRet: 38 });
   });
 
   it("ships a deny-all proxy policy until audited destinations are supplied", () => {
@@ -80,6 +105,7 @@ describe("crawl4ai runtime boundary", () => {
     expect(squid).toContain("http_access deny numeric_ipv6");
     expect(squid).toContain("acl audited_hosts dstdomain");
     expect(squid).toContain("http_access allow CONNECT audited_hosts ssl_ports");
+    expect(squid).toContain("reply_body_max_size 2 MB audited_hosts");
     expect(squid).not.toMatch(/http_access allow\s+all/u);
     expect(hosts).toEqual(["no-audited-merchants.invalid"]);
     expect(hosts.every((host) => !host.startsWith(".") && !host.includes("*"))).toBe(true);
@@ -118,5 +144,24 @@ describe("crawl4ai runtime boundary", () => {
     expect(workerSource).toContain("create_isolated_context=True");
     expect(workerSource).toContain("max_pages_before_recycle=1");
     expect(workerSource).toContain("check_robots_txt=False");
+  });
+
+  it("scopes destructive smoke assets and runs for relevant PRs and pushes", () => {
+    const smoke = readFileSync(resolve(root, "scripts/test-crawl4ai-runtime.py"), "utf8");
+    const workflow = readFileSync(
+      resolve(root, ".github/workflows/crawl4ai-runtime-smoke.yml"),
+      "utf8"
+    );
+
+    expect(smoke).not.toContain("shopping-agent-crawl4ai:task6");
+    expect(smoke).not.toContain("shopping-agent-crawl4ai-egress:task6");
+    expect(smoke).toContain('prefix = f"shopping-task6-{suffix}"');
+    expect(smoke).toContain("for name in reversed(images)");
+    expect(workflow).toContain("pull_request:");
+    expect(workflow).toContain("push:");
+    expect(workflow).toContain("concurrency:");
+    expect(workflow).toContain("cancel-in-progress: true");
+    expect(workflow).toMatch(/actions\/checkout@[0-9a-f]{40}/u);
+    expect(workflow).toMatch(/actions\/setup-python@[0-9a-f]{40}/u);
   });
 });

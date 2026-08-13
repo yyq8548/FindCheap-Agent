@@ -13,8 +13,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DOCKER = os.environ.get("DOCKER", "docker")
-WORKER_IMAGE = "shopping-agent-crawl4ai:task6"
-PROXY_IMAGE = "shopping-agent-crawl4ai-egress:task6"
 
 
 def run(*args: str, capture: bool = False, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -106,11 +104,13 @@ def wait_for_health(container: str) -> None:
     raise RuntimeError(f"worker did not become healthy\n{logs.stdout}\n{logs.stderr}")
 
 
-def api_status(container: str, merchant_id: str) -> tuple[int, str]:
+def api_status(
+    container: str, merchant_id: str, resource_path: str = "/catalog/p/1"
+) -> tuple[int, str]:
     payload = json.dumps(
         {
             "merchantId": merchant_id,
-            "resourcePath": "/catalog/p/1",
+            "resourcePath": resource_path,
             "extractionProfile": "product",
         }
     )
@@ -137,13 +137,15 @@ def main() -> int:
     worker_smoke_image = f"{prefix}-worker"
     origin_image = f"{prefix}-origin"
     proxy_smoke_image = f"{prefix}-proxy"
+    worker_base_image = f"{prefix}-base-worker"
+    proxy_base_image = f"{prefix}-base-proxy"
     containers: list[str] = []
     images = [
         worker_smoke_image,
         origin_image,
         proxy_smoke_image,
-        WORKER_IMAGE,
-        PROXY_IMAGE,
+        worker_base_image,
+        proxy_base_image,
     ]
     networks = [internal, outbound]
     temp_parent = ROOT / ".superpowers"
@@ -156,11 +158,11 @@ def main() -> int:
         return value
 
     try:
-        run("build", "-f", "infra/docker/crawl4ai.Dockerfile", "-t", WORKER_IMAGE, ".")
-        run("build", "-f", "infra/docker/crawl4ai-squid.Dockerfile", "-t", PROXY_IMAGE, ".")
+        run("build", "-f", "infra/docker/crawl4ai.Dockerfile", "-t", worker_base_image, ".")
+        run("build", "-f", "infra/docker/crawl4ai-squid.Dockerfile", "-t", proxy_base_image, ".")
 
         certgen = container("certgen")
-        run("create", "--name", certgen, "--entrypoint", "python", WORKER_IMAGE,
+        run("create", "--name", certgen, "--entrypoint", "python", worker_base_image,
             "/tmp/generate-certs.py", "/tmp/certs")
         run("cp", str(ROOT / "tests/runtime/generate-crawl4ai-certs.py"), f"{certgen}:/tmp/generate-certs.py")
         run("start", "-a", certgen)
@@ -178,6 +180,7 @@ def main() -> int:
             "shop": "shop.test",
             "disallow": "disallow.test",
             "redirect": "redirect.test",
+            "page-redirect": "page-redirect.test",
         }.items():
             merchants["merchants"][merchant_id] = {
                 "enabled": True,
@@ -190,10 +193,11 @@ def main() -> int:
             }
         (temp_root / "merchants.json").write_text(json.dumps(merchants), encoding="utf-8")
         (temp_root / "allowed-hosts.txt").write_text(
-            "shop.test\nbad.test\ndisallow.test\nredirect.test\n", encoding="ascii"
+            "shop.test\nbad.test\ndisallow.test\nredirect.test\npage-redirect.test\nrebind.test\n",
+            encoding="ascii",
         )
         (temp_root / "worker.Dockerfile").write_text(
-            f"FROM {WORKER_IMAGE}\nUSER root\nCOPY certs/ca.crt /usr/local/share/ca-certificates/task6.crt\n"
+            f"FROM {worker_base_image}\nUSER root\nCOPY certs/ca.crt /usr/local/share/ca-certificates/task6.crt\n"
             "RUN update-ca-certificates && apt-get update "
             "&& apt-get install -y --no-install-recommends libnss3-tools "
             "&& rm -rf /var/lib/apt/lists/*\n"
@@ -201,14 +205,14 @@ def main() -> int:
             encoding="utf-8",
         )
         (temp_root / "origin.Dockerfile").write_text(
-            f"FROM {WORKER_IMAGE}\nUSER root\nCOPY certs /app/smoke/certs\n"
+            f"FROM {worker_base_image}\nUSER root\nCOPY certs /app/smoke/certs\n"
             "COPY crawl4ai-origin.py /app/smoke/origin.py\nUSER 10001:10001\n"
             'ENTRYPOINT ["python","/app/smoke/origin.py"]\n',
             encoding="utf-8",
         )
         shutil.copy2(ROOT / "tests/runtime/crawl4ai-origin.py", temp_root / "crawl4ai-origin.py")
         (temp_root / "proxy.Dockerfile").write_text(
-            f"FROM {PROXY_IMAGE}\nCOPY allowed-hosts.txt /etc/squid/allowed-hosts.txt\n",
+            f"FROM {proxy_base_image}\nCOPY allowed-hosts.txt /etc/squid/allowed-hosts.txt\n",
             encoding="utf-8",
         )
         run("build", "-f", str(temp_root / "worker.Dockerfile"), "-t", worker_smoke_image, str(temp_root))
@@ -223,6 +227,7 @@ def main() -> int:
             ("bad-origin", "93.184.216.35", "allow", "bad"),
             ("disallow-origin", "93.184.216.36", "disallow", "good"),
             ("redirect-origin", "93.184.216.37", "redirect", "good"),
+            ("page-redirect-origin", "93.184.216.38", "page-redirect", "good"),
         ]
         for label, address, mode, cert_name in origins:
             name = container(label)
@@ -244,11 +249,15 @@ def main() -> int:
             "--add-host", "bad.test:93.184.216.35",
             "--add-host", "disallow.test:93.184.216.36",
             "--add-host", "redirect.test:93.184.216.37",
+            "--add-host", "page-redirect.test:93.184.216.38",
+            "--add-host", "evil.test:93.184.216.34",
+            "--add-host", "sub.shop.test:93.184.216.34",
+            "--add-host", "rebind.test:93.184.216.34",
         ]
 
         prod_proxy = container("prod-egress")
         args = proxy_create_args(prod_proxy, internal, "172.30.91.11")
-        args.extend([*host_args, PROXY_IMAGE])
+        args.extend([*host_args, proxy_base_image])
         run(*args)
         run("network", "connect", outbound, prod_proxy)
         run("start", prod_proxy)
@@ -311,6 +320,14 @@ def main() -> int:
         assert host_config["Memory"] == 768 * 1024 * 1024
         assert len(inspection["NetworkSettings"]["Networks"]) == 1
         assert docker_exec(worker, "import os;assert os.getuid()==10001;print('nonroot-ok')") == "nonroot-ok"
+        namespace_probe = (
+            "import ctypes,errno;libc=ctypes.CDLL(None,use_errno=True);"
+            "flags=(0x10000000,0x40000000);"
+            "assert all(libc.unshare(f)==-1 and ctypes.get_errno()==errno.EPERM for f in flags);"
+            "assert libc.syscall(56,0x10000000|17,0,0,0,0)==-1;"
+            "assert ctypes.get_errno()==errno.EPERM;print('namespaces-denied-ok')"
+        )
+        assert docker_exec(worker, namespace_probe) == "namespaces-denied-ok"
         readonly_probe = (
             "from pathlib import Path;"
             "\ntry:Path('/app/write-test').write_text('bad');raise SystemExit('rootfs writable')"
@@ -345,6 +362,14 @@ def main() -> int:
         )
         assert docker_exec(worker, docs_code) == "docs-disabled-ok"
 
+        body_cap_code = (
+            "import urllib.request,urllib.error;d=b'x'*2049;"
+            "r=urllib.request.Request('http://127.0.0.1:8080/extract',data=d,method='POST');"
+            "\ntry:urllib.request.urlopen(r);raise SystemExit('oversized request accepted')"
+            "\nexcept urllib.error.HTTPError as e:assert e.code==413;print('body-cap-ok')"
+        )
+        assert docker_exec(worker, body_cap_code) == "body-cap-ok"
+
         robots_probe = (
             "import asyncio;from app.robots import SecureRobotsPolicy;"
             f"asyncio.run(SecureRobotsPolicy().authorize(target_url='https://shop.test/catalog/p/1',"
@@ -353,8 +378,8 @@ def main() -> int:
         )
         assert docker_exec(worker, robots_probe) == "robots-proxy-ok"
 
-        for attempt in range(1, 3):
-            status, body = api_status(worker, "shop")
+        for attempt, path in enumerate(("/catalog/p/1", "/catalog/p/2"), start=1):
+            status, body = api_status(worker, "shop", path)
             if status != 200:
                 worker_logs = run("logs", worker, capture=True, check=False)
                 proxy_logs = run("logs", proxy, capture=True, check=False)
@@ -363,11 +388,54 @@ def main() -> int:
                     f"WORKER:\n{worker_logs.stdout}{worker_logs.stderr}"
                     f"\nPROXY:\n{proxy_logs.stdout}{proxy_logs.stderr}"
                 )
-            assert "Synthetic member price" in body, body
+            if attempt == 2:
+                assert "Cookie isolated" in body and "CANARY LEAKED" not in body, body
+            else:
+                assert "Synthetic member price" in body, body
+        status, body = api_status(worker, "shop", "/catalog/p/oversized")
+        assert status == 502 and "rawEvidence" not in body, (status, body)
         status, body = api_status(worker, "disallow")
         assert status == 403 and "robots" in body.lower(), (status, body)
         status, body = api_status(worker, "redirect")
         assert status == 403 and "robots" in body.lower(), (status, body)
+        status, body = api_status(worker, "page-redirect")
+        assert status in {403, 502}, (status, body)
+
+        exact_host_code = (
+            "import urllib.request,urllib.error;"
+            f"o=urllib.request.build_opener(urllib.request.ProxyHandler({{'https':'{proxy_url}'}}));"
+            "\nfor u in ('https://sub.shop.test/catalog/p/1','https://93.184.216.34/catalog/p/1'):\n"
+            " try:o.open(u,timeout=5);raise SystemExit('unaudited destination allowed')\n"
+            " except urllib.error.URLError as e:assert '403' in str(e)\n"
+            "print('exact-host-and-ip-denied-ok')"
+        )
+        assert docker_exec(worker, exact_host_code) == "exact-host-and-ip-denied-ok"
+
+        rebind_code = (
+            "import socket;"
+            f"p=('{prefix}-egress',3128);"
+            "\ndef connect():\n"
+            " s=socket.create_connection(p,timeout=5);"
+            " s.sendall(b'CONNECT rebind.test:443 HTTP/1.1\\r\\nHost: rebind.test:443\\r\\n\\r\\n');"
+            " status=s.recv(100).split(b'\\r\\n',1)[0];s.close();return status\n"
+            "assert b' 200 ' in connect();print('dns-public-ok')"
+        )
+        assert docker_exec(worker, rebind_code) == "dns-public-ok"
+        run("rm", "-f", proxy)
+        containers.remove(proxy)
+        proxy = container("egress")
+        rebound_hosts = host_args[:-2] + ["--add-host", "rebind.test:10.0.0.1"]
+        args = proxy_create_args(proxy, internal, "172.30.91.10")
+        args.extend([*rebound_hosts, proxy_smoke_image])
+        run(*args)
+        run("network", "connect", outbound, proxy)
+        run("start", proxy)
+        assert_running(proxy)
+        rebind_denied = rebind_code.replace(
+            "assert b' 200 ' in connect();print('dns-public-ok')",
+            "assert b' 403 ' in connect();print('dns-rebind-denied-ok')",
+        )
+        assert docker_exec(worker, rebind_denied) == "dns-rebind-denied-ok"
 
         tls_code = (
             "import asyncio;from app.main import Crawl4AIClient;"
@@ -393,7 +461,7 @@ def main() -> int:
             "\nexcept Exception:print('direct-outbound-denied-ok')"
         )
         assert docker_exec(worker, direct_code) == "direct-outbound-denied-ok"
-        print("PASS: final-image TLS, robots, proxy, private-IP, docs and network isolation smoke")
+        print("PASS: final-image TLS, body/evidence limits, cookie isolation, robots, seccomp, proxy and network smoke")
         return 0
     finally:
         for name in reversed(containers):

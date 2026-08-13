@@ -30,6 +30,12 @@ server-defined extraction profile. No URL, credentials, headers, proxy, JavaScri
 arguments, selectors, schemas, XPath, LLM prompt, session, cookie, screenshot, or download
 configuration can cross the API boundary.
 
+`POST /extract` is capped at 2,048 actual body bytes by a pure ASGI boundary before JSON
+parsing. Content-Length, when present, must be a single canonical nonnegative decimal and is
+only an early rejection hint; streamed chunks are always counted. `resourcePath` uses a closed
+ASCII grammar and canonical decoding, so whitespace, non-ASCII, delimiters outside the grammar,
+encoded aliases, ambiguous query forms, and duplicate query keys are rejected.
+
 ## TLS, robots, and browser lifecycle
 
 - The pinned Crawl4AI 0.9.2 source adds Chromium certificate-bypass arguments. Image build
@@ -44,6 +50,12 @@ configuration can cross the API boundary.
   request budget. Crawl4AI 0.9.2 shares mutable manager state, so `arun` and shutdown are
   serialized. A fresh browser context is forced and recycled after every page; no Crawl4AI
   cache, session ID, cookies, storage state, downloads, or filesystem URLs are enabled.
+- Image, media, font, and stylesheet requests are aborted. A document declaring more than
+  2 MiB is closed at response headers; evidence is independently rejected before sanitization
+  when its UTF-8 size exceeds 2,000,000 bytes. Sanitization, empty-result rejection, hashing,
+  timestamps, and response-model construction all remain inside the same 15-second deadline.
+- The seccomp profile returns ENOSYS for `clone3` and permits `clone` only when its namespace
+  flag mask is zero. `unshare`, `setns`, user namespaces, and network namespaces remain denied.
 
 ## Reproducibility and runtime verification
 
@@ -59,6 +71,13 @@ disabled OpenAPI, proxy deny-all, exact allow, robots allow/deny/redirect handli
 certificate rejection in real Chromium, private-IP denial, and direct-outbound failure. The
 script removes every task-owned container, network, image, and temporary certificate on exit.
 The production proxy image always retains the invalid deny-all sentinel.
+The runtime workflow runs for relevant pull requests and pushes with cancellation concurrency.
+Making that workflow a required merge check is a repository branch-protection setting and must
+be enabled by an administrator; the workflow file cannot enforce that external policy itself.
+
+`rawEvidence` is untrusted merchant-controlled text even after script/secret stripping. Every
+downstream consumer must treat it as data only: never execute it, render it as trusted HTML,
+interpolate it into SQL/shell/templates, or use it as an instruction or LLM system message.
 
 ## Known residual
 
