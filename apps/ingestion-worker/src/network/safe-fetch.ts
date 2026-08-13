@@ -1,5 +1,8 @@
 import { lookup } from "node:dns/promises";
+import type { IncomingHttpHeaders } from "node:http";
+import { request as httpsRequest, type RequestOptions } from "node:https";
 import { isIP } from "node:net";
+import { Readable } from "node:stream";
 import { domainToASCII } from "node:url";
 
 export const MAX_RESPONSE_BYTES = 5_000_000;
@@ -29,13 +32,88 @@ export type SafeFetchInput = { url: string };
 const defaultResolve: ResolveHost = async (hostname) =>
   lookup(hostname, { all: true, verbatim: true });
 
-/**
- * The approved address set is passed to the request seam so a production
- * transport can pin the connection to it. Node's built-in fetch cannot bind a
- * request to pre-resolved addresses, so the default transport retains a small
- * DNS-rebinding window. Deployments should inject a pinned transport.
- */
-const defaultRequest: SafeRequest = async (url, init) => fetch(url, init);
+const defaultRequest = createPinnedRequest();
+
+export function createPinnedRequest(
+  requestImpl: typeof httpsRequest = httpsRequest
+): SafeRequest {
+  return async (url, init, approvedAddresses) => {
+    if (url.protocol !== "https:" || url.port !== "") {
+      throw new Error("request blocked: pinned transport requires HTTPS port 443");
+    }
+    const approved = approvedAddresses.filter(
+      (entry): entry is ResolvedAddress & { family: 4 | 6 } =>
+        (entry.family === 4 || entry.family === 6) &&
+        isIP(entry.address) === entry.family &&
+        !isForbiddenIp(entry.address)
+    );
+    if (approved.length === 0) throw new Error("request blocked: no approved address");
+
+    return new Promise<Response>((resolve, reject) => {
+      const requestOptions: RequestOptions = {
+        protocol: "https:",
+        hostname: url.hostname,
+        port: 443,
+        method: "GET",
+        path: `${url.pathname}${url.search}`,
+        servername: url.hostname,
+        agent: false,
+        headers: { connection: "close", "accept-encoding": "identity" },
+        lookup: (_hostname, options, callback) => {
+          const requestedFamily = typeof options === "number" ? options : options.family;
+          const selected = approved.find(
+            ({ family }) =>
+              requestedFamily === undefined || requestedFamily === 0 || requestedFamily === family
+          );
+          if (selected === undefined) {
+            callback(
+              new Error("request blocked: no approved address for requested family"),
+              "",
+              4
+            );
+            return;
+          }
+          if (typeof options !== "number" && options.all === true) {
+            callback(null, approved);
+            return;
+          }
+          callback(null, selected.address, selected.family);
+        }
+      };
+      if (init.signal !== null && init.signal !== undefined) requestOptions.signal = init.signal;
+
+      const request = requestImpl(
+        requestOptions,
+        (incoming) => {
+          try {
+            const status = incoming.statusCode;
+            if (status === undefined || status < 200 || status > 599) {
+              incoming.destroy();
+              reject(new Error("request blocked: invalid response status"));
+              return;
+            }
+            const body = status === 204 || status === 304
+              ? null
+              : (Readable.toWeb(incoming) as ReadableStream<Uint8Array>);
+            const responseInit: ResponseInit = {
+              status,
+              headers: toWebHeaders(incoming.headers)
+            };
+            if (incoming.statusMessage !== undefined) {
+              responseInit.statusText = incoming.statusMessage;
+            }
+            resolve(new Response(body, responseInit));
+          } catch (error) {
+            incoming.destroy();
+            reject(new Error("request blocked: malformed response", { cause: error }));
+          }
+        }
+      );
+      request.once("error", reject);
+      request.end();
+    });
+  };
+}
 
 export async function safeFetch(input: SafeFetchInput, policy: FetchPolicy): Promise<Response> {
   const allowedHosts = normalizeAllowedHosts(policy.allowedHosts);
@@ -74,7 +152,12 @@ export async function safeFetch(input: SafeFetchInput, policy: FetchPolicy): Pro
       continue;
     }
 
-    enforceContentLength(response.headers, MAX_RESPONSE_BYTES);
+    try {
+      enforceContentLength(response.headers, MAX_RESPONSE_BYTES);
+    } catch (error) {
+      await response.body?.cancel().catch(() => undefined);
+      throw error;
+    }
     return bufferResponse(response, MAX_RESPONSE_BYTES);
   }
 
@@ -94,6 +177,9 @@ function parseTarget(value: string, redirect: boolean, base?: URL): URL {
 function validateTarget(current: URL, allowedHosts: ReadonlySet<string>, redirect: boolean): string {
   if (current.protocol !== "https:") {
     throw new Error(`${redirect ? "redirect " : ""}blocked protocol`);
+  }
+  if (current.port !== "") {
+    throw new Error(`${redirect ? "redirect " : ""}blocked port`);
   }
 
   const hostname = normalizeHostname(current.hostname);
@@ -160,14 +246,25 @@ export function isForbiddenIp(address: string): boolean {
     return isForbiddenIpv4(wordsToIpv4(words[6] ?? 0, words[7] ?? 0));
   }
 
-  const allZero = words.every((word) => word === 0);
-  const loopback = words.slice(0, 7).every((word) => word === 0) && words[7] === 1;
+  const ipv4Compatible = words.slice(0, 6).every((word) => word === 0);
+  const nat64WellKnown = words[0] === 0x0064 && words[1] === 0xff9b && words[2] === 0;
+  const nat64Local = words[0] === 0x0064 && words[1] === 0xff9b && words[2] === 1;
   const first = words[0] ?? 0;
-  const uniqueLocal = (first & 0xfe00) === 0xfc00;
-  const linkLocal = (first & 0xffc0) === 0xfe80;
-  const siteLocal = (first & 0xffc0) === 0xfec0;
-  const multicast = (first & 0xff00) === 0xff00;
-  return allZero || loopback || uniqueLocal || linkLocal || siteLocal || multicast;
+  const outsideGlobalUnicast = (first & 0xe000) !== 0x2000;
+  const protocolAssignments = first === 0x2001 && (words[1] ?? 0) <= 0x01ff;
+  const documentation = first === 0x2001 && words[1] === 0x0db8;
+  const documentationV2 = first === 0x3fff && ((words[1] ?? 0) & 0xf000) === 0;
+  const sixToFour = first === 0x2002;
+  return (
+    ipv4Compatible ||
+    nat64WellKnown ||
+    nat64Local ||
+    outsideGlobalUnicast ||
+    protocolAssignments ||
+    documentation ||
+    documentationV2 ||
+    sixToFour
+  );
 }
 
 function isForbiddenIpv4(address: string): boolean {
@@ -280,4 +377,16 @@ async function bufferResponse(response: Response, maximum: number): Promise<Resp
 
 function responseInit(response: Response): ResponseInit {
   return { status: response.status, statusText: response.statusText, headers: response.headers };
+}
+
+function toWebHeaders(source: IncomingHttpHeaders): Headers {
+  const headers = new Headers();
+  for (const [name, value] of Object.entries(source)) {
+    if (Array.isArray(value)) {
+      for (const item of value) headers.append(name, item);
+    } else if (value !== undefined) {
+      headers.set(name, value);
+    }
+  }
+  return headers;
 }
