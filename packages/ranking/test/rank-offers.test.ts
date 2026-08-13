@@ -74,6 +74,8 @@ describe("rankExactOffers", () => {
     expect(withMembership[0]?.rankingQuote.deliveredPrice.amountCents).toBe(600);
     expect(withMembership[0]?.memberQuote?.eligible).toBe(true);
     expect(withoutMembership[0]).not.toBe(member);
+    expect(ComparisonOfferSchema.parse(withoutMembership[0])).toEqual(withoutMembership[0]);
+    expect(ComparisonOfferSchema.parse(withMembership[0])).toEqual(withMembership[0]);
     expect(offers).toEqual(original);
   });
 

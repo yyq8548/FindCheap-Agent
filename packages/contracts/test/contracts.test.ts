@@ -121,6 +121,33 @@ describe("commerce contracts", () => {
     ).toThrow();
   });
 
+  it("allows only regular or eligible member quotes for comparison ranking", () => {
+    const regularQuote = quote("regular");
+    const memberQuote = quote("member");
+    const arbitraryQuote = quote("arbitrary");
+    const withMember = {
+      ...comparisonOffer("EXACT"),
+      regularQuote,
+      memberQuote: {
+        programId: "club",
+        programName: "Club",
+        eligible: true,
+        quote: memberQuote
+      }
+    };
+
+    expect(() => ComparisonOfferSchema.parse(comparisonOffer("EXACT"))).not.toThrow();
+    expect(() =>
+      ComparisonOfferSchema.parse({ ...withMember, rankingQuote: regularQuote })
+    ).not.toThrow();
+    expect(() =>
+      ComparisonOfferSchema.parse({ ...withMember, rankingQuote: memberQuote })
+    ).not.toThrow();
+    expect(() =>
+      ComparisonOfferSchema.parse({ ...withMember, rankingQuote: arbitraryQuote })
+    ).toThrow();
+  });
+
   it("rejects an exact offer without deterministic match evidence", () => {
     expect(() =>
       MerchantOfferSchema.parse({

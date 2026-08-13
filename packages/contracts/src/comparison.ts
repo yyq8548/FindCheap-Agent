@@ -27,15 +27,16 @@ export const ComparisonOfferSchema = z
   .superRefine((offer, ctx) => {
     const quotesEqual = (left: unknown, right: unknown) =>
       JSON.stringify(left) === JSON.stringify(right);
-    const expectedQuote = offer.memberQuote?.eligible
-      ? offer.memberQuote.quote
-      : offer.regularQuote;
+    const allowedRankingQuotes = [
+      offer.regularQuote,
+      ...(offer.memberQuote?.eligible ? [offer.memberQuote.quote] : [])
+    ];
 
-    if (!quotesEqual(offer.rankingQuote, expectedQuote)) {
+    if (!allowedRankingQuotes.some((quote) => quotesEqual(offer.rankingQuote, quote))) {
       ctx.addIssue({
         code: "custom",
         path: ["rankingQuote"],
-        message: "rankingQuote must use the eligible member quote or regular quote"
+        message: "rankingQuote must use the regular quote or an eligible member quote"
       });
     }
   });
