@@ -9,6 +9,27 @@ export const MAX_RESPONSE_BYTES = 5_000_000;
 export const REQUEST_TIMEOUT_MS = 8_000;
 const MAX_REDIRECTS = 3;
 
+type Ipv6Prefix = { words: readonly number[]; bits: number };
+
+const IPV6_PROTOCOL_ASSIGNMENTS: Ipv6Prefix = { words: [0x2001, 0], bits: 23 };
+const IPV6_PROTOCOL_GLOBAL_EXCEPTIONS: readonly Ipv6Prefix[] = [
+  { words: [0x2001, 0x0001, 0, 0, 0, 0, 0, 1], bits: 128 },
+  { words: [0x2001, 0x0001, 0, 0, 0, 0, 0, 2], bits: 128 },
+  { words: [0x2001, 0x0001, 0, 0, 0, 0, 0, 3], bits: 128 },
+  { words: [0x2001, 0x0003], bits: 32 },
+  { words: [0x2001, 0x0004, 0x0112], bits: 48 },
+  { words: [0x2001, 0x0020], bits: 28 },
+  { words: [0x2001, 0x0030], bits: 28 }
+];
+const IPV6_NON_GLOBAL_PREFIXES: readonly Ipv6Prefix[] = [
+  { words: [0x0064, 0xff9b, 0, 0, 0, 0], bits: 96 },
+  { words: [0x0064, 0xff9b, 1], bits: 48 },
+  { words: [0x0100, 0, 0, 0], bits: 64 },
+  { words: [0x2001, 0x0db8], bits: 32 },
+  { words: [0x2002], bits: 16 },
+  { words: [0x3fff, 0], bits: 20 }
+];
+
 export type ResolvedAddress = {
   address: string;
   family: number;
@@ -247,24 +268,33 @@ export function isForbiddenIp(address: string): boolean {
   }
 
   const ipv4Compatible = words.slice(0, 6).every((word) => word === 0);
-  const nat64WellKnown = words[0] === 0x0064 && words[1] === 0xff9b && words[2] === 0;
-  const nat64Local = words[0] === 0x0064 && words[1] === 0xff9b && words[2] === 1;
   const first = words[0] ?? 0;
   const outsideGlobalUnicast = (first & 0xe000) !== 0x2000;
-  const protocolAssignments = first === 0x2001 && (words[1] ?? 0) <= 0x01ff;
-  const documentation = first === 0x2001 && words[1] === 0x0db8;
-  const documentationV2 = first === 0x3fff && ((words[1] ?? 0) & 0xf000) === 0;
-  const sixToFour = first === 0x2002;
+  const nonGlobalPrefix = IPV6_NON_GLOBAL_PREFIXES.some((prefix) =>
+    matchesIpv6Prefix(words, prefix)
+  );
+  const protocolAssignment = matchesIpv6Prefix(words, IPV6_PROTOCOL_ASSIGNMENTS);
+  const globalProtocolException = IPV6_PROTOCOL_GLOBAL_EXCEPTIONS.some((prefix) =>
+    matchesIpv6Prefix(words, prefix)
+  );
   return (
     ipv4Compatible ||
-    nat64WellKnown ||
-    nat64Local ||
     outsideGlobalUnicast ||
-    protocolAssignments ||
-    documentation ||
-    documentationV2 ||
-    sixToFour
+    nonGlobalPrefix ||
+    (protocolAssignment && !globalProtocolException)
   );
+}
+
+function matchesIpv6Prefix(words: readonly number[], prefix: Ipv6Prefix): boolean {
+  const fullWords = Math.floor(prefix.bits / 16);
+  for (let index = 0; index < fullWords; index += 1) {
+    if (words[index] !== (prefix.words[index] ?? 0)) return false;
+  }
+
+  const remainingBits = prefix.bits % 16;
+  if (remainingBits === 0) return true;
+  const mask = (0xffff << (16 - remainingBits)) & 0xffff;
+  return ((words[fullWords] ?? 0) & mask) === ((prefix.words[fullWords] ?? 0) & mask);
 }
 
 function isForbiddenIpv4(address: string): boolean {
