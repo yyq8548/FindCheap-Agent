@@ -12,10 +12,13 @@
     "test:mcp-stdio": "vitest run apps/mcp-server/test/stdio-smoke.test.ts",
     "test:integration": "vitest run --config vitest.integration.ts",
     "db:migrate": "tsx packages/db/src/migrate.ts",
-    "eval:matching": "tsx scripts/evaluate-matching.ts"
+    "eval:matching": "tsx scripts/evaluate-matching.ts",
+    "merchants:score": "tsx scripts/score-merchants.ts"
   },
   "dependencies": {
-    "pg": "^8.16.3"
+    "pg": "^8.16.3",
+    "yaml": "^2.4.2",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
