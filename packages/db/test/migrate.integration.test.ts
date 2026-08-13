@@ -59,4 +59,15 @@ describe("migration runner", () => {
     expect(after.rows).toEqual(before.rows);
     expect(ledgerAfter.rows).toEqual(ledgerBefore.rows);
   });
+
+  it("records the ingestion pipeline migration in the checksum ledger", async () => {
+    await runMigrations(db);
+
+    const result = await db.query<{ filename: string }>(
+      "SELECT filename FROM commerce_schema_migrations WHERE filename = $1",
+      ["0002_ingestion_pipeline.sql"]
+    );
+
+    expect(result.rows).toEqual([{ filename: "0002_ingestion_pipeline.sql" }]);
+  });
 });

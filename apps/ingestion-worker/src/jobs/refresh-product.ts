@@ -1,18 +1,25 @@
 import type { MerchantAdapter, RawMerchantOffer } from "../../../../packages/merchant-sdk/src/index.js";
+import { storeEvidence, type EvidenceRepository } from "../evidence/store-evidence.js";
 import {
-  storeEvidence,
-  type EvidenceRepository
-} from "../evidence/store-evidence.js";
+  canonicalizeProductRefreshJob,
+  productSourceIdentity,
+  stableRecordId,
+  type RefreshJob
+} from "./refresh-identity.js";
+import {
+  requireEvidenceFreshness,
+  requireEvidenceSupportsEntity,
+  validateFreshnessPolicy,
+  type FreshnessPolicy
+} from "./freshness.js";
 
-export type RefreshJob = {
-  merchantId: string;
-  merchantProductId: string;
-  sourceVersion: string;
-  idempotencyKey?: string;
-};
+export type { RefreshJob } from "./refresh-identity.js";
+export type { FreshnessPolicy } from "./freshness.js";
 
 export type PublishedOffer = RawMerchantOffer & {
   offerId: string;
+  sourceIdentityKey: string;
+  sourceVersion: string;
   evidenceRefs: string[];
 };
 
@@ -22,8 +29,6 @@ export type RefreshOutcome =
   | { status: "CIRCUIT_OPEN" }
   | { status: "NOT_FOUND" }
   | { status: "PUBLISHED"; offerId: string };
-
-export type FreshnessPolicy = { ttlMs: number; maxFutureSkewMs: number };
 
 export interface OfferRepository {
   /** Upserts at most once for an idempotency key. */
@@ -48,7 +53,7 @@ export type RefreshProductDeps = RefreshControls & {
 };
 
 export function jobIdempotencyKey(job: RefreshJob): string {
-  return `${job.merchantId}:${job.merchantProductId}:${job.sourceVersion}`;
+  return canonicalizeProductRefreshJob(job).idempotencyKey;
 }
 
 export function sourceType(metadata: Record<string, string>): string {
@@ -66,38 +71,6 @@ export function requireSafeSourceUrl(sourceUrl: string): void {
   if (parsed.protocol !== "https:") throw new Error("evidence source URL must use HTTPS");
 }
 
-export function requireEvidenceTimestamp(
-  checkedAt: string,
-  now: Date,
-  maxFutureSkewMs: number
-): void {
-  const checked = Date.parse(checkedAt);
-  if (!Number.isFinite(checked) || checked > now.getTime() + maxFutureSkewMs) {
-    throw new Error("evidence freshness is invalid or future-skewed");
-  }
-}
-
-export function requireFreshness(
-  value: { checkedAt: string; expiresAt: string },
-  now: Date,
-  policy: FreshnessPolicy
-): void {
-  const checked = Date.parse(value.checkedAt);
-  const expires = Date.parse(value.expiresAt);
-  if (!Number.isFinite(checked) || !Number.isFinite(expires)) {
-    throw new Error("freshness timestamps are invalid");
-  }
-  if (checked > now.getTime() + policy.maxFutureSkewMs) {
-    throw new Error("freshness checkedAt is future-skewed");
-  }
-  if (expires <= checked || expires <= now.getTime()) {
-    throw new Error("freshness has expired or has an invalid interval");
-  }
-  if (expires - checked > policy.ttlMs) {
-    throw new Error("freshness exceeds the configured TTL");
-  }
-}
-
 function controlsOutcome(job: RefreshJob, deps: RefreshControls): RefreshOutcome | null {
   if (!deps.flags.isMerchantEnabled(job.merchantId) || !deps.flags.isSourceEnabled(job.merchantId)) {
     return { status: "DISABLED" };
@@ -111,24 +84,47 @@ export async function refreshProduct(
   job: RefreshJob,
   deps: RefreshProductDeps
 ): Promise<RefreshOutcome> {
-  const stopped = controlsOutcome(job, deps);
+  const canonicalJob = canonicalizeProductRefreshJob(job);
+  validateFreshnessPolicy(deps.freshness);
+  const stopped = controlsOutcome(canonicalJob, deps);
   if (stopped) return stopped;
 
-  const adapter = deps.adapters.get(job.merchantId);
-  const raw = await adapter.refreshProduct(job.merchantProductId);
-  const offer = await adapter.getOffer(job.merchantProductId);
+  const adapter = deps.adapters.get(canonicalJob.merchantId);
+  const raw = await adapter.refreshProduct(canonicalJob.merchantProductId);
+  const offer = await adapter.getOffer(canonicalJob.merchantProductId);
   const now = deps.clock.now();
 
-  if (raw.merchantProductId !== job.merchantProductId) {
+  if (raw.merchantProductId !== canonicalJob.merchantProductId) {
     throw new Error("refresh result does not match requested product");
   }
+  if (raw.sourceVersion !== canonicalJob.sourceVersion) {
+    throw new Error("refresh source version does not match requested source version");
+  }
   requireSafeSourceUrl(raw.sourceUrl);
-  requireEvidenceTimestamp(raw.checkedAt, now, deps.freshness.maxFutureSkewMs);
+  requireEvidenceFreshness(raw.checkedAt, now, deps.freshness);
 
-  const baseKey = jobIdempotencyKey(job);
+  if (!offer) {
+    await storeEvidence(deps.evidence, {
+      sourceIdentity: productSourceIdentity(canonicalJob),
+      sourceUrl: raw.sourceUrl,
+      sourceType: sourceType(raw.metadata),
+      rawContent: raw.rawEvidence,
+      capturedAt: now.toISOString(),
+      metadata: { ...raw.metadata, sourceCheckedAt: raw.checkedAt }
+    });
+    return { status: "NOT_FOUND" };
+  }
+  if (
+    offer.merchantId !== canonicalJob.merchantId ||
+    offer.merchantProductId !== canonicalJob.merchantProductId
+  ) {
+    throw new Error("offer does not match requested merchant product");
+  }
+  requireEvidenceSupportsEntity(raw.checkedAt, offer, now, deps.freshness);
+
+  const identity = productSourceIdentity(canonicalJob);
   const evidence = await storeEvidence(deps.evidence, {
-    jobIdempotencyKey: baseKey,
-    merchantId: job.merchantId,
+    sourceIdentity: identity,
     sourceUrl: raw.sourceUrl,
     sourceType: sourceType(raw.metadata),
     rawContent: raw.rawEvidence,
@@ -136,17 +132,13 @@ export async function refreshProduct(
     metadata: { ...raw.metadata, sourceCheckedAt: raw.checkedAt }
   });
 
-  if (!offer) return { status: "NOT_FOUND" };
-  if (offer.merchantId !== job.merchantId || offer.merchantProductId !== job.merchantProductId) {
-    throw new Error("offer does not match requested merchant product");
-  }
-  requireFreshness(offer, now, deps.freshness);
-
   const published: PublishedOffer = {
     ...offer,
-    offerId: `${job.merchantId}:${job.merchantProductId}`,
+    offerId: stableRecordId("offer", identity.key),
+    sourceIdentityKey: identity.key,
+    sourceVersion: identity.sourceVersion,
     evidenceRefs: [...new Set([...offer.evidenceRefs, evidence.id])]
   };
-  await deps.offers.upsert(published, `${baseKey}:offer:${evidence.contentHash}`);
+  await deps.offers.upsert(published, stableRecordId("offer", identity.key));
   return { status: "PUBLISHED", offerId: published.offerId };
 }

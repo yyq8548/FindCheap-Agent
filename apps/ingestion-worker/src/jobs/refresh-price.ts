@@ -1,28 +1,35 @@
 import type { MerchantAdapter, RawPriceQuote } from "../../../../packages/merchant-sdk/src/index.js";
 import {
+  SourceVersionConflictError,
   storeEvidence,
   type EvidenceRepository
 } from "../evidence/store-evidence.js";
+import type { QuarantineRecord, QuarantineRepository } from "../quality/quarantine.js";
 import {
-  detectPriceAnomaly,
-  type QuarantineRepository
-} from "../quality/quarantine.js";
-import {
-  jobIdempotencyKey,
-  requireEvidenceTimestamp,
-  requireFreshness,
   requireSafeSourceUrl,
   sourceType,
-  type FreshnessPolicy,
   type RefreshControls,
-  type RefreshJob
 } from "./refresh-product.js";
+import {
+  canonicalizePriceRefreshJob,
+  priceSourceIdentity,
+  stableRecordId,
+  type RefreshPriceJob
+} from "./refresh-identity.js";
+import {
+  requireEvidenceSupportsEntity,
+  validateFreshnessPolicy,
+  type FreshnessPolicy
+} from "./freshness.js";
 
-export type RefreshPriceJob = RefreshJob & { zipCode: string; memberships: string[] };
+export type { RefreshPriceJob } from "./refresh-identity.js";
 
 export type PublishedQuote = RawPriceQuote & {
   quoteId: string;
   merchantId: string;
+  sourceIdentityKey: string;
+  sourceVersion: string;
+  quoteContext: { zipCode: string; memberships: string[] };
   deliveredPriceCents: number;
   evidenceRefs: string[];
 };
@@ -31,13 +38,22 @@ export type RefreshPriceOutcome =
   | { status: "DISABLED" }
   | { status: "KILL_SWITCHED" }
   | { status: "CIRCUIT_OPEN" }
-  | { status: "QUARANTINED"; reason: "PRICE_DROP_AT_LEAST_90_PERCENT" }
+  | {
+    status: "QUARANTINED";
+    reason: "PRICE_DROP_AT_LEAST_90_PERCENT" | "SOURCE_VERSION_CONFLICT";
+  }
   | { status: "PUBLISHED"; quoteId: string };
 
 export interface QuoteRepository {
-  previousDeliveredPriceCents(merchantId: string, merchantProductId: string): Promise<number | null>;
-  /** Saves at most one record for an idempotency key. */
-  save(quote: PublishedQuote, idempotencyKey: string): Promise<void>;
+  /** Atomically checks exact-context history and persists a quote or quarantine. */
+  commit(input: {
+    quote: PublishedQuote;
+    publicationKey: string;
+    quarantineKey: string;
+  }): Promise<
+    | { status: "PUBLISHED" }
+    | { status: "QUARANTINED"; quarantine: QuarantineRecord }
+  >;
 }
 
 export type RefreshPriceDeps = RefreshControls & {
@@ -68,66 +84,91 @@ export async function refreshPrice(
   job: RefreshPriceJob,
   deps: RefreshPriceDeps
 ): Promise<RefreshPriceOutcome> {
-  if (!deps.flags.isMerchantEnabled(job.merchantId) || !deps.flags.isSourceEnabled(job.merchantId)) {
+  const canonicalJob = canonicalizePriceRefreshJob(job);
+  validateFreshnessPolicy(deps.freshness);
+  if (
+    !deps.flags.isMerchantEnabled(canonicalJob.merchantId) ||
+    !deps.flags.isSourceEnabled(canonicalJob.merchantId)
+  ) {
     return { status: "DISABLED" };
   }
-  if (deps.killSwitch.isActive(job.merchantId)) return { status: "KILL_SWITCHED" };
-  if (deps.circuitBreaker.isOpen(job.merchantId)) return { status: "CIRCUIT_OPEN" };
+  if (deps.killSwitch.isActive(canonicalJob.merchantId)) return { status: "KILL_SWITCHED" };
+  if (deps.circuitBreaker.isOpen(canonicalJob.merchantId)) return { status: "CIRCUIT_OPEN" };
 
-  const adapter = deps.adapters.get(job.merchantId);
-  const raw = await adapter.refreshProduct(job.merchantProductId);
-  const quote = await adapter.quoteDeliveredPrice({
-    merchantProductId: job.merchantProductId,
-    zipCode: job.zipCode,
-    memberships: job.memberships
+  const adapter = deps.adapters.get(canonicalJob.merchantId);
+  const raw = await adapter.refreshPrice({
+    merchantProductId: canonicalJob.merchantProductId,
+    zipCode: canonicalJob.zipCode,
+    memberships: canonicalJob.memberships,
+    sourceVersion: canonicalJob.sourceVersion
   });
+  const quote = raw.quote;
   const now = deps.clock.now();
 
-  if (raw.merchantProductId !== job.merchantProductId || quote.merchantProductId !== job.merchantProductId) {
+  if (
+    raw.merchantProductId !== canonicalJob.merchantProductId ||
+    quote.merchantProductId !== canonicalJob.merchantProductId
+  ) {
     throw new Error("price refresh result does not match requested product");
   }
+  if (raw.sourceVersion !== canonicalJob.sourceVersion) {
+    throw new Error("price refresh source version does not match requested source version");
+  }
   requireSafeSourceUrl(raw.sourceUrl);
-  requireEvidenceTimestamp(raw.checkedAt, now, deps.freshness.maxFutureSkewMs);
-  requireFreshness(quote, now, deps.freshness);
+  requireEvidenceSupportsEntity(raw.checkedAt, quote, now, deps.freshness);
   const currentPriceCents = deliveredPriceCents(quote);
 
-  const baseKey = jobIdempotencyKey(job);
-  const evidence = await storeEvidence(deps.evidence, {
-    jobIdempotencyKey: baseKey,
-    merchantId: job.merchantId,
-    sourceUrl: raw.sourceUrl,
-    sourceType: sourceType(raw.metadata),
-    rawContent: raw.rawEvidence,
-    capturedAt: now.toISOString(),
-    metadata: { ...raw.metadata, sourceCheckedAt: raw.checkedAt }
-  });
-  const evidenceRefs = [...new Set([...quote.evidenceRefs, evidence.id])];
-  const previous = await deps.quotes.previousDeliveredPriceCents(
-    job.merchantId,
-    job.merchantProductId
-  );
-  const anomaly = detectPriceAnomaly(currentPriceCents, previous);
-  if (anomaly) {
+  const identity = priceSourceIdentity(canonicalJob);
+  let evidence;
+  try {
+    evidence = await storeEvidence(deps.evidence, {
+      sourceIdentity: identity,
+      sourceUrl: raw.sourceUrl,
+      sourceType: sourceType(raw.metadata),
+      rawContent: raw.rawEvidence,
+      capturedAt: now.toISOString(),
+      metadata: { ...raw.metadata, sourceCheckedAt: raw.checkedAt }
+    });
+  } catch (error) {
+    if (!(error instanceof SourceVersionConflictError)) throw error;
     await deps.quarantine.save(
       {
-        merchantId: job.merchantId,
-        merchantProductId: job.merchantProductId,
-        evidenceRefs,
-        checkedAt: quote.checkedAt,
-        ...anomaly
+        merchantId: canonicalJob.merchantId,
+        merchantProductId: canonicalJob.merchantProductId,
+        sourceIdentityKey: identity.key,
+        sourceVersion: identity.sourceVersion,
+        sourceUrl: raw.sourceUrl,
+        rawEvidence: raw.rawEvidence,
+        metadata: raw.metadata,
+        quoteContext: { zipCode: canonicalJob.zipCode, memberships: canonicalJob.memberships },
+        evidenceRefs: [error.evidenceId],
+        checkedAt: raw.checkedAt,
+        reason: "SOURCE_VERSION_CONFLICT",
+        expectedContentHash: error.expectedContentHash,
+        actualContentHash: error.actualContentHash
       },
-      `${baseKey}:quarantine`
+      stableRecordId("quarantine", identity.key)
     );
-    return { status: "QUARANTINED", reason: anomaly.reason };
+    return { status: "QUARANTINED", reason: "SOURCE_VERSION_CONFLICT" };
   }
-
+  const evidenceRefs = [...new Set([...quote.evidenceRefs, evidence.id])];
   const published: PublishedQuote = {
     ...quote,
-    quoteId: `${job.merchantId}:${job.merchantProductId}:${job.zipCode}`,
-    merchantId: job.merchantId,
+    quoteId: stableRecordId("quote", identity.key),
+    merchantId: canonicalJob.merchantId,
+    sourceIdentityKey: identity.key,
+    sourceVersion: identity.sourceVersion,
+    quoteContext: { zipCode: canonicalJob.zipCode, memberships: canonicalJob.memberships },
     deliveredPriceCents: currentPriceCents,
     evidenceRefs
   };
-  await deps.quotes.save(published, `${baseKey}:quote:${evidence.contentHash}`);
+  const result = await deps.quotes.commit({
+    quote: published,
+    publicationKey: stableRecordId("quote", identity.key),
+    quarantineKey: stableRecordId("quarantine", identity.key)
+  });
+  if (result.status === "QUARANTINED") {
+    return { status: "QUARANTINED", reason: result.quarantine.reason };
+  }
   return { status: "PUBLISHED", quoteId: published.quoteId };
 }

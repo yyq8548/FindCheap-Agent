@@ -1,8 +1,13 @@
 import { createHash } from "node:crypto";
+import { stableRecordId, type SourceIdentity } from "../jobs/refresh-identity.js";
 
 export type EvidenceWrite = {
-  idempotencyKey: string;
+  id: string;
+  sourceIdentityKey: string;
   merchantId: string;
+  merchantProductId: string;
+  sourceVersion: string;
+  quoteContext?: { zipCode: string; memberships: string[] };
   sourceUrl: string;
   sourceType: string;
   contentHash: string;
@@ -13,9 +18,29 @@ export type EvidenceWrite = {
 
 export type StoredEvidence = EvidenceWrite & { id: string };
 
+export type EvidenceSaveResult =
+  | { status: "STORED" | "REUSED"; record: StoredEvidence }
+  | {
+    status: "CONFLICT";
+    evidenceId: string;
+    expectedContentHash: string;
+    actualContentHash: string;
+  };
+
 export interface EvidenceRepository {
   /** Saves at most one record for an idempotency key and returns the existing record on retry. */
-  save(write: EvidenceWrite): Promise<StoredEvidence>;
+  save(write: EvidenceWrite): Promise<EvidenceSaveResult>;
+}
+
+export class SourceVersionConflictError extends Error {
+  constructor(
+    readonly evidenceId: string,
+    readonly expectedContentHash: string,
+    readonly actualContentHash: string
+  ) {
+    super("SOURCE_VERSION_CONFLICT");
+    this.name = "SourceVersionConflictError";
+  }
 }
 
 export function sha256(content: string): string {
@@ -25,8 +50,7 @@ export function sha256(content: string): string {
 export async function storeEvidence(
   repository: EvidenceRepository,
   input: {
-    jobIdempotencyKey: string;
-    merchantId: string;
+    sourceIdentity: SourceIdentity;
     sourceUrl: string;
     sourceType: string;
     rawContent: string;
@@ -36,14 +60,29 @@ export async function storeEvidence(
 ): Promise<StoredEvidence> {
   if (input.rawContent.length === 0) throw new Error("raw evidence must not be empty");
   const contentHash = sha256(input.rawContent);
-  return repository.save({
-    idempotencyKey: `${input.jobIdempotencyKey}:evidence:${contentHash}`,
-    merchantId: input.merchantId,
+  const write: EvidenceWrite = {
+    id: stableRecordId("evidence", input.sourceIdentity.key),
+    sourceIdentityKey: input.sourceIdentity.key,
+    merchantId: input.sourceIdentity.merchantId,
+    merchantProductId: input.sourceIdentity.merchantProductId,
+    sourceVersion: input.sourceIdentity.sourceVersion,
     sourceUrl: input.sourceUrl,
     sourceType: input.sourceType,
     contentHash,
     rawContent: input.rawContent,
     capturedAt: input.capturedAt,
-    metadata: input.metadata
-  });
+    metadata: input.metadata,
+    ...(input.sourceIdentity.quoteContext
+      ? { quoteContext: input.sourceIdentity.quoteContext }
+      : {})
+  };
+  const result = await repository.save(write);
+  if (result.status === "CONFLICT") {
+    throw new SourceVersionConflictError(
+      result.evidenceId,
+      result.expectedContentHash,
+      result.actualContentHash
+    );
+  }
+  return result.record;
 }

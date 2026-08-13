@@ -10,7 +10,13 @@ export const tables = {
   merchantOffers: "merchant_offers",
   evidence: "evidence",
   priceQuotes: "price_quotes",
-  coupons: "coupons"
+  coupons: "coupons",
+  ingestionEvidence: "ingestion_evidence",
+  ingestionPurgeAudit: "ingestion_purge_audit",
+  ingestionIdempotency: "ingestion_idempotency",
+  merchantProductStaging: "merchant_product_staging",
+  merchantQuoteStaging: "merchant_quote_staging",
+  merchantIngestionQuarantine: "merchant_ingestion_quarantine"
 } as const;
 
 export type Timestamp = Date | string;

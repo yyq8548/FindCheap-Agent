@@ -64,10 +64,24 @@ export type AffiliateLinkResult = { url: string; kind: "AFFILIATE" | "NORMAL" };
 
 export type RefreshResult = {
   merchantProductId: string;
+  sourceVersion: string;
   sourceUrl: string;
   rawEvidence: string;
   metadata: Record<string, string>;
   checkedAt: string;
+};
+
+export type RefreshPriceInput = QuoteDeliveredPriceInput & { sourceVersion: string };
+
+/** Quote and its supporting raw evidence captured as one adapter operation. */
+export type RefreshPriceResult = {
+  merchantProductId: string;
+  sourceVersion: string;
+  sourceUrl: string;
+  rawEvidence: string;
+  metadata: Record<string, string>;
+  checkedAt: string;
+  quote: RawPriceQuote;
 };
 
 export type EvidenceRecord = {
@@ -88,6 +102,7 @@ export interface MerchantAdapter {
   getCoupons(input: CouponQuery): Promise<RawCoupon[]>;
   buildAffiliateLink(input: AffiliateLinkInput): Promise<AffiliateLinkResult>;
   refreshProduct(merchantProductId: string): Promise<RefreshResult>;
+  refreshPrice(input: RefreshPriceInput): Promise<RefreshPriceResult>;
   healthCheck(): Promise<MerchantHealth>;
   evidence(entityId: string): Promise<EvidenceRecord[]>;
 }

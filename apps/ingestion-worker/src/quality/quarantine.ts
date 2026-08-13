@@ -11,6 +11,21 @@ export type QuarantineRecord = PriceAnomaly & {
   merchantProductId: string;
   evidenceRefs: string[];
   checkedAt: string;
+  quoteContext: { zipCode: string; memberships: string[] };
+} | {
+  reason: "SOURCE_VERSION_CONFLICT";
+  merchantId: string;
+  merchantProductId: string;
+  sourceIdentityKey: string;
+  sourceVersion: string;
+  sourceUrl: string;
+  rawEvidence: string;
+  metadata: Record<string, string>;
+  evidenceRefs: string[];
+  checkedAt: string;
+  quoteContext: { zipCode: string; memberships: string[] };
+  expectedContentHash: string;
+  actualContentHash: string;
 };
 
 export interface QuarantineRepository {
@@ -22,9 +37,16 @@ export function detectPriceAnomaly(
   currentPriceCents: number,
   previousPriceCents: number | null
 ): PriceAnomaly | null {
-  if (previousPriceCents === null || previousPriceCents <= 0 || currentPriceCents < 0) {
-    return null;
+  if (!Number.isSafeInteger(currentPriceCents) || currentPriceCents < 0) {
+    throw new Error("current price must be a non-negative safe integer");
   }
+  if (
+    previousPriceCents !== null &&
+    (!Number.isSafeInteger(previousPriceCents) || previousPriceCents < 0)
+  ) {
+    throw new Error("price history must be a non-negative safe integer");
+  }
+  if (previousPriceCents === null || previousPriceCents === 0) return null;
 
   // Integer arithmetic makes the inclusive 90% boundary deterministic.
   if (

@@ -8,21 +8,30 @@ import {
 } from "bullmq";
 import type { RefreshPriceJob, RefreshPriceOutcome } from "./jobs/refresh-price.js";
 import {
-  jobIdempotencyKey,
-  type RefreshJob,
-  type RefreshOutcome
-} from "./jobs/refresh-product.js";
+  canonicalizePriceRefreshJob,
+  canonicalizeProductRefreshJob,
+  type RefreshJob
+} from "./jobs/refresh-identity.js";
+import type { RefreshOutcome } from "./jobs/refresh-product.js";
 
 export const PRODUCT_REFRESH_QUEUE = "merchant-product-refresh";
 export const PRICE_REFRESH_QUEUE = "merchant-price-refresh";
 
-export const refreshIdempotencyKey = jobIdempotencyKey;
-
-export function refreshJobId(job: RefreshJob): string {
-  return Buffer.from(refreshIdempotencyKey(job), "utf8").toString("base64url");
+function isPriceJob(job: RefreshJob | RefreshPriceJob): job is RefreshPriceJob {
+  return "zipCode" in job && "memberships" in job;
 }
 
-export function refreshJobOptions(job: RefreshJob): JobsOptions {
+export function refreshIdempotencyKey(job: RefreshJob | RefreshPriceJob): string {
+  return isPriceJob(job)
+    ? canonicalizePriceRefreshJob(job).idempotencyKey
+    : canonicalizeProductRefreshJob(job).idempotencyKey;
+}
+
+export function refreshJobId(job: RefreshJob | RefreshPriceJob): string {
+  return Buffer.from(refreshIdempotencyKey(job), "hex").toString("base64url");
+}
+
+export function refreshJobOptions(job: RefreshJob | RefreshPriceJob): JobsOptions {
   return {
     jobId: refreshJobId(job),
     attempts: 3,
@@ -73,10 +82,11 @@ export async function enqueueProductRefresh(
   queue: QueueWriter<RefreshJob>,
   job: RefreshJob
 ): Promise<void> {
+  const canonical = canonicalizeProductRefreshJob(job);
   await queue.add(
     "refresh",
-    { ...job, idempotencyKey: refreshIdempotencyKey(job) },
-    refreshJobOptions(job)
+    canonical,
+    refreshJobOptions(canonical)
   );
 }
 
@@ -84,9 +94,10 @@ export async function enqueuePriceRefresh(
   queue: QueueWriter<RefreshPriceJob>,
   job: RefreshPriceJob
 ): Promise<void> {
+  const canonical = canonicalizePriceRefreshJob(job);
   await queue.add(
     "refresh",
-    { ...job, idempotencyKey: refreshIdempotencyKey(job) },
-    refreshJobOptions(job)
+    canonical,
+    refreshJobOptions(canonical)
   );
 }

@@ -10,6 +10,7 @@ import {
   PRODUCT_REFRESH_QUEUE,
   PRICE_REFRESH_QUEUE,
   enqueueProductRefresh,
+  enqueuePriceRefresh,
   refreshIdempotencyKey,
   refreshJobId,
   refreshJobOptions,
@@ -19,11 +20,21 @@ import {
   refreshProduct,
   type RefreshProductDeps
 } from "../src/jobs/refresh-product.js";
-import type { EvidenceWrite, StoredEvidence } from "../src/evidence/store-evidence.js";
+import type {
+  EvidenceSaveResult,
+  EvidenceWrite,
+  StoredEvidence
+} from "../src/evidence/store-evidence.js";
 import {
   refreshPrice,
   type RefreshPriceDeps
 } from "../src/jobs/refresh-price.js";
+import {
+  canonicalizePriceRefreshJob,
+  canonicalizeProductRefreshJob,
+  quoteContextKey
+} from "../src/jobs/refresh-identity.js";
+import { detectPriceAnomaly } from "../src/quality/quarantine.js";
 
 const now = new Date("2026-08-13T18:00:00.000Z");
 const productJob = {
@@ -40,6 +51,7 @@ const priceJob = {
 function refreshResult(overrides: Partial<RefreshResult> = {}): RefreshResult {
   return {
     merchantProductId: "sku-1",
+    sourceVersion: "v1",
     sourceUrl: "https://merchant.example/products/sku-1",
     rawEvidence: "raw merchant evidence",
     metadata: { sourceType: "api" },
@@ -101,6 +113,15 @@ function adapter(
       kind: "NORMAL" as const
     })),
     refreshProduct: vi.fn(async () => refresh),
+    refreshPrice: vi.fn(async (input) => ({
+      merchantProductId: input.merchantProductId,
+      sourceVersion: input.sourceVersion,
+      sourceUrl: refresh.sourceUrl,
+      rawEvidence: refresh.rawEvidence,
+      metadata: refresh.metadata,
+      checkedAt: refresh.checkedAt,
+      quote: priceQuote
+    })),
     healthCheck: vi.fn(async () => ({
       status: "healthy" as const,
       source: "api" as const,
@@ -122,14 +143,22 @@ function baseControls() {
 }
 
 function productDeps(merchantAdapter = adapter()) {
-  const evidenceByKey = new Map<string, { id: string }>();
+  const evidenceByKey = new Map<string, StoredEvidence>();
   const offersByKey = new Map<string, unknown>();
-  const evidenceSave = vi.fn(async (write: EvidenceWrite): Promise<StoredEvidence> => {
-    const existing = evidenceByKey.get(write.idempotencyKey);
-    if (existing) return { ...write, ...existing };
-    const saved = { ...write, id: `evidence-${evidenceByKey.size + 1}` };
-    evidenceByKey.set(write.idempotencyKey, saved);
-    return saved;
+  const evidenceSave = vi.fn(async (write: EvidenceWrite): Promise<EvidenceSaveResult> => {
+    const existing = evidenceByKey.get(write.sourceIdentityKey);
+    if (existing) {
+      return existing.contentHash === write.contentHash
+        ? { status: "REUSED", record: existing }
+        : {
+          status: "CONFLICT",
+          evidenceId: existing.id,
+          expectedContentHash: existing.contentHash,
+          actualContentHash: write.contentHash
+        };
+    }
+    evidenceByKey.set(write.sourceIdentityKey, write);
+    return { status: "STORED", record: write };
   });
   const offerUpsert = vi.fn(async (record: unknown, idempotencyKey: string) => {
     if (!offersByKey.has(idempotencyKey)) offersByKey.set(idempotencyKey, record);
@@ -140,37 +169,70 @@ function productDeps(merchantAdapter = adapter()) {
     evidence: { save: evidenceSave },
     offers: { upsert: offerUpsert },
     clock: { now: () => new Date(now) },
-    freshness: { ttlMs: 15 * 60_000, maxFutureSkewMs: 30_000 }
+    freshness: {
+      ttlMs: 15 * 60_000,
+      maxFutureSkewMs: 30_000,
+      evidenceMaxAgeMs: 15 * 60_000,
+      maxEvidenceToEntitySkewMs: 30_000
+    }
   };
   return { deps, evidenceByKey, offersByKey, evidenceSave, offerUpsert };
 }
 
 function priceDeps(previousPriceCents = 10_000, currentQuote = quote()) {
   const merchantAdapter = adapter(refreshResult(), offer(), currentQuote);
-  const evidenceByKey = new Map<string, { id: string }>();
+  const evidenceByKey = new Map<string, StoredEvidence>();
   const quotesByKey = new Map<string, unknown>();
-  const evidenceSave = vi.fn(async (write: EvidenceWrite): Promise<StoredEvidence> => {
-    const existing = evidenceByKey.get(write.idempotencyKey);
-    if (existing) return { ...write, ...existing };
-    const saved = { ...write, id: `evidence-${evidenceByKey.size + 1}` };
-    evidenceByKey.set(write.idempotencyKey, saved);
-    return saved;
+  const evidenceSave = vi.fn(async (write: EvidenceWrite) => {
+    const existing = evidenceByKey.get(write.sourceIdentityKey);
+    if (existing) {
+      return existing.contentHash === write.contentHash
+        ? { status: "REUSED" as const, record: existing }
+        : {
+          status: "CONFLICT" as const,
+          evidenceId: existing.id,
+          expectedContentHash: existing.contentHash,
+          actualContentHash: write.contentHash
+        };
+    }
+    evidenceByKey.set(write.sourceIdentityKey, write);
+    return { status: "STORED" as const, record: write };
   });
-  const quoteSave = vi.fn(async (record: unknown, idempotencyKey: string) => {
-    if (!quotesByKey.has(idempotencyKey)) quotesByKey.set(idempotencyKey, record);
+  const quarantineSave = vi.fn(async (
+    _record: Parameters<RefreshPriceDeps["quarantine"]["save"]>[0],
+    _idempotencyKey: string
+  ) => undefined);
+  const quoteCommit = vi.fn(async (input: Parameters<RefreshPriceDeps["quotes"]["commit"]>[0]) => {
+    if (quotesByKey.has(input.publicationKey)) return { status: "PUBLISHED" as const };
+    const anomaly = detectPriceAnomaly(input.quote.deliveredPriceCents, previousPriceCents);
+    if (anomaly) {
+      const quarantine = {
+        merchantId: input.quote.merchantId,
+        merchantProductId: input.quote.merchantProductId,
+        quoteContext: input.quote.quoteContext,
+        evidenceRefs: input.quote.evidenceRefs,
+        checkedAt: input.quote.checkedAt,
+        ...anomaly
+      };
+      await quarantineSave(quarantine, input.quarantineKey);
+      return { status: "QUARANTINED" as const, quarantine };
+    }
+    quotesByKey.set(input.publicationKey, input.quote);
+    return { status: "PUBLISHED" as const };
   });
-  const quarantineSave = vi.fn(async () => undefined);
   const deps: RefreshPriceDeps = {
     ...baseControls(),
     adapters: { get: vi.fn(() => merchantAdapter) },
     evidence: { save: evidenceSave },
-    quotes: {
-      previousDeliveredPriceCents: vi.fn(async () => previousPriceCents),
-      save: quoteSave
-    },
+    quotes: { commit: quoteCommit },
     quarantine: { save: quarantineSave },
     clock: { now: () => new Date(now) },
-    freshness: { ttlMs: 15 * 60_000, maxFutureSkewMs: 30_000 }
+    freshness: {
+      ttlMs: 15 * 60_000,
+      maxFutureSkewMs: 30_000,
+      evidenceMaxAgeMs: 15 * 60_000,
+      maxEvidenceToEntitySkewMs: 30_000
+    }
   };
   return {
     deps,
@@ -178,7 +240,7 @@ function priceDeps(previousPriceCents = 10_000, currentQuote = quote()) {
     evidenceByKey,
     quotesByKey,
     evidenceSave,
-    quoteSave,
+    quoteSave: quoteCommit,
     quarantineSave
   };
 }
@@ -251,28 +313,43 @@ describe("refreshProduct", () => {
 
 describe("refreshPrice", () => {
   it("quarantines an exact 90 percent price drop and saves no quote", async () => {
-    const { deps, evidenceSave, quoteSave, quarantineSave } = priceDeps(10_000, quote({ itemPriceCents: 1_000 }));
+    const { deps, evidenceSave, quoteSave, quotesByKey, quarantineSave } = priceDeps(
+      10_000,
+      quote({ itemPriceCents: 1_000 })
+    );
 
     await expect(refreshPrice(priceJob, deps)).resolves.toMatchObject({ status: "QUARANTINED" });
 
-    expect(quoteSave).not.toHaveBeenCalled();
+    expect(quoteSave).toHaveBeenCalledOnce();
+    expect(quotesByKey.size).toBe(0);
     expect(evidenceSave).toHaveBeenCalledBefore(quarantineSave);
     expect(quarantineSave).toHaveBeenCalledWith(
       expect.objectContaining({
         reason: "PRICE_DROP_AT_LEAST_90_PERCENT",
-        evidenceRefs: expect.arrayContaining(["evidence-1"])
+        evidenceRefs: expect.arrayContaining([expect.stringMatching(/^[a-f0-9]{64}$/u)])
       }),
-      "merchant-a:sku-1:v1:quarantine"
+      expect.stringMatching(/^[a-f0-9]{64}$/u)
     );
   });
 
-  it.each([0, -1])("does not divide by a non-positive historical price (%s)", async (history) => {
-    const { deps, quoteSave, quarantineSave } = priceDeps(history, quote({ itemPriceCents: 0 }));
+  it("treats zero historical price as no baseline", async () => {
+    const { deps, quoteSave, quarantineSave } = priceDeps(0, quote({ itemPriceCents: 0 }));
 
     await expect(refreshPrice(priceJob, deps)).resolves.toMatchObject({ status: "PUBLISHED" });
     expect(quarantineSave).not.toHaveBeenCalled();
     expect(quoteSave).toHaveBeenCalledOnce();
   });
+
+  it.each([-1, Number.NaN, Number.POSITIVE_INFINITY, 1.5, Number.MAX_SAFE_INTEGER + 1])(
+    "fails closed for invalid historical price %s",
+    async (history) => {
+      const { deps, quoteSave, quotesByKey } = priceDeps(history, quote());
+
+      await expect(refreshPrice(priceJob, deps)).rejects.toThrow(/price history/i);
+      expect(quoteSave).toHaveBeenCalledOnce();
+      expect(quotesByKey.size).toBe(0);
+    }
+  );
 
   it("rejects negative price components", async () => {
     const { deps, quoteSave } = priceDeps(10_000, quote({ shippingCents: -1 }));
@@ -301,6 +378,32 @@ describe("refreshPrice", () => {
     expect(evidenceSave).toHaveBeenCalledBefore(quoteSave);
   });
 
+  it("uses the adapter's atomic price evidence operation without product refresh", async () => {
+    const { deps, merchantAdapter } = priceDeps(1_000, quote());
+
+    await refreshPrice(priceJob, deps);
+
+    expect(merchantAdapter.refreshPrice).toHaveBeenCalledOnce();
+    expect(merchantAdapter.refreshProduct).not.toHaveBeenCalled();
+    expect(merchantAdapter.quoteDeliveredPrice).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when the atomic source version differs", async () => {
+    const { deps, merchantAdapter, quoteSave } = priceDeps(1_000, quote());
+    vi.mocked(merchantAdapter.refreshPrice).mockResolvedValueOnce({
+      ...(await merchantAdapter.refreshPrice({
+        merchantProductId: "sku-1",
+        zipCode: "10001",
+        memberships: [],
+        sourceVersion: "v1"
+      })),
+      sourceVersion: "v2"
+    });
+
+    await expect(refreshPrice(priceJob, deps)).rejects.toThrow(/source version/i);
+    expect(quoteSave).not.toHaveBeenCalled();
+  });
+
   it("uses stable idempotency keys so a retry does not duplicate evidence or quotes", async () => {
     const { deps, evidenceByKey, quotesByKey } = priceDeps(1_000, quote({ itemPriceCents: 1_000 }));
 
@@ -310,16 +413,67 @@ describe("refreshPrice", () => {
     expect(evidenceByKey.size).toBe(1);
     expect(quotesByKey.size).toBe(1);
   });
+
+  it("quarantines changed content for one immutable source version", async () => {
+    const { deps, merchantAdapter, quoteSave, quarantineSave } = priceDeps(1_000, quote());
+    await refreshPrice(priceJob, deps);
+    vi.mocked(merchantAdapter.refreshPrice).mockResolvedValueOnce({
+      merchantProductId: "sku-1",
+      sourceVersion: "v1",
+      sourceUrl: "https://merchant.example/quotes/sku-1",
+      rawEvidence: "changed raw evidence",
+      metadata: { sourceType: "api" },
+      checkedAt: "2026-08-13T17:59:00.000Z",
+      quote: quote()
+    });
+
+    await expect(refreshPrice(priceJob, deps)).resolves.toEqual({
+      status: "QUARANTINED",
+      reason: "SOURCE_VERSION_CONFLICT"
+    });
+    expect(quoteSave).toHaveBeenCalledOnce();
+    expect(quarantineSave).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        reason: "SOURCE_VERSION_CONFLICT",
+        evidenceRefs: [expect.stringMatching(/^[a-f0-9]{64}$/u)]
+      }),
+      expect.stringMatching(/^[a-f0-9]{64}$/u)
+    );
+  });
+
+  it.each([
+    ["invalid calendar", refreshResult({ checkedAt: "2026-02-30T17:59:00Z" }), /RFC3339/i],
+    ["stale", refreshResult({ checkedAt: "2026-08-13T17:30:00.000Z" }), /stale/i],
+    ["mismatched", refreshResult({ checkedAt: "2026-08-13T17:58:00.000Z" }), /does not match/i]
+  ])("rejects %s atomic evidence freshness", async (_case, refresh, expected) => {
+    const merchantAdapter = adapter(refresh, offer(), quote());
+    const { deps, quoteSave } = priceDeps(1_000, quote());
+    vi.mocked(deps.adapters.get).mockReturnValue(merchantAdapter);
+
+    await expect(refreshPrice(priceJob, deps)).rejects.toThrow(expected);
+    expect(quoteSave).not.toHaveBeenCalled();
+  });
+
+  it.each(["ttlMs", "maxFutureSkewMs", "evidenceMaxAgeMs", "maxEvidenceToEntitySkewMs"] as const)(
+    "rejects invalid %s policy before adapter access",
+    async (field) => {
+      const { deps, merchantAdapter } = priceDeps();
+      deps.freshness[field] = Number.NaN;
+
+      await expect(refreshPrice(priceJob, deps)).rejects.toThrow(/finite non-negative/i);
+      expect(merchantAdapter.refreshPrice).not.toHaveBeenCalled();
+    }
+  );
 });
 
 describe("refresh queue policy", () => {
   it("uses named queues, exact deduplication IDs, retries, and bounded workers", () => {
     expect(PRODUCT_REFRESH_QUEUE).toBe("merchant-product-refresh");
     expect(PRICE_REFRESH_QUEUE).toBe("merchant-price-refresh");
-    const logicalKey = "merchant-a:sku-1:v1";
+    const logicalKey = refreshIdempotencyKey(productJob);
     const bullJobId = refreshJobId(productJob);
-    expect(refreshIdempotencyKey(productJob)).toBe(logicalKey);
-    expect(Buffer.from(bullJobId, "base64url").toString("utf8")).toBe(logicalKey);
+    expect(logicalKey).toMatch(/^[a-f0-9]{64}$/u);
+    expect(Buffer.from(bullJobId, "base64url").toString("hex")).toBe(logicalKey);
     expect(bullJobId).not.toContain(":");
     expect(refreshJobId({ ...productJob })).toBe(bullJobId);
     expect(refreshJobOptions(productJob)).toEqual({
@@ -337,12 +491,13 @@ describe("refresh queue policy", () => {
 
   it("places the logical idempotency key in job data and uses encoded BullMQ ID", async () => {
     const add = vi.fn(async () => undefined);
+    const idempotencyKey = refreshIdempotencyKey(productJob);
 
     await enqueueProductRefresh({ add }, productJob);
 
     expect(add).toHaveBeenCalledWith(
       "refresh",
-      { ...productJob, idempotencyKey: "merchant-a:sku-1:v1" },
+      { ...productJob, idempotencyKey },
       expect.objectContaining({ jobId: refreshJobId(productJob) })
     );
   });
@@ -358,5 +513,48 @@ describe("refresh queue policy", () => {
     const bullJob = new Job(queue, "refresh", productJob, options, options.jobId);
 
     expect(() => bullJob.toFlowEntry()).not.toThrow();
+  });
+
+  it("separates canonical ZIP and membership quote contexts", async () => {
+    const a = canonicalizePriceRefreshJob({
+      ...priceJob,
+      zipCode: " 10001-1234 ",
+      memberships: [" prime ", "costco", "prime"]
+    });
+    const b = canonicalizePriceRefreshJob({
+      ...priceJob,
+      zipCode: "10001-1234",
+      memberships: ["costco", "prime"]
+    });
+    const otherZip = canonicalizePriceRefreshJob({ ...priceJob, zipCode: "33433" });
+
+    expect(a.zipCode).toBe("10001-1234");
+    expect(a.memberships).toEqual(["costco", "prime"]);
+    expect(a.idempotencyKey).toBe(b.idempotencyKey);
+    expect(a.idempotencyKey).not.toBe(otherZip.idempotencyKey);
+    expect(quoteContextKey(a)).toHaveLength(64);
+
+    const add = vi.fn(async () => undefined);
+    await enqueuePriceRefresh({ add }, a);
+    expect(add).toHaveBeenCalledWith("refresh", a, expect.objectContaining({
+      jobId: refreshJobId(a)
+    }));
+  });
+
+  it.each([
+    [{ ...priceJob, zipCode: "100011234" }, /zip/i],
+    [{ ...priceJob, memberships: [" "] }, /membership/i],
+    [{ ...priceJob, memberships: Array.from({ length: 21 }, (_, i) => `m-${i}`) }, /membership/i],
+    [{ ...priceJob, merchantProductId: "x".repeat(201) }, /merchant product/i],
+    [{ ...priceJob, sourceVersion: "" }, /source version/i]
+  ])("rejects invalid refresh identity at enqueue and handler boundaries", async (invalid, expected) => {
+    expect(() => canonicalizePriceRefreshJob(invalid)).toThrow(expected);
+    const { deps } = priceDeps();
+    await expect(refreshPrice(invalid, deps)).rejects.toThrow(expected);
+  });
+
+  it("rejects a mismatched caller-supplied idempotency key", () => {
+    expect(() => canonicalizeProductRefreshJob({ ...productJob, idempotencyKey: "0".repeat(64) }))
+      .toThrow(/idempotency/i);
   });
 });

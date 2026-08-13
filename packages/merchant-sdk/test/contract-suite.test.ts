@@ -3,7 +3,13 @@ import type { MerchantAdapter, MerchantProductCandidate } from "../src/index.js"
 import { runMerchantContractSuite } from "../src/index.js";
 
 const fixtureContext = () => ({
-  search: { query: "wireless headphones", limit: 5 }
+  search: { query: "wireless headphones", limit: 5 },
+  priceRefresh: {
+    merchantProductId: "sku-1",
+    zipCode: "10001",
+    memberships: [],
+    sourceVersion: "v1"
+  }
 });
 
 const validOffer = (): MerchantProductCandidate => ({
@@ -46,7 +52,29 @@ const adapterWith = (offers: MerchantProductCandidate[]): MerchantAdapter => ({
     sourceUrl: "https://merchant.example/products/sku-1",
     rawEvidence: "{}",
     metadata: {},
-    checkedAt: "2026-08-13T12:00:00.000Z"
+    checkedAt: "2026-08-13T12:00:00.000Z",
+    sourceVersion: "v1"
+  }),
+  refreshPrice: async (input) => ({
+    merchantProductId: input.merchantProductId,
+    sourceVersion: input.sourceVersion,
+    sourceUrl: "https://merchant.example/quotes/sku-1",
+    rawEvidence: "{\"price\":1000}",
+    metadata: { sourceType: "api" },
+    checkedAt: "2026-08-13T12:00:00.000Z",
+    quote: {
+      merchantProductId: input.merchantProductId,
+      itemPriceCents: 1000,
+      shippingCents: 0,
+      taxCents: 0,
+      mandatoryFeeCents: 0,
+      currency: "USD",
+      status: "ESTIMATED",
+      conditions: [],
+      evidenceRefs: ["evidence-1"],
+      checkedAt: "2026-08-13T12:00:00.000Z",
+      expiresAt: "2026-08-13T12:15:00.000Z"
+    }
   }),
   healthCheck: async () => ({
     status: "healthy",
@@ -118,5 +146,23 @@ describe("merchant adapter contract suite", () => {
     );
 
     expect(report.failures).toEqual([]);
+  });
+
+  it("requires atomic price evidence to match the requested source identity", async () => {
+    const invalid = adapterWith([validOffer()]);
+    invalid.refreshPrice = async (input) => ({
+      merchantProductId: input.merchantProductId,
+      sourceVersion: "different-version",
+      sourceUrl: "https://merchant.example/quotes/sku-1",
+      rawEvidence: "",
+      metadata: {},
+      checkedAt: "2026-08-13T12:00:00.000Z",
+      quote: await invalid.quoteDeliveredPrice(input)
+    });
+
+    const report = await runMerchantContractSuite(() => invalid, fixtureContext());
+
+    expect(report.failures).toContain("price refresh sourceVersion must match request");
+    expect(report.failures).toContain("price refresh rawEvidence must not be empty");
   });
 });
