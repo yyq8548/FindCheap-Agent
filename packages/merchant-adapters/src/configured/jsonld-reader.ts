@@ -2,6 +2,7 @@ import {
   RawMerchantRecordSchema,
   buildConfiguredUrl,
   fetchConfigured,
+  sourceReadSnapshot,
   type RawMerchantRecord,
   type ReaderDependencies,
   type ReaderNetworkConfig,
@@ -16,17 +17,22 @@ export function createJsonLdReader(
 ): SourceReader {
   const url = buildConfiguredUrl(config.host, config.resourcePath);
 
-  return {
-    async read() {
-      const response = await fetchConfigured(url, config.allowedHosts, dependencies);
-      if (!response.ok) throw new Error(`merchant source returned HTTP ${response.status}`);
-      const contentType = response.headers.get("content-type");
-      if (contentType === null || !/(?:text\/html|application\/xhtml\+xml)/i.test(contentType)) {
-        throw new Error("merchant source did not return HTML");
-      }
-      return parseProductJsonLd(await response.text());
+  const capture = async () => {
+    const response = await fetchConfigured(url, config.allowedHosts, dependencies);
+    if (!response.ok) throw new Error(`merchant source returned HTTP ${response.status}`);
+    const contentType = response.headers.get("content-type");
+    if (contentType === null || !/(?:text\/html|application\/xhtml\+xml)/i.test(contentType)) {
+      throw new Error("merchant source did not return HTML");
     }
+    const rawBody = await response.text();
+    return sourceReadSnapshot(
+      parseProductJsonLd(rawBody),
+      rawBody,
+      response.url || url,
+      dependencies
+    );
   };
+  return { capture, read: async () => (await capture()).records };
 }
 
 export function parseProductJsonLd(document: string): RawMerchantRecord[] {

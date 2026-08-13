@@ -8,13 +8,13 @@ import {
   type SafeRequest
 } from "../../../../apps/ingestion-worker/src/network/safe-fetch.js";
 
-const FieldPathSchema = z
+export const FieldPathSchema = z
   .string()
   .min(1)
   .max(200)
   .refine(isSafeFieldPath, "invalid field path");
 
-const FieldMappingSchema = z
+export const FieldMappingSchema = z
   .object({
     merchantProductId: FieldPathSchema,
     title: FieldPathSchema,
@@ -71,13 +71,23 @@ export const RawMerchantRecordSchema = z
   .strict();
 
 export type RawMerchantRecord = z.infer<typeof RawMerchantRecordSchema>;
-export type SourceReader = { read(): Promise<RawMerchantRecord[]> };
+export type SourceReadSnapshot = {
+  records: RawMerchantRecord[];
+  rawBody: string;
+  sourceUrl: string;
+  checkedAt: string;
+};
+export type SourceReader = {
+  read(): Promise<RawMerchantRecord[]>;
+  capture(): Promise<SourceReadSnapshot>;
+};
 export type SafeFetcher = (input: SafeFetchInput, policy: FetchPolicy) => Promise<Response>;
 
 export type ReaderDependencies = {
   safeFetch?: SafeFetcher;
   resolve?: ResolveHost;
   request?: SafeRequest;
+  clock?: { now(): Date };
 };
 
 export type ReaderNetworkConfig = z.input<typeof ReaderNetworkConfigSchema>;
@@ -101,13 +111,30 @@ export function createFeedReader(
   const fields = FieldMappingSchema.parse(config.fields);
   const url = buildConfiguredUrl(network.host, network.resourcePath);
 
-  return {
-    async read() {
-      const response = await fetchConfigured(url, network.allowedHosts, dependencies);
-      ensureSuccessfulJson(response);
-      return parseMappedRecords(await response.text(), recordsPath, fields);
-    }
+  const capture = async (): Promise<SourceReadSnapshot> => {
+    const response = await fetchConfigured(url, network.allowedHosts, dependencies);
+    ensureSuccessfulJson(response);
+    const rawBody = await response.text();
+    return sourceReadSnapshot(
+      parseMappedRecords(rawBody, recordsPath, fields),
+      rawBody,
+      response.url || url,
+      dependencies
+    );
   };
+  return { capture, read: async () => (await capture()).records };
+}
+
+export function sourceReadSnapshot(
+  records: RawMerchantRecord[],
+  rawBody: string,
+  sourceUrl: string,
+  dependencies: Pick<ReaderDependencies, "clock">
+): SourceReadSnapshot {
+  const now = dependencies.clock?.now() ?? new Date();
+  if (!Number.isFinite(now.getTime())) throw new Error("reader clock returned an invalid time");
+  const checkedAt = now.toISOString();
+  return { records, rawBody, sourceUrl, checkedAt };
 }
 
 export function parseMappedRecords(
@@ -124,7 +151,7 @@ export function parseMappedRecords(
     throw new Error("invalid JSON source", { cause: error });
   }
 
-  const selected = readPath(parsed, path);
+  const selected = readDeclaredPath(parsed, path);
   const records = Array.isArray(selected) ? selected : [selected];
   return records.map((record, index) => {
     if (!isRecord(record)) throw new Error(`invalid merchant record at index ${index}`);
@@ -173,9 +200,9 @@ function mapDeclaredFields(
   fields: z.output<typeof FieldMappingSchema>
 ): unknown {
   const mapped: Record<string, unknown> = {
-    merchantProductId: readPath(record, fields.merchantProductId),
-    title: readPath(record, fields.title),
-    gtins: readGtins(fields.gtins === undefined ? undefined : readPath(record, fields.gtins))
+    merchantProductId: readDeclaredPath(record, fields.merchantProductId),
+    title: readDeclaredPath(record, fields.title),
+    gtins: readGtins(fields.gtins === undefined ? undefined : readDeclaredPath(record, fields.gtins))
   };
 
   assignOptional(mapped, "brand", fields.brand, record);
@@ -200,7 +227,7 @@ function assignOptional(
   source: Record<string, unknown>
 ): void {
   if (path === undefined) return;
-  const value = readPath(source, path);
+  const value = readDeclaredPath(source, path);
   if (value !== undefined) target[key] = value;
 }
 
@@ -209,7 +236,8 @@ function readGtins(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [value];
 }
 
-function readPath(value: unknown, path: string): unknown {
+export function readDeclaredPath(value: unknown, pathInput: string): unknown {
+  const path = FieldPathSchema.parse(pathInput);
   let current = value;
   for (const segment of path.split(".")) {
     if (!isRecord(current) || !Object.hasOwn(current, segment)) return undefined;

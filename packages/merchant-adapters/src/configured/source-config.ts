@@ -7,6 +7,7 @@ import {
   selectForBuild,
   type MerchantCandidate
 } from "../../../../config/merchants/schema.js";
+import { FieldMappingSchema, FieldPathSchema } from "./feed-reader.js";
 
 const MerchantIdSchema = z.string().regex(/^[a-z0-9-]{1,80}$/);
 const ResourcePathSchema = z
@@ -16,8 +17,73 @@ const ResourcePathSchema = z
   .refine(
     (path) => path.startsWith("/") && !path.startsWith("//") && !path.includes("\\"),
     "resourcePath must be a bounded absolute path without a host"
-  );
+  )
+  .refine((path) => !/[{}#]/u.test(path), "resourcePath must not contain placeholders or fragments")
+  .refine((path) => !hasInlineCredentialQuery(path), "resourcePath must not contain inline credentials");
+const EndpointPathSchema = z
+  .string()
+  .min(1)
+  .max(2_000)
+  .refine(
+    (path) => path.startsWith("/") && !path.startsWith("//") && !path.includes("\\") && !path.includes("#"),
+    "endpoint resourcePath must be a bounded absolute path without a host or fragment"
+  )
+  .refine((path) => !hasInlineCredentialQuery(path), "endpoint resourcePath must not contain inline credentials");
 const TtlSchema = z.number().int().min(30).max(604_800);
+
+const QuoteMappingSchema = z
+  .object({
+    itemPriceCents: FieldPathSchema,
+    shippingCents: FieldPathSchema,
+    taxCents: FieldPathSchema,
+    mandatoryFeeCents: FieldPathSchema,
+    status: FieldPathSchema,
+    conditions: FieldPathSchema
+  })
+  .strict();
+
+const CouponMappingSchema = z
+  .object({
+    couponId: FieldPathSchema,
+    code: FieldPathSchema.optional(),
+    amountCents: FieldPathSchema,
+    verificationStatus: FieldPathSchema,
+    eligibility: FieldPathSchema,
+    validFrom: FieldPathSchema,
+    validTo: FieldPathSchema
+  })
+  .strict();
+
+const EndpointBaseSchema = z.object({
+  audited: z.literal(true),
+  host: MerchantHostSchema,
+  resourcePath: EndpointPathSchema,
+  recordsPath: FieldPathSchema,
+  fields: FieldMappingSchema
+});
+
+const QuoteEndpointSchema = EndpointBaseSchema.extend({ quote: QuoteMappingSchema })
+  .strict()
+  .superRefine((endpoint, context) => {
+    validateEndpointPlaceholders(endpoint.resourcePath, new Set(["merchantProductId", "zipCode", "memberships"]), context);
+    for (const required of ["{merchantProductId}", "{zipCode}"]) {
+      if (!endpoint.resourcePath.includes(required)) {
+        context.addIssue({ code: z.ZodIssueCode.custom, path: ["resourcePath"], message: `quote endpoint requires ${required}` });
+      }
+    }
+  });
+
+const CouponEndpointSchema = EndpointBaseSchema.extend({
+  couponsPath: FieldPathSchema,
+  coupon: CouponMappingSchema
+})
+  .strict()
+  .superRefine((endpoint, context) => {
+    validateEndpointPlaceholders(endpoint.resourcePath, new Set(["merchantProductId", "memberships"]), context);
+    if (!endpoint.resourcePath.includes("{merchantProductId}")) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["resourcePath"], message: "coupon endpoint requires {merchantProductId}" });
+    }
+  });
 
 const AffiliateConfigSchema = z
   .object({
@@ -35,9 +101,13 @@ export const MerchantSourceConfigSchema = z
       .object({
         type: z.enum(["feed", "jsonld", "http"]),
         host: MerchantHostSchema,
-        resourcePath: ResourcePathSchema
+        resourcePath: ResourcePathSchema,
+        recordsPath: FieldPathSchema.optional(),
+        fields: FieldMappingSchema.optional()
       })
       .strict(),
+    quoteEndpoint: QuoteEndpointSchema.optional(),
+    couponEndpoint: CouponEndpointSchema.optional(),
     ttlSeconds: z
       .object({
         product: TtlSchema,
@@ -63,6 +133,32 @@ export const MerchantSourceConfigSchema = z
         message: "source host must be present in allowedHosts"
       });
     }
+    if ((config.source.recordsPath === undefined) !== (config.source.fields === undefined)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["source"],
+        message: "source recordsPath and fields must be configured together"
+      });
+    }
+    if (config.source.type === "jsonld" && config.source.recordsPath !== undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["source"],
+        message: "JSON-LD source does not accept mapped JSON fields"
+      });
+    }
+    for (const [name, endpoint] of [
+      ["quoteEndpoint", config.quoteEndpoint],
+      ["couponEndpoint", config.couponEndpoint]
+    ] as const) {
+      if (endpoint !== undefined && !config.allowedHosts.includes(endpoint.host)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [name, "host"],
+          message: "endpoint host must be present in allowedHosts"
+        });
+      }
+    }
     if (config.affiliate !== undefined) {
       const affiliateHosts = new Set(config.affiliate.affiliateHosts);
       config.affiliate.affiliateOrigins.forEach((origin, index) => {
@@ -79,6 +175,31 @@ export const MerchantSourceConfigSchema = z
 
 export type MerchantSourceConfigInput = z.input<typeof MerchantSourceConfigSchema>;
 export type MerchantSourceConfig = z.output<typeof MerchantSourceConfigSchema>;
+
+function validateEndpointPlaceholders(
+  path: string,
+  allowed: ReadonlySet<string>,
+  context: z.RefinementCtx
+): void {
+  for (const match of path.matchAll(/\{([^{}]+)\}/gu)) {
+    if (!allowed.has(match[1] ?? "")) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["resourcePath"], message: "endpoint contains an unsupported placeholder" });
+    }
+  }
+  if (/[{}]/u.test(path.replace(/\{[^{}]+\}/gu, ""))) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["resourcePath"], message: "endpoint placeholder syntax is invalid" });
+  }
+}
+
+function hasInlineCredentialQuery(path: string): boolean {
+  const credentialName = /^(?:api[-_]?key|access[-_]?key|authorization|password|secret|token)$/iu;
+  try {
+    return [...new URL(path, "https://placeholder.invalid").searchParams.keys()]
+      .some((key) => credentialName.test(key));
+  } catch {
+    return true;
+  }
+}
 
 declare const auditedMerchantGrantBrand: unique symbol;
 export type AuditedMerchantGrant = MerchantCandidate & {

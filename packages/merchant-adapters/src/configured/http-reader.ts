@@ -3,6 +3,7 @@ import {
   ensureSuccessfulJson,
   fetchConfigured,
   parseMappedRecords,
+  sourceReadSnapshot,
   type ReaderDependencies,
   type ReaderNetworkConfig,
   type RecordFieldMapping,
@@ -21,11 +22,16 @@ export function createHttpReader(
 ): SourceReader {
   const url = buildConfiguredUrl(config.host, config.resourcePath);
 
-  return {
-    async read() {
-      const response = await fetchConfigured(url, config.allowedHosts, dependencies);
-      ensureSuccessfulJson(response);
-      return parseMappedRecords(await response.text(), config.recordsPath, config.fields);
-    }
+  const capture = async () => {
+    const response = await fetchConfigured(url, config.allowedHosts, dependencies);
+    ensureSuccessfulJson(response);
+    const rawBody = await response.text();
+    return sourceReadSnapshot(
+      parseMappedRecords(rawBody, config.recordsPath, config.fields),
+      rawBody,
+      response.url || url,
+      dependencies
+    );
   };
+  return { capture, read: async () => (await capture()).records };
 }
