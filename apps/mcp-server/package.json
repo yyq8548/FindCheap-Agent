@@ -1,0 +1,16 @@
+{
+  "name": "@shopping-agent/mcp-server",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "esbuild src/stdio.ts --bundle --platform=node --format=esm --minify --legal-comments=none --outfile=../../plugins/shopping-agent/dist/mcp-server.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "@shopping-agent/contracts": "workspace:*",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
+}

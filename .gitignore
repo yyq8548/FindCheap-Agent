@@ -1,5 +1,7 @@
 node_modules/
 dist/
+!plugins/shopping-agent/dist/
+!plugins/shopping-agent/dist/mcp-server.js
 coverage/
 .env
 .env.*

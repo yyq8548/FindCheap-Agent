@@ -3,8 +3,9 @@
   "private": true,
   "type": "module",
   "engines": { "node": ">=22 <23" },
-  "packageManager": "pnpm@10",
+  "packageManager": "pnpm@10.34.5",
   "scripts": {
+    "build:mcp": "pnpm --filter @shopping-agent/mcp-server build",
     "lint": "eslint .",
     "typecheck": "tsc -b --pretty false",
     "test": "vitest run",

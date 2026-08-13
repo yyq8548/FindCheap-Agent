@@ -1,6 +1,6 @@
 {
   "name": "shopping-agent",
-  "version": "0.1.0",
+  "version": "0.1.0+codex.20260813171703",
   "description": "Compare exact products across approved US merchants without purchasing.",
   "author": {
     "name": "yyq8548"
@@ -8,6 +8,7 @@
   "homepage": "https://github.com/yyq8548/Shopping_Agent",
   "repository": "https://github.com/yyq8548/Shopping_Agent",
   "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "Shopping Agent",
     "shortDescription": "Compare exact products from approved US merchants.",
