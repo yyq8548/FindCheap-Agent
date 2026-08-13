@@ -23,6 +23,7 @@ const REQUIRED_DECISION_HEADINGS = [
 
 const SECRET_KEY = /(?:secret|token|password|api[_-]?key|private[_-]?key)/iu;
 const SECRET_VALUE = /(?:-----BEGIN [A-Z ]*PRIVATE KEY-----|\b(?:sk|rk|pk)_[A-Za-z0-9_-]{16,}|\bgh[pousr]_[A-Za-z0-9]{20,})/u;
+const CONFIGURED_SOURCE_TYPES = new Set(["feed", "jsonld", "http"]);
 
 export type MerchantGatePaths = {
   root: string;
@@ -45,6 +46,13 @@ export type MerchantGateReport = {
 };
 
 type ConfigFile = { name: string; path: string };
+type DirectoryStatus = "valid" | "missing" | "invalid";
+
+class UnsupportedSourceTypeError extends Error {
+  constructor(readonly sourceType: string, readonly merchantId?: string) {
+    super("source type is not supported by configured adapters");
+  }
+}
 
 function failure(code: string, merchantId?: string, detail?: string): MerchantGateFailure {
   return { code, ...(merchantId === undefined ? {} : { merchantId }), ...(detail === undefined ? {} : { detail }) };
@@ -71,14 +79,17 @@ async function readConfinedFile(path: string): Promise<string> {
   return readFile(path, "utf8");
 }
 
-async function listConfigFiles(directory: string): Promise<{ files: ConfigFile[]; failures: MerchantGateFailure[] }> {
+async function directoryStatus(directory: string): Promise<DirectoryStatus> {
   try {
     const stats = await lstat(directory);
-    if (stats.isSymbolicLink() || !stats.isDirectory()) throw new Error("enabled directory must be a real directory");
+    return stats.isSymbolicLink() || !stats.isDirectory() ? "invalid" : "valid";
   } catch (error: unknown) {
-    if (isMissing(error)) return { files: [], failures: [] };
-    return { files: [], failures: [failure("ENABLED_DIRECTORY_INVALID")] };
+    return isMissing(error) ? "missing" : "invalid";
   }
+}
+
+async function listConfigFiles(directory: string, status: DirectoryStatus): Promise<{ files: ConfigFile[]; failures: MerchantGateFailure[] }> {
+  if (status !== "valid") return { files: [], failures: [] };
 
   const entries = await readdir(directory, { withFileTypes: true });
   const files: ConfigFile[] = [];
@@ -118,20 +129,57 @@ function validDecisionDate(value: string): boolean {
 
 function validateDecision(markdown: string, merchantId: string): MerchantGateFailure[] {
   const failures: MerchantGateFailure[] = [];
-  const headingsValid = REQUIRED_DECISION_HEADINGS.every((heading) =>
-    new RegExp(`^## ${heading.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}$`, "mu").test(markdown)
-  );
-  if (!/^# Merchant Decision: \S.+$/mu.test(markdown) || !headingsValid) {
+  const headings = [...markdown.matchAll(/^## ([^\r\n]+)$/gmu)];
+  const headingTitles = headings.map((heading) => heading[1]);
+  const headingsValid =
+    /^# Merchant Decision: \S.+$/mu.test(markdown) &&
+    headingTitles.length === REQUIRED_DECISION_HEADINGS.length &&
+    headingTitles.every((heading, index) => heading === REQUIRED_DECISION_HEADINGS[index]);
+  if (!headingsValid) {
     failures.push(failure("DECISION_HEADINGS_INVALID", merchantId));
+    return failures;
   }
-  const reviewer = /^Reviewer:[ \t]*([^\r\n]*\S)[ \t]*$/mu.exec(markdown)?.[1];
-  if (reviewer === undefined) failures.push(failure("DECISION_REVIEWER_INVALID", merchantId));
-  const date = /^Date:[ \t]*([^\r\n]*\S)[ \t]*$/mu.exec(markdown)?.[1];
-  if (date === undefined || !validDecisionDate(date.trim())) failures.push(failure("DECISION_DATE_INVALID", merchantId));
+
+  const sections = headings.map((heading, index) => {
+    const contentStart = heading.index! + heading[0].length;
+    const contentEnd = headings[index + 1]?.index ?? markdown.length;
+    return markdown.slice(contentStart, contentEnd).trim();
+  });
+  if (sections.slice(0, -1).some((section) => section.length === 0)) {
+    failures.push(failure("DECISION_SECTIONS_EMPTY", merchantId));
+  }
+
+  const reviewerLines = [...markdown.matchAll(/^Reviewer:[ \t]*([^\r\n]*)$/gmu)];
+  const dateLines = [...markdown.matchAll(/^Date:[ \t]*([^\r\n]*)$/gmu)];
+  const approvalSection = sections.at(-1) ?? "";
+  const approvalLines = approvalSection.split(/\r?\n/u).filter((line) => line.trim().length > 0);
+  const reviewerLine = reviewerLines[0];
+  const dateLine = dateLines[0];
+  const signaturesAtEnd =
+    reviewerLines.length === 1 &&
+    dateLines.length === 1 &&
+    approvalLines.length >= 2 &&
+    approvalLines.at(-2) === reviewerLine?.[0] &&
+    approvalLines.at(-1) === dateLine?.[0];
+  if (!signaturesAtEnd) failures.push(failure("DECISION_SIGNATURES_INVALID", merchantId));
+
+  const reviewer = reviewerLine?.[1]?.trim();
+  if (reviewer === undefined || reviewer.split(/\s+/u).length < 2) {
+    failures.push(failure("DECISION_REVIEWER_INVALID", merchantId));
+  }
+  const date = dateLine?.[1]?.trim();
+  if (date === undefined || !validDecisionDate(date)) failures.push(failure("DECISION_DATE_INVALID", merchantId));
   return failures;
 }
 
-async function validateDecisionFile(decisionsDirectory: string, merchantId: string): Promise<MerchantGateFailure[]> {
+async function validateDecisionFile(
+  decisionsDirectory: string,
+  decisionsDirectoryStatus: DirectoryStatus,
+  merchantId: string
+): Promise<MerchantGateFailure[]> {
+  if (decisionsDirectoryStatus !== "valid") {
+    return [failure(decisionsDirectoryStatus === "missing" ? "DECISION_MISSING" : "DECISIONS_DIRECTORY_INVALID", merchantId)];
+  }
   const path = resolve(decisionsDirectory, `${merchantId}.md`);
   try {
     return validateDecision(await readConfinedFile(path), merchantId);
@@ -153,6 +201,17 @@ function parseEnabledConfig(value: unknown): { merchantId: string; config: Merch
     throw new Error("enabled config requires enabled: true and killSwitch: false");
   }
   const { enabled: _enabled, killSwitch: _killSwitch, ...sourceConfig } = objectValue;
+  const source = sourceConfig.source;
+  const sourceRecord = source !== null && typeof source === "object" && !Array.isArray(source)
+    ? source as Record<string, unknown>
+    : undefined;
+  const sourceType = sourceRecord?.type;
+  if (typeof sourceType === "string" && !CONFIGURED_SOURCE_TYPES.has(sourceType)) {
+    const merchantId = typeof sourceConfig.merchantId === "string" && /^[a-z0-9-]{1,80}$/u.test(sourceConfig.merchantId)
+      ? sourceConfig.merchantId
+      : undefined;
+    throw new UnsupportedSourceTypeError(sourceType, merchantId);
+  }
   const parsed = MerchantSourceConfigSchema.parse(sourceConfig);
   return { merchantId: parsed.merchantId, config: parsed };
 }
@@ -163,11 +222,24 @@ export async function validateEnabledMerchants(paths: MerchantGatePaths): Promis
   if (!Number.isInteger(minimum) || minimum < 1 || minimum > 20) throw new Error("minimum must be an integer from 1 through 20");
   const root = resolve(paths.root);
   const failures: MerchantGateFailure[] = [];
+  let enabledDirectory: string;
+  let decisionsDirectory: string;
+  try {
+    enabledDirectory = resolveConfined(root, paths.enabledDirectory);
+    decisionsDirectory = resolveConfined(root, paths.decisionsDirectory);
+  } catch {
+    return { minimum, enabledCount: 0, failures: [failure("GATE_PATH_INVALID"), failure("MINIMUM_ENABLED_MERCHANTS", undefined, `requires ${minimum}, found 0`)] };
+  }
+  const enabledDirectoryStatus = await directoryStatus(enabledDirectory);
+  const decisionsDirectoryStatus = await directoryStatus(decisionsDirectory);
+  if (enabledDirectoryStatus === "invalid") failures.push(failure("ENABLED_DIRECTORY_INVALID"));
+  if (decisionsDirectoryStatus === "invalid") failures.push(failure("DECISIONS_DIRECTORY_INVALID"));
+
   let catalog: MerchantCatalog;
   try {
     catalog = await loadCatalog(root, paths.catalogPath);
   } catch {
-    return { minimum, enabledCount: 0, failures: [failure("CATALOG_INVALID"), failure("MINIMUM_ENABLED_MERCHANTS", undefined, `requires ${minimum}, found 0`)] };
+    return { minimum, enabledCount: 0, failures: [...failures, failure("CATALOG_INVALID"), failure("MINIMUM_ENABLED_MERCHANTS", undefined, `requires ${minimum}, found 0`)] };
   }
 
   const catalogById = new Map<string, MerchantCatalog["candidates"][number]>();
@@ -176,16 +248,7 @@ export async function validateEnabledMerchants(paths: MerchantGatePaths): Promis
     catalogById.set(merchant.id, merchant);
   }
 
-  let enabledDirectory: string;
-  let decisionsDirectory: string;
-  try {
-    enabledDirectory = resolveConfined(root, paths.enabledDirectory);
-    decisionsDirectory = resolveConfined(root, paths.decisionsDirectory);
-  } catch {
-    return { minimum, enabledCount: 0, failures: [...failures, failure("GATE_PATH_INVALID"), failure("MINIMUM_ENABLED_MERCHANTS", undefined, `requires ${minimum}, found 0`)] };
-  }
-
-  const configFiles = await listConfigFiles(enabledDirectory);
+  const configFiles = await listConfigFiles(enabledDirectory, enabledDirectoryStatus);
   failures.push(...configFiles.failures);
   const validMerchantIds = new Set<string>();
   const encounteredMerchantIds = new Set<string>();
@@ -194,7 +257,11 @@ export async function validateEnabledMerchants(paths: MerchantGatePaths): Promis
     let parsed: { merchantId: string; config: MerchantSourceConfigInput };
     try {
       parsed = parseEnabledConfig(parse(await readConfinedFile(file.path)));
-    } catch {
+    } catch (error: unknown) {
+      if (error instanceof UnsupportedSourceTypeError) {
+        failures.push(failure("UNSUPPORTED_SOURCE_TYPE", error.merchantId, error.sourceType));
+        continue;
+      }
       failures.push(failure("CONFIG_INVALID", undefined, file.name));
       continue;
     }
@@ -219,13 +286,25 @@ export async function validateEnabledMerchants(paths: MerchantGatePaths): Promis
       failures.push(failure("CATALOG_AUDIT_GATE_FAILED", merchantId));
       continue;
     }
+    if (!CONFIGURED_SOURCE_TYPES.has(candidate.provenSource!)) {
+      failures.push(failure("UNSUPPORTED_SOURCE_TYPE", merchantId, candidate.provenSource));
+      continue;
+    }
+    const hasAffiliate = parsed.config.affiliate !== undefined;
+    if (
+      (hasAffiliate && candidate.affiliateStatus !== "approved") ||
+      (!hasAffiliate && candidate.affiliateStatus !== "normal_link_only")
+    ) {
+      failures.push(failure("AFFILIATE_STATUS_MISMATCH", merchantId));
+      continue;
+    }
     try {
       parseMerchantSourceConfig(parsed.config, candidate);
     } catch {
       failures.push(failure("CONFIG_CATALOG_ALIGNMENT_FAILED", merchantId));
       continue;
     }
-    const decisionFailures = await validateDecisionFile(decisionsDirectory, merchantId);
+    const decisionFailures = await validateDecisionFile(decisionsDirectory, decisionsDirectoryStatus, merchantId);
     if (decisionFailures.length > 0) {
       failures.push(...decisionFailures);
       continue;

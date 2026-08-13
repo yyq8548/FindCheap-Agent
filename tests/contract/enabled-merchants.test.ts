@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -25,7 +25,8 @@ function approvedCandidate(id = "approved-shop") {
     allowedHosts: [`www.${id}.example`],
     identityCompleteness: 0.95,
     weightedScore: 85,
-    enabled: true
+    enabled: true,
+    affiliateStatus: "normal_link_only"
   };
 }
 
@@ -104,14 +105,41 @@ describe("enabled merchant quality gate", () => {
 
     const malformed = await fixture({
       configs: [{ file: "approved-shop.yaml", value: enabledConfig() }],
-      decisions: [{ file: "approved-shop.md", value: "# Merchant Decision: Approved Shop\n## Approval signatures and date\nReviewer:\nDate: not-a-date\n" }]
+      decisions: [{ file: "approved-shop.md", value: decisionMarkdown()
+        .replace("Reviewer: Jane Reviewer", "Reviewer:")
+        .replace("Date: 2026-08-13", "Date: not-a-date") }]
     });
     expect((await validateEnabledMerchants(malformed)).failures.map((failure) => failure.code)).toEqual([
-      "DECISION_HEADINGS_INVALID",
       "DECISION_REVIEWER_INVALID",
       "DECISION_DATE_INVALID",
       "MINIMUM_ENABLED_MERCHANTS"
     ]);
+  });
+
+  it("requires ordered, unique, substantive decision sections and final signatures", async () => {
+    const emptySection = await fixture({
+      configs: [{ file: "approved-shop.yaml", value: enabledConfig() }],
+      decisions: [{ file: "approved-shop.md", value: decisionMarkdown().replace("Not applicable", "") }]
+    });
+    expect((await validateEnabledMerchants(emptySection)).failures.map((failure) => failure.code)).toContain("DECISION_SECTIONS_EMPTY");
+
+    const reordered = await fixture({
+      configs: [{ file: "approved-shop.yaml", value: enabledConfig() }],
+      decisions: [{ file: "approved-shop.md", value: decisionMarkdown()
+        .replace("## Affiliate/deep-link status", "## temporary")
+        .replace("## Source PoC and allowed hosts", "## Affiliate/deep-link status")
+        .replace("## temporary", "## Source PoC and allowed hosts") }]
+    });
+    expect((await validateEnabledMerchants(reordered)).failures.map((failure) => failure.code)).toContain("DECISION_HEADINGS_INVALID");
+
+    const misplaced = await fixture({
+      configs: [{ file: "approved-shop.yaml", value: enabledConfig() }],
+      decisions: [{ file: "approved-shop.md", value: decisionMarkdown().replace(
+        "Recorded evidence\n## Affiliate/deep-link status",
+        "Recorded evidence\nReviewer: Early Reviewer\n## Affiliate/deep-link status"
+      ) }]
+    });
+    expect((await validateEnabledMerchants(misplaced)).failures.map((failure) => failure.code)).toContain("DECISION_SIGNATURES_INVALID");
   });
 
   it("rejects duplicate and unknown merchant configurations", async () => {
@@ -144,6 +172,74 @@ describe("enabled merchant quality gate", () => {
       enabledCount: 1,
       failures: [{ code: "MINIMUM_ENABLED_MERCHANTS", detail: "requires 2, found 1" }]
     });
+  });
+
+  it("requires an affiliate configuration to agree with the audited affiliate status", async () => {
+    const missingAffiliate = await fixture({
+      candidates: [{ ...approvedCandidate(), affiliateStatus: "approved" }],
+      configs: [{ file: "approved-shop.yaml", value: enabledConfig() }],
+      decisions: [{ file: "approved-shop.md", value: decisionMarkdown() }]
+    });
+    expect((await validateEnabledMerchants(missingAffiliate)).failures).toContainEqual({
+      code: "AFFILIATE_STATUS_MISMATCH",
+      merchantId: "approved-shop"
+    });
+
+    const enabledWithAffiliate = {
+      ...enabledConfig(),
+      affiliate: {
+        template: "https://go.approved-shop.example/out",
+        affiliateHosts: ["go.approved-shop.example"],
+        affiliateOrigins: ["https://go.approved-shop.example"]
+      }
+    };
+    const unapprovedAffiliate = await fixture({
+      candidates: [{
+        ...approvedCandidate(),
+        affiliateHosts: ["go.approved-shop.example"],
+        affiliateOrigins: ["https://go.approved-shop.example"]
+      }],
+      configs: [{ file: "approved-shop.yaml", value: enabledWithAffiliate }],
+      decisions: [{ file: "approved-shop.md", value: decisionMarkdown() }]
+    });
+    expect((await validateEnabledMerchants(unapprovedAffiliate)).failures).toContainEqual({
+      code: "AFFILIATE_STATUS_MISMATCH",
+      merchantId: "approved-shop"
+    });
+  });
+
+  it("reports source types outside configured adapters explicitly", async () => {
+    const paths = await fixture({
+      candidates: [{ ...approvedCandidate(), provenSource: "api" }],
+      configs: [{
+        file: "approved-shop.yaml",
+        value: { ...enabledConfig(), source: { type: "api", host: "www.approved-shop.example", resourcePath: "/products" } }
+      }],
+      decisions: [{ file: "approved-shop.md", value: decisionMarkdown() }]
+    });
+    expect((await validateEnabledMerchants(paths)).failures).toContainEqual({
+      code: "UNSUPPORTED_SOURCE_TYPE",
+      merchantId: "approved-shop",
+      detail: "api"
+    });
+  });
+
+  it("rejects symlinked enabled or decision directories when the platform permits symlinks", async () => {
+    const paths = await fixture();
+    const target = join(paths.root, "symlink-target");
+    await mkdir(target);
+    try {
+      await symlink(target, join(paths.root, "enabled-link"), process.platform === "win32" ? "junction" : "dir");
+      await symlink(target, join(paths.root, "decisions-link"), process.platform === "win32" ? "junction" : "dir");
+    } catch (error: unknown) {
+      if (typeof error === "object" && error !== null && "code" in error && error.code === "EPERM") return;
+      throw error;
+    }
+
+    const enabledReport = await validateEnabledMerchants({ ...paths, enabledDirectory: "enabled-link" });
+    expect(enabledReport.failures.map((failure) => failure.code)).toContain("ENABLED_DIRECTORY_INVALID");
+    const decisionReport = await validateEnabledMerchants({ ...paths, decisionsDirectory: "decisions-link" });
+    expect(decisionReport.failures.map((failure) => failure.code)).toContain("DECISIONS_DIRECTORY_INVALID");
   });
 
   it("passes a clean synthetic approved fixture", async () => {
