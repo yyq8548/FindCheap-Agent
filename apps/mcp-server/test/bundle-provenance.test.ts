@@ -32,7 +32,13 @@ describe("plugin bundle provenance", () => {
     const bundle = await readFile(path.join(pluginRoot, "dist", "mcp-server.js"));
     const metafile = JSON.parse(
       await readFile(path.join(pluginRoot, "dist", "mcp-server.meta.json"), "utf8")
-    ) as { inputs: Record<string, unknown> };
+    ) as {
+      inputs: Record<string, { bytes?: number }>;
+      outputs: Record<string, {
+        entryPoint?: string;
+        inputs?: Record<string, { bytesInOutput: number }>;
+      }>;
+    };
     const notices = await readFile(path.join(pluginRoot, "THIRD_PARTY_NOTICES.md"), "utf8");
     const bundleHash = createHash("sha256").update(bundle).digest("hex");
 
@@ -57,6 +63,16 @@ describe("plugin bundle provenance", () => {
 
     expect(notices).toContain("Source entry: `apps/mcp-server/src/stdio.ts`");
     expect(notices).toContain(`Bundle SHA-256: \`${bundleHash}\``);
+    expect(Object.values(metafile.inputs).every((input) => input.bytes === undefined)).toBe(true);
+    const bundleOutput = Object.values(metafile.outputs)[0];
+    expect(bundleOutput?.entryPoint).toBe("src/stdio.ts");
+    const outputInputs = Object.keys(bundleOutput?.inputs ?? {});
+    expect(outputInputs.length).toBeGreaterThan(0);
+    expect(outputInputs.every((input) => input in metafile.inputs)).toBe(true);
+    expect(outputInputs).toContain("src/stdio.ts");
+    expect(Object.values(bundleOutput?.inputs ?? {}).every(
+      (input) => Number.isInteger(input.bytesInOutput) && input.bytesInOutput >= 0
+    )).toBe(true);
     const bundledNames = bundledPackages.map((reference) => reference.slice(0, reference.lastIndexOf("@")));
     expect(bundledNames).toEqual(expect.arrayContaining([
       "@modelcontextprotocol/sdk",
