@@ -104,3 +104,14 @@ FOR EACH ROW EXECUTE FUNCTION reject_promotion_decision_mutation();
 CREATE TRIGGER merchant_promotion_decisions_no_truncate
 BEFORE TRUNCATE ON merchant_promotion_decisions
 FOR EACH STATEMENT EXECUTE FUNCTION reject_promotion_decision_mutation();
+
+DO $security$
+DECLARE
+  install_schema name := pg_catalog.current_schema();
+BEGIN
+  EXECUTE pg_catalog.format(
+    'ALTER FUNCTION %I.reject_promotion_decision_mutation() SET search_path TO pg_catalog, %I, pg_temp',
+    install_schema, install_schema
+  );
+END
+$security$;

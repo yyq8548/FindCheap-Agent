@@ -170,7 +170,9 @@ describe("merchant staging promotion", () => {
     evidence = createIngestionEvidenceRepository(db);
     productStaging = createIngestionOfferRepository(db);
     quoteStaging = createIngestionQuoteRepository(db);
-    promotions = createPromotionRepository(db);
+    promotions = createPromotionRepository(db, {
+      now: () => new Date("2026-08-13T18:30:00.000Z")
+    });
     await createProductRepository(db).upsert({
       productId: "canonical-1",
       brand: "Acme",
@@ -343,6 +345,7 @@ describe("merchant staging promotion", () => {
       "UPDATE merchant_promotion_decisions SET reason = 'mutated' WHERE id = $1",
       [firstResult.decisionId]
     )).rejects.toThrow(/append-only/i);
+    await expect(db.query("TRUNCATE merchant_promotion_decisions")).rejects.toThrow(/append-only/i);
   });
 
   it("rejects cross-merchant evidence and rolls back core evidence and decisions", async () => {

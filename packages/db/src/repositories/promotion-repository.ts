@@ -139,7 +139,10 @@ type DecisionWrite = {
   inputHash: string;
 };
 
-export function createPromotionRepository(db: Database): PromotionRepository {
+export function createPromotionRepository(
+  db: Database,
+  clock: { now(): Date } = { now: () => new Date() }
+): PromotionRepository {
   const promoteProduct = async (
     stagingId: string,
     options: PromotionOptions = {}
@@ -148,6 +151,7 @@ export function createPromotionRepository(db: Database): PromotionRepository {
     return db.transaction(async (transaction) => {
       await lock(transaction, `offer:${stagingId}`);
       const staging = await selectProductStaging(transaction, stagingId);
+      requireFresh(staging.expires_at, clock.now());
       const inputHash = canonicalHash({
         entityKind: "OFFER",
         stagingRecordId: staging.id,
@@ -276,6 +280,7 @@ export function createPromotionRepository(db: Database): PromotionRepository {
     return db.transaction(async (transaction) => {
       await lock(transaction, `quote:${stagingId}`);
       const staging = await selectQuoteStaging(transaction, stagingId);
+      requireFresh(staging.expires_at, clock.now());
       const inputHash = canonicalHash({
         entityKind: "QUOTE",
         stagingRecordId: staging.id,
@@ -315,7 +320,7 @@ export function createPromotionRepository(db: Database): PromotionRepository {
            AND o.match_status = 'EXACT' AND o.product_id IS NOT NULL
            AND o.expires_at > $3
          FOR UPDATE OF o`,
-        [staging.merchant_id, staging.merchant_product_id, staging.checked_at]
+        [staging.merchant_id, staging.merchant_product_id, clock.now()]
       );
       const offer = exact.rows[0];
       if (offer === undefined) {
@@ -372,11 +377,11 @@ export function createPromotionRepository(db: Database): PromotionRepository {
          FROM merchant_quote_staging s
          LEFT JOIN merchant_promotion_decisions d
            ON d.entity_kind = 'QUOTE' AND d.source_identity_key = s.source_identity_key
-         WHERE s.merchant_id = $1 AND s.merchant_product_id = $2
+         WHERE s.merchant_id = $1 AND s.merchant_product_id = $2 AND s.expires_at > $3
          GROUP BY s.id
          HAVING bool_or(d.status = 'QUOTE_PROMOTED') IS NOT TRUE
          ORDER BY s.id`,
-        [merchantId, merchantProductId]
+        [merchantId, merchantProductId, clock.now()]
       );
       const results: PromotionResult[] = [];
       for (const row of rows.rows) {
@@ -388,6 +393,12 @@ export function createPromotionRepository(db: Database): PromotionRepository {
       return results;
     }
   };
+}
+
+function requireFresh(expiresAt: Date, now: Date): void {
+  if (!Number.isFinite(now.getTime()) || expiresAt <= now) {
+    throw new Error("staged merchant data is expired and cannot be promoted");
+  }
 }
 
 function normalizeOptions(options: PromotionOptions): {

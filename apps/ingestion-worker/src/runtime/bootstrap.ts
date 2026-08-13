@@ -220,7 +220,7 @@ export async function startIngestionRuntime(
   try {
     await db.connect();
     const persistence = factories.createPersistence(db);
-    const promotions = factories.createPromotions(db);
+    const promotions = factories.createPromotions(db, clock);
     const adapters = new Map<string, MerchantAdapter>();
     for (const entry of entries) {
       const source = sources.get(entry.merchantId);
@@ -271,8 +271,10 @@ export async function startIngestionRuntime(
             controls.circuitBreaker.recordSuccess(job.data.merchantId);
           }
           if (outcome.status === "PUBLISHED") {
-            await promotions.promoteProduct(outcome.offerId);
-            await promotions.promotePendingQuotes(job.data.merchantId, job.data.merchantProductId);
+            const promotion = await promotions.promoteProduct(outcome.offerId);
+            if (promotion.status === "EXACT_PROMOTED") {
+              await promotions.promotePendingQuotes(job.data.merchantId, job.data.merchantProductId);
+            }
           }
           return outcome;
         } catch (error) {
