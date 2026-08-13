@@ -1,0 +1,4 @@
+interface:
+  display_name: "Compare Products"
+  short_description: "Compare exact products, prices, and coupons"
+  default_prompt: "Use $compare-products to compare exact products by delivered US price."
