@@ -89,7 +89,7 @@ export const MerchantOfferSchema = z
     inventoryStatus: z.enum(["IN_STOCK", "OUT_OF_STOCK", "UNKNOWN"]),
     merchantUrl: z.string().url(),
     evidenceRefs: z.array(z.string()).min(1),
-    matchEvidence: z.array(MatchEvidenceSchema),
+    matchEvidence: z.array(MatchEvidenceSchema).default([]),
     checkedAt: UtcTimestampSchema,
     expiresAt: UtcTimestampSchema
   })

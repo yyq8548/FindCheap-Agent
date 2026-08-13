@@ -155,6 +155,26 @@ describe("commerce contracts", () => {
     ).toThrow();
   });
 
+  it("accepts non-exact offers without match evidence", () => {
+    for (const matchStatus of ["SIMILAR", "NEEDS_CONFIRMATION", "INSUFFICIENT"] as const) {
+      expect(() =>
+        MerchantOfferSchema.parse({
+          offerId: `o-${matchStatus}`,
+          merchantId: "m1",
+          merchantProductId: "sku1",
+          sellerName: "Merchant",
+          condition: "NEW",
+          matchStatus,
+          inventoryStatus: "IN_STOCK",
+          merchantUrl: "https://merchant.example/products/1",
+          evidenceRefs: ["https://merchant.example/products/1"],
+          checkedAt: "2026-08-13T12:00:00.000Z",
+          expiresAt: "2026-08-13T12:15:00.000Z"
+        })
+      ).not.toThrow();
+    }
+  });
+
   it("accepts status-scoped comparison rankings and deterministic exact evidence", () => {
     const regularQuote = quote("regular");
     const memberQuote = quote("member");
