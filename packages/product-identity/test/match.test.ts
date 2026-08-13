@@ -13,6 +13,13 @@ const canonicalTv = (): CanonicalProduct => ({
   variantDimensions: { color: "black", size: "55 inch" }
 });
 
+const canonicalChineseTv = (): CanonicalProduct => ({
+  ...canonicalTv(),
+  brand: "海信",
+  manufacturerPartNumber: "电视型号甲",
+  gtins: []
+});
+
 const candidate = (overrides: Partial<CandidateProduct> = {}): CandidateProduct => ({
   brand: "Acme",
   mpn: "OLED-55-X",
@@ -63,6 +70,24 @@ describe("matchProduct", () => {
           gtins: []
         }),
         canonicalTv()
+      )
+    ).toEqual({ status: "EXACT", evidence: ["brand and MPN exact"] });
+  });
+
+  it("does not treat distinct Chinese brand and MPN tokens as exact identity", () => {
+    expect(
+      matchProduct(
+        candidate({ brand: "创维", mpn: "电视型号乙", gtins: [] }),
+        canonicalChineseTv()
+      ).status
+    ).toBe("INSUFFICIENT");
+  });
+
+  it("recognizes matching Chinese brand and MPN tokens as exact identity", () => {
+    expect(
+      matchProduct(
+        candidate({ brand: "海信", mpn: "电视型号甲", gtins: [] }),
+        canonicalChineseTv()
       )
     ).toEqual({ status: "EXACT", evidence: ["brand and MPN exact"] });
   });

@@ -18,11 +18,19 @@ export type CandidateProduct = {
 export function matchProduct(candidate: CandidateProduct, product: CanonicalProduct): MatchDecision {
   const canonicalGtins = new Set(product.gtins.map(normalizeGtin));
   const sameGtin = candidate.gtins.some((gtin) => canonicalGtins.has(normalizeGtin(gtin)));
+  const normalizedBrand = normalizeToken(candidate.brand);
+  const normalizedMpn = candidate.mpn ? normalizeToken(candidate.mpn) : "";
+  const normalizedCanonicalBrand = normalizeToken(product.brand);
+  const normalizedCanonicalMpn = product.manufacturerPartNumber
+    ? normalizeToken(product.manufacturerPartNumber)
+    : "";
   const sameMpn = Boolean(
-    candidate.mpn &&
-      product.manufacturerPartNumber &&
-      normalizeToken(candidate.brand) === normalizeToken(product.brand) &&
-      normalizeToken(candidate.mpn) === normalizeToken(product.manufacturerPartNumber)
+    normalizedBrand &&
+      normalizedMpn &&
+      normalizedCanonicalBrand &&
+      normalizedCanonicalMpn &&
+      normalizedBrand === normalizedCanonicalBrand &&
+      normalizedMpn === normalizedCanonicalMpn
   );
 
   if (!sameGtin && !sameMpn) {
