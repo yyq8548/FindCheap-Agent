@@ -1,0 +1,5 @@
+{
+  "egressEnforced": true,
+  "proxyUrl": "http://crawl4ai-egress:3128",
+  "merchants": {}
+}
