@@ -27,13 +27,12 @@ export function createOfferRepository(db: Database): OfferRepository {
   return {
     async saveOffer(input) {
       await db.transaction(async (transaction) => {
-        await transaction.query(
+        const savedOffer = await transaction.query<{ id: string }>(
           `INSERT INTO merchant_offers (
             id, merchant_id, merchant_product_id, product_id, seller_name, condition,
             match_status, inventory_status, merchant_url, evidence_refs, match_evidence, checked_at, expires_at
           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13)
           ON CONFLICT (merchant_id, merchant_product_id) DO UPDATE SET
-            id = EXCLUDED.id,
             product_id = EXCLUDED.product_id,
             seller_name = EXCLUDED.seller_name,
             condition = EXCLUDED.condition,
@@ -43,7 +42,8 @@ export function createOfferRepository(db: Database): OfferRepository {
             evidence_refs = EXCLUDED.evidence_refs,
             match_evidence = EXCLUDED.match_evidence,
             checked_at = EXCLUDED.checked_at,
-            expires_at = EXCLUDED.expires_at`,
+            expires_at = EXCLUDED.expires_at
+          RETURNING id`,
           [
             input.offerId,
             input.merchantId,
@@ -60,7 +60,11 @@ export function createOfferRepository(db: Database): OfferRepository {
             input.expiresAt
           ]
         );
-        await replaceEvidenceRefs(transaction, "offer_evidence", "offer_id", input.offerId, input.evidenceRefs);
+        const persistedOfferId = savedOffer.rows[0]?.id;
+        if (!persistedOfferId) {
+          throw new Error("merchant offer upsert did not return an ID");
+        }
+        await replaceEvidenceRefs(transaction, "offer_evidence", "offer_id", persistedOfferId, input.evidenceRefs);
       });
     },
     async saveEvidence(input) {

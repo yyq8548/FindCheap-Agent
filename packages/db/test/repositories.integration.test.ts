@@ -102,6 +102,49 @@ describe("commerce repositories", () => {
     expect(result.rows).toEqual([{ title: "Acme Model 1 Updated", seller_name: "Acme Outlet" }]);
   });
 
+  it("keeps the persisted offer ID when refreshing a natural key", async () => {
+    await offers.saveQuote(fixtureQuote({ quoteId: "linked-quote" }));
+    await offers.saveEvidence({
+      evidenceId: "evidence-2",
+      merchantId: "merchant-1",
+      sourceUrl: "https://merchant.example/products/sku-1?refresh=1",
+      sourceType: "MERCHANT_PAGE",
+      contentHash: "sha256:def",
+      capturedAt: now,
+      metadata: { selector: "#inventory" }
+    } satisfies StoredEvidence);
+
+    await offers.saveOffer({
+      ...offer,
+      offerId: "offer-2",
+      sellerName: "Acme Outlet",
+      evidenceRefs: ["evidence-2"]
+    });
+
+    const result = await db.query<{
+      id: string;
+      seller_name: string;
+      quote_id: string;
+      evidence_ids: string[];
+    }>(
+      `SELECT o.id, o.seller_name, q.id AS quote_id,
+              array_agg(oe.evidence_id ORDER BY oe.evidence_id) AS evidence_ids
+       FROM merchant_offers o
+       INNER JOIN price_quotes q ON q.offer_id = o.id
+       INNER JOIN offer_evidence oe ON oe.offer_id = o.id
+       WHERE o.merchant_id = $1 AND o.merchant_product_id = $2
+       GROUP BY o.id, o.seller_name, q.id`,
+      [offer.merchantId, offer.merchantProductId]
+    );
+
+    expect(result.rows).toEqual([{
+      id: "offer-1",
+      seller_name: "Acme Outlet",
+      quote_id: "linked-quote",
+      evidence_ids: ["evidence-2"]
+    }]);
+  });
+
   it("persists coupons with their expiry and evidence references", async () => {
     await offers.saveCoupon({
       couponId: "coupon-1",
