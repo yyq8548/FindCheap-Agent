@@ -1,0 +1,8 @@
+{
+  "name": "@shopping-agent/product-identity",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "zod": "^3.25.76"
+  }
+}

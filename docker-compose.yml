@@ -1,0 +1,11 @@
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: shopping
+      POSTGRES_PASSWORD: local-only
+      POSTGRES_DB: shopping
+    ports: ["5432:5432"]
+  redis:
+    image: redis:7.4-alpine
+    ports: ["6379:6379"]
