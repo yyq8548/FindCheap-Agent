@@ -1,0 +1,3 @@
+plugins/shopping-agent/dist/mcp-server.js text eol=lf
+plugins/shopping-agent/dist/mcp-server.meta.json text eol=lf
+plugins/shopping-agent/THIRD_PARTY_NOTICES.md text eol=lf
