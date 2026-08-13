@@ -26,6 +26,11 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
+      - run: pnpm build:mcp
+      - run: git diff --exit-code -- plugins/shopping-agent/dist/mcp-server.js
+      - run: git diff --exit-code -- plugins/shopping-agent/dist/mcp-server.meta.json
+      - run: git diff --exit-code -- plugins/shopping-agent/THIRD_PARTY_NOTICES.md
+      - run: pnpm test:mcp-stdio
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
@@ -34,3 +39,19 @@ jobs:
       - run: pnpm db:migrate
       - run: pnpm test:integration
       - run: pnpm eval:matching -- --min-exact-precision=0.98
+
+  plugin-smoke-windows:
+    runs-on: windows-latest
+    env:
+      COREPACK_ENABLE_PROJECT_SPEC: "0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build:mcp
+      - run: git diff --exit-code -- plugins/shopping-agent/dist/mcp-server.js
+      - run: git diff --exit-code -- plugins/shopping-agent/dist/mcp-server.meta.json
+      - run: git diff --exit-code -- plugins/shopping-agent/THIRD_PARTY_NOTICES.md
+      - run: pnpm test:mcp-stdio

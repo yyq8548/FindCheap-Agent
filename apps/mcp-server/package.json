@@ -1,0 +1,18 @@
+{
+  "name": "@shopping-agent/mcp-server",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "pnpm run build:bundle && pnpm run build:notices",
+    "build:bundle": "esbuild src/stdio.ts --bundle --platform=node --format=esm --minify --legal-comments=none --metafile=../../plugins/shopping-agent/dist/mcp-server.meta.json --outfile=../../plugins/shopping-agent/dist/mcp-server.js && node scripts/normalize-metafile.mjs",
+    "build:notices": "node scripts/generate-third-party-notices.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "@shopping-agent/contracts": "workspace:*",
+    "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
+}
