@@ -10,6 +10,7 @@ import {
 import {
   createConfiguredAdapter,
   type ConfiguredSource,
+  type ConfiguredAdapterDependencies,
   type ConfiguredSourceRequest,
   type ConfiguredSourceSnapshot
 } from "../src/configured/configured-adapter.js";
@@ -51,8 +52,6 @@ const sourcePrices = {
 function fixtureConfig(source: "feed" | "jsonld" | "http"): MerchantSourceConfigInput {
   return {
     merchantId: MERCHANT_ID,
-    enabled: true,
-    killSwitch: false,
     allowedHosts: ALLOWED_HOSTS,
     source: { type: source, host: "shop.example", resourcePath: sourceDetails[source].resourcePath },
     ttlSeconds: { product: 900, price: 900, inventory: 300, coupon: 900 },
@@ -62,6 +61,41 @@ function fixtureConfig(source: "feed" | "jsonld" | "http"): MerchantSourceConfig
       affiliateHosts: ["go.fixture-affiliate.example"],
       affiliateOrigins: ["https://go.fixture-affiliate.example"]
     }
+  };
+}
+
+function auditedCandidate(source: "feed" | "jsonld" | "http") {
+  return {
+    id: MERCHANT_ID,
+    name: "Fixture Shop",
+    segment: "general" as const,
+    auditState: "approved" as const,
+    legalReview: "approved" as const,
+    affiliateStatus: "approved" as const,
+    provenSource: source,
+    allowedHosts: ALLOWED_HOSTS,
+    affiliateHosts: ["go.fixture-affiliate.example"],
+    affiliateOrigins: ["https://go.fixture-affiliate.example"],
+    identityCompleteness: 0.95,
+    weightedScore: 90,
+    enabled: true
+  };
+}
+
+function standardDependencies(
+  source: "feed" | "jsonld" | "http",
+  configuredSource: ConfiguredSource,
+  overrides: Partial<ConfiguredAdapterDependencies> = {}
+): ConfiguredAdapterDependencies {
+  return {
+    catalogCandidate: auditedCandidate(source),
+    sources: { [source]: configuredSource },
+    evidence: { find: async () => [] },
+    redirectValidator: { isAllowed: async () => true },
+    controls: { isEnabled: () => true, isKillSwitchActive: () => false },
+    freshness: { maxAgeMs: 60_000, maxFutureSkewMs: 5_000 },
+    clock: { now: () => new Date(NOW) },
+    ...overrides
   };
 }
 
@@ -181,6 +215,8 @@ async function fixtureSource(source: "feed" | "jsonld" | "http") {
     };
     const coupons = fixtureCoupons(productIds[source]);
     return {
+      merchantId: MERCHANT_ID,
+      sourceType: source,
       records,
       sourceUrl: `https://shop.example${sourceDetails[source].resourcePath}`,
       rawEvidence: JSON.stringify({ sourceDocument: body, quote, coupons }),
@@ -190,11 +226,14 @@ async function fixtureSource(source: "feed" | "jsonld" | "http") {
       coupons
     };
   });
+  const health = vi.fn(async () => "healthy" as const);
   const configuredSource: ConfiguredSource = {
+    merchantId: MERCHANT_ID,
+    sourceType: source,
     capture,
-    health: async () => "healthy"
+    health
   };
-  return { configuredSource, capture };
+  return { configuredSource, capture, health };
 }
 
 async function fixtureAdapter(source: "feed" | "jsonld" | "http") {
@@ -211,16 +250,10 @@ async function fixtureAdapter(source: "feed" | "jsonld" | "http") {
     }
   ];
   const find = vi.fn(async () => evidence);
-  const sources: Partial<Record<typeof source, ConfiguredSource>> = {
-    [source]: fixture.configuredSource
-  };
-  const adapter = createConfiguredAdapter(fixtureConfig(source), {
-    catalog: { merchantId: MERCHANT_ID, allowedHosts: ALLOWED_HOSTS },
-    sources,
-    evidence: { find },
-    redirectValidator: { isAllowed: async () => true },
-    clock: { now: () => new Date(NOW) }
-  });
+  const adapter = createConfiguredAdapter(
+    fixtureConfig(source),
+    standardDependencies(source, fixture.configuredSource, { evidence: { find } })
+  );
   return { adapter, capture: fixture.capture, find };
 }
 
@@ -334,6 +367,8 @@ describe("configured merchant adapter", () => {
   it("derives a deterministic source version from evidence when metadata omits one", async () => {
     const fixture = await fixtureSource("feed");
     const source: ConfiguredSource = {
+      merchantId: MERCHANT_ID,
+      sourceType: "feed",
       capture: async (request) => {
         const snapshot = await fixture.configuredSource.capture(request);
         const { sourceVersion: _sourceVersion, ...metadata } = snapshot.metadata;
@@ -341,13 +376,10 @@ describe("configured merchant adapter", () => {
       },
       health: fixture.configuredSource.health
     };
-    const adapter = createConfiguredAdapter(fixtureConfig("feed"), {
-      catalog: { merchantId: MERCHANT_ID, allowedHosts: ALLOWED_HOSTS },
-      sources: { feed: source },
-      evidence: { find: async () => [] },
-      redirectValidator: { isAllowed: async () => true },
-      clock: { now: () => new Date(NOW) }
-    });
+    const adapter = createConfiguredAdapter(
+      fixtureConfig("feed"),
+      standardDependencies("feed", source)
+    );
 
     const first = await adapter.refreshProduct("sku-feed-1");
     const second = await adapter.refreshProduct("sku-feed-1");
@@ -358,13 +390,10 @@ describe("configured merchant adapter", () => {
   it("builds approved affiliate URLs and falls back only to canonical merchant URLs", async () => {
     const fixture = await fixtureSource("feed");
     const redirectValidator = { isAllowed: vi.fn(async () => true) };
-    const adapter = createConfiguredAdapter(fixtureConfig("feed"), {
-      catalog: { merchantId: MERCHANT_ID, allowedHosts: ALLOWED_HOSTS },
-      sources: { feed: fixture.configuredSource },
-      evidence: { find: async () => [] },
-      redirectValidator,
-      clock: { now: () => new Date(NOW) }
-    });
+    const adapter = createConfiguredAdapter(
+      fixtureConfig("feed"),
+      standardDependencies("feed", fixture.configuredSource, { redirectValidator })
+    );
 
     const affiliate = await adapter.buildAffiliateLink({
       merchantProductId: "sku-feed-1",
@@ -410,18 +439,12 @@ describe("configured merchant adapter", () => {
       {
         ...fixtureConfig("feed"),
         affiliate: {
-          template: "https://{campaignId}.fixture-affiliate.example/click",
-          affiliateHosts: ["fixture-affiliate.example"],
-          affiliateOrigins: ["https://fixture-affiliate.example"]
+          template: "https://{campaignId}.go.fixture-affiliate.example/click",
+          affiliateHosts: ["go.fixture-affiliate.example"],
+          affiliateOrigins: ["https://go.fixture-affiliate.example"]
         }
       },
-      {
-        catalog: { merchantId: MERCHANT_ID, allowedHosts: ALLOWED_HOSTS },
-        sources: { feed: fixture.configuredSource },
-        evidence: { find: async () => [] },
-        redirectValidator: { isAllowed: async () => true },
-        clock: { now: () => new Date(NOW) }
-      }
+      standardDependencies("feed", fixture.configuredSource)
     )).toThrow(/template/i);
 
     const { adapter } = await fixtureAdapter("feed");
@@ -436,23 +459,14 @@ describe("configured merchant adapter", () => {
     const fixture = await fixtureSource("feed");
     expect(() => createConfiguredAdapter(
       { ...fixtureConfig("feed"), allowedHosts: ["shop.example", "other.example"] },
-      {
-        catalog: { merchantId: MERCHANT_ID, allowedHosts: ALLOWED_HOSTS },
-        sources: { feed: fixture.configuredSource },
-        evidence: { find: async () => [] },
-        redirectValidator: { isAllowed: async () => true },
-        clock: { now: () => new Date(NOW) }
-      }
+      standardDependencies("feed", fixture.configuredSource)
     )).toThrow(/catalog/i);
 
     const noAffiliate = { ...fixtureConfig("feed"), affiliate: undefined };
-    const adapter = createConfiguredAdapter(noAffiliate, {
-      catalog: { merchantId: MERCHANT_ID, allowedHosts: ALLOWED_HOSTS },
-      sources: { feed: fixture.configuredSource },
-      evidence: { find: async () => [] },
-      redirectValidator: { isAllowed: async () => true },
-      clock: { now: () => new Date(NOW) }
-    });
+    const adapter = createConfiguredAdapter(
+      noAffiliate,
+      standardDependencies("feed", fixture.configuredSource)
+    );
     await expect(adapter.buildAffiliateLink({
       merchantProductId: "sku-feed-1",
       merchantUrl: "https://shop.example/products/sku-feed-1",
@@ -462,13 +476,7 @@ describe("configured merchant adapter", () => {
 
   it("rejects unbounded or unsupported source configuration", async () => {
     const fixture = await fixtureSource("feed");
-    const deps = {
-      catalog: { merchantId: MERCHANT_ID, allowedHosts: ALLOWED_HOSTS },
-      sources: { feed: fixture.configuredSource },
-      evidence: { find: async () => [] },
-      redirectValidator: { isAllowed: async () => true },
-      clock: { now: () => new Date(NOW) }
-    };
+    const deps = standardDependencies("feed", fixture.configuredSource);
     expect(() => createConfiguredAdapter({
       ...fixtureConfig("feed"),
       source: { type: "crawl4ai", host: "shop.example", resourcePath: "/products" }
@@ -494,13 +502,282 @@ describe("configured merchant adapter", () => {
     });
 
     const fixture = await fixtureSource("feed");
-    const disabled = createConfiguredAdapter({ ...fixtureConfig("feed"), enabled: false }, {
-      catalog: { merchantId: MERCHANT_ID, allowedHosts: ALLOWED_HOSTS },
+    const disabled = createConfiguredAdapter(
+      fixtureConfig("feed"),
+      standardDependencies("feed", fixture.configuredSource, {
+        controls: { isEnabled: () => false, isKillSwitchActive: () => false }
+      })
+    );
+    await expect(disabled.healthCheck()).resolves.toMatchObject({ status: "disabled", source: "feed" });
+  });
+
+  it("cannot turn a weak host grant into an audited merchant approval", async () => {
+    const fixture = await fixtureSource("feed");
+    expect(() => createConfiguredAdapter(fixtureConfig("feed"), {
+      catalogCandidate: { merchantId: MERCHANT_ID, allowedHosts: ALLOWED_HOSTS },
       sources: { feed: fixture.configuredSource },
       evidence: { find: async () => [] },
       redirectValidator: { isAllowed: async () => true },
+      controls: { isEnabled: () => true, isKillSwitchActive: () => false },
+      freshness: { maxAgeMs: 60_000, maxFutureSkewMs: 5_000 },
       clock: { now: () => new Date(NOW) }
+    })).toThrow(/audit|approved|enabled/i);
+  });
+
+  it.each([
+    { auditState: "required" },
+    { legalReview: "not_started" },
+    { enabled: false },
+    { provenSource: "jsonld" },
+    { identityCompleteness: 0.89 },
+    { weightedScore: 69 },
+    { allowedHosts: [] }
+  ])("rejects catalog gate bypass attempt %j", async (override) => {
+    const fixture = await fixtureSource("feed");
+    expect(() => createConfiguredAdapter(
+      fixtureConfig("feed"),
+      standardDependencies("feed", fixture.configuredSource, {
+        catalogCandidate: { ...auditedCandidate("feed"), ...override }
+      })
+    )).toThrow(/audit|enabled|source/i);
+  });
+
+  it("requires separately audited affiliate hosts, origins, and status", async () => {
+    const fixture = await fixtureSource("feed");
+    expect(() => createConfiguredAdapter(
+      fixtureConfig("feed"),
+      standardDependencies("feed", fixture.configuredSource, {
+        catalogCandidate: { ...auditedCandidate("feed"), affiliateStatus: "pending" }
+      })
+    )).toThrow(/affiliate.*approved/i);
+    expect(() => createConfiguredAdapter(
+      fixtureConfig("feed"),
+      standardDependencies("feed", fixture.configuredSource, {
+        catalogCandidate: {
+          ...auditedCandidate("feed"),
+          affiliateHosts: ["other-affiliate.example"],
+          affiliateOrigins: ["https://other-affiliate.example"]
+        }
+      })
+    )).toThrow(/affiliate.*audited catalog/i);
+  });
+
+  it("guards source-backed methods with live controls before capture", async () => {
+    const fixture = await fixtureSource("feed");
+    const find = vi.fn(async () => []);
+    const dependencies = standardDependencies("feed", fixture.configuredSource, {
+      evidence: { find },
+      controls: { isEnabled: () => false, isKillSwitchActive: () => false }
     });
-    await expect(disabled.healthCheck()).resolves.toMatchObject({ status: "disabled", source: "feed" });
+    const adapter = createConfiguredAdapter(fixtureConfig("feed"), dependencies);
+    fixture.capture.mockClear();
+
+    await expect(adapter.searchProducts({ query: "Acme", limit: 1 })).rejects.toThrow(/disabled/i);
+    await expect(adapter.getOffer("sku-feed-1")).rejects.toThrow(/disabled/i);
+    await expect(adapter.quoteDeliveredPrice({
+      merchantProductId: "sku-feed-1", zipCode: "10001", memberships: []
+    })).rejects.toThrow(/disabled/i);
+    await expect(adapter.getCoupons({ merchantProductId: "sku-feed-1", memberships: [] }))
+      .rejects.toThrow(/disabled/i);
+    await expect(adapter.buildAffiliateLink({
+      merchantProductId: "sku-feed-1",
+      merchantUrl: "https://shop.example/products/sku-feed-1",
+      campaignId: "summer"
+    })).rejects.toThrow(/disabled/i);
+    await expect(adapter.refreshProduct("sku-feed-1")).rejects.toThrow(/disabled/i);
+    await expect(adapter.refreshOffer({ merchantProductId: "sku-feed-1", sourceVersion: "fixture-v1" }))
+      .rejects.toThrow(/disabled/i);
+    await expect(adapter.refreshPrice({
+      merchantProductId: "sku-feed-1",
+      zipCode: "10001",
+      memberships: [],
+      sourceVersion: "fixture-v1"
+    })).rejects.toThrow(/disabled/i);
+    await expect(adapter.evidence("sku-feed-1")).rejects.toThrow(/disabled/i);
+    expect(fixture.capture).not.toHaveBeenCalled();
+    expect(find).not.toHaveBeenCalled();
+    await expect(adapter.healthCheck()).resolves.toMatchObject({ status: "disabled" });
+    expect(fixture.health).not.toHaveBeenCalled();
+
+    const killed = createConfiguredAdapter(
+      fixtureConfig("feed"),
+      standardDependencies("feed", fixture.configuredSource, {
+        controls: { isEnabled: () => true, isKillSwitchActive: () => true }
+      })
+    );
+    await expect(killed.getOffer("sku-feed-1")).rejects.toThrow(/kill switch/i);
+    await expect(killed.healthCheck()).resolves.toMatchObject({ status: "disabled" });
+    expect(fixture.capture).not.toHaveBeenCalled();
+  });
+
+  it("rejects stale and excessively future-dated source snapshots", async () => {
+    const fixture = await fixtureSource("feed");
+    const checkedAt = vi.fn(() => "2026-08-13T11:58:59.999Z");
+    const source: ConfiguredSource = {
+      merchantId: MERCHANT_ID,
+      sourceType: "feed",
+      capture: async (request) => ({
+        ...await fixture.configuredSource.capture(request),
+        checkedAt: checkedAt()
+      }),
+      health: fixture.configuredSource.health
+    };
+    const adapter = createConfiguredAdapter(
+      fixtureConfig("feed"),
+      standardDependencies("feed", source)
+    );
+
+    await expect(adapter.getOffer("sku-feed-1")).rejects.toThrow(/stale/i);
+    checkedAt.mockReturnValue("2026-08-13T12:00:05.001Z");
+    await expect(adapter.getOffer("sku-feed-1")).rejects.toThrow(/future/i);
+    checkedAt.mockReturnValue("2026-08-13T11:59:00.000Z");
+    await expect(adapter.getOffer("sku-feed-1")).resolves.toMatchObject({ merchantProductId: "sku-feed-1" });
+    checkedAt.mockReturnValue("2026-08-13T12:00:05.000Z");
+    await expect(adapter.getOffer("sku-feed-1")).resolves.toMatchObject({ merchantProductId: "sku-feed-1" });
+  });
+
+  it("rejects product, price, and coupon data whose configured TTL has elapsed", async () => {
+    const fixture = await fixtureSource("feed");
+    const source: ConfiguredSource = {
+      merchantId: MERCHANT_ID,
+      sourceType: "feed",
+      capture: async (request) => ({
+        ...await fixture.configuredSource.capture(request),
+        checkedAt: "2026-08-13T11:45:00.000Z"
+      }),
+      health: fixture.configuredSource.health
+    };
+    const adapter = createConfiguredAdapter(
+      fixtureConfig("feed"),
+      standardDependencies("feed", source, {
+        freshness: { maxAgeMs: 3_600_000, maxFutureSkewMs: 5_000 }
+      })
+    );
+    await expect(adapter.searchProducts({ query: "Acme", limit: 1 })).rejects.toThrow(/product.*expired/i);
+    await expect(adapter.quoteDeliveredPrice({
+      merchantProductId: "sku-feed-1", zipCode: "10001", memberships: []
+    })).rejects.toThrow(/price.*expired/i);
+    await expect(adapter.getCoupons({ merchantProductId: "sku-feed-1", memberships: [] }))
+      .rejects.toThrow(/coupon.*expired/i);
+  });
+
+  it.each([
+    { maxAgeMs: -1, maxFutureSkewMs: 0 },
+    { maxAgeMs: Number.NaN, maxFutureSkewMs: 0 },
+    { maxAgeMs: 0, maxFutureSkewMs: 604_800_001 }
+  ])("rejects invalid freshness policy %j", async (freshness) => {
+    const fixture = await fixtureSource("feed");
+    expect(() => createConfiguredAdapter(
+      fixtureConfig("feed"),
+      standardDependencies("feed", fixture.configuredSource, { freshness })
+    )).toThrow(/bounded duration/i);
+  });
+
+  it("never substitutes a feed endpoint for a missing product URL", async () => {
+    const fixture = await fixtureSource("feed");
+    const source: ConfiguredSource = {
+      merchantId: MERCHANT_ID,
+      sourceType: "feed",
+      capture: async (request) => {
+        const snapshot = await fixture.configuredSource.capture(request);
+        return {
+          ...snapshot,
+          records: snapshot.records.map((record) => {
+            if (record.rawOffer === undefined) return record;
+            const { url: _url, ...rawOffer } = record.rawOffer;
+            return { ...record, rawOffer };
+          })
+        } as ConfiguredSourceSnapshot;
+      },
+      health: fixture.configuredSource.health
+    };
+    const adapter = createConfiguredAdapter(
+      fixtureConfig("feed"),
+      standardDependencies("feed", source)
+    );
+    await expect(adapter.getOffer("sku-feed-1")).rejects.toThrow(/product URL/i);
+  });
+
+  it("rejects a source instance or snapshot bound to another merchant", async () => {
+    const fixture = await fixtureSource("feed");
+    const wrongSource = {
+      merchantId: "other-shop",
+      sourceType: "feed",
+      capture: fixture.configuredSource.capture,
+      health: fixture.configuredSource.health
+    } as unknown as ConfiguredSource;
+    expect(() => createConfiguredAdapter(
+      fixtureConfig("feed"),
+      standardDependencies("feed", wrongSource)
+    )).toThrow(/source.*merchant|bound/i);
+
+    const wrongSnapshot: ConfiguredSource = {
+      merchantId: MERCHANT_ID,
+      sourceType: "feed",
+      capture: async (request) => ({
+        ...await fixture.configuredSource.capture(request),
+        merchantId: "other-shop"
+      }),
+      health: fixture.configuredSource.health
+    };
+    const adapter = createConfiguredAdapter(
+      fixtureConfig("feed"),
+      standardDependencies("feed", wrongSnapshot)
+    );
+    await expect(adapter.getOffer("sku-feed-1")).rejects.toThrow(/snapshot.*merchant|bound/i);
+  });
+
+  it("rejects URLs above the explicit byte bound before parsing or rendering", async () => {
+    const { adapter } = await fixtureAdapter("feed");
+    const oversized = `https://shop.example/products/${"x".repeat(4_100)}`;
+    await expect(adapter.buildAffiliateLink({
+      merchantProductId: "sku-feed-1",
+      merchantUrl: oversized,
+      campaignId: "summer"
+    })).rejects.toThrow(/4096|length|large/i);
+
+    const fixture = await fixtureSource("feed");
+    const oversizedSource: ConfiguredSource = {
+      merchantId: MERCHANT_ID,
+      sourceType: "feed",
+      capture: async (request) => ({
+        ...await fixture.configuredSource.capture(request),
+        sourceUrl: `https://shop.example/${"s".repeat(4_100)}`
+      }),
+      health: fixture.configuredSource.health
+    };
+    const sourceAdapter = createConfiguredAdapter(
+      fixtureConfig("feed"),
+      standardDependencies("feed", oversizedSource)
+    );
+    await expect(sourceAdapter.getOffer("sku-feed-1")).rejects.toThrow(/4096/i);
+
+    const longProductUrl = `https://shop.example/products/${"p".repeat(3_990)}`;
+    const longProductSource: ConfiguredSource = {
+      merchantId: MERCHANT_ID,
+      sourceType: "feed",
+      capture: async (request) => {
+        const snapshot = await fixture.configuredSource.capture(request);
+        return {
+          ...snapshot,
+          records: snapshot.records.map((record) => ({
+            ...record,
+            rawOffer: record.rawOffer === undefined
+              ? undefined
+              : { ...record.rawOffer, url: longProductUrl }
+          }))
+        } as ConfiguredSourceSnapshot;
+      },
+      health: fixture.configuredSource.health
+    };
+    const renderAdapter = createConfiguredAdapter(
+      fixtureConfig("feed"),
+      standardDependencies("feed", longProductSource)
+    );
+    await expect(renderAdapter.buildAffiliateLink({
+      merchantProductId: "sku-feed-1",
+      merchantUrl: longProductUrl,
+      campaignId: "summer"
+    })).resolves.toEqual({ url: longProductUrl, kind: "NORMAL" });
   });
 });

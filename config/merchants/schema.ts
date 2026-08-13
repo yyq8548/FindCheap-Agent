@@ -1,5 +1,31 @@
 import { z } from "zod";
 
+const HOST_PATTERN = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/u;
+
+export const MerchantHostSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(253)
+  .transform((host) => host.toLowerCase())
+  .refine((host) => HOST_PATTERN.test(host), "invalid merchant host");
+
+export const AffiliateOriginSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(300)
+  .refine((value) => {
+    try {
+      const url = new URL(value);
+      return url.protocol === "https:" && url.username === "" && url.password === "" &&
+        url.port === "" && url.pathname === "/" && url.search === "" && url.hash === "";
+    } catch {
+      return false;
+    }
+  }, "affiliate origin must be credential-free HTTPS on the default port")
+  .transform((value) => new URL(value).origin);
+
 export const MerchantCandidateSchema = z
   .object({
     id: z.string().regex(/^[a-z0-9-]+$/),
@@ -11,12 +37,26 @@ export const MerchantCandidateSchema = z
       .enum(["not_applied", "pending", "approved", "normal_link_only"])
       .default("not_applied"),
     provenSource: z.enum(["feed", "api", "jsonld", "http", "crawl4ai"]).optional(),
-    allowedHosts: z.array(z.string().min(1)).default([]),
+    allowedHosts: z.array(MerchantHostSchema).max(50).default([]),
+    affiliateHosts: z.array(MerchantHostSchema).max(20).default([]),
+    affiliateOrigins: z.array(AffiliateOriginSchema).max(20).default([]),
     identityCompleteness: z.number().min(0).max(1).default(0),
     weightedScore: z.number().min(0).max(100).default(0),
     enabled: z.boolean().default(false)
   })
-  .strict();
+  .strict()
+  .superRefine((candidate, context) => {
+    const affiliateHosts = new Set(candidate.affiliateHosts);
+    candidate.affiliateOrigins.forEach((origin, index) => {
+      if (!affiliateHosts.has(new URL(origin).hostname)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["affiliateOrigins", index],
+          message: "affiliate origin host must be present in affiliateHosts"
+        });
+      }
+    });
+  });
 
 export const MerchantCatalogSchema = z
   .object({

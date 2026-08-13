@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
-import { MerchantCatalogSchema, selectForBuild, weightedScore } from "./schema.js";
+import { MerchantCandidateSchema, MerchantCatalogSchema, selectForBuild, weightedScore } from "./schema.js";
 
 const catalogPath = new URL("./catalog.yaml", import.meta.url);
 
@@ -22,6 +22,9 @@ describe("merchant audit catalog", () => {
     ]);
     expect(catalog.candidates.every((merchant) => merchant.auditState === "required" && !merchant.enabled)).toBe(true);
     expect(catalog.candidates.every((merchant) => merchant.allowedHosts.length === 0 && merchant.provenSource === undefined)).toBe(true);
+    expect(catalog.candidates.every((merchant) =>
+      merchant.affiliateHosts.length === 0 && merchant.affiliateOrigins.length === 0
+    )).toBe(true);
   });
 
   it("requires every quality-gate condition before selection", () => {
@@ -47,5 +50,27 @@ describe("merchant audit catalog", () => {
   it("calculates the documented weighted score", () => {
     expect(weightedScore({ data: 1, identity: 1, priceAndZip: 1, legal: 1, stability: 1, coverage: 1, maintenance: 1 })).toBe(100);
     expect(weightedScore({ data: 0, identity: 1, priceAndZip: 1, legal: 1, stability: 1, coverage: 1, maintenance: 1 })).toBe(75);
+  });
+
+  it("normalizes audited affiliate origins and rejects unsafe origin forms", () => {
+    const base = {
+      id: "approved-shop",
+      name: "Approved Shop",
+      segment: "general" as const,
+      auditState: "approved" as const,
+      affiliateHosts: ["go.approved-shop.example"],
+      affiliateOrigins: ["https://go.approved-shop.example:443"]
+    };
+    expect(MerchantCandidateSchema.parse(base).affiliateOrigins).toEqual([
+      "https://go.approved-shop.example"
+    ]);
+    expect(() => MerchantCandidateSchema.parse({
+      ...base,
+      affiliateOrigins: ["https://user@go.approved-shop.example"]
+    })).toThrow(/origin/i);
+    expect(() => MerchantCandidateSchema.parse({
+      ...base,
+      affiliateOrigins: ["https://go.approved-shop.example:8443"]
+    })).toThrow(/origin/i);
   });
 });

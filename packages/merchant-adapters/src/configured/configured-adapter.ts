@@ -20,10 +20,9 @@ import {
   type RefreshResult,
   type SearchProductsInput
 } from "../../../merchant-sdk/src/index.js";
-import { buildConfiguredUrl, type RawMerchantRecord } from "./feed-reader.js";
+import type { RawMerchantRecord } from "./feed-reader.js";
 import {
   parseMerchantSourceConfig,
-  type MerchantCatalogGrant,
   type MerchantSourceConfig,
   type MerchantSourceConfigInput
 } from "./source-config.js";
@@ -46,6 +45,8 @@ export type SourceQuote = Omit<
 >;
 
 export type ConfiguredSourceSnapshot = {
+  merchantId: string;
+  sourceType: SourceType;
   records: RawMerchantRecord[];
   sourceUrl: string;
   rawEvidence: string;
@@ -57,18 +58,28 @@ export type ConfiguredSourceSnapshot = {
 
 /** One capture produces the parsed entities and the evidence envelope from the same source read. */
 export interface ConfiguredSource {
+  readonly merchantId: string;
+  readonly sourceType: SourceType;
   capture(request: ConfiguredSourceRequest): Promise<ConfiguredSourceSnapshot>;
   health(): Promise<SourceHealth>;
 }
 
 export type ConfiguredAdapterDependencies = {
-  catalog: MerchantCatalogGrant;
+  catalogCandidate: unknown;
   sources: Partial<Record<SourceType, ConfiguredSource>>;
   evidence: {
     find(merchantId: string, entityId: string): Promise<EvidenceRecord[]>;
   };
   redirectValidator: {
     isAllowed(url: string): boolean | Promise<boolean>;
+  };
+  controls: {
+    isEnabled(merchantId: string): boolean;
+    isKillSwitchActive(merchantId: string): boolean;
+  };
+  freshness: {
+    maxAgeMs: number;
+    maxFutureSkewMs: number;
   };
   clock: { now(): Date };
 };
@@ -85,41 +96,65 @@ const MAX_MEMBERSHIPS = 20;
 const MAX_MEMBERSHIP_LENGTH = 80;
 const MAX_PRODUCT_ID_LENGTH = 200;
 const MAX_CAMPAIGN_ID_LENGTH = 80;
+const MAX_URL_BYTES = 4_096;
+const MAX_FRESHNESS_WINDOW_MS = 604_800_000;
 const ALLOWED_PLACEHOLDERS = new Set(["campaignId", "merchantProductId", "merchantUrl"]);
 
 export function createConfiguredAdapter(
   configInput: MerchantSourceConfigInput,
   deps: ConfiguredAdapterDependencies
 ): MerchantAdapter {
-  const config = parseMerchantSourceConfig(configInput, deps.catalog);
+  const config = parseMerchantSourceConfig(configInput, deps.catalogCandidate);
+  validateFreshnessPolicy(deps.freshness);
   const source = deps.sources[config.source.type];
   if (source === undefined) throw new Error(`configured ${config.source.type} source is unavailable`);
+  if (source.merchantId !== config.merchantId || source.sourceType !== config.source.type) {
+    throw new Error("configured source is bound to a different merchant or source type");
+  }
   if (config.affiliate !== undefined) validateAffiliateConfig(config);
 
-  const capture = async (request: ConfiguredSourceRequest): Promise<ValidatedSnapshot> =>
-    validateSnapshot(await source.capture(request), config);
+  const requireOperational = (): void => {
+    if (!deps.controls.isEnabled(config.merchantId)) throw new Error("merchant adapter is disabled");
+    if (deps.controls.isKillSwitchActive(config.merchantId)) {
+      throw new Error("merchant adapter kill switch is active");
+    }
+  };
+  const operationNow = (): Date => {
+    requireOperational();
+    const now = deps.clock.now();
+    if (!Number.isFinite(now.getTime())) throw new Error("adapter clock returned an invalid time");
+    return now;
+  };
+  const capture = async (
+    request: ConfiguredSourceRequest,
+    now: Date
+  ): Promise<ValidatedSnapshot> =>
+    validateSnapshot(await source.capture(request), config, source, now, deps.freshness);
 
   const quote = async (
     input: QuoteDeliveredPriceInput,
     operation: "quote" | "refreshPrice"
   ): Promise<{ snapshot: ValidatedSnapshot; quote: RawPriceQuote }> => {
+    const now = operationNow();
     const merchantProductId = boundedText(input.merchantProductId, "merchant product id", MAX_PRODUCT_ID_LENGTH);
     const zipCode = normalizeZipCode(input.zipCode);
     const memberships = normalizeMemberships(input.memberships);
-    const snapshot = await capture({ operation, merchantProductId, zipCode, memberships });
+    const snapshot = await capture({ operation, merchantProductId, zipCode, memberships }, now);
     const record = exactRecord(snapshot.records, merchantProductId);
     if (record === undefined) throw new Error(`merchant product ${merchantProductId} not found`);
     if (snapshot.quote === undefined) throw new Error("delivered price quote is unavailable from source");
-    return { snapshot, quote: normalizeQuote(snapshot, merchantProductId, config) };
+    return { snapshot, quote: normalizeQuote(snapshot, merchantProductId, config, now) };
   };
 
   return {
     merchantId: config.merchantId,
 
     async searchProducts(input: SearchProductsInput) {
+      const now = operationNow();
       const query = normalizeQuery(input.query);
       const limit = normalizeLimit(input.limit);
-      const snapshot = await capture({ operation: "search", query, limit });
+      const snapshot = await capture({ operation: "search", query, limit }, now);
+      requireFreshExpiry(snapshot.checkedAt, config.ttlSeconds.product, now, "product");
       const terms = query.toLocaleLowerCase("en-US").split(/\s+/u);
       return snapshot.records
         .filter((record) => {
@@ -130,17 +165,19 @@ export function createConfiguredAdapter(
           return terms.every((term) => haystack.includes(term));
         })
         .slice(0, limit)
-        .map((record) => normalizeCandidate(record, snapshot, config));
+        .map((record) => normalizeCandidate(record, snapshot, config, now));
     },
 
     async getOffer(merchantProductIdInput: string) {
+      const now = operationNow();
       const merchantProductId = boundedText(
         merchantProductIdInput,
         "merchant product id",
         MAX_PRODUCT_ID_LENGTH
       );
-      const snapshot = await capture({ operation: "get", merchantProductId });
-      return normalizeOffer(exactRecord(snapshot.records, merchantProductId), snapshot, config);
+      const snapshot = await capture({ operation: "get", merchantProductId }, now);
+      requireFreshExpiry(snapshot.checkedAt, config.ttlSeconds.product, now, "product");
+      return normalizeOffer(exactRecord(snapshot.records, merchantProductId), snapshot, config, now);
     },
 
     async quoteDeliveredPrice(input: QuoteDeliveredPriceInput) {
@@ -148,20 +185,23 @@ export function createConfiguredAdapter(
     },
 
     async getCoupons(input: CouponQuery) {
+      const now = operationNow();
       const merchantProductId = boundedText(
         input.merchantProductId,
         "merchant product id",
         MAX_PRODUCT_ID_LENGTH
       );
       const memberships = normalizeMemberships(input.memberships);
-      const snapshot = await capture({ operation: "coupons", merchantProductId, memberships });
+      const snapshot = await capture({ operation: "coupons", merchantProductId, memberships }, now);
+      requireFreshExpiry(snapshot.checkedAt, config.ttlSeconds.coupon, now, "coupon");
       if (exactRecord(snapshot.records, merchantProductId) === undefined) {
         throw new Error(`merchant product ${merchantProductId} not found`);
       }
-      return verifiedCoupons(snapshot.coupons ?? [], memberships, deps.clock.now());
+      return verifiedCoupons(snapshot.coupons ?? [], memberships, now);
     },
 
     async buildAffiliateLink(input) {
+      const now = operationNow();
       const merchantProductId = boundedText(
         input.merchantProductId,
         "merchant product id",
@@ -169,50 +209,53 @@ export function createConfiguredAdapter(
       );
       const campaignId = normalizeCampaignId(input.campaignId);
       requireApprovedUrl(input.merchantUrl, config.allowedHosts, "caller merchant URL");
-      const snapshot = await capture({ operation: "get", merchantProductId });
+      const snapshot = await capture({ operation: "get", merchantProductId }, now);
+      requireFreshExpiry(snapshot.checkedAt, config.ttlSeconds.product, now, "product");
       const record = exactRecord(snapshot.records, merchantProductId);
       if (record === undefined) throw new Error(`merchant product ${merchantProductId} not found`);
       const canonicalUrl = canonicalMerchantUrl(record, config);
       if (config.affiliate === undefined) return { url: canonicalUrl, kind: "NORMAL" };
 
-      const rendered = renderAffiliateTemplate(config, {
-        campaignId,
-        merchantProductId,
-        merchantUrl: canonicalUrl
-      });
       try {
+        const rendered = renderAffiliateTemplate(config, {
+          campaignId,
+          merchantProductId,
+          merchantUrl: canonicalUrl
+        });
         if (await deps.redirectValidator.isAllowed(rendered)) {
           return { url: rendered, kind: "AFFILIATE" };
         }
       } catch {
-        // A validator outage must fail closed to the canonical merchant URL.
+        // Rendering or validation failure must fail closed to the canonical merchant URL.
       }
       return { url: canonicalUrl, kind: "NORMAL" };
     },
 
     async refreshProduct(merchantProductIdInput: string): Promise<RefreshResult> {
+      const now = operationNow();
       const merchantProductId = boundedText(
         merchantProductIdInput,
         "merchant product id",
         MAX_PRODUCT_ID_LENGTH
       );
-      return sourceEnvelope(
-        await capture({ operation: "refreshProduct", merchantProductId }),
-        merchantProductId
-      );
+      const snapshot = await capture({ operation: "refreshProduct", merchantProductId }, now);
+      requireFreshExpiry(snapshot.checkedAt, config.ttlSeconds.product, now, "product");
+      return sourceEnvelope(snapshot, merchantProductId);
     },
 
     async refreshOffer(input): Promise<RefreshOfferResult> {
+      const now = operationNow();
       const merchantProductId = boundedText(
         input.merchantProductId,
         "merchant product id",
         MAX_PRODUCT_ID_LENGTH
       );
-      const snapshot = await capture({ operation: "refreshOffer", merchantProductId });
+      const snapshot = await capture({ operation: "refreshOffer", merchantProductId }, now);
+      requireFreshExpiry(snapshot.checkedAt, config.ttlSeconds.product, now, "product");
       requireRequestedSourceVersion(input.sourceVersion, snapshot.sourceVersion);
       return {
         ...sourceEnvelope(snapshot, merchantProductId),
-        offer: normalizeOffer(exactRecord(snapshot.records, merchantProductId), snapshot, config)
+        offer: normalizeOffer(exactRecord(snapshot.records, merchantProductId), snapshot, config, now)
       };
     },
 
@@ -227,7 +270,10 @@ export function createConfiguredAdapter(
 
     async healthCheck() {
       const checkedAt = deps.clock.now().toISOString();
-      if (!config.enabled || config.killSwitch) {
+      if (
+        !deps.controls.isEnabled(config.merchantId) ||
+        deps.controls.isKillSwitchActive(config.merchantId)
+      ) {
         return { status: "disabled", source: config.source.type, checkedAt };
       }
       try {
@@ -238,6 +284,7 @@ export function createConfiguredAdapter(
     },
 
     async evidence(entityIdInput: string) {
+      requireOperational();
       const entityId = boundedText(entityIdInput, "evidence entity id", MAX_PRODUCT_ID_LENGTH);
       const records = await deps.evidence.find(config.merchantId, entityId);
       return records.filter((record) => record.merchantId === config.merchantId);
@@ -247,14 +294,35 @@ export function createConfiguredAdapter(
 
 function validateSnapshot(
   snapshot: ConfiguredSourceSnapshot,
-  config: MerchantSourceConfig
+  config: MerchantSourceConfig,
+  source: ConfiguredSource,
+  now: Date,
+  freshness: ConfiguredAdapterDependencies["freshness"]
 ): ValidatedSnapshot {
+  if (
+    snapshot.merchantId !== config.merchantId ||
+    snapshot.sourceType !== config.source.type ||
+    snapshot.merchantId !== source.merchantId ||
+    snapshot.sourceType !== source.sourceType
+  ) {
+    throw new Error("source snapshot is bound to a different merchant or source type");
+  }
   if (!Array.isArray(snapshot.records)) throw new Error("source records must be an array");
   requireApprovedUrl(snapshot.sourceUrl, config.allowedHosts, "source URL");
   requireRawEvidence(snapshot.rawEvidence);
   requireMetadata(snapshot.metadata);
-  if (parseRfc3339Timestamp(snapshot.checkedAt) === undefined) {
+  const checkedAt = parseRfc3339Timestamp(snapshot.checkedAt);
+  if (checkedAt === undefined) {
     throw new Error("source checkedAt must be strict RFC3339");
+  }
+  const ageMs = now.getTime() - checkedAt;
+  if (ageMs > freshness.maxAgeMs) throw new Error("source snapshot is stale");
+  if (-ageMs > freshness.maxFutureSkewMs) throw new Error("source snapshot is too far in the future");
+  if (
+    snapshot.metadata.sourceType !== undefined &&
+    snapshot.metadata.sourceType !== config.source.type
+  ) {
+    throw new Error("source metadata type does not match the configured source");
   }
   const declaredVersion = snapshot.metadata.sourceVersion;
   const sourceVersion = declaredVersion === undefined
@@ -272,7 +340,8 @@ function validateSnapshot(
 function normalizeCandidate(
   record: RawMerchantRecord,
   snapshot: ValidatedSnapshot,
-  config: MerchantSourceConfig
+  config: MerchantSourceConfig,
+  now: Date
 ): MerchantProductCandidate {
   const candidate: MerchantProductCandidate = {
     merchantId: config.merchantId,
@@ -284,7 +353,7 @@ function normalizeCandidate(
     merchantUrl: canonicalMerchantUrl(record, config),
     evidenceRefs: [snapshot.evidenceRef],
     checkedAt: snapshot.checkedAt,
-    expiresAt: expiresAt(snapshot.checkedAt, config.ttlSeconds.product)
+    expiresAt: expiresAt(snapshot.checkedAt, config.ttlSeconds.product, now, "product")
   };
   if (record.brand !== undefined) candidate.brand = record.brand;
   if (record.mpn !== undefined) candidate.mpn = record.mpn;
@@ -294,21 +363,24 @@ function normalizeCandidate(
 function normalizeOffer(
   record: RawMerchantRecord | undefined,
   snapshot: ValidatedSnapshot,
-  config: MerchantSourceConfig
+  config: MerchantSourceConfig,
+  now: Date
 ): RawMerchantOffer | null {
   if (record === undefined || record.rawOffer?.price === undefined) return null;
   if (record.rawOffer.priceCurrency !== undefined && record.rawOffer.priceCurrency !== "USD") {
     throw new Error("merchant offer currency must be USD");
   }
   const offer: RawMerchantOffer = {
-    ...normalizeCandidate(record, snapshot, config),
+    ...normalizeCandidate(record, snapshot, config, now),
     sellerName: config.seller.name,
     condition: config.seller.condition,
     inventoryStatus: inventoryStatus(record.rawOffer.availability),
     itemPriceCents: decimalToCents(record.rawOffer.price),
     expiresAt: expiresAt(
       snapshot.checkedAt,
-      Math.min(config.ttlSeconds.product, config.ttlSeconds.price, config.ttlSeconds.inventory)
+      Math.min(config.ttlSeconds.product, config.ttlSeconds.price, config.ttlSeconds.inventory),
+      now,
+      "offer"
     )
   };
   requireOfferShape(offer);
@@ -318,7 +390,8 @@ function normalizeOffer(
 function normalizeQuote(
   snapshot: ValidatedSnapshot,
   merchantProductId: string,
-  config: MerchantSourceConfig
+  config: MerchantSourceConfig,
+  now: Date
 ): RawPriceQuote {
   if (snapshot.quote === undefined) throw new Error("delivered price quote is unavailable from source");
   const quote: RawPriceQuote = {
@@ -327,7 +400,7 @@ function normalizeQuote(
     currency: "USD",
     evidenceRefs: [snapshot.evidenceRef],
     checkedAt: snapshot.checkedAt,
-    expiresAt: expiresAt(snapshot.checkedAt, config.ttlSeconds.price)
+    expiresAt: expiresAt(snapshot.checkedAt, config.ttlSeconds.price, now, "price")
   };
   requireQuoteShape(quote);
   return quote;
@@ -349,14 +422,21 @@ function exactRecord(records: RawMerchantRecord[], merchantProductId: string): R
 }
 
 function canonicalMerchantUrl(record: RawMerchantRecord, config: MerchantSourceConfig): string {
-  const value = record.rawOffer?.url ?? buildConfiguredUrl(config.source.host, config.source.resourcePath);
+  const value = record.rawOffer?.url;
+  if (value === undefined) throw new Error("product URL is missing from merchant source evidence");
   return requireApprovedUrl(value, config.allowedHosts, "canonical merchant URL").href;
 }
 
-function expiresAt(checkedAt: string, ttlSeconds: number): string {
+function expiresAt(checkedAt: string, ttlSeconds: number, now: Date, label: string): string {
   const checked = parseRfc3339Timestamp(checkedAt);
   if (checked === undefined) throw new Error("source checkedAt must be strict RFC3339");
-  return new Date(checked + ttlSeconds * 1_000).toISOString();
+  const expires = checked + ttlSeconds * 1_000;
+  if (expires <= now.getTime()) throw new Error(`${label} source data has expired`);
+  return new Date(expires).toISOString();
+}
+
+function requireFreshExpiry(checkedAt: string, ttlSeconds: number, now: Date, label: string): void {
+  expiresAt(checkedAt, ttlSeconds, now, label);
 }
 
 function decimalToCents(value: string | number): number {
@@ -469,7 +549,18 @@ function requireRequestedSourceVersion(requestedInput: string, actual: string): 
   if (requested !== actual) throw new Error("requested source version does not match captured evidence");
 }
 
+function validateFreshnessPolicy(policy: ConfiguredAdapterDependencies["freshness"]): void {
+  for (const [label, value] of Object.entries(policy)) {
+    if (!Number.isFinite(value) || value < 0 || value > MAX_FRESHNESS_WINDOW_MS) {
+      throw new Error(`${label} must be a finite non-negative bounded duration`);
+    }
+  }
+}
+
 function requireApprovedUrl(value: string, allowedHosts: readonly string[], label: string): URL {
+  if (typeof value !== "string" || new TextEncoder().encode(value).byteLength > MAX_URL_BYTES) {
+    throw new Error(`${label} exceeds the 4096-byte URL limit`);
+  }
   let url: URL;
   try {
     url = new URL(value);
