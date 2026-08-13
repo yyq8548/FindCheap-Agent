@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import ipaddress
 import sys
+from types import SimpleNamespace
 from pathlib import Path
 
 import pytest
@@ -16,7 +17,7 @@ SERVICE_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SERVICE_ROOT))
 
 from app.config import ConfigurationError, WorkerSettings  # noqa: E402
-from app.main import CrawlOutput, ExtractionService, create_app  # noqa: E402
+from app.main import Crawl4AIClient, CrawlOutput, ExtractionService, create_app  # noqa: E402
 from app.models import ExtractRequest  # noqa: E402
 
 
@@ -35,6 +36,75 @@ class FakeCrawler:
 
     async def aclose(self) -> None:
         return None
+
+
+class AllowRobots:
+    async def authorize(self, **_):
+        return None
+
+
+def test_persistent_crawl4ai_client_serializes_and_recycles_context(monkeypatch):
+    state = SimpleNamespace(starts=0, closes=0, active=0, max_active=0, browsers=[])
+
+    class FakeConfig:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+    class FakeAsyncWebCrawler:
+        def __init__(self, config):
+            self.config = config
+            state.browsers.append(config)
+
+        async def start(self):
+            state.starts += 1
+
+        async def arun(self, *, url, config):
+            state.active += 1
+            state.max_active = max(state.max_active, state.active)
+            await asyncio.sleep(0.01)
+            state.active -= 1
+            return SimpleNamespace(
+                markdown="<main>ok</main>",
+                redirected_url=url,
+                redirect_chain=(),
+                success=True,
+                error_message="",
+            )
+
+        async def close(self):
+            state.closes += 1
+
+    fake_crawl4ai = SimpleNamespace(
+        AsyncWebCrawler=FakeAsyncWebCrawler,
+        BrowserConfig=FakeConfig,
+        CrawlerRunConfig=FakeConfig,
+        ProxyConfig=FakeConfig,
+        CacheMode=SimpleNamespace(BYPASS="bypass"),
+    )
+    monkeypatch.setitem(sys.modules, "crawl4ai", fake_crawl4ai)
+
+    async def exercise():
+        client = Crawl4AIClient("http://crawl4ai-egress:3128")
+        first, second = await asyncio.gather(
+            client.crawl("https://shop.example/catalog/p/1", "product"),
+            client.crawl("https://shop.example/catalog/p/2", "product"),
+        )
+        await client.aclose()
+        return first, second
+
+    first, second = run(exercise())
+
+    assert first.success and second.success
+    assert state.starts == 1
+    assert state.max_active == 1
+    assert state.closes == 1
+    browser_args = state.browsers[0].kwargs
+    assert browser_args["create_isolated_context"] is True
+    assert browser_args["max_pages_before_recycle"] == 1
+    assert browser_args["cookies"] == []
+    assert browser_args["storage_state"] is None
+    assert browser_args["ignore_https_errors"] is False
+    assert browser_args["extra_args"] == []
 
 
 def approved_settings(*, egress_enforced: bool = True) -> WorkerSettings:
@@ -86,6 +156,7 @@ def make_service(
         settings=settings or approved_settings(),
         crawler_factory=lambda _: crawler,
         resolver=resolver,
+        robots_policy=AllowRobots(),
     )
     return service, crawler
 
@@ -109,6 +180,7 @@ def test_http_api_returns_403_for_unknown_and_422_for_extra_network_fields():
         approved_settings(),
         crawler_factory=lambda _: crawler,
         resolver=public_resolver,
+        robots_policy=AllowRobots(),
     )
     with TestClient(app) as client:
         unknown = client.post(
@@ -134,6 +206,14 @@ def test_http_api_returns_403_for_unknown_and_422_for_extra_network_fields():
     assert unknown.status_code == 403
     assert extra.status_code == 422
     assert crawler.calls == []
+
+
+def test_openapi_and_interactive_docs_are_disabled():
+    app = create_app(approved_settings(), robots_policy=AllowRobots())
+    with TestClient(app) as client:
+        assert client.get("/openapi.json").status_code == 404
+        assert client.get("/docs").status_code == 404
+        assert client.get("/redoc").status_code == 404
 
 
 @pytest.mark.parametrize(

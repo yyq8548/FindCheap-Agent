@@ -11,6 +11,7 @@
     "test": "vitest run",
     "test:mcp-stdio": "vitest run apps/mcp-server/test/stdio-smoke.test.ts",
     "test:integration": "vitest run --config vitest.integration.ts",
+    "test:crawl4ai-runtime": "python scripts/test-crawl4ai-runtime.py",
     "db:migrate": "tsx packages/db/src/migrate.ts",
     "eval:matching": "tsx scripts/evaluate-matching.ts",
     "merchants:score": "tsx scripts/score-merchants.ts"

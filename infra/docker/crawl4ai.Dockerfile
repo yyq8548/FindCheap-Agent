@@ -1,4 +1,4 @@
-FROM python:3.12-slim
+FROM python:3.12-slim@sha256:ffd5d35f5cf6dfba89eaaebd93d5ad142faa7a7f2c728742c5b50cb81baff526
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -9,7 +9,13 @@ RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin crawler
 WORKDIR /app
 
 COPY services/crawl4ai-worker/requirements.txt ./requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt \
+COPY services/crawl4ai-worker/requirements.lock ./requirements.lock
+COPY services/crawl4ai-worker/scripts/patch_crawl4ai_tls.py ./scripts/patch_crawl4ai_tls.py
+RUN pip install --no-cache-dir --require-hashes -r requirements.lock \
+    && python ./scripts/patch_crawl4ai_tls.py \
+      --target /usr/local/lib/python3.12/site-packages/crawl4ai/browser_manager.py \
+      --expected-sha256 76724e47ccace4cee8c5b654f3c132744d30d9a98706984d77517be06a317c3d \
+      --proof /app/crawl4ai-browser-manager.patched.sha256 \
     && mkdir -p /ms-playwright \
     && python -m playwright install --with-deps chromium \
     && chmod -R a=rX /ms-playwright \

@@ -37,19 +37,16 @@ services:
 
   crawl4ai-egress:
     profiles: ["dynamic-crawl"]
-    image: ubuntu/squid:6.10-24.10_edge
+    build:
+      context: .
+      dockerfile: infra/docker/crawl4ai-squid.Dockerfile
     command: ["-N", "-f", "/etc/squid/squid.conf"]
-    configs:
-      - source: crawl4ai_squid_config
-        target: /etc/squid/squid.conf
-      - source: crawl4ai_allowed_hosts
-        target: /etc/squid/allowed-hosts.txt
     networks: ["crawler-internal", "crawler-outbound"]
     read_only: true
     tmpfs:
-      - /var/log/squid:rw,noexec,nosuid,nodev,size=16m
-      - /var/spool/squid:rw,noexec,nosuid,nodev,size=16m
-      - /run:rw,noexec,nosuid,nodev,size=4m
+      - /var/log/squid:rw,noexec,nosuid,nodev,size=16m,uid=13,gid=13,mode=0755
+      - /var/spool/squid:rw,noexec,nosuid,nodev,size=16m,uid=13,gid=13,mode=0755
+      - /run:rw,noexec,nosuid,nodev,size=4m,uid=13,gid=13,mode=0755
     cap_drop: ["ALL"]
     security_opt: ["no-new-privileges:true"]
     pids_limit: 64
@@ -60,9 +57,3 @@ networks:
   crawler-internal:
     internal: true
   crawler-outbound: {}
-
-configs:
-  crawl4ai_squid_config:
-    file: ./infra/docker/crawl4ai-squid.conf
-  crawl4ai_allowed_hosts:
-    file: ./infra/docker/crawl4ai-allowed-hosts.txt

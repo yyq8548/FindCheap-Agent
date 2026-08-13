@@ -14,12 +14,13 @@ from fastapi import FastAPI, HTTPException
 
 from .config import MerchantSettings, ProfileSettings, WorkerSettings, load_settings
 from .models import DynamicPageEvidence, ExtractRequest
+from .robots import FIXED_USER_AGENT, SecureRobotsPolicy
 
 
 MAX_EVIDENCE_BYTES = 2_000_000
 REQUEST_TIMEOUT_SECONDS = 15
+CRAWL_TIMEOUT_SECONDS = 10
 SOURCE_VERSION = "crawl4ai-0.9.2"
-FIXED_USER_AGENT = "ShoppingAgentEvidenceBot/1.0 (+merchant-audit-required)"
 INVALID_PERCENT = re.compile(r"%(?![0-9A-Fa-f]{2})")
 CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 SCRIPT_BLOCK = re.compile(
@@ -38,6 +39,7 @@ class CrawlOutput:
     final_url: str | None
     redirect_chain: tuple[str, ...]
     success: bool = True
+    error_message: str = ""
 
 
 class CrawlerClient(Protocol):
@@ -178,6 +180,8 @@ class Crawl4AIClient:
 
     def __init__(self, proxy_url: str):
         self._proxy_url = proxy_url
+        self._crawler = None
+        self._lock = asyncio.Lock()
 
     async def crawl(self, url: str, profile: str) -> CrawlOutput:
         from crawl4ai import (  # type: ignore[import-not-found]
@@ -208,6 +212,9 @@ class Crawl4AIClient:
             downloads_path=None,
             ignore_https_errors=False,
             java_script_enabled=True,
+            create_isolated_context=True,
+            max_pages_before_recycle=1,
+            extra_args=[],
         )
         run = CrawlerRunConfig(
             cache_mode=CacheMode.BYPASS,
@@ -221,14 +228,20 @@ class Crawl4AIClient:
             js_code=None,
             js_code_before_wait=None,
             c4a_script=None,
-            check_robots_txt=True,
+            check_robots_txt=False,
             capture_network_requests=False,
             capture_console_messages=False,
             process_in_browser=False,
             max_retries=0,
         )
-        async with AsyncWebCrawler(config=browser) as crawler:
-            result = await crawler.arun(url=url, config=run)
+        # Crawl4AI 0.9.2 shares mutable BrowserManager state. Keep one warm
+        # Chromium process, but serialize arun and recycle its browser context
+        # after every page so concurrent requests cannot race or share storage.
+        async with self._lock:
+            if self._crawler is None:
+                self._crawler = AsyncWebCrawler(config=browser)
+                await self._crawler.start()
+            result = await self._crawler.arun(url=url, config=run)
 
         markdown = getattr(result, "markdown", "")
         raw = getattr(markdown, "raw_markdown", markdown)
@@ -241,10 +254,14 @@ class Crawl4AIClient:
             final_url=final_url if isinstance(final_url, str) else None,
             redirect_chain=tuple(item for item in chain if isinstance(item, str)),
             success=bool(getattr(result, "success", False)),
+            error_message=str(getattr(result, "error_message", "") or "")[:2_000],
         )
 
     async def aclose(self) -> None:
-        return None
+        async with self._lock:
+            if self._crawler is not None:
+                crawler, self._crawler = self._crawler, None
+                await crawler.close()
 
 
 class ExtractionService:
@@ -253,10 +270,17 @@ class ExtractionService:
         settings: WorkerSettings,
         crawler_factory: CrawlerFactory | None = None,
         resolver: Resolver = resolve_dns,
+        robots_policy: SecureRobotsPolicy | None = None,
     ):
         self._settings = settings
-        self._crawler_factory = crawler_factory or (lambda proxy: Crawl4AIClient(proxy))
+        self._owned_crawler = (
+            Crawl4AIClient(settings.proxy_url)
+            if crawler_factory is None and settings.proxy_url
+            else None
+        )
+        self._crawler_factory = crawler_factory or (lambda _: self._owned_crawler)
         self._resolver = resolver
+        self._robots_policy = robots_policy or SecureRobotsPolicy(resolver=resolver)
 
     async def extract(self, request: ExtractRequest) -> DynamicPageEvidence:
         merchant = self._settings.merchants.get(request.merchantId)
@@ -282,11 +306,20 @@ class ExtractionService:
         try:
             async with asyncio.timeout(REQUEST_TIMEOUT_SECONDS):
                 await _assert_public_dns(url, self._resolver)
+                await self._robots_policy.authorize(
+                    target_url=url,
+                    allowed_hosts=merchant.allowed_hosts,
+                    proxy_url=self._settings.proxy_url,
+                )
                 crawler = self._crawler_factory(self._settings.proxy_url)
+                if crawler is None:
+                    raise HTTPException(status_code=503, detail="crawler client is unavailable")
                 try:
-                    result = await crawler.crawl(url, request.extractionProfile)
+                    async with asyncio.timeout(CRAWL_TIMEOUT_SECONDS):
+                        result = await crawler.crawl(url, request.extractionProfile)
                 finally:
-                    await crawler.aclose()
+                    if self._owned_crawler is None:
+                        await crawler.aclose()
 
                 if not result.success:
                     raise HTTPException(status_code=502, detail="dynamic extraction failed")
@@ -299,6 +332,10 @@ class ExtractionService:
                     await _assert_public_dns(observed_url, self._resolver)
         except TimeoutError as error:
             raise HTTPException(status_code=504, detail="dynamic extraction timed out") from error
+        except HTTPException:
+            raise
+        except Exception as error:
+            raise HTTPException(status_code=502, detail="dynamic extraction failed") from error
 
         raw_evidence = _sanitize_evidence(result.raw_evidence)
         encoded = raw_evidence.encode("utf-8")
@@ -318,14 +355,30 @@ class ExtractionService:
             metadata={"extractionProfile": request.extractionProfile},
         )
 
+    async def aclose(self) -> None:
+        if self._owned_crawler is not None:
+            try:
+                async with asyncio.timeout(2):
+                    await self._owned_crawler.aclose()
+            except TimeoutError:
+                pass
+
 
 def create_app(
     settings: WorkerSettings | None = None,
     crawler_factory: CrawlerFactory | None = None,
     resolver: Resolver = resolve_dns,
+    robots_policy: SecureRobotsPolicy | None = None,
 ) -> FastAPI:
-    service = ExtractionService(settings or load_settings(), crawler_factory, resolver)
-    application = FastAPI(title="Crawl4AI evidence worker", docs_url=None, redoc_url=None)
+    service = ExtractionService(
+        settings or load_settings(), crawler_factory, resolver, robots_policy
+    )
+    application = FastAPI(
+        title="Crawl4AI evidence worker",
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
+    )
 
     @application.get("/health")
     async def health() -> dict[str, str]:
@@ -334,6 +387,10 @@ def create_app(
     @application.post("/extract", response_model=DynamicPageEvidence)
     async def extract(request: ExtractRequest) -> DynamicPageEvidence:
         return await service.extract(request)
+
+    @application.on_event("shutdown")
+    async def shutdown() -> None:
+        await service.aclose()
 
     return application
 

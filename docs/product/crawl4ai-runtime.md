@@ -17,6 +17,9 @@ documented audit approval and an immutable worker config is rebuilt into the ima
 - Application DNS checks are defense in depth. Chromium performs its own networking, so
   `CRAWLER_EGRESS_ENFORCED=true` is not security by itself; the isolated network and proxy
   must be present. The worker fails closed when the declaration or proxy setting is absent.
+- The worker is a private service boundary with no authentication of its own. Never publish
+  port 8080; only the trusted ingestion caller may join `crawler-internal`. Treat any exposure
+  outside that network as a deployment failure.
 - The root filesystem is read-only; `/tmp` is the only worker tmpfs; all Linux capabilities
   are dropped; `no-new-privileges` and the versioned seccomp allowlist are required. Validate
   the profile against the exact image and target kernel before enabling a merchant.
@@ -26,6 +29,36 @@ deadline is 15 seconds. The API accepts only merchant ID, relative resource path
 server-defined extraction profile. No URL, credentials, headers, proxy, JavaScript, browser
 arguments, selectors, schemas, XPath, LLM prompt, session, cookie, screenshot, or download
 configuration can cross the API boundary.
+
+## TLS, robots, and browser lifecycle
+
+- The pinned Crawl4AI 0.9.2 source adds Chromium certificate-bypass arguments. Image build
+  runs a deterministic patch against the audited upstream SHA-256 and fails if the source or
+  expected flag count drifts. Browser configuration also fixes `ignore_https_errors=False`
+  and supplies no extra browser arguments.
+- Crawl4AI's own robots fetch is disabled. Before every page crawl, the worker fetches
+  `/robots.txt` through the enforced proxy with normal certificate validation, no cookies or
+  authentication, at most three same-audited-host redirects, a 5-second deadline, and a
+  256 KiB limit. DNS, TLS, HTTP, redirect, UTF-8, parse, or policy uncertainty denies access.
+- One warm Chromium process is retained to avoid charging browser startup to the 15-second
+  request budget. Crawl4AI 0.9.2 shares mutable manager state, so `arun` and shutdown are
+  serialized. A fresh browser context is forced and recycled after every page; no Crawl4AI
+  cache, session ID, cookies, storage state, downloads, or filesystem URLs are enabled.
+
+## Reproducibility and runtime verification
+
+The Python and Squid bases are digest-pinned. Direct dependencies remain pinned in
+`requirements.txt`, and the Linux CPython 3.12 transitive graph is hash-locked in
+`requirements.lock`; the image installs it with `--require-hashes`.
+
+Run the disabled-by-default final-image smoke test with
+`RUN_CRAWL4AI_RUNTIME_SMOKE=1 python scripts/test-crawl4ai-runtime.py`. It builds both images,
+uses synthetic local TLS origins and a test-only exact-host allowlist, applies the production
+non-root/read-only/tmpfs/capability/seccomp/resource/network restrictions, and verifies health,
+disabled OpenAPI, proxy deny-all, exact allow, robots allow/deny/redirect handling, invalid
+certificate rejection in real Chromium, private-IP denial, and direct-outbound failure. The
+script removes every task-owned container, network, image, and temporary certificate on exit.
+The production proxy image always retains the invalid deny-all sentinel.
 
 ## Known residual
 
