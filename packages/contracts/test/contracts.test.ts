@@ -4,7 +4,8 @@ import {
   ComparisonResultSchema,
   MerchantOfferSchema,
   MoneySchema,
-  PriceQuoteSchema
+  PriceQuoteSchema,
+  SimilarComparisonOfferSchema
 } from "../src/index.js";
 
 const quote = (quoteId: string) => ({
@@ -98,6 +99,31 @@ describe("commerce contracts", () => {
         exactOffers: [comparisonOffer("SIMILAR")],
         similarOffers: [],
         questions: []
+      })
+    ).toThrow();
+  });
+
+  it("keeps similar comparison offers unpriced and explicitly similar", () => {
+    expect(() =>
+      SimilarComparisonOfferSchema.parse({
+        offerId: "o-similar",
+        merchantId: "m1",
+        sellerName: "Merchant",
+        matchStatus: "SIMILAR",
+        merchantUrl: "https://merchant.example/products/2",
+        recommendationReasons: ["core attributes similar; identity absent"]
+      })
+    ).not.toThrow();
+
+    expect(() =>
+      SimilarComparisonOfferSchema.parse({
+        offerId: "o-similar",
+        merchantId: "m1",
+        sellerName: "Merchant",
+        matchStatus: "EXACT",
+        merchantUrl: "https://merchant.example/products/2",
+        recommendationReasons: [],
+        regularQuote: quote("q1")
       })
     ).toThrow();
   });
@@ -210,7 +236,14 @@ describe("commerce contracts", () => {
       ComparisonResultSchema.parse({
         productId: "p1",
         exactOffers: [comparisonOffer("EXACT")],
-        similarOffers: [comparisonOffer("SIMILAR")],
+        similarOffers: [{
+          offerId: "o-similar",
+          merchantId: "m1",
+          sellerName: "Merchant",
+          matchStatus: "SIMILAR",
+          merchantUrl: "https://merchant.example/products/2",
+          recommendationReasons: []
+        }],
         questions: []
       })
     ).not.toThrow();

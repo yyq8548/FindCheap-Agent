@@ -41,11 +41,22 @@ export const ComparisonOfferSchema = z
     }
   });
 
+export const SimilarComparisonOfferSchema = z
+  .object({
+    offerId: z.string(),
+    merchantId: z.string(),
+    sellerName: z.string(),
+    matchStatus: z.literal("SIMILAR"),
+    merchantUrl: z.string().url(),
+    recommendationReasons: z.array(z.string())
+  })
+  .strict();
+
 export const ComparisonResultSchema = z
   .object({
     productId: z.string(),
     exactOffers: z.array(ComparisonOfferSchema),
-    similarOffers: z.array(ComparisonOfferSchema),
+    similarOffers: z.array(SimilarComparisonOfferSchema),
     questions: z.array(z.string())
   })
   .strict()
@@ -61,11 +72,7 @@ export const ComparisonResultSchema = z
     });
     result.similarOffers.forEach((offer, index) => {
       if (offer.matchStatus !== "SIMILAR") {
-        ctx.addIssue({
-          code: "custom",
-          path: ["similarOffers", index, "matchStatus"],
-          message: "similarOffers require SIMILAR match status"
-        });
+        ctx.addIssue({ code: "custom", path: ["similarOffers", index, "matchStatus"], message: "similarOffers require SIMILAR match status" });
       }
     });
   });
