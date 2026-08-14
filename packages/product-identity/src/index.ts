@@ -5,3 +5,8 @@ export {
   type MatchDecision
 } from "./match.js";
 export { normalizeGtin, normalizeToken } from "./normalize.js";
+export {
+  decideProductPromotion,
+  type ProductPromotionDecision,
+  type PromotionCandidate
+} from "./promotion.js";

@@ -18,7 +18,7 @@ const CandidateGtinSchema = z.string().transform((value, context) => {
 
 export const CandidateProductSchema = z
   .object({
-    brand: z.string().min(1),
+    brand: z.string().min(1).optional(),
     mpn: z.string().min(1).optional(),
     gtins: z.array(CandidateGtinSchema),
     title: z.string().min(1),
@@ -33,7 +33,7 @@ export function matchProduct(candidate: CandidateProduct, product: CanonicalProd
   const parsedCandidate = CandidateProductSchema.parse(candidate);
   const canonicalGtins = new Set(product.gtins.flatMap((gtin) => normalizeGtin(gtin) ?? []));
   const sameGtin = parsedCandidate.gtins.some((gtin) => canonicalGtins.has(gtin));
-  const normalizedBrand = normalizeToken(parsedCandidate.brand);
+  const normalizedBrand = parsedCandidate.brand ? normalizeToken(parsedCandidate.brand) : "";
   const normalizedMpn = parsedCandidate.mpn ? normalizeToken(parsedCandidate.mpn) : "";
   const normalizedCanonicalBrand = normalizeToken(product.brand);
   const normalizedCanonicalMpn = product.manufacturerPartNumber

@@ -10,15 +10,15 @@ const unavailableMessage =
   "Live comparison is unavailable because no approved shopping data source is connected.";
 
 const MembershipIdsSchema = z
-  .array(z.string().trim().min(1).max(100))
-  .max(30)
+  .array(z.string().trim().min(1).max(80))
+  .max(20)
   .refine((values) => new Set(values).size === values.length, {
     message: "membershipIds must contain unique values"
   });
 
 export const CompareProductsInputSchema = z
   .object({
-    query: z.string().trim().min(1).max(300),
+    query: z.string().trim().min(2).max(300),
     zipCode: z.string().regex(/^\d{5}(?:-\d{4})?$/),
     membershipIds: MembershipIdsSchema.optional()
   })

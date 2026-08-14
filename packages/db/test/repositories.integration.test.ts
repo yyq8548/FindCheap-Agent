@@ -1,14 +1,19 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { randomUUID } from "node:crypto";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createDatabase } from "../src/client.js";
+import { runMigrations } from "../src/migrate.js";
 import { createOfferRepository } from "../src/repositories/offer-repository.js";
 import { createProductRepository } from "../src/repositories/product-repository.js";
 import type { StoredCoupon, StoredEvidence, StoredMerchantOffer, StoredPriceQuote } from "../src/schema.js";
 
 const databaseUrl = process.env.DATABASE_URL ?? "postgresql://shopping:local-only@127.0.0.1:5432/shopping";
-const db = createDatabase(databaseUrl);
-const products = createProductRepository(db);
-const offers = createOfferRepository(db);
+const admin = createDatabase(databaseUrl);
+let db: ReturnType<typeof createDatabase>;
+let products: ReturnType<typeof createProductRepository>;
+let offers: ReturnType<typeof createOfferRepository>;
+let schema: string;
 const now = new Date("2026-08-13T12:00:00.000Z");
+const promotionDecisionId = "a".repeat(64);
 
 const product = {
   productId: "product-1",
@@ -54,11 +59,19 @@ const fixtureQuote = (overrides: Partial<StoredPriceQuote> = {}): StoredPriceQuo
 
 describe("commerce repositories", () => {
   beforeAll(async () => {
-    await db.connect();
+    await admin.connect();
   });
 
   beforeEach(async () => {
-    await db.query("TRUNCATE TABLE price_quotes, coupons, merchant_offers, evidence, products CASCADE");
+    schema = `commerce_repository_test_${randomUUID().replaceAll("-", "")}`;
+    await admin.query(`CREATE SCHEMA "${schema}"`);
+    const isolated = new URL(databaseUrl);
+    isolated.searchParams.set("options", `-csearch_path=${schema}`);
+    db = createDatabase(isolated.toString());
+    await db.connect();
+    await runMigrations(db);
+    products = createProductRepository(db);
+    offers = createOfferRepository(db);
     await products.upsert(product);
     await offers.saveEvidence({
       evidenceId: "evidence-1",
@@ -70,10 +83,54 @@ describe("commerce repositories", () => {
       metadata: { selector: "#price" }
     } satisfies StoredEvidence);
     await offers.saveOffer(offer);
+    await db.query(
+      `INSERT INTO merchant_promotion_decisions (
+         id, input_hash, entity_kind, source_identity_key, decision_version,
+         staging_record_id, merchant_id, merchant_product_id, source_version,
+         status, canonical_product_id, promoted_offer_id, offer_revision,
+         primary_evidence_id, source_url, source_type, source_content_hash,
+         source_captured_at, external_evidence_refs, match_basis, match_evidence,
+         reason, questions, candidate_product_ids, staged_checked_at,
+         staged_expires_at, staged_record_hash, decided_by, decided_at
+       ) VALUES (
+         $1, $2, 'OFFER', $3, 1, $4, $5, $6, 'fixture-v1',
+         'EXACT_PROMOTED', $7, $8, 1, $9, $10, 'feed', 'sha256:abc',
+         $11, '[]'::jsonb, 'GTIN', '[{"type":"GTIN"}]'::jsonb,
+         'fixture exact promotion', '[]'::jsonb, '["product-1"]'::jsonb,
+         $11, $12, $13, 'test:commerce-repository', $11
+       )`,
+      [
+        promotionDecisionId,
+        "b".repeat(64),
+        "c".repeat(64),
+        "d".repeat(64),
+        offer.merchantId,
+        offer.merchantProductId,
+        product.productId,
+        offer.offerId,
+        "evidence-1",
+        offer.merchantUrl,
+        now,
+        offer.expiresAt,
+        "e".repeat(64)
+      ]
+    );
+    await db.query(
+      `INSERT INTO merchant_offer_current_promotions (
+         offer_id, promotion_decision_id, revision, canonical_product_id,
+         source_identity_key, source_version, promoted_checked_at
+       ) VALUES ($1, $2, 1, $3, $4, 'fixture-v1', $5)`,
+      [offer.offerId, promotionDecisionId, product.productId, "c".repeat(64), now]
+    );
+  });
+
+  afterEach(async () => {
+    await db.close();
+    await admin.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
   });
 
   afterAll(async () => {
-    await db.close();
+    await admin.close();
   });
 
   it("stores quote evidence and returns only unexpired offers", async () => {
@@ -83,6 +140,8 @@ describe("commerce repositories", () => {
       checkedAt: new Date(now.getTime() - 10 * 60_000),
       expiresAt: new Date(now.getTime() - 60_000)
     }));
+    await bindQuotesToCurrentPromotion("q1", "q2");
+    await offers.saveQuote(fixtureQuote({ quoteId: "legacy-unbound" }));
 
     const rows = await offers.findComparableOffers(
       "product-1",
@@ -114,6 +173,7 @@ describe("commerce repositories", () => {
         membershipContext: { memberships: ["costco"] }
       }))
     ]);
+    await bindQuotesToCurrentPromotion("fl-regular", "fl-member", "ny-regular", "ny-member");
 
     const floridaMember = await offers.findComparableOffers(
       "product-1",
@@ -136,6 +196,7 @@ describe("commerce repositories", () => {
       quoteId: "unicode-member",
       membershipContext: { memberships }
     }));
+    await bindQuotesToCurrentPromotion("unicode-member");
 
     const rows = await offers.findComparableOffers(
       "product-1",
@@ -145,6 +206,30 @@ describe("commerce repositories", () => {
 
     expect(rows.map((row) => row.quoteId)).toEqual(["unicode-member"]);
     expect(rows[0]?.membershipContext.memberships).toEqual(["Member-A", "\u{10000}-club", "\uE000-club"]);
+  });
+
+  it("does not let a mutable offer reassignment carry an old reviewed quote", async () => {
+    await offers.saveQuote(fixtureQuote({ quoteId: "revision-bound" }));
+    await bindQuotesToCurrentPromotion("revision-bound");
+    await products.upsert({
+      ...product,
+      productId: "product-2",
+      manufacturerPartNumber: "MODEL-2",
+      gtins: ["87654321"],
+      title: "Acme Model 2"
+    });
+    await offers.saveOffer({
+      ...offer,
+      productId: "product-2",
+      checkedAt: new Date(now.getTime() + 1_000),
+      expiresAt: new Date(now.getTime() + 10 * 60_000 + 1_000)
+    });
+
+    await expect(offers.findComparableOffers(
+      "product-2",
+      { zipCode: "10001", memberships: [] },
+      now
+    )).resolves.toEqual([]);
   });
 
   it("upserts canonical products and merchant offers", async () => {
@@ -303,7 +388,7 @@ describe("commerce repositories", () => {
 
     const state = await db.query<{
       seller_name: string;
-      delivered_price_cents: number;
+      delivered_price_cents: string;
       source_url: string;
       content_hash: string;
       metadata: { version: string };
@@ -325,7 +410,7 @@ describe("commerce repositories", () => {
 
     expect(state.rows).toEqual([{
       seller_name: "New Seller",
-      delivered_price_cents: 1099,
+      delivered_price_cents: "1099",
       source_url: "https://merchant.example/new",
       content_hash: "sha256:new",
       metadata: { version: "new" },
@@ -334,3 +419,12 @@ describe("commerce repositories", () => {
     }]);
   });
 });
+
+async function bindQuotesToCurrentPromotion(...quoteIds: string[]): Promise<void> {
+  await db.query(
+    `UPDATE price_quotes
+     SET offer_promotion_decision_id = $1, offer_revision = 1
+     WHERE id = ANY($2::text[])`,
+    [promotionDecisionId, quoteIds]
+  );
+}

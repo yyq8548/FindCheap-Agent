@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
 import { compareProducts, type CompareDeps } from "../src/compare-products.js";
 
+const bearerToken = "test-commerce-bearer-token-with-32-characters";
+const testApp = (dependencies: CompareDeps) => buildApp(dependencies, { bearerToken });
+const authorization = { authorization: `Bearer ${bearerToken}` };
+
 const canonicalProduct = {
   productId: "lg-oled-c4-65",
   brand: "LG",
@@ -30,6 +34,9 @@ const quote = (offerId: string, amountCents: number) => ({
 const candidate = (overrides: Record<string, unknown> = {}) => ({
   offerId: "offer-exact",
   merchantId: "merchant-1",
+  canonicalProductId: "lg-oled-c4-65",
+  promotionDecisionId: "promotion-1",
+  offerRevision: 1,
   sellerName: "Merchant One",
   merchantUrl: "https://merchant.example/products/offer-exact",
   product: {
@@ -60,7 +67,7 @@ const deps = (
 describe("POST /v1/comparisons", () => {
   it("separates exact offers and unpriced similar offers", async () => {
     const quotedOfferIds: string[] = [];
-    const app = buildApp(deps([
+    const app = testApp(deps([
       candidate(),
       candidate({
         offerId: "offer-similar",
@@ -80,6 +87,7 @@ describe("POST /v1/comparisons", () => {
     const response = await app.inject({
       method: "POST",
       url: "/v1/comparisons",
+      headers: authorization,
       payload: { query: "OLED65C4PUA", zipCode: "33433", memberships: ["costco"] }
     });
 
@@ -97,10 +105,11 @@ describe("POST /v1/comparisons", () => {
   });
 
   it("rejects non-US five-digit ZIP codes and unknown request fields", async () => {
-    const app = buildApp(deps());
+    const app = testApp(deps());
     const response = await app.inject({
       method: "POST",
       url: "/v1/comparisons",
+      headers: authorization,
       payload: { query: "OLED65C4PUA", zipCode: "3343-3", memberships: [], extra: true }
     });
 
@@ -108,8 +117,20 @@ describe("POST /v1/comparisons", () => {
     expect(response.json()).toEqual({ error: "VALIDATION_ERROR" });
   });
 
+  it("rejects a whitespace-only product query", async () => {
+    const app = testApp(deps());
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/comparisons",
+      headers: authorization,
+      payload: { query: "   ", zipCode: "33433" }
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "VALIDATION_ERROR" });
+  });
+
   it("maps unexpected failures to a safe deterministic response", async () => {
-    const app = buildApp({
+    const app = testApp({
       offers: {
         async search() {
           throw new Error("merchant credentials: secret");
@@ -121,6 +142,7 @@ describe("POST /v1/comparisons", () => {
     const response = await app.inject({
       method: "POST",
       url: "/v1/comparisons",
+      headers: authorization,
       payload: { query: "OLED65C4PUA", zipCode: "33433" }
     });
 
@@ -128,14 +150,42 @@ describe("POST /v1/comparisons", () => {
     expect(response.json()).toEqual({ error: "INTERNAL_SERVER_ERROR" });
   });
 
+  it("requires the configured bearer without leaking token details", async () => {
+    const token = "secret-commerce-token-that-is-long-enough";
+    const app = buildApp(deps(), { bearerToken: token });
+    const unauthorized = await app.inject({
+      method: "POST",
+      url: "/v1/comparisons",
+      headers: { authorization: "Bearer wrong" },
+      payload: { query: "OLED65C4PUA", zipCode: "33433" }
+    });
+    expect(unauthorized.statusCode).toBe(401);
+    expect(unauthorized.json()).toEqual({ error: "UNAUTHORIZED" });
+    expect(unauthorized.body).not.toContain(token);
+    const health = await app.inject({ method: "GET", url: "/health" });
+    expect(health.json()).toEqual({ status: "ok" });
+  });
+
+  it("never serves v1 when the app was composed without a token", async () => {
+    const app = buildApp(deps());
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/comparisons",
+      payload: { query: "OLED65C4PUA", zipCode: "33433" }
+    });
+    expect(response.statusCode).toBe(401);
+    expect(response.json()).toEqual({ error: "UNAUTHORIZED" });
+  });
+
   it("maps malformed quote output to a sanitized 500 instead of an input 400", async () => {
-    const app = buildApp(deps([candidate()], async () => ({
+    const app = testApp(deps([candidate()], async () => ({
       ...quote("offer-exact", 100000),
       itemPriceCents: 100000.5
     })));
     const response = await app.inject({
       method: "POST",
       url: "/v1/comparisons",
+      headers: authorization,
       payload: { query: "OLED65C4PUA", zipCode: "33433", memberships: [] }
     });
 
@@ -145,7 +195,7 @@ describe("POST /v1/comparisons", () => {
   });
 
   it("maps malformed repository clarification to a sanitized 500", async () => {
-    const app = buildApp({
+    const app = testApp({
       offers: {
         async search() {
           return { status: "NEEDS_CLARIFICATION", questions: [42] };
@@ -157,6 +207,7 @@ describe("POST /v1/comparisons", () => {
     const response = await app.inject({
       method: "POST",
       url: "/v1/comparisons",
+      headers: authorization,
       payload: { query: "AirPods", zipCode: "33433", memberships: [] }
     });
 
@@ -165,10 +216,11 @@ describe("POST /v1/comparisons", () => {
   });
 
   it("maps malformed final comparison output to a sanitized 500", async () => {
-    const app = buildApp(deps([candidate({ merchantUrl: "ftp://merchant.example/offer" })]));
+    const app = testApp(deps([candidate({ merchantUrl: "ftp://merchant.example/offer" })]));
     const response = await app.inject({
       method: "POST",
       url: "/v1/comparisons",
+      headers: authorization,
       payload: { query: "OLED65C4PUA", zipCode: "33433", memberships: [] }
     });
 
@@ -264,7 +316,7 @@ describe("compareProducts", () => {
   });
 
   it("passes exact request ZIP and canonical memberships to contextual quoting", async () => {
-    const contexts: Array<{ zipCode: string; memberships: string[] }> = [];
+    const contexts: Array<{ zipCode: string; memberships: string[]; now: Date }> = [];
     const contextualDeps = deps([candidate()], async (candidate, context) => {
       contexts.push(context);
       const amount = context.zipCode === "33433" && context.memberships.includes("costco")
@@ -285,8 +337,44 @@ describe("compareProducts", () => {
     expect(floridaMember.exactOffers[0]?.regularQuote.deliveredPrice.amountCents).toBe(90500);
     expect(newYorkRegular.exactOffers[0]?.regularQuote.deliveredPrice.amountCents).toBe(110500);
     expect(contexts).toEqual([
-      { zipCode: "33433", memberships: ["costco"] },
-      { zipCode: "10001", memberships: [] }
+      { zipCode: "33433", memberships: ["costco"], now: new Date("2026-08-13T12:00:00.000Z") },
+      { zipCode: "10001", memberships: [], now: new Date("2026-08-13T12:00:00.000Z") }
     ]);
+  });
+
+  it("uses an independently stored member-context quote only when supplied", async () => {
+    const actualQuote = (id: string, amountCents: number) => ({
+      quoteId: id,
+      offerId: "offer-exact",
+      status: "VERIFIED" as const,
+      deliveredPrice: { amountCents, currency: "USD" as const },
+      lineItems: [{
+        kind: "ITEM" as const,
+        amount: { amountCents, currency: "USD" as const },
+        label: "Item price"
+      }],
+      eligibilityConditions: [],
+      evidenceRefs: ["evidence-1"],
+      checkedAt: "2026-08-13T12:00:00.000Z",
+      expiresAt: "2026-08-13T12:15:00.000Z"
+    });
+    const result = await compareProducts(
+      { query: "OLED65C4PUA", zipCode: "33433", memberships: ["club"] },
+      deps([candidate()], async () => ({
+        regularQuote: actualQuote("regular", 100_000),
+        memberQuote: {
+          programId: "club",
+          programName: "Club",
+          memberships: ["club"],
+          quote: actualQuote("member", 90_000)
+        }
+      }))
+    );
+
+    expect(result.exactOffers[0]).toMatchObject({
+      regularQuote: { deliveredPrice: { amountCents: 100_000 } },
+      memberQuote: { eligible: true, quote: { deliveredPrice: { amountCents: 90_000 } } },
+      rankingQuote: { deliveredPrice: { amountCents: 90_000 } }
+    });
   });
 });

@@ -1,0 +1,174 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
+import { parse } from "yaml";
+import { describe, expect, it } from "vitest";
+
+type ComposeService = Record<string, unknown>;
+
+describe("crawl4ai runtime boundary", () => {
+  const root = resolve(import.meta.dirname, "../..");
+  const compose = parse(readFileSync(resolve(root, "docker-compose.yml"), "utf8")) as {
+    services: Record<string, ComposeService>;
+    networks: Record<string, { internal?: boolean }>;
+  };
+
+  it("isolates the worker behind the only outward-facing egress proxy", () => {
+    const worker = compose.services["crawl4ai-worker"];
+    const proxy = compose.services["crawl4ai-egress"];
+
+    if (!worker || !proxy) {
+      throw new Error("crawl4ai worker and egress proxy must both be configured");
+    }
+    expect(worker.networks).toEqual(["crawler-internal"]);
+    expect(proxy.networks).toEqual(["crawler-internal", "crawler-outbound"]);
+    expect(compose.networks["crawler-internal"]?.internal).toBe(true);
+    expect(worker.volumes).toBeUndefined();
+    expect(proxy.volumes).toBeUndefined();
+    expect(proxy.tmpfs).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("uid=13,gid=13"),
+        expect.stringContaining("/run:")
+      ])
+    );
+    expect(worker.read_only).toBe(true);
+    expect(worker.tmpfs).toContain("/tmp:rw,noexec,nosuid,nodev,size=256m");
+    expect(worker.cap_drop).toEqual(["ALL"]);
+    expect(worker.security_opt).toEqual(
+      expect.arrayContaining([
+        "no-new-privileges:true",
+        "seccomp:infra/docker/crawl4ai-seccomp.json"
+      ])
+    );
+    expect(worker.pids_limit).toBeLessThanOrEqual(128);
+    expect(Number(worker.cpus)).toBeLessThanOrEqual(1);
+    expect(worker.mem_limit).toBe("768m");
+
+    const environment = worker.environment as Record<string, string>;
+    expect(environment.CRAWLER_EGRESS_ENFORCED).toBe("true");
+    expect(environment.CRAWLER_PROXY_URL).toBe("http://crawl4ai-egress:3128");
+    expect(environment).not.toHaveProperty("DATABASE_URL");
+    expect(environment).not.toHaveProperty("REDIS_URL");
+  });
+
+  it("uses a deny-by-default syscall profile", () => {
+    const profile = JSON.parse(
+      readFileSync(resolve(root, "infra/docker/crawl4ai-seccomp.json"), "utf8")
+    ) as {
+      defaultAction: string;
+      syscalls: Array<{
+        action: string;
+        names: string[];
+        errnoRet?: number;
+        args?: Array<{ index: number; value: number; valueTwo?: number; op: string }>;
+      }>;
+    };
+
+    expect(profile.defaultAction).toBe("SCMP_ACT_ERRNO");
+    expect(profile.syscalls.length).toBeGreaterThan(0);
+    const genericAllow = profile.syscalls[0];
+    expect(genericAllow?.action).toBe("SCMP_ACT_ALLOW");
+    const allowed = new Set(genericAllow?.names ?? []);
+    expect(allowed.has("mount")).toBe(false);
+    expect(allowed.has("ptrace")).toBe(false);
+    expect(allowed.has("bpf")).toBe(false);
+    expect(allowed.has("keyctl")).toBe(false);
+    expect(allowed.has("clone")).toBe(false);
+    expect(allowed.has("clone3")).toBe(false);
+    const clone = profile.syscalls.find((entry) => entry.names.includes("clone"));
+    expect(clone).toMatchObject({
+      action: "SCMP_ACT_ALLOW",
+      args: [
+        {
+          index: 0,
+          value: 2114060288,
+          valueTwo: 0,
+          op: "SCMP_CMP_MASKED_EQ"
+        }
+      ]
+    });
+    const clone3 = profile.syscalls.find((entry) => entry.names.includes("clone3"));
+    expect(clone3).toMatchObject({ action: "SCMP_ACT_ERRNO", errnoRet: 38 });
+  });
+
+  it("ships a deny-all proxy policy until audited destinations are supplied", () => {
+    const squid = readFileSync(resolve(root, "infra/docker/crawl4ai-squid.conf"), "utf8");
+    const hosts = readFileSync(
+      resolve(root, "infra/docker/crawl4ai-allowed-hosts.txt"),
+      "utf8"
+    )
+      .split(/\r?\n/u)
+      .filter(Boolean);
+    expect(squid).toContain("http_access deny all");
+    expect(squid).toContain("acl blocked_networks dst");
+    expect(squid).toContain("http_access deny numeric_ipv4");
+    expect(squid).toContain("http_access deny numeric_ipv6");
+    expect(squid).toContain("acl audited_hosts dstdomain");
+    expect(squid).toContain("http_access allow CONNECT audited_hosts ssl_ports");
+    expect(squid).toContain("reply_body_max_size 2 MB audited_hosts");
+    expect(squid).not.toMatch(/http_access allow\s+all/u);
+    expect(hosts).toEqual(["no-audited-merchants.invalid"]);
+    expect(hosts.every((host) => !host.startsWith(".") && !host.includes("*"))).toBe(true);
+    const squidDockerfile = readFileSync(
+      resolve(root, "infra/docker/crawl4ai-squid.Dockerfile"),
+      "utf8"
+    );
+    expect(squidDockerfile).toContain(
+      "ubuntu/squid:6.10-24.10_edge@sha256:c9f5212b147a766529c7b026e2bebed37b998d33d0066b658596af5eba7cc65c"
+    );
+    expect(squidDockerfile).toContain("COPY infra/docker/crawl4ai-squid.conf");
+    expect(squidDockerfile).toContain("COPY infra/docker/crawl4ai-allowed-hosts.txt");
+    expect(squidDockerfile).toContain("USER 13:13");
+    expect(squidDockerfile).toContain('ENTRYPOINT ["/usr/sbin/squid"]');
+  });
+
+  it("pins the worker supply chain and removes Crawl4AI TLS bypass flags", () => {
+    const workerDockerfile = readFileSync(
+      resolve(root, "infra/docker/crawl4ai.Dockerfile"),
+      "utf8"
+    );
+    const workerSource = readFileSync(
+      resolve(root, "services/crawl4ai-worker/app/main.py"),
+      "utf8"
+    );
+
+    expect(workerDockerfile).toContain(
+      "python:3.12-slim@sha256:ffd5d35f5cf6dfba89eaaebd93d5ad142faa7a7f2c728742c5b50cb81baff526"
+    );
+    expect(workerDockerfile).toContain("pip install --no-cache-dir --require-hashes");
+    expect(workerDockerfile).toContain("patch_crawl4ai_tls.py");
+    expect(workerDockerfile).toContain(
+      "76724e47ccace4cee8c5b654f3c132744d30d9a98706984d77517be06a317c3d"
+    );
+    expect(workerSource).toContain("ignore_https_errors=False");
+    expect(workerSource).toContain("create_isolated_context=True");
+    expect(workerSource).toContain("max_pages_before_recycle=1");
+    expect(workerSource).toContain("check_robots_txt=False");
+    expect(workerSource).not.toContain("text_mode=True");
+    expect(workerSource).toContain('session.on("Network.dataReceived"');
+    expect(workerSource).toContain('session.on("Network.requestWillBeSent"');
+    expect(workerSource).toContain("REQUEST_BODY_TIMEOUT_SECONDS = 2");
+  });
+
+  it("scopes destructive smoke assets and runs for relevant PRs and pushes", () => {
+    const smoke = readFileSync(resolve(root, "scripts/test-crawl4ai-runtime.py"), "utf8");
+    const workflow = readFileSync(
+      resolve(root, ".github/workflows/crawl4ai-runtime-smoke.yml"),
+      "utf8"
+    );
+
+    expect(smoke).not.toContain("shopping-agent-crawl4ai:task6");
+    expect(smoke).not.toContain("shopping-agent-crawl4ai-egress:task6");
+    expect(smoke).toContain('prefix = f"shopping-task6-{suffix}"');
+    expect(smoke).toContain("for name in reversed(images)");
+    expect(workflow).toContain("pull_request:");
+    expect(workflow).toContain("push:");
+    expect(workflow).toContain("branches: [main]");
+    expect(workflow).toContain("runs-on: ubuntu-24.04");
+    expect(smoke).toContain('platform.machine().lower() not in {"x86_64", "amd64"}');
+    expect(workflow).toContain("concurrency:");
+    expect(workflow).toContain("cancel-in-progress: true");
+    expect(workflow).toMatch(/actions\/checkout@[0-9a-f]{40}/u);
+    expect(workflow).toMatch(/actions\/setup-python@[0-9a-f]{40}/u);
+  });
+});

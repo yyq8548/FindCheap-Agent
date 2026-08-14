@@ -3749,6 +3749,26 @@
         }
       ]
     },
+    "src/commerce-client.ts": {
+      "format": "esm",
+      "imports": [
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:http"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:https"
+        },
+        {
+          "kind": "import-statement",
+          "original": "../../../packages/contracts/src/index.js",
+          "path": "../../packages/contracts/src/index.ts"
+        }
+      ]
+    },
     "src/server.ts": {
       "format": "esm",
       "imports": [
@@ -3779,6 +3799,11 @@
         },
         {
           "kind": "import-statement",
+          "original": "./commerce-client.js",
+          "path": "src/commerce-client.ts"
+        },
+        {
+          "kind": "import-statement",
           "original": "./server.js",
           "path": "src/server.ts"
         }
@@ -3787,7 +3812,7 @@
   },
   "outputs": {
     "../../plugins/shopping-agent/dist/mcp-server.js": {
-      "bytes": 346358,
+      "bytes": 348861,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
@@ -3795,6 +3820,16 @@
           "external": true,
           "kind": "import-statement",
           "path": "node:process"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:http"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:https"
         }
       ],
       "inputs": {
@@ -4284,11 +4319,14 @@
         "../../packages/contracts/src/url.ts": {
           "bytesInOutput": 254
         },
+        "src/commerce-client.ts": {
+          "bytesInOutput": 2484
+        },
         "src/server.ts": {
-          "bytesInOutput": 2870
+          "bytesInOutput": 2869
         },
         "src/stdio.ts": {
-          "bytesInOutput": 130
+          "bytesInOutput": 150
         }
       }
     }

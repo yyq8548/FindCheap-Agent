@@ -2,9 +2,11 @@ import { z } from "zod";
 import {
   ComparisonOfferSchema,
   ComparisonResultSchema,
+  PriceQuoteSchema,
   SimilarComparisonOfferSchema,
   type CanonicalProduct,
-  type ComparisonResult
+  type ComparisonResult,
+  type PriceQuote
 } from "../../../packages/contracts/src/index.js";
 import {
   QuoteInputSchema,
@@ -16,11 +18,11 @@ import { rankExactOffers } from "../../../packages/ranking/src/rank-offers.js";
 
 export const CompareInputSchema = z
   .object({
-    query: z.string().min(2).max(300),
+    query: z.string().trim().min(2).max(300),
     zipCode: z.string().regex(/^\d{5}$/),
     memberships: z
-      .array(z.string().min(1))
-      .max(30)
+      .array(z.string().trim().min(1).max(80))
+      .max(20)
       .default([])
       .transform((memberships) => [...new Set(memberships)].sort())
   })
@@ -32,6 +34,9 @@ type ComparisonOffer = z.infer<typeof ComparisonOfferSchema>;
 export type ComparableOffer = {
   offerId: string;
   merchantId: string;
+  canonicalProductId: string;
+  promotionDecisionId: string;
+  offerRevision: number;
   sellerName: string;
   merchantUrl: string;
   product: CandidateProduct;
@@ -39,7 +44,7 @@ export type ComparableOffer = {
 
 export interface CurrentOfferRepository {
   /** Resolves the product and returns unquoted merchant candidates. */
-  search(query: string): Promise<OfferSearchResult>;
+  search(query: string, now: Date): Promise<OfferSearchResult>;
 }
 
 export type OfferSearchResult =
@@ -48,11 +53,26 @@ export type OfferSearchResult =
 
 export type CompareDeps = {
   offers: CurrentOfferRepository;
-  quoteExactOffer(candidate: ComparableOffer, context: QuoteContext): Promise<QuoteInput>;
+  quoteExactOffer(
+    candidate: ComparableOffer,
+    context: QuoteContext
+  ): Promise<QuoteInput | ContextualQuoteSet | undefined>;
   clock: { now(): Date };
 };
 
-export type QuoteContext = Pick<CompareInput, "zipCode" | "memberships">;
+export type QuoteContext = Pick<CompareInput, "zipCode" | "memberships"> & { now: Date };
+
+const ContextualQuoteSetSchema = z.object({
+  regularQuote: PriceQuoteSchema,
+  memberQuote: z.object({
+    programId: z.string().min(1),
+    programName: z.string().min(1),
+    memberships: z.array(z.string().min(1)),
+    quote: PriceQuoteSchema
+  }).strict().optional()
+}).strict();
+
+export type ContextualQuoteSet = z.infer<typeof ContextualQuoteSetSchema>;
 
 type EvaluatedOffer =
   | { kind: "exact"; offer: ComparisonOffer }
@@ -61,7 +81,9 @@ type EvaluatedOffer =
 
 export async function compareProducts(input: CompareInput, deps: CompareDeps): Promise<ComparisonResult> {
   const parsedInput = CompareInputSchema.parse(input);
-  const search = await deps.offers.search(parsedInput.query);
+  const now = deps.clock.now();
+  if (!Number.isFinite(now.getTime())) throw new Error("clock returned an invalid time");
+  const search = await deps.offers.search(parsedInput.query, now);
   if (search.status === "NEEDS_CLARIFICATION") {
     return ComparisonResultSchema.parse({
       productId: "",
@@ -70,7 +92,6 @@ export async function compareProducts(input: CompareInput, deps: CompareDeps): P
       questions: search.questions
     });
   }
-  const now = deps.clock.now();
   const evaluated = await Promise.all(
     search.candidates.map((candidate) =>
       evaluateCandidate(candidate, search.product, parsedInput, now, deps.quoteExactOffer)
@@ -119,26 +140,21 @@ async function evaluateCandidate(
   if (decision.status === "INSUFFICIENT") {
     return { kind: "question", question: "Please provide a model number or GTIN before comparing prices." };
   }
-  const quote = QuoteInputSchema.parse(
-    await quoteExactOffer(candidate, {
-      zipCode: input.zipCode,
-      memberships: input.memberships
-    })
-  );
-  if (
-    quote.offerId !== candidate.offerId ||
-    Date.parse(quote.expiresAt) <= now.getTime()
-  ) {
+  const stored = await quoteExactOffer(candidate, {
+    zipCode: input.zipCode,
+    memberships: input.memberships,
+    now
+  });
+  if (stored === undefined) {
     return { kind: "question", question: "A current price is unavailable for an exact product match." };
   }
-
-  const prices = calculatePriceOptions(quote, {
-    memberships: input.memberships,
-    isFirstOrder: false,
-    hasSubscription: false,
-    paymentMethods: [],
-    zipCode: input.zipCode
-  });
+  const contextual = ContextualQuoteSetSchema.safeParse(stored);
+  const prices = contextual.success
+    ? contextualPrices(contextual.data, candidate.offerId, now, input.memberships)
+    : calculatedPrices(QuoteInputSchema.parse(stored), candidate.offerId, input, now);
+  if (prices === undefined) {
+    return { kind: "question", question: "A current price is unavailable for an exact product match." };
+  }
   return {
     kind: "exact",
     offer: ComparisonOfferSchema.parse({
@@ -153,4 +169,54 @@ async function evaluateCandidate(
       recommendationReasons: decision.evidence
     })
   };
+}
+
+function calculatedPrices(
+  quote: QuoteInput,
+  offerId: string,
+  input: CompareInput,
+  now: Date
+): { regularQuote: PriceQuote; memberQuote?: { programId: string; programName: string; eligible: boolean; quote: PriceQuote }; rankingQuote: PriceQuote } | undefined {
+  if (!isCurrentQuote(quote, offerId, now)) return undefined;
+  return calculatePriceOptions(quote, {
+    memberships: input.memberships,
+    isFirstOrder: false,
+    hasSubscription: false,
+    paymentMethods: [],
+    zipCode: input.zipCode
+  });
+}
+
+function contextualPrices(
+  set: ContextualQuoteSet,
+  offerId: string,
+  now: Date,
+  memberships: string[]
+): { regularQuote: PriceQuote; memberQuote?: { programId: string; programName: string; eligible: boolean; quote: PriceQuote }; rankingQuote: PriceQuote } | undefined {
+  if (!isCurrentQuote(set.regularQuote, offerId, now)) return undefined;
+  if (set.memberQuote === undefined || !sameMemberships(set.memberQuote.memberships, memberships)) {
+    return { regularQuote: set.regularQuote, rankingQuote: set.regularQuote };
+  }
+  if (!isCurrentQuote(set.memberQuote.quote, offerId, now)) return undefined;
+  const { memberships: _memberships, ...storedMemberQuote } = set.memberQuote;
+  const memberQuote = { ...storedMemberQuote, eligible: true };
+  return {
+    regularQuote: set.regularQuote,
+    memberQuote,
+    rankingQuote: memberQuote.quote
+  };
+}
+
+function sameMemberships(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function isCurrentQuote(
+  quote: Pick<PriceQuote | QuoteInput, "offerId" | "checkedAt" | "expiresAt">,
+  offerId: string,
+  now: Date
+): boolean {
+  return quote.offerId === offerId &&
+    Date.parse(quote.checkedAt) <= now.getTime() &&
+    Date.parse(quote.expiresAt) > now.getTime();
 }

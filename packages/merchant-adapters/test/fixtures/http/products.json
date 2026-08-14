@@ -1,0 +1,16 @@
+{
+  "result": {
+    "items": [
+      {
+        "code": "sku-http-1",
+        "label": "Contoso Coffee Maker",
+        "maker": "Contoso",
+        "identifiers": { "gtin": "0001112223334", "mpn": "CCM-1" },
+        "pricing": { "amount": 74.25, "currency": "USD" },
+        "stock": "IN_STOCK",
+        "productUrl": "https://shop.example/products/sku-http-1",
+        "privateNotes": "must not be emitted"
+      }
+    ]
+  }
+}

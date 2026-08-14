@@ -59,4 +59,24 @@ describe("migration runner", () => {
     expect(after.rows).toEqual(before.rows);
     expect(ledgerAfter.rows).toEqual(ledgerBefore.rows);
   });
+
+  it("records the ingestion, offer-revision, and quote-snapshot migrations", async () => {
+    await runMigrations(db);
+
+    const result = await db.query<{ filename: string }>(
+      `SELECT filename FROM commerce_schema_migrations
+       WHERE filename = ANY($1::text[]) ORDER BY filename`,
+      [[
+        "0002_ingestion_pipeline.sql",
+        "0004_offer_promotion_revisions.sql",
+        "0005_promotion_quote_snapshots.sql"
+      ]]
+    );
+
+    expect(result.rows).toEqual([
+      { filename: "0002_ingestion_pipeline.sql" },
+      { filename: "0004_offer_promotion_revisions.sql" },
+      { filename: "0005_promotion_quote_snapshots.sql" }
+    ]);
+  });
 });

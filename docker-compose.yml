@@ -1,3 +1,4 @@
+# Development-only dependencies. Do not expose these local credentials in production.
 services:
   postgres:
     image: postgres:17
@@ -9,3 +10,72 @@ services:
   redis:
     image: redis:7.4-alpine
     ports: ["6379:6379"]
+
+  commerce-api:
+    profiles: ["commerce"]
+    build:
+      context: .
+      dockerfile: infra/docker/commerce-api.Dockerfile
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: ${COMMERCE_DATABASE_URL:-}
+      COMMERCE_API_TOKEN: ${COMMERCE_API_TOKEN:-}
+      COMMERCE_API_HOST: 0.0.0.0
+      COMMERCE_API_PORT: 3000
+    ports: ["127.0.0.1:3000:3000"]
+    read_only: true
+    tmpfs: ["/tmp:rw,noexec,nosuid,nodev,size=16m"]
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    init: true
+    pids_limit: 128
+    cpus: 1.0
+    mem_limit: 256m
+
+  crawl4ai-worker:
+    profiles: ["dynamic-crawl"]
+    build:
+      context: .
+      dockerfile: infra/docker/crawl4ai.Dockerfile
+    depends_on:
+      - crawl4ai-egress
+    environment:
+      CRAWLER_EGRESS_ENFORCED: "true"
+      CRAWLER_MERCHANTS_CONFIG: /app/config/merchants.json
+      CRAWLER_PROXY_URL: http://crawl4ai-egress:3128
+    networks: ["crawler-internal"]
+    expose: ["8080"]
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=256m
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+      - seccomp:infra/docker/crawl4ai-seccomp.json
+    init: true
+    pids_limit: 128
+    cpus: 1.0
+    mem_limit: 768m
+
+  crawl4ai-egress:
+    profiles: ["dynamic-crawl"]
+    build:
+      context: .
+      dockerfile: infra/docker/crawl4ai-squid.Dockerfile
+    command: ["-N", "-f", "/etc/squid/squid.conf"]
+    networks: ["crawler-internal", "crawler-outbound"]
+    read_only: true
+    tmpfs:
+      - /var/log/squid:rw,noexec,nosuid,nodev,size=16m,uid=13,gid=13,mode=0755
+      - /var/spool/squid:rw,noexec,nosuid,nodev,size=16m,uid=13,gid=13,mode=0755
+      - /run:rw,noexec,nosuid,nodev,size=4m,uid=13,gid=13,mode=0755
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 64
+    cpus: 0.5
+    mem_limit: 256m
+
+networks:
+  crawler-internal:
+    internal: true
+  crawler-outbound: {}

@@ -1,0 +1,221 @@
+import { describe, expect, it } from "vitest";
+import type { MerchantAdapter, MerchantProductCandidate } from "../src/index.js";
+import { runMerchantContractSuite } from "../src/index.js";
+
+const fixtureContext = () => ({
+  search: { query: "wireless headphones", limit: 5 },
+  offerRefresh: { merchantProductId: "sku-1", sourceVersion: "v1" },
+  priceRefresh: {
+    merchantProductId: "sku-1",
+    zipCode: "10001",
+    memberships: [],
+    sourceVersion: "v1"
+  },
+  maxSourceEntitySkewMs: 30_000
+});
+
+const validOffer = (): MerchantProductCandidate => ({
+  merchantId: "merchant-a",
+  merchantProductId: "sku-1",
+  title: "Wireless Headphones",
+  gtins: ["12345678"],
+  variantDimensions: { color: "black" },
+  currency: "USD",
+  merchantUrl: "https://merchant.example/products/sku-1",
+  evidenceRefs: ["evidence-1"],
+  checkedAt: "2026-08-13T12:00:00.000Z",
+  expiresAt: "2026-08-13T12:15:00.000Z"
+});
+
+const adapterWith = (offers: MerchantProductCandidate[]): MerchantAdapter => ({
+  merchantId: "merchant-a",
+  searchProducts: async () => offers,
+  getOffer: async () => null,
+  quoteDeliveredPrice: async () => ({
+    merchantProductId: "sku-1",
+    itemPriceCents: 1000,
+    shippingCents: 0,
+    taxCents: 0,
+    mandatoryFeeCents: 0,
+    currency: "USD",
+    status: "ESTIMATED",
+    conditions: [],
+    evidenceRefs: ["evidence-1"],
+    checkedAt: "2026-08-13T12:00:00.000Z",
+    expiresAt: "2026-08-13T12:15:00.000Z"
+  }),
+  getCoupons: async () => [],
+  buildAffiliateLink: async () => ({
+    url: "https://merchant.example/products/sku-1",
+    kind: "NORMAL"
+  }),
+  refreshOffer: async (input) => ({
+    merchantProductId: input.merchantProductId,
+    sourceVersion: input.sourceVersion,
+    sourceUrl: "https://merchant.example/products/sku-1",
+    rawEvidence: "{\"offer\":1000}",
+    metadata: { sourceType: "api" },
+    checkedAt: "2026-08-13T12:00:00.000Z",
+    offer: {
+      ...validOffer(),
+      sellerName: "Merchant A",
+      condition: "NEW",
+      inventoryStatus: "IN_STOCK",
+      itemPriceCents: 1000
+    }
+  }),
+  refreshProduct: async () => ({
+    merchantProductId: "sku-1",
+    sourceUrl: "https://merchant.example/products/sku-1",
+    rawEvidence: "{}",
+    metadata: {},
+    checkedAt: "2026-08-13T12:00:00.000Z",
+    sourceVersion: "v1"
+  }),
+  refreshPrice: async (input) => ({
+    merchantProductId: input.merchantProductId,
+    sourceVersion: input.sourceVersion,
+    sourceUrl: "https://merchant.example/quotes/sku-1",
+    rawEvidence: "{\"price\":1000}",
+    metadata: { sourceType: "api" },
+    checkedAt: "2026-08-13T12:00:00.000Z",
+    quote: {
+      merchantProductId: input.merchantProductId,
+      itemPriceCents: 1000,
+      shippingCents: 0,
+      taxCents: 0,
+      mandatoryFeeCents: 0,
+      currency: "USD",
+      status: "ESTIMATED",
+      conditions: [],
+      evidenceRefs: ["evidence-1"],
+      checkedAt: "2026-08-13T12:00:00.000Z",
+      expiresAt: "2026-08-13T12:15:00.000Z"
+    }
+  }),
+  healthCheck: async () => ({
+    status: "healthy",
+    source: "feed",
+    checkedAt: "2026-08-13T12:00:00.000Z"
+  }),
+  evidence: async () => []
+});
+
+describe("merchant adapter contract suite", () => {
+  it("rejects offers without evidence and freshness", async () => {
+    const invalidOffer = {
+      ...validOffer(),
+      evidenceRefs: [],
+      expiresAt: "2026-08-13T12:00:00.000Z",
+      currency: "CAD"
+    } as unknown as MerchantProductCandidate;
+    const report = await runMerchantContractSuite(
+      () => adapterWith([invalidOffer]),
+      fixtureContext()
+    );
+
+    expect(report.failures).toContain("offer evidenceRefs must not be empty");
+    expect(report.failures).toContain("offer expiresAt must be after checkedAt");
+    expect(report.failures).toContain("offer currency must be USD");
+  });
+
+  it("accepts a valid adapter", async () => {
+    const report = await runMerchantContractSuite(() => adapterWith([validOffer()]), fixtureContext());
+
+    expect(report).toEqual({ merchantId: "merchant-a", failures: [] });
+  });
+
+  it("fails closed for ambiguous timestamps", async () => {
+    const report = await runMerchantContractSuite(
+      () => adapterWith([{ ...validOffer(), checkedAt: "2026-08-13T12:00:00" }]),
+      fixtureContext()
+    );
+
+    expect(report.failures).toContain("offer checkedAt must be strict RFC3339");
+  });
+
+  it("fails closed for impossible calendar timestamps", async () => {
+    const report = await runMerchantContractSuite(
+      () => adapterWith([{ ...validOffer(), checkedAt: "2026-02-30T12:00:00Z" }]),
+      fixtureContext()
+    );
+
+    expect(report.failures).toContain("offer checkedAt must be strict RFC3339");
+  });
+
+  it("requires at least one nonblank evidence reference", async () => {
+    const report = await runMerchantContractSuite(
+      () => adapterWith([{ ...validOffer(), evidenceRefs: ["  "] }]),
+      fixtureContext()
+    );
+
+    expect(report.failures).toContain("offer evidenceRefs must not be empty");
+  });
+
+  it("accepts valid ISO timestamps with numeric offsets", async () => {
+    const report = await runMerchantContractSuite(
+      () => adapterWith([{
+        ...validOffer(),
+        checkedAt: "2026-08-13T08:00:00-04:00",
+        expiresAt: "2026-08-13T08:15:00-04:00"
+      }]),
+      fixtureContext()
+    );
+
+    expect(report.failures).toEqual([]);
+  });
+
+  it("requires atomic price evidence to match the requested source identity", async () => {
+    const invalid = adapterWith([validOffer()]);
+    invalid.refreshPrice = async (input) => ({
+      merchantProductId: input.merchantProductId,
+      sourceVersion: "different-version",
+      sourceUrl: "https://merchant.example/quotes/sku-1",
+      rawEvidence: "",
+      metadata: {},
+      checkedAt: "2026-08-13T12:00:00.000Z",
+      quote: await invalid.quoteDeliveredPrice(input)
+    });
+
+    const report = await runMerchantContractSuite(() => invalid, fixtureContext());
+
+    expect(report.failures).toContain("price refresh identity must match request");
+    expect(report.failures).toContain("raw evidence is empty or exceeds 5000000 UTF-8 bytes");
+  });
+
+  it("validates atomic offer evidence and entity bounds", async () => {
+    const invalid = adapterWith([validOffer()]);
+    invalid.refreshOffer = async (input) => ({
+      merchantProductId: input.merchantProductId,
+      sourceVersion: input.sourceVersion,
+      sourceUrl: "http://merchant.example/products/sku-1",
+      rawEvidence: "{}",
+      metadata: { sourceType: "api" },
+      checkedAt: "2026-08-13T12:02:00.000Z",
+      offer: {
+        ...validOffer(),
+        sellerName: "Merchant A",
+        condition: "NEW",
+        inventoryStatus: "IN_STOCK",
+        itemPriceCents: Number.POSITIVE_INFINITY
+      }
+    });
+
+    const report = await runMerchantContractSuite(() => invalid, fixtureContext());
+    expect(report.failures).toContain("source URL must be credential-free HTTPS");
+    expect(report.failures).toContain("offer item price must be a non-negative safe integer");
+    expect(report.failures).toContain("source evidence time does not match entity checkedAt");
+  });
+
+  it("rejects multibyte evidence above the UTF-8 byte limit", async () => {
+    const invalid = adapterWith([validOffer()]);
+    const original = invalid.refreshPrice;
+    invalid.refreshPrice = async (input) => ({
+      ...await original(input),
+      rawEvidence: "界".repeat(1_666_667)
+    });
+
+    const report = await runMerchantContractSuite(() => invalid, fixtureContext());
+    expect(report.failures).toContain("raw evidence is empty or exceeds 5000000 UTF-8 bytes");
+  });
+});

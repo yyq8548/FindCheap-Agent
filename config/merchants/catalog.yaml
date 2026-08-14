@@ -1,0 +1,22 @@
+version: 1
+candidates:
+  - { id: amazon, name: Amazon, segment: general, auditState: required }
+  - { id: walmart, name: Walmart, segment: general, auditState: required }
+  - { id: target, name: Target, segment: general, auditState: required }
+  - { id: best-buy, name: Best Buy, segment: specialist, auditState: required }
+  - { id: costco, name: Costco, segment: general, auditState: required }
+  - { id: sams-club, name: "Sam's Club", segment: general, auditState: required }
+  - { id: home-depot, name: Home Depot, segment: specialist, auditState: required }
+  - { id: lowes, name: "Lowe's", segment: specialist, auditState: required }
+  - { id: macys, name: "Macy's", segment: specialist, auditState: required }
+  - { id: nordstrom, name: Nordstrom, segment: specialist, auditState: required }
+  - { id: sephora, name: Sephora, segment: promotion-heavy, auditState: required }
+  - { id: ulta, name: Ulta, segment: promotion-heavy, auditState: required }
+  - { id: walgreens, name: Walgreens, segment: promotion-heavy, auditState: required }
+  - { id: cvs, name: CVS, segment: promotion-heavy, auditState: required }
+  - { id: chewy, name: Chewy, segment: specialist, auditState: required }
+  - { id: wayfair, name: Wayfair, segment: specialist, auditState: required }
+  - { id: newegg, name: Newegg, segment: specialist, auditState: required }
+  - { id: bh-photo, name: B&H Photo, segment: specialist, auditState: required }
+  - { id: rei, name: REI, segment: specialist, auditState: required }
+  - { id: dicks, name: "Dick's Sporting Goods", segment: specialist, auditState: required }
