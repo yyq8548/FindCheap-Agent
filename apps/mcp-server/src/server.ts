@@ -151,7 +151,7 @@ export function createUnavailableComparePort(): ComparePort {
 }
 
 export function createShoppingServer(comparePort: ComparePort): McpServer {
-  const server = new McpServer({ name: "shopping-agent", version: "0.1.0" });
+  const server = new McpServer({ name: "findcheap-agent", version: "0.1.0" });
 
   server.registerTool(
     "compare_products",
