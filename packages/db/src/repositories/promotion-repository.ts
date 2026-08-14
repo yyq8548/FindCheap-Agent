@@ -215,13 +215,13 @@ export function createPromotionRepository(
           staging.merchant_id,
           staging.merchant_product_id
         );
+        const currentPromotion = existingOffer === undefined
+          ? undefined
+          : await selectCurrentOfferPromotion(transaction, existingOffer.id);
+        const baselineProductId = currentPromotion?.canonical_product_id ?? existingOffer?.product_id;
         if (
           control.expectedCurrentOfferPromotionDecisionId !== undefined &&
-          (
-            existingOffer === undefined ||
-            await currentOfferPromotionDecisionId(transaction, existingOffer.id) !==
-              control.expectedCurrentOfferPromotionDecisionId
-          )
+          currentPromotion?.promotion_decision_id !== control.expectedCurrentOfferPromotionDecisionId
         ) {
           decision = {
             status: "NEEDS_CLARIFICATION",
@@ -229,20 +229,19 @@ export function createPromotionRepository(
             questions: ["Review the current canonical product revision."],
             candidateProductIds: [
               decision.canonicalProductId,
-              ...(existingOffer?.product_id === null || existingOffer?.product_id === undefined
-                ? []
-                : [existingOffer.product_id])
+              ...(baselineProductId === null || baselineProductId === undefined ? [] : [baselineProductId])
             ].filter((value, index, values) => values.indexOf(value) === index).sort()
           };
         }
         if (
           decision.status === "EXACT" &&
           existingOffer !== undefined &&
-          existingOffer.product_id !== null &&
           (
             staging.checked_at < existingOffer.checked_at ||
             (
-              existingOffer.product_id !== decision.canonicalProductId &&
+              baselineProductId !== null &&
+              baselineProductId !== undefined &&
+              baselineProductId !== decision.canonicalProductId &&
               (
                 !control.explicitReview ||
                 control.expectedCurrentOfferPromotionDecisionId === undefined
@@ -260,7 +259,7 @@ export function createPromotionRepository(
             questions: ["Review a current canonical product revision."],
             candidateProductIds: [...new Set([
               decision.canonicalProductId,
-              existingOffer.product_id
+              ...(baselineProductId === null || baselineProductId === undefined ? [] : [baselineProductId])
             ])].sort()
           };
         }
@@ -735,15 +734,24 @@ async function selectOfferByMerchantSku(
   return result.rows[0];
 }
 
-async function currentOfferPromotionDecisionId(
+async function selectCurrentOfferPromotion(
   transaction: SqlExecutor,
   offerId: string
-): Promise<string | undefined> {
-  const result = await transaction.query<{ promotion_decision_id: string }>(
-    "SELECT promotion_decision_id FROM merchant_offer_current_promotions WHERE offer_id = $1",
+): Promise<{
+  promotion_decision_id: string;
+  canonical_product_id: string;
+} | undefined> {
+  const result = await transaction.query<{
+    promotion_decision_id: string;
+    canonical_product_id: string;
+  }>(
+    `SELECT promotion_decision_id, canonical_product_id
+     FROM merchant_offer_current_promotions
+     WHERE offer_id = $1
+     FOR UPDATE`,
     [offerId]
   );
-  return result.rows[0]?.promotion_decision_id;
+  return result.rows[0];
 }
 
 async function upsertExactOffer(

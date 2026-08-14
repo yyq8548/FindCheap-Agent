@@ -739,6 +739,72 @@ describe("merchant staging promotion", () => {
     )).resolves.toEqual({ rows: [{ product_id: "token-a" }] });
   });
 
+  it("cannot bypass reviewed reassignment through the mutable offer repository", async () => {
+    const products = createProductRepository(db);
+    await products.upsert({
+      productId: "baseline-a",
+      brand: "Baseline",
+      gtins: ["56565656"],
+      title: "Baseline A",
+      categoryPath: ["Widgets"],
+      attributes: [],
+      variantDimensions: {}
+    });
+    await products.upsert({
+      productId: "baseline-b",
+      brand: "Baseline",
+      gtins: ["78787878"],
+      title: "Baseline B",
+      categoryPath: ["Widgets"],
+      attributes: [],
+      variantDimensions: {}
+    });
+    const first = await stageProduct("merchant-baseline", "sku-baseline", "v1", {
+      title: "Baseline A",
+      brand: "Baseline",
+      gtins: ["56565656"],
+      variantDimensions: {},
+      checkedAt: "2026-08-13T18:01:00.000Z"
+    });
+    const firstPromotion = await promotions.promoteProduct(first.offerId);
+    const mutableOffers = createOfferRepository(db);
+    await mutableOffers.saveOffer({
+      offerId: "ignored-on-merchant-sku-conflict",
+      merchantId: "merchant-baseline",
+      merchantProductId: "sku-baseline",
+      productId: "baseline-b",
+      sellerName: "Merchant",
+      condition: "NEW",
+      matchStatus: "EXACT",
+      inventoryStatus: "IN_STOCK",
+      merchantUrl: "https://merchant-baseline.example/products/sku-baseline",
+      evidenceRefs: [first.primaryEvidenceId],
+      matchEvidence: [{ type: "GTIN", gtin: "78787878", source: "RETAILER_FEED" }],
+      checkedAt: new Date("2026-08-13T18:02:00.000Z"),
+      expiresAt: new Date(expiresAt)
+    });
+    const second = await stageProduct("merchant-baseline", "sku-baseline", "v2", {
+      title: "Baseline B",
+      brand: "Baseline",
+      gtins: ["78787878"],
+      variantDimensions: {},
+      checkedAt: "2026-08-13T18:03:00.000Z"
+    });
+
+    await expect(promotions.promoteProduct(second.offerId)).resolves.toMatchObject({
+      status: "NEEDS_CLARIFICATION"
+    });
+    await expect(db.query<{ canonical_product_id: string; promotion_decision_id: string }>(
+      `SELECT canonical_product_id, promotion_decision_id
+       FROM merchant_offer_current_promotions
+       WHERE offer_id = $1`,
+      [firstPromotion.offerId]
+    )).resolves.toEqual({ rows: [{
+      canonical_product_id: "baseline-a",
+      promotion_decision_id: firstPromotion.decisionId
+    }] });
+  });
+
   it("does not bind a quote when mutable offer identity differs from its reviewed revision", async () => {
     const products = createProductRepository(db);
     await products.upsert({
