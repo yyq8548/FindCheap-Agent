@@ -1,10 +1,11 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ComparisonResult } from "../../../packages/contracts/src/index.js";
 import {
   createShoppingServer,
   createUnavailableComparePort,
+  type BestBuyPort,
   type ComparePort
 } from "../src/server.js";
 
@@ -14,8 +15,24 @@ afterEach(async () => {
   await Promise.all(closers.splice(0).map((close) => close()));
 });
 
-async function connect(port: ComparePort) {
-  const server = createShoppingServer(port);
+const bestBuyPort: BestBuyPort = {
+  search: async () => ({
+    products: [{
+      sku: "6568600",
+      title: "Sony WH-1000XM5 Headphones",
+      brand: "Sony",
+      modelNumber: "WH1000XM5/B",
+      gtins: ["027242923232"],
+      itemPrice: { amountCents: 34_999, currency: "USD" },
+      availability: "IN_STOCK",
+      merchantUrl: "https://api.bestbuy.com/click/example/6568600/pdp",
+      checkedAt: "2026-08-14T12:00:00.000Z"
+    }]
+  })
+};
+
+async function connect(port: ComparePort, products: BestBuyPort = bestBuyPort) {
+  const server = createShoppingServer(port, products);
   const client = new Client({ name: "shopping-agent-test", version: "0.0.0" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
@@ -72,12 +89,15 @@ const comparison: ComparisonResult = {
 };
 
 describe("shopping MCP server", () => {
-  it("discovers only the read-only compare_products tool", async () => {
+  it("discovers the read-only comparison and Best Buy Beta tools", async () => {
     const client = await connect({ compare: async () => comparison });
 
     const tools = await client.listTools();
 
-    expect(tools.tools.map((tool) => tool.name)).toEqual(["compare_products"]);
+    expect(tools.tools.map((tool) => tool.name)).toEqual([
+      "compare_products",
+      "search_bestbuy_products"
+    ]);
     expect(Object.keys(tools.tools[0]?.inputSchema.properties ?? {}).sort()).toEqual([
       "membershipIds",
       "query",
@@ -90,6 +110,40 @@ describe("shopping MCP server", () => {
     expect(tools.tools.map((tool) => tool.name)).not.toEqual(expect.arrayContaining([
       expect.stringMatching(/order|checkout|payment/i)
     ]));
+  });
+
+  it("returns official Best Buy item prices without claiming delivered price", async () => {
+    const client = await connect({ compare: async () => comparison });
+
+    const result = await client.callTool({
+      name: "search_bestbuy_products",
+      arguments: { query: "Sony WH-1000XM5", limit: 5 }
+    });
+
+    expect(result.structuredContent).toMatchObject({
+      status: "OK",
+      merchant: "Best Buy",
+      priceScope: "ITEM_PRICE_ONLY",
+      products: [{ sku: "6568600", itemPrice: { amountCents: 34_999 } }]
+    });
+    expect(JSON.stringify(result)).not.toMatch(/deliveredPrice|apiKey/i);
+  });
+
+  it.each([
+    {},
+    { query: "Sony", sku: "6568600" },
+    { query: " " },
+    { sku: "not-a-sku" },
+    { query: "Sony", limit: 51 },
+    { query: "Sony", arbitraryUrl: "https://evil.example" }
+  ])("rejects invalid Best Buy input %#", async (args) => {
+    const search = vi.fn(bestBuyPort.search);
+    const client = await connect({ compare: async () => comparison }, { search });
+
+    const result = await client.callTool({ name: "search_bestbuy_products", arguments: args });
+
+    expect(result.isError).toBe(true);
+    expect(search).not.toHaveBeenCalled();
   });
 
   it.each([

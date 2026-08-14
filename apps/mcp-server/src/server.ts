@@ -5,9 +5,18 @@ import {
   type ComparisonResult,
   type PriceQuote
 } from "../../../packages/contracts/src/index.js";
+import {
+  createUnavailableBestBuyPort,
+  type BestBuyPort,
+  type BestBuyProduct
+} from "./bestbuy-client.js";
+
+export type { BestBuyPort } from "./bestbuy-client.js";
 
 const unavailableMessage =
   "Live comparison is unavailable because no approved shopping data source is connected.";
+const bestBuyUnavailableMessage =
+  "Best Buy live product data is unavailable because BEST_BUY_API_KEY is not configured or the official API request failed.";
 
 const MembershipIdsSchema = z
   .array(z.string().trim().min(1).max(80))
@@ -25,6 +34,17 @@ export const CompareProductsInputSchema = z
   .strict();
 
 export type CompareProductsInput = z.infer<typeof CompareProductsInputSchema>;
+
+export const BestBuyProductsInputSchema = z
+  .object({
+    query: z.string().trim().min(2).max(300).optional(),
+    sku: z.string().regex(/^\d{1,20}$/u).optional(),
+    limit: z.number().int().min(1).max(50).default(10)
+  })
+  .strict()
+  .refine((input) => (input.query === undefined) !== (input.sku === undefined), {
+    message: "Provide exactly one of query or sku"
+  });
 
 export interface ComparePort {
   compare(input: CompareProductsInput): Promise<ComparisonResult>;
@@ -77,6 +97,27 @@ const CompareProductsOutputShape = {
   exactOffers: z.array(ExactOfferOutputSchema),
   similarOffers: z.array(SimilarOfferOutputSchema),
   questions: z.array(z.string())
+};
+
+const BestBuyProductOutputSchema = z.object({
+  sku: z.string(),
+  title: z.string(),
+  brand: z.string().optional(),
+  modelNumber: z.string().optional(),
+  gtins: z.array(z.string()),
+  imageUrl: z.string().url().optional(),
+  itemPrice: MoneyOutputSchema.optional(),
+  availability: z.enum(["IN_STOCK", "OUT_OF_STOCK", "UNKNOWN"]),
+  merchantUrl: z.string().url(),
+  checkedAt: z.string()
+});
+
+const BestBuyProductsOutputShape = {
+  status: z.enum(["OK", "DATA_SOURCE_UNAVAILABLE"]),
+  message: z.string(),
+  merchant: z.literal("Best Buy"),
+  priceScope: z.literal("ITEM_PRICE_ONLY"),
+  products: z.array(BestBuyProductOutputSchema)
 };
 
 type SafeQuote = z.infer<typeof QuoteOutputSchema>;
@@ -150,7 +191,37 @@ export function createUnavailableComparePort(): ComparePort {
   };
 }
 
-export function createShoppingServer(comparePort: ComparePort): McpServer {
+function bestBuyResult(products: BestBuyProduct[]) {
+  const message = `Best Buy returned ${products.length} product(s). Prices are item prices only; shipping, tax, coupons, and member pricing are not included.`;
+  return {
+    content: [{ type: "text" as const, text: message }],
+    structuredContent: {
+      status: "OK" as const,
+      message,
+      merchant: "Best Buy" as const,
+      priceScope: "ITEM_PRICE_ONLY" as const,
+      products
+    }
+  };
+}
+
+function bestBuyUnavailableResult() {
+  return {
+    content: [{ type: "text" as const, text: bestBuyUnavailableMessage }],
+    structuredContent: {
+      status: "DATA_SOURCE_UNAVAILABLE" as const,
+      message: bestBuyUnavailableMessage,
+      merchant: "Best Buy" as const,
+      priceScope: "ITEM_PRICE_ONLY" as const,
+      products: []
+    }
+  };
+}
+
+export function createShoppingServer(
+  comparePort: ComparePort,
+  bestBuyPort: BestBuyPort = createUnavailableBestBuyPort()
+): McpServer {
   const server = new McpServer({ name: "findcheap-agent", version: "0.1.0" });
 
   server.registerTool(
@@ -173,6 +244,30 @@ export function createShoppingServer(comparePort: ComparePort): McpServer {
         return successResult(comparison);
       } catch {
         return unavailableResult();
+      }
+    }
+  );
+
+  server.registerTool(
+    "search_bestbuy_products",
+    {
+      title: "Search Best Buy products (Beta)",
+      description: "Search the official Best Buy Products API by product query or numeric SKU. Returns item price only, not delivered price.",
+      inputSchema: BestBuyProductsInputSchema,
+      outputSchema: BestBuyProductsOutputShape,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true
+      }
+    },
+    async (input) => {
+      try {
+        const result = await bestBuyPort.search(input);
+        return bestBuyResult(result.products);
+      } catch {
+        return bestBuyUnavailableResult();
       }
     }
   );

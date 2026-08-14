@@ -3749,6 +3749,76 @@
         }
       ]
     },
+    "../../packages/merchant-adapters/src/configured/bestbuy-products-reader.ts": {
+      "format": "esm",
+      "imports": [
+        {
+          "kind": "import-statement",
+          "original": "zod",
+          "path": "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/index.js"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./feed-reader.js",
+          "path": "../../packages/merchant-adapters/src/configured/feed-reader.ts"
+        }
+      ]
+    },
+    "../../packages/merchant-adapters/src/configured/feed-reader.ts": {
+      "format": "esm",
+      "imports": [
+        {
+          "kind": "import-statement",
+          "original": "zod",
+          "path": "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/index.js"
+        },
+        {
+          "kind": "import-statement",
+          "original": "../../../../apps/ingestion-worker/src/network/safe-fetch.js",
+          "path": "../ingestion-worker/src/network/safe-fetch.ts"
+        }
+      ]
+    },
+    "../ingestion-worker/src/network/safe-fetch.ts": {
+      "format": "esm",
+      "imports": [
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:dns/promises"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:https"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:net"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:stream"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:url"
+        }
+      ]
+    },
+    "src/bestbuy-client.ts": {
+      "format": "esm",
+      "imports": [
+        {
+          "kind": "import-statement",
+          "original": "../../../packages/merchant-adapters/src/configured/bestbuy-products-reader.js",
+          "path": "../../packages/merchant-adapters/src/configured/bestbuy-products-reader.ts"
+        }
+      ]
+    },
     "src/commerce-client.ts": {
       "format": "esm",
       "imports": [
@@ -3786,6 +3856,11 @@
           "kind": "import-statement",
           "original": "../../../packages/contracts/src/index.js",
           "path": "../../packages/contracts/src/index.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./bestbuy-client.js",
+          "path": "src/bestbuy-client.ts"
         }
       ]
     },
@@ -3796,6 +3871,11 @@
           "kind": "import-statement",
           "original": "@modelcontextprotocol/sdk/server/stdio.js",
           "path": "../../node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/server/stdio.js"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./bestbuy-client.js",
+          "path": "src/bestbuy-client.ts"
         },
         {
           "kind": "import-statement",
@@ -3812,7 +3892,7 @@
   },
   "outputs": {
     "../../plugins/shopping-agent/dist/mcp-server.js": {
-      "bytes": 348863,
+      "bytes": 364727,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
@@ -3820,6 +3900,31 @@
           "external": true,
           "kind": "import-statement",
           "path": "node:process"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:dns/promises"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:https"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:net"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:stream"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:url"
         },
         {
           "external": true,
@@ -4319,14 +4424,26 @@
         "../../packages/contracts/src/url.ts": {
           "bytesInOutput": 254
         },
+        "../../packages/merchant-adapters/src/configured/bestbuy-products-reader.ts": {
+          "bytesInOutput": 3548
+        },
+        "../../packages/merchant-adapters/src/configured/feed-reader.ts": {
+          "bytesInOutput": 2134
+        },
+        "../ingestion-worker/src/network/safe-fetch.ts": {
+          "bytesInOutput": 7439
+        },
+        "src/bestbuy-client.ts": {
+          "bytesInOutput": 964
+        },
         "src/commerce-client.ts": {
           "bytesInOutput": 2484
         },
         "src/server.ts": {
-          "bytesInOutput": 2870
+          "bytesInOutput": 4627
         },
         "src/stdio.ts": {
-          "bytesInOutput": 151
+          "bytesInOutput": 173
         }
       }
     }

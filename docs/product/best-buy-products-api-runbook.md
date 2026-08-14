@@ -1,6 +1,6 @@
 # Best Buy Products API pilot
 
-Status: adapter implemented; merchant remains disabled until audit approval.
+Status: Codex MCP Beta implemented; full comparison ingestion remains disabled until audit approval.
 
 ## What this source provides
 
@@ -27,6 +27,30 @@ pnpm merchants:bestbuy-probe -- --sku 6568600
 
 The probe is read-only. It prints sanitized product records and removes `apiKey` from stored source
 URLs and evidence. A missing or malformed key fails closed.
+
+## Codex Plugin Beta
+
+The plugin exposes the read-only MCP tool `search_bestbuy_products`. Codex chooses and calls the
+tool; the plugin process calls the official Best Buy API with `BEST_BUY_API_KEY`. Codex does not
+proxy arbitrary credentials, and the key is never accepted as a tool argument or returned in output.
+
+Start Codex from a shell that has the key in its process environment, then enable/reload the local
+FindCheap-Agent plugin:
+
+```powershell
+$env:BEST_BUY_API_KEY='<key from developer.bestbuy.com>'
+codex
+```
+
+Example prompts:
+
+- `Use FindCheap-Agent to search Best Buy for Sony WH-1000XM5.`
+- `Use FindCheap-Agent to look up Best Buy SKU 6568600.`
+
+The Beta response contains official product identity, online availability, product URL, observation
+time, and item price when supplied by the API. It never claims shipping, tax, coupon, member price,
+or delivered price. Those fields remain unavailable unless separately verified. The optional Codex
+Chrome/Browser fallback is user-authorized orchestration and is not an MCP credential bridge.
 
 ## Enablement configuration shape
 
