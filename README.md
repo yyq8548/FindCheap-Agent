@@ -11,3 +11,6 @@ exact comparisons. The product does not order, check out, or submit payment.
 
 See `docs/product/commerce-api-runbook.md` for deployment configuration.
 
+Best Buy official Products API pilot setup lives in
+`docs/product/best-buy-products-api-runbook.md`. It remains disabled until real audit approval.
+

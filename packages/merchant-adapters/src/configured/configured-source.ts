@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 
 import type { RawCoupon } from "../../../merchant-sdk/src/index.js";
+import { createBestBuyProductsReader } from "./bestbuy-products-reader.js";
 import type {
   ConfiguredSource,
   ConfiguredSourceRequest,
@@ -47,7 +48,9 @@ const SourceCouponSchema = z.object({
 type QuoteEndpoint = NonNullable<MerchantSourceConfig["quoteEndpoint"]>;
 type CouponEndpoint = NonNullable<MerchantSourceConfig["couponEndpoint"]>;
 
-export type ConfiguredSourceDriverDependencies = ReaderDependencies;
+export type ConfiguredSourceDriverDependencies = ReaderDependencies & {
+  environment?: Record<string, string | undefined>;
+};
 
 /**
  * Production bridge from audited config to the generic adapter contract.
@@ -59,7 +62,15 @@ export function createConfiguredSource(
   dependencies: ConfiguredSourceDriverDependencies = {}
 ): ConfiguredSource {
   const config = parseMerchantSourceConfig(configInput, catalogCandidate);
-  const primaryReader = createPrimaryReader(config, dependencies);
+  const apiReader = config.source.type === "api"
+    ? createBestBuyProductsReader(config.allowedHosts, {
+        ...dependencies,
+        apiKey: requireCredential(config.source.credentialEnv, dependencies.environment)
+      })
+    : undefined;
+  const mappedReader = config.source.type === "api"
+    ? undefined
+    : createPrimaryReader(config.source, config.allowedHosts, dependencies);
 
   return {
     merchantId: config.merchantId,
@@ -92,7 +103,12 @@ export function createConfiguredSource(
         return envelope(config, read, { coupons: parseCoupons(read.rawBody, endpoint) });
       }
 
-      return envelope(config, await primaryReader.capture());
+      return envelope(
+        config,
+        config.source.type === "api"
+          ? await apiReader!.capture(request)
+          : await mappedReader!.capture()
+      );
     },
 
     async health() {
@@ -102,26 +118,38 @@ export function createConfiguredSource(
 }
 
 function createPrimaryReader(
-  config: MerchantSourceConfig,
+  source: Exclude<MerchantSourceConfig["source"], { type: "api" }>,
+  allowedHosts: string[],
   dependencies: ConfiguredSourceDriverDependencies
 ): SourceReader {
   const common = {
-    host: config.source.host,
-    resourcePath: config.source.resourcePath,
-    allowedHosts: config.allowedHosts
+    host: source.host,
+    resourcePath: source.resourcePath,
+    allowedHosts
   };
-  if (config.source.type === "jsonld") return createJsonLdReader(common, dependencies);
-  if (config.source.recordsPath === undefined || config.source.fields === undefined) {
-    throw new Error(`${config.source.type} source requires audited recordsPath and field mappings`);
+  if (source.type === "jsonld") return createJsonLdReader(common, dependencies);
+  if (source.recordsPath === undefined || source.fields === undefined) {
+    throw new Error(`${source.type} source requires audited recordsPath and field mappings`);
   }
   const mapped = {
     ...common,
-    recordsPath: config.source.recordsPath,
-    fields: config.source.fields
+    recordsPath: source.recordsPath,
+    fields: source.fields
   };
-  return config.source.type === "feed"
+  return source.type === "feed"
     ? createFeedReader(mapped, dependencies)
     : createHttpReader(mapped, dependencies);
+}
+
+function requireCredential(
+  name: string,
+  environment: Record<string, string | undefined> | undefined
+): string {
+  const value = (environment ?? process.env)[name]?.trim();
+  if (value === undefined || value.length === 0) {
+    throw new Error(`required merchant credential ${name} is unavailable`);
+  }
+  return value;
 }
 
 async function captureMappedEndpoint(

@@ -93,19 +93,30 @@ const AffiliateConfigSchema = z
   })
   .strict();
 
+const MappedSourceSchema = z
+  .object({
+    type: z.enum(["feed", "jsonld", "http"]),
+    host: MerchantHostSchema,
+    resourcePath: ResourcePathSchema,
+    recordsPath: FieldPathSchema.optional(),
+    fields: FieldMappingSchema.optional()
+  })
+  .strict();
+
+const BestBuyProductsSourceSchema = z
+  .object({
+    type: z.literal("api"),
+    provider: z.literal("bestbuy-products"),
+    host: z.literal("api.bestbuy.com"),
+    credentialEnv: z.literal("BEST_BUY_API_KEY")
+  })
+  .strict();
+
 export const MerchantSourceConfigSchema = z
   .object({
     merchantId: MerchantIdSchema,
     allowedHosts: z.array(MerchantHostSchema).min(1).max(50),
-    source: z
-      .object({
-        type: z.enum(["feed", "jsonld", "http"]),
-        host: MerchantHostSchema,
-        resourcePath: ResourcePathSchema,
-        recordsPath: FieldPathSchema.optional(),
-        fields: FieldMappingSchema.optional()
-      })
-      .strict(),
+    source: z.discriminatedUnion("type", [MappedSourceSchema, BestBuyProductsSourceSchema]),
     quoteEndpoint: QuoteEndpointSchema.optional(),
     couponEndpoint: CouponEndpointSchema.optional(),
     ttlSeconds: z
@@ -126,6 +137,16 @@ export const MerchantSourceConfigSchema = z
   })
   .strict()
   .superRefine((config, context) => {
+    if (
+      config.source.type === "api" &&
+      (config.merchantId !== "best-buy" || config.seller.name !== "Best Buy" || config.seller.condition !== "NEW")
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["source", "provider"],
+        message: "Best Buy Products API must be bound to the Best Buy merchant and NEW seller"
+      });
+    }
     if (!config.allowedHosts.includes(config.source.host)) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
@@ -133,7 +154,10 @@ export const MerchantSourceConfigSchema = z
         message: "source host must be present in allowedHosts"
       });
     }
-    if ((config.source.recordsPath === undefined) !== (config.source.fields === undefined)) {
+    if (
+      config.source.type !== "api" &&
+      ((config.source.recordsPath === undefined) !== (config.source.fields === undefined))
+    ) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["source"],
