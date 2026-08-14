@@ -5,8 +5,8 @@
   "author": {
     "name": "yyq8548"
   },
-  "homepage": "https://github.com/yyq8548/Shopping_Agent",
-  "repository": "https://github.com/yyq8548/Shopping_Agent",
+  "homepage": "https://github.com/yyq8548/FindCheap-Agent",
+  "repository": "https://github.com/yyq8548/FindCheap-Agent",
   "skills": "./skills/",
   "mcpServers": "./.mcp.json",
   "interface": {
