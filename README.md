@@ -1,4 +1,4 @@
-# Shopping Agent
+# FindCheap-Agent
 
 AI shopping comparison entry for US consumers and an initial set of 10–20 US merchants.
 

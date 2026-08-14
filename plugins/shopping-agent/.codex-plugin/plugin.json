@@ -1,6 +1,6 @@
 {
   "name": "shopping-agent",
-  "version": "0.1.0+codex.20260813175458",
+  "version": "0.1.0+codex.20260814011119",
   "description": "Compare exact products across approved US merchants without purchasing.",
   "author": {
     "name": "yyq8548"
@@ -10,7 +10,7 @@
   "skills": "./skills/",
   "mcpServers": "./.mcp.json",
   "interface": {
-    "displayName": "Shopping Agent",
+    "displayName": "FindCheap-Agent",
     "shortDescription": "Compare exact products from approved US merchants.",
     "longDescription": "Compare exact products by delivered US price, regular and eligible member pricing, and verified coupons when approved live sources are connected.",
     "developerName": "yyq8548",
