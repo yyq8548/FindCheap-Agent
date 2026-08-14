@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import { buildApp } from "../../../apps/commerce-api/src/app.js";
+import { createCurrentOfferStore } from "../../../apps/commerce-api/src/current-offer-store.js";
+
 import type { PublishedQuote } from "../../../apps/ingestion-worker/src/jobs/refresh-price.js";
 import type { PublishedOffer } from "../../../apps/ingestion-worker/src/jobs/refresh-product.js";
 import { sha256 } from "../../../apps/ingestion-worker/src/evidence/store-evidence.js";
@@ -249,6 +252,96 @@ describe("merchant staging promotion", () => {
     expect(memberRows).toHaveLength(1);
     expect(memberRows[0]?.deliveredPrice.amountCents).toBe(9_700);
     expect(memberRows[0]?.lineItems.map((line) => line.kind)).not.toContain("COUPON");
+
+    const store = createCurrentOfferStore(db);
+    const app = buildApp({
+      offers: store,
+      quoteExactOffer: store.quoteExactOffer,
+      clock: { now: () => new Date("2026-08-13T18:30:00.000Z") }
+    }, { bearerToken: "a".repeat(32) });
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/comparisons",
+      headers: { authorization: `Bearer ${"a".repeat(32)}` },
+      payload: { query: "Model-1", zipCode: "10001", memberships: ["club"] }
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      productId: "canonical-1",
+      exactOffers: [{
+        regularQuote: { deliveredPrice: { amountCents: 10_700 } },
+        memberQuote: {
+          programId: "club",
+          eligible: true,
+          quote: { deliveredPrice: { amountCents: 9_700 } }
+        },
+        rankingQuote: { deliveredPrice: { amountCents: 9_700 } }
+      }],
+      similarOffers: []
+    });
+    const search = await store.search("Model-1", new Date("2026-08-13T18:30:00.000Z"));
+    if (search.status !== "RESOLVED") throw new Error("fixture product did not resolve");
+    const candidate = search.candidates[0];
+    if (candidate === undefined) throw new Error("fixture offer missing");
+    await expect(store.quoteExactOffer(candidate, {
+      zipCode: "10002",
+      memberships: ["club"],
+      now: new Date("2026-08-13T18:30:00.000Z")
+    })).resolves.toBeUndefined();
+    await expect(store.quoteExactOffer(candidate, {
+      zipCode: "10001",
+      memberships: ["other-club"],
+      now: new Date("2026-08-13T18:30:00.000Z")
+    })).resolves.toMatchObject({ regularQuote: { deliveredPrice: { amountCents: 10_700 } } });
+    expect((await store.quoteExactOffer(candidate, {
+      zipCode: "10001",
+      memberships: ["other-club"],
+      now: new Date("2026-08-13T18:30:00.000Z")
+    }))?.memberQuote).toBeUndefined();
+    await db.query(
+      `UPDATE price_quotes SET delivered_price_cents = 1,
+         line_items = '[{"kind":"ITEM","amount":{"amountCents":1,"currency":"USD"},"label":"tampered"}]'::jsonb
+       WHERE id = $1`,
+      [(await db.query<{ id: string }>(
+        "SELECT promoted_quote_id AS id FROM merchant_promotion_decisions WHERE source_identity_key = $1 AND status = 'QUOTE_PROMOTED'",
+        [regular.sourceIdentityKey]
+      )).rows[0]?.id]
+    );
+    await expect(store.quoteExactOffer(candidate, {
+      zipCode: "10001",
+      memberships: [],
+      now: new Date("2026-08-13T18:30:00.000Z")
+    })).resolves.toMatchObject({
+      regularQuote: { deliveredPrice: { amountCents: 10_700 } }
+    });
+    await app.close();
+  });
+
+  it("fails closed when a query resolves to multiple promoted products", async () => {
+    await createProductRepository(db).upsert({
+      productId: "canonical-ambiguous",
+      brand: "Acme",
+      manufacturerPartNumber: "Model-2",
+      gtins: ["22223333"],
+      title: "Acme Model 2",
+      categoryPath: ["Widgets"],
+      attributes: [],
+      variantDimensions: { color: "black" }
+    });
+    const staged = await stageProduct("merchant-ambiguous-query", "sku-ambiguous-query", "v1", {
+      title: "Acme Model 2",
+      brand: "Acme",
+      mpn: "Model-2",
+      gtins: ["22223333"]
+    });
+    await promotions.promoteProduct(staged.offerId);
+
+    await expect(
+      createCurrentOfferStore(db).search("Acme Model", new Date("2026-08-13T18:30:00.000Z"))
+    ).resolves.toEqual({
+      status: "NEEDS_CLARIFICATION",
+      questions: ["Multiple products match. Please provide the exact model, variant, or GTIN."]
+    });
   });
 
   it("keeps quote-before-offer pending then promotes it after exact identity", async () => {
@@ -552,6 +645,19 @@ describe("merchant staging promotion", () => {
       )).rows[0]?.id]
     );
     expect(oldBinding.rows).toEqual([{ offer_revision: "1", current_revision: "2" }]);
+    const currentStore = createCurrentOfferStore(db);
+    const currentSearch = await currentStore.search(
+      "33334444",
+      new Date("2026-08-13T18:30:00.000Z")
+    );
+    if (currentSearch.status !== "RESOLVED") throw new Error("reassigned product did not resolve");
+    const currentCandidate = currentSearch.candidates[0];
+    if (currentCandidate === undefined) throw new Error("reassigned offer missing");
+    await expect(currentStore.quoteExactOffer(currentCandidate, {
+      zipCode: "10001",
+      memberships: [],
+      now: new Date("2026-08-13T18:30:00.000Z")
+    })).resolves.toBeUndefined();
   });
 
   it("replays committed product and quote decisions after expiry but rejects changed input", async () => {
@@ -577,6 +683,9 @@ describe("merchant staging promotion", () => {
     const expiredClock = createPromotionRepository(db, {
       now: () => new Date("2026-08-13T21:00:00.000Z")
     });
+    await expect(
+      createCurrentOfferStore(db).search("R-1", new Date("2026-08-13T21:00:00.000Z"))
+    ).resolves.toMatchObject({ status: "NEEDS_CLARIFICATION" });
     await expect(expiredClock.promoteProduct(staged.offerId)).resolves.toEqual(productResult);
     await expect(expiredClock.promoteQuote(quote.quoteId)).resolves.toEqual(quoteResult);
 

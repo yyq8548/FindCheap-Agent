@@ -1,4 +1,9 @@
-import type { CanonicalProduct, MerchantOffer, PriceQuote } from "../../../contracts/src/index.js";
+import {
+  PriceQuoteSchema,
+  type CanonicalProduct,
+  type MerchantOffer,
+  type PriceQuote
+} from "../../../contracts/src/index.js";
 import {
   requireOfferShape,
   requireQuoteShape
@@ -147,6 +152,7 @@ type DecisionWrite = {
   stagedRecordHash: string;
   decidedBy: string;
   inputHash: string;
+  quoteSnapshot?: PriceQuote;
 };
 
 export function createPromotionRepository(
@@ -431,6 +437,7 @@ export function createPromotionRepository(
         quoteId,
         offerPromotionDecisionId: offer.promotion_decision_id,
         offerRevision,
+        quoteSnapshot: promotedQuoteSnapshot(staging, quoteId, offer.id),
         matchEvidence: [],
         reason: "quote context and provenance match an exact-promoted offer",
         questions: [],
@@ -925,6 +932,27 @@ function quoteLineItems(quote: PublishedQuote): PriceQuote["lineItems"] {
   ];
 }
 
+function promotedQuoteSnapshot(
+  staging: QuoteStagingRow,
+  quoteId: string,
+  offerId: string
+): PriceQuote {
+  return PriceQuoteSchema.parse({
+    quoteId,
+    offerId,
+    status: staging.payload.status,
+    deliveredPrice: {
+      amountCents: Number(staging.delivered_price_cents),
+      currency: "USD"
+    },
+    lineItems: quoteLineItems(staging.payload),
+    eligibilityConditions: staging.payload.conditions,
+    evidenceRefs: [staging.primary_evidence_id],
+    checkedAt: staging.checked_at.toISOString(),
+    expiresAt: staging.expires_at.toISOString()
+  });
+}
+
 async function replaceEvidence(
   transaction: SqlExecutor,
   table: "offer_evidence" | "quote_evidence",
@@ -980,11 +1008,11 @@ async function insertDecision(transaction: SqlExecutor, write: DecisionWrite): P
        source_url, source_type, source_content_hash, source_captured_at,
        external_evidence_refs, match_basis, match_evidence, reason, questions,
        candidate_product_ids, zip_code, memberships, context_hash, staged_checked_at,
-       staged_expires_at, staged_record_hash, decided_by
+       staged_expires_at, staged_record_hash, decided_by, promoted_quote_snapshot
      ) VALUES (
        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
        $15, $16, $17, $18, $19, $20, $21::jsonb, $22, $23::jsonb, $24, $25::jsonb,
-       $26::jsonb, $27, $28::jsonb, $29, $30, $31, $32, $33
+       $26::jsonb, $27, $28::jsonb, $29, $30, $31, $32, $33, $34::jsonb
      )`,
     [id, write.inputHash, write.entityKind, write.sourceIdentityKey,
       write.decisionVersion, write.stagingRecordId, write.merchantId,
@@ -998,7 +1026,8 @@ async function insertDecision(transaction: SqlExecutor, write: DecisionWrite): P
       JSON.stringify(write.candidateProductIds), write.zipCode ?? null,
       write.memberships === undefined ? null : JSON.stringify(write.memberships),
       write.contextHash ?? null, write.stagedCheckedAt, write.stagedExpiresAt,
-      write.stagedRecordHash, write.decidedBy]
+      write.stagedRecordHash, write.decidedBy,
+      write.quoteSnapshot === undefined ? null : JSON.stringify(write.quoteSnapshot)]
   );
   return id;
 }

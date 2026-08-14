@@ -37,6 +37,7 @@ jobs:
         with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
       - run: pnpm build:mcp
+      - run: pnpm build:commerce
       - run: pnpm build:ingestion
       - run: git diff --exit-code -- plugins/shopping-agent/dist/mcp-server.js
       - run: git diff --exit-code -- plugins/shopping-agent/dist/mcp-server.meta.json
@@ -56,6 +57,18 @@ jobs:
             const health = JSON.parse(raw);
             if (health.event !== "ingestion.disabled" || health.status !== "disabled") process.exit(1);
             if (health.enabledMerchants.length !== 0 || health.workersRunning !== false) process.exit(1);
+          '
+      - name: Smoke bundled Commerce API without a database
+        shell: bash
+        run: |
+          output="$(env -u DATABASE_URL -u COMMERCE_API_TOKEN node apps/commerce-api/dist/main.js)"
+          echo "$output"
+          printf '%s\n' "$output" | node --input-type=module -e '
+            let raw = "";
+            for await (const chunk of process.stdin) raw += chunk;
+            const health = JSON.parse(raw);
+            if (health.event !== "commerce.disabled" || health.status !== "disabled") process.exit(1);
+            if (health.enabledMerchants !== 0 || health.acceptingRequests !== false) process.exit(1);
           '
       - name: Wait for PostgreSQL 17
         run: until pg_isready -h 127.0.0.1 -p 5432 -U shopping -d shopping; do sleep 1; done

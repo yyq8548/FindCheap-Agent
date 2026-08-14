@@ -2,8 +2,16 @@
   "name": "@shopping-agent/commerce-api",
   "private": true,
   "type": "module",
+  "scripts": {
+    "build": "esbuild src/main.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/main.js",
+    "start": "node dist/main.js"
+  },
   "dependencies": {
     "fastify": "^5.6.1",
+    "pg": "^8.16.3",
     "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
   }
 }
