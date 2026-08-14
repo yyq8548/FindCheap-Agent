@@ -16,6 +16,7 @@
     "test:integration": "vitest run --config vitest.integration.ts",
     "test:crawl4ai-runtime": "python scripts/test-crawl4ai-runtime.py",
     "db:migrate": "tsx packages/db/src/migrate.ts",
+    "products:backfill-identity-keys": "tsx scripts/backfill-product-identity-keys.ts",
     "eval:matching": "tsx scripts/evaluate-matching.ts",
     "merchants:score": "tsx scripts/score-merchants.ts",
     "merchants:gate": "tsx scripts/validate-enabled-merchants.ts"

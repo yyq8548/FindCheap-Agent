@@ -9,6 +9,7 @@ import {
   type MerchantGatePaths
 } from "../../../../scripts/validate-enabled-merchants.js";
 import { createDatabase, type Database } from "../../../../packages/db/src/client.js";
+import { assertProductIdentityKeysReady } from "../../../../packages/db/src/product-identity-backfill.js";
 import { createIngestionPersistence } from "../../../../packages/db/src/repositories/ingestion-repository.js";
 import { createPromotionRepository } from "../../../../packages/db/src/repositories/promotion-repository.js";
 import { createConfiguredAdapter } from "../../../../packages/merchant-adapters/src/configured/configured-adapter.js";
@@ -16,6 +17,7 @@ import { createConfiguredSource } from "../../../../packages/merchant-adapters/s
 import type { EvidenceRecord, MerchantAdapter } from "../../../../packages/merchant-sdk/src/index.js";
 import { refreshPrice, type RefreshPriceJob, type RefreshPriceOutcome } from "../jobs/refresh-price.js";
 import { refreshProduct, type RefreshJob, type RefreshOutcome } from "../jobs/refresh-product.js";
+import { isAdapterSourceError } from "../jobs/source-error.js";
 import {
   createRefreshQueues,
   createRefreshWorkers,
@@ -99,6 +101,12 @@ function requireOperationalEnvironment(environment: IngestionEnvironment): {
     throw new Error("DATABASE_URL is required when merchants are enabled");
   }
   return { databaseUrl: environment.databaseUrl, redis: redisConnectionOptions(environment) };
+}
+
+function canUseBrandMpnIdentity(entry: GateApprovedMerchantConfig): boolean {
+  if (entry.config.source.type === "jsonld") return true;
+  const fields = entry.config.source.fields;
+  return fields?.brand !== undefined && fields.mpn !== undefined;
 }
 
 async function findEvidence(
@@ -219,6 +227,7 @@ export async function startIngestionRuntime(
 
   try {
     await db.connect();
+    await assertProductIdentityKeysReady(db, entries.some(canUseBrandMpnIdentity));
     const persistence = factories.createPersistence(db);
     const promotions = factories.createPromotions(db, clock);
     const adapters = new Map<string, MerchantAdapter>();
@@ -256,8 +265,9 @@ export async function startIngestionRuntime(
     queues = factories.createQueues(operational.redis);
     workers = factories.createWorkers(operational.redis, {
       product: async (job) => {
+        let outcome: RefreshOutcome;
         try {
-          const outcome = await refreshProduct(job.data, {
+          outcome = await refreshProduct(job.data, {
             adapters: adapterRegistry,
             evidence: persistence.evidence,
             offers: persistence.offers,
@@ -270,21 +280,24 @@ export async function startIngestionRuntime(
           if (outcome.status === "PUBLISHED" || outcome.status === "NOT_FOUND") {
             controls.circuitBreaker.recordSuccess(job.data.merchantId);
           }
-          if (outcome.status === "PUBLISHED") {
-            const promotion = await promotions.promoteProduct(outcome.offerId);
-            if (promotion.status === "EXACT_PROMOTED") {
-              await promotions.promotePendingQuotes(job.data.merchantId, job.data.merchantProductId);
-            }
-          }
-          return outcome;
         } catch (error) {
-          controls.circuitBreaker.recordFailure(job.data.merchantId);
+          if (isAdapterSourceError(error)) {
+            controls.circuitBreaker.recordFailure(job.data.merchantId);
+          }
           throw error;
         }
+        if (outcome.status === "PUBLISHED") {
+          const promotion = await promotions.promoteProduct(outcome.offerId);
+          if (promotion.status === "EXACT_PROMOTED") {
+            await promotions.promotePendingQuotes(job.data.merchantId, job.data.merchantProductId);
+          }
+        }
+        return outcome;
       },
       price: async (job) => {
+        let outcome: RefreshPriceOutcome;
         try {
-          const outcome = await refreshPrice(job.data, {
+          outcome = await refreshPrice(job.data, {
             adapters: adapterRegistry,
             evidence: persistence.evidence,
             quotes: persistence.quotes,
@@ -298,14 +311,16 @@ export async function startIngestionRuntime(
           if (outcome.status === "PUBLISHED" || outcome.status === "QUARANTINED") {
             controls.circuitBreaker.recordSuccess(job.data.merchantId);
           }
-          if (outcome.status === "PUBLISHED") {
-            await promotions.promoteQuote(outcome.quoteId);
-          }
-          return outcome;
         } catch (error) {
-          controls.circuitBreaker.recordFailure(job.data.merchantId);
+          if (isAdapterSourceError(error)) {
+            controls.circuitBreaker.recordFailure(job.data.merchantId);
+          }
           throw error;
         }
+        if (outcome.status === "PUBLISHED") {
+          await promotions.promoteQuote(outcome.quoteId);
+        }
+        return outcome;
       }
     });
     for (const worker of [workers.product, workers.price]) {

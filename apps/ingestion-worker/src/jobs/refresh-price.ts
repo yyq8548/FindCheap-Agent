@@ -27,6 +27,7 @@ import {
   validateFreshnessPolicy,
   type FreshnessPolicy
 } from "./freshness.js";
+import { callAdapterSource } from "./source-error.js";
 
 export type { RefreshPriceJob } from "./refresh-identity.js";
 
@@ -104,12 +105,12 @@ export async function refreshPrice(
   if (deps.circuitBreaker.isOpen(canonicalJob.merchantId)) return { status: "CIRCUIT_OPEN" };
 
   const adapter = deps.adapters.get(canonicalJob.merchantId);
-  const raw = await adapter.refreshPrice({
+  const raw = await callAdapterSource(() => adapter.refreshPrice({
     merchantProductId: canonicalJob.merchantProductId,
     zipCode: canonicalJob.zipCode,
     memberships: canonicalJob.memberships,
     sourceVersion: canonicalJob.sourceVersion
-  });
+  }));
   const quote = raw.quote;
   const now = deps.clock.now();
 

@@ -174,9 +174,15 @@ export function createOfferRepository(db: Database): OfferRepository {
         `SELECT DISTINCT ON (q.offer_id) q.*
          FROM price_quotes q
          INNER JOIN merchant_offers o ON o.id = q.offer_id
+         INNER JOIN merchant_offer_current_promotions c ON c.offer_id = o.id
          WHERE o.product_id = $1
+           AND c.canonical_product_id = $1
+           AND c.canonical_product_id = o.product_id
+           AND c.promoted_checked_at = o.checked_at
            AND o.match_status = 'EXACT'
            AND o.expires_at > $4
+           AND q.offer_promotion_decision_id = c.promotion_decision_id
+           AND q.offer_revision = c.revision
            AND q.zip_code = $2
            AND NOT EXISTS (
              SELECT stored.member COLLATE "C"

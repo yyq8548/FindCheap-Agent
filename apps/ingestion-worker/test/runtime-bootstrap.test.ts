@@ -37,6 +37,28 @@ const config = parseMerchantSourceConfig({
   seller: { name: "Approved Shop", condition: "NEW" }
 }, candidate);
 const entry: GateApprovedMerchantConfig = { merchantId: candidate.id, candidate, config };
+const brandMpnEntry: GateApprovedMerchantConfig = {
+  merchantId: candidate.id,
+  candidate,
+  config: parseMerchantSourceConfig({
+    merchantId: candidate.id,
+    allowedHosts: candidate.allowedHosts,
+    source: {
+      type: "feed",
+      host: "data.approved-shop.example",
+      resourcePath: "/feed.json",
+      recordsPath: "products",
+      fields: {
+        merchantProductId: "id",
+        title: "title",
+        brand: "brand",
+        mpn: "mpn"
+      }
+    },
+    ttlSeconds: { product: 900, price: 900, inventory: 300, coupon: 900 },
+    seller: { name: "Approved Shop", condition: "NEW" }
+  }, candidate)
+};
 
 function fakeDatabase(events: string[]): Database {
   return {
@@ -192,6 +214,35 @@ describe("ingestion runtime bootstrap", () => {
     expect(createDatabase).not.toHaveBeenCalled();
   });
 
+  it("fails before queues and workers when Brand+MPN identity keys need backfill", async () => {
+    const events: string[] = [];
+    const database = fakeDatabase(events);
+    vi.spyOn(database, "query").mockResolvedValueOnce({
+      rows: [{ missing_count: "2" }]
+    } as never);
+    const createQueues = vi.fn();
+    const createWorkers = vi.fn();
+
+    await expect(startIngestionRuntime({
+      environment: {
+        DATABASE_URL: "postgresql://shopping:local-only@127.0.0.1:5432/shopping",
+        REDIS_URL: "redis://127.0.0.1:6379/0"
+      },
+      logger: { info: vi.fn() },
+      factories: {
+        loadConfigs: async () => [brandMpnEntry],
+        createDatabase: () => database,
+        createSource: () => fakeSource(),
+        createQueues,
+        createWorkers
+      }
+    })).rejects.toThrow(/backfill required.*--apply/i);
+
+    expect(events).toEqual(["db.connect", "db.close"]);
+    expect(createQueues).not.toHaveBeenCalled();
+    expect(createWorkers).not.toHaveBeenCalled();
+  });
+
   it("keeps an open circuit open when the worker short-circuits without a source call", async () => {
     const events: string[] = [];
     const capture = vi.fn(async () => { throw new Error("source unavailable"); });
@@ -239,6 +290,133 @@ describe("ingestion runtime bootstrap", () => {
     await expect(productHandler!(job)).resolves.toEqual({ status: "CIRCUIT_OPEN" });
     expect(capture).toHaveBeenCalledTimes(1);
     expect(runtime.health().circuitOpen).toEqual([candidate.id]);
+    await runtime.close();
+  });
+
+  it("opens only for consecutive adapter source failures and resets after source staging succeeds", async () => {
+    const events: string[] = [];
+    const capture = vi.fn()
+      .mockRejectedValueOnce(new Error("source-one"))
+      .mockResolvedValueOnce({
+        merchantId: candidate.id,
+        sourceType: "feed",
+        records: [],
+        sourceUrl: "https://data.approved-shop.example/feed.json",
+        rawEvidence: "not found evidence",
+        metadata: { sourceType: "feed", sourceVersion: "success" },
+        checkedAt: new Date().toISOString()
+      })
+      .mockRejectedValueOnce(new Error("source-two"))
+      .mockRejectedValueOnce(new Error("source-three"));
+    let productHandler: Processor;
+    const queue = {
+      add: vi.fn(async () => undefined),
+      waitUntilReady: vi.fn(async () => undefined),
+      close: vi.fn(async () => undefined)
+    };
+    const worker = {
+      on: vi.fn(),
+      waitUntilReady: vi.fn(async () => undefined),
+      close: vi.fn(async () => undefined)
+    };
+    const runtime = await startIngestionRuntime({
+      environment: {
+        DATABASE_URL: "postgresql://shopping:local-only@127.0.0.1:5432/shopping",
+        REDIS_URL: "redis://127.0.0.1:6379/0",
+        INGESTION_CIRCUIT_FAILURE_THRESHOLD: "2"
+      },
+      logger: { info: vi.fn() },
+      factories: {
+        loadConfigs: async () => [entry],
+        createDatabase: () => fakeDatabase(events),
+        createSource: () => ({ ...fakeSource(), capture }),
+        createPersistence: () => ({
+          evidence: { save: vi.fn(async (write) => ({ status: "STORED" as const, record: write })) },
+          offers: { upsert: vi.fn() },
+          quotes: { commit: vi.fn() },
+          quarantine: { save: vi.fn() }
+        }),
+        createPromotions: () => ({
+          promoteProduct: vi.fn(),
+          promoteQuote: vi.fn(),
+          promotePendingQuotes: vi.fn()
+        }),
+        createQueues: () => ({ product: queue, price: queue }) as never,
+        createWorkers: (_connection, handlers) => {
+          productHandler = handlers.product;
+          return { product: worker, price: worker } as never;
+        }
+      }
+    });
+    const jobs = ["one", "success", "two", "three"].map((sourceVersion) => ({
+      data: { merchantId: candidate.id, merchantProductId: "sku-1", sourceVersion }
+    } as never));
+    await expect(productHandler!(jobs[0]!)).rejects.toThrow(/source-one/i);
+    expect(runtime.health().circuitOpen).toEqual([]);
+    await expect(productHandler!(jobs[1]!)).resolves.toEqual({ status: "NOT_FOUND" });
+    await expect(productHandler!(jobs[2]!)).rejects.toThrow(/source-two/i);
+    expect(runtime.health().circuitOpen).toEqual([]);
+    await expect(productHandler!(jobs[3]!)).rejects.toThrow(/source-three/i);
+    expect(runtime.health().circuitOpen).toEqual([candidate.id]);
+    await runtime.close();
+  });
+
+  it("retries internal promotion failures without opening the merchant source circuit", async () => {
+    const events: string[] = [];
+    const now = new Date();
+    const capture = vi.fn(async () => ({
+      merchantId: candidate.id,
+      sourceType: "feed" as const,
+      records: [{
+        merchantProductId: "sku-1",
+        title: "Product",
+        gtins: [],
+        rawOffer: {
+          price: "10.00",
+          priceCurrency: "USD",
+          availability: "InStock",
+          url: "https://data.approved-shop.example/products/sku-1"
+        }
+      }],
+      sourceUrl: "https://data.approved-shop.example/feed.json",
+      rawEvidence: "source evidence",
+      metadata: { sourceType: "feed", sourceVersion: "v1" },
+      checkedAt: now.toISOString()
+    }));
+    let productHandler: Processor;
+    const queue = { add: vi.fn(), waitUntilReady: vi.fn(), close: vi.fn() };
+    const worker = { on: vi.fn(), waitUntilReady: vi.fn(), close: vi.fn() };
+    const promoteProduct = vi.fn(async () => { throw new Error("promotion db unavailable"); });
+    const runtime = await startIngestionRuntime({
+      environment: {
+        DATABASE_URL: "postgresql://shopping:local-only@127.0.0.1:5432/shopping",
+        REDIS_URL: "redis://127.0.0.1:6379/0",
+        INGESTION_CIRCUIT_FAILURE_THRESHOLD: "1"
+      },
+      clock: { now: () => now },
+      logger: { info: vi.fn() },
+      factories: {
+        loadConfigs: async () => [entry],
+        createDatabase: () => fakeDatabase(events),
+        createSource: () => ({ ...fakeSource(), capture }),
+        createPersistence: () => ({
+          evidence: { save: vi.fn(async (write) => ({ status: "STORED" as const, record: write })) },
+          offers: { upsert: vi.fn() },
+          quotes: { commit: vi.fn() },
+          quarantine: { save: vi.fn() }
+        }),
+        createPromotions: () => ({ promoteProduct, promoteQuote: vi.fn(), promotePendingQuotes: vi.fn() }),
+        createQueues: () => ({ product: queue, price: queue }) as never,
+        createWorkers: (_connection, handlers) => {
+          productHandler = handlers.product;
+          return { product: worker, price: worker } as never;
+        }
+      }
+    });
+    const job = { data: { merchantId: candidate.id, merchantProductId: "sku-1", sourceVersion: "v1" } } as never;
+    await expect(productHandler!(job)).rejects.toThrow(/promotion db unavailable/i);
+    expect(runtime.health().circuitOpen).toEqual([]);
+    expect(promoteProduct).toHaveBeenCalledOnce();
     await runtime.close();
   });
 

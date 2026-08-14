@@ -18,6 +18,7 @@ import {
   validateFreshnessPolicy,
   type FreshnessPolicy
 } from "./freshness.js";
+import { callAdapterSource } from "./source-error.js";
 
 export type { RefreshJob } from "./refresh-identity.js";
 export type { FreshnessPolicy } from "./freshness.js";
@@ -98,10 +99,10 @@ export async function refreshProduct(
   if (stopped) return stopped;
 
   const adapter = deps.adapters.get(canonicalJob.merchantId);
-  const raw = await adapter.refreshOffer({
+  const raw = await callAdapterSource(() => adapter.refreshOffer({
     merchantProductId: canonicalJob.merchantProductId,
     sourceVersion: canonicalJob.sourceVersion
-  });
+  }));
   const offer = raw.offer;
   const now = deps.clock.now();
 

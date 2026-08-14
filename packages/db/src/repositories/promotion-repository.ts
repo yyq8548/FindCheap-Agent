@@ -35,10 +35,16 @@ export type PromotionResult = {
   status: PromotionStatus;
   offerId?: string;
   quoteId?: string;
+  offerPromotionDecisionId?: string;
+  offerRevision?: number;
   canonicalProductId?: string;
 };
 
-export type PromotionOptions = { decisionVersion?: number; decidedBy?: string };
+export type PromotionOptions = {
+  decisionVersion?: number;
+  decidedBy?: string;
+  expectedCurrentOfferPromotionDecisionId?: string;
+};
 
 export interface PromotionRepository {
   promoteProduct(stagingId: string, options?: PromotionOptions): Promise<PromotionResult>;
@@ -108,6 +114,8 @@ type ExistingDecisionRow = {
   canonical_product_id: string | null;
   promoted_offer_id: string | null;
   promoted_quote_id: string | null;
+  offer_promotion_decision_id: string | null;
+  offer_revision: string | null;
 };
 
 type DecisionWrite = {
@@ -122,6 +130,8 @@ type DecisionWrite = {
   canonicalProductId?: string;
   offerId?: string;
   quoteId?: string;
+  offerPromotionDecisionId?: string;
+  offerRevision?: number;
   evidence: IngestionEvidenceRow;
   externalEvidenceRefs: string[];
   matchBasis?: "GTIN" | "BRAND_MPN";
@@ -151,12 +161,17 @@ export function createPromotionRepository(
     return db.transaction(async (transaction) => {
       await lock(transaction, `offer:${stagingId}`);
       const staging = await selectProductStaging(transaction, stagingId);
-      requireFresh(staging.expires_at, clock.now());
+      await lock(
+        transaction,
+        `offer-sku:${staging.merchant_id}:${staging.merchant_product_id}`
+      );
       const inputHash = canonicalHash({
         entityKind: "OFFER",
         stagingRecordId: staging.id,
         payload: staging.payload,
-        decisionVersion: control.decisionVersion
+        decisionVersion: control.decisionVersion,
+        expectedCurrentOfferPromotionDecisionId:
+          control.expectedCurrentOfferPromotionDecisionId ?? null
       });
       const reused = await existingDecision(
         transaction,
@@ -166,6 +181,10 @@ export function createPromotionRepository(
         inputHash
       );
       if (reused !== undefined) return reused;
+      requireFresh(staging.expires_at, clock.now());
+      if (control.expectedCurrentOfferPromotionDecisionId !== undefined && !control.explicitReview) {
+        throw new Error("expected current offer revision requires an explicit reviewed decision");
+      }
 
       validateProductStaging(staging);
       const evidence = await requirePromotionEvidence(transaction, staging, null);
@@ -197,16 +216,52 @@ export function createPromotionRepository(
           staging.merchant_product_id
         );
         if (
-          existingOffer !== undefined &&
-          existingOffer.product_id !== null &&
-          existingOffer.product_id !== decision.canonicalProductId &&
-          !control.explicitReview
+          control.expectedCurrentOfferPromotionDecisionId !== undefined &&
+          (
+            existingOffer === undefined ||
+            await currentOfferPromotionDecisionId(transaction, existingOffer.id) !==
+              control.expectedCurrentOfferPromotionDecisionId
+          )
         ) {
           decision = {
             status: "NEEDS_CLARIFICATION",
-            reason: "changing the canonical product requires an explicit reviewed decision version",
-            questions: ["Review the canonical product change and submit a new decision version."],
-            candidateProductIds: [decision.canonicalProductId, existingOffer.product_id].sort()
+            reason: "reviewed offer revision is stale; review the current revision",
+            questions: ["Review the current canonical product revision."],
+            candidateProductIds: [
+              decision.canonicalProductId,
+              ...(existingOffer?.product_id === null || existingOffer?.product_id === undefined
+                ? []
+                : [existingOffer.product_id])
+            ].filter((value, index, values) => values.indexOf(value) === index).sort()
+          };
+        }
+        if (
+          decision.status === "EXACT" &&
+          existingOffer !== undefined &&
+          existingOffer.product_id !== null &&
+          (
+            staging.checked_at < existingOffer.checked_at ||
+            (
+              existingOffer.product_id !== decision.canonicalProductId &&
+              (
+                !control.explicitReview ||
+                control.expectedCurrentOfferPromotionDecisionId === undefined
+              )
+            )
+          )
+        ) {
+          decision = {
+            status: "NEEDS_CLARIFICATION",
+            reason: staging.checked_at < existingOffer.checked_at
+              ? "older staging cannot replace a newer canonical offer revision"
+              : control.explicitReview
+                ? "reviewed canonical reassignment requires the current offer revision"
+                : "changing the canonical product requires an explicit reviewed decision version",
+            questions: ["Review a current canonical product revision."],
+            candidateProductIds: [...new Set([
+              decision.canonicalProductId,
+              existingOffer.product_id
+            ])].sort()
           };
         }
       }
@@ -243,30 +298,49 @@ export function createPromotionRepository(
       } else {
         throw new Error("exact decision fields do not match its identity method");
       }
-      const offerId = await upsertExactOffer(
+      const decisionId = decisionRecordId("OFFER", staging.source_identity_key, control.decisionVersion);
+      const offer = await upsertExactOffer(
         transaction,
         staging,
         decision.canonicalProductId,
         matchEvidence,
         control.explicitReview
       );
+      const offerRevision = offer.revision;
       const write: DecisionWrite = {
         ...baseDecision(staging, evidence, control, inputHash),
         entityKind: "OFFER",
         status: "EXACT_PROMOTED",
         canonicalProductId: decision.canonicalProductId,
-        offerId,
+        offerId: offer.id,
+        offerRevision,
         matchBasis: decision.method,
         matchEvidence,
         reason: `deterministic ${decision.method} identity and required variants match`,
         questions: [],
         candidateProductIds: decision.candidateProductIds
       };
-      const decisionId = await insertDecision(transaction, write);
+      await insertDecision(transaction, write);
+      await transaction.query(
+        `INSERT INTO merchant_offer_current_promotions (
+           offer_id, promotion_decision_id, revision, canonical_product_id,
+           source_identity_key, source_version, promoted_checked_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (offer_id) DO UPDATE SET
+           promotion_decision_id = EXCLUDED.promotion_decision_id,
+           revision = EXCLUDED.revision,
+           canonical_product_id = EXCLUDED.canonical_product_id,
+           source_identity_key = EXCLUDED.source_identity_key,
+           source_version = EXCLUDED.source_version,
+           promoted_checked_at = EXCLUDED.promoted_checked_at`,
+        [offer.id, decisionId, offerRevision, decision.canonicalProductId,
+          staging.source_identity_key, staging.source_version, staging.checked_at]
+      );
       return {
         decisionId,
         status: "EXACT_PROMOTED",
-        offerId,
+        offerId: offer.id,
+        offerRevision,
         canonicalProductId: decision.canonicalProductId
       };
     });
@@ -280,7 +354,6 @@ export function createPromotionRepository(
     return db.transaction(async (transaction) => {
       await lock(transaction, `quote:${stagingId}`);
       const staging = await selectQuoteStaging(transaction, stagingId);
-      requireFresh(staging.expires_at, clock.now());
       const inputHash = canonicalHash({
         entityKind: "QUOTE",
         stagingRecordId: staging.id,
@@ -295,6 +368,7 @@ export function createPromotionRepository(
         inputHash
       );
       if (reused !== undefined) return reused;
+      requireFresh(staging.expires_at, clock.now());
 
       validateQuoteStaging(staging);
       const quoteContext = {
@@ -306,21 +380,20 @@ export function createPromotionRepository(
       const exact = await transaction.query<{
         id: string;
         product_id: string;
-        product_source_identity_key: string;
+        promotion_decision_id: string;
+        revision: string;
       }>(
-        `SELECT o.id, o.product_id, d.source_identity_key AS product_source_identity_key
+        `SELECT o.id, o.product_id, c.promotion_decision_id, c.revision::text
          FROM merchant_offers o
-         JOIN LATERAL (
-           SELECT source_identity_key FROM merchant_promotion_decisions
-           WHERE entity_kind = 'OFFER' AND status = 'EXACT_PROMOTED'
-             AND promoted_offer_id = o.id
-           ORDER BY decision_version DESC, decided_at DESC LIMIT 1
-         ) d ON true
+         JOIN merchant_offer_current_promotions c ON c.offer_id = o.id
          WHERE o.merchant_id = $1 AND o.merchant_product_id = $2
            AND o.match_status = 'EXACT' AND o.product_id IS NOT NULL
+           AND c.canonical_product_id = o.product_id
+           AND c.promoted_checked_at = o.checked_at
            AND o.expires_at > $3
+           AND c.promoted_checked_at <= $4
          FOR UPDATE OF o`,
-        [staging.merchant_id, staging.merchant_product_id, clock.now()]
+        [staging.merchant_id, staging.merchant_product_id, clock.now(), staging.checked_at]
       );
       const offer = exact.rows[0];
       if (offer === undefined) {
@@ -342,7 +415,14 @@ export function createPromotionRepository(
         };
       }
 
-      const quoteId = await upsertQuote(transaction, staging, offer.id);
+      const offerRevision = Number(offer.revision);
+      const quoteId = await upsertQuote(
+        transaction,
+        staging,
+        offer.id,
+        offer.promotion_decision_id,
+        offerRevision
+      );
       const write: DecisionWrite = {
         ...baseDecision(staging, evidence, control, inputHash),
         entityKind: "QUOTE",
@@ -350,6 +430,8 @@ export function createPromotionRepository(
         canonicalProductId: offer.product_id,
         offerId: offer.id,
         quoteId,
+        offerPromotionDecisionId: offer.promotion_decision_id,
+        offerRevision,
         matchEvidence: [],
         reason: "quote context and provenance match an exact-promoted offer",
         questions: [],
@@ -363,6 +445,8 @@ export function createPromotionRepository(
         status: "QUOTE_PROMOTED",
         offerId: offer.id,
         quoteId,
+        offerPromotionDecisionId: offer.promotion_decision_id,
+        offerRevision,
         canonicalProductId: offer.product_id
       };
     });
@@ -373,14 +457,38 @@ export function createPromotionRepository(
     promoteQuote,
     async promotePendingQuotes(merchantId, merchantProductId) {
       const rows = await db.query<{ id: string; next_version: number }>(
-        `SELECT s.id, COALESCE(max(d.decision_version), 0)::integer + 1 AS next_version
+        `SELECT s.id,
+                COALESCE((
+                  SELECT max(history.decision_version)
+                  FROM merchant_promotion_decisions history
+                  WHERE history.entity_kind = 'QUOTE'
+                    AND history.source_identity_key = s.source_identity_key
+                ), 0)::integer + 1 AS next_version
          FROM merchant_quote_staging s
-         LEFT JOIN merchant_promotion_decisions d
-           ON d.entity_kind = 'QUOTE' AND d.source_identity_key = s.source_identity_key
-         WHERE s.merchant_id = $1 AND s.merchant_product_id = $2 AND s.expires_at > $3
-         GROUP BY s.id
-         HAVING bool_or(d.status = 'QUOTE_PROMOTED') IS NOT TRUE
-         ORDER BY s.id`,
+         JOIN merchant_offers o
+           ON o.merchant_id = s.merchant_id
+          AND o.merchant_product_id = s.merchant_product_id
+          AND o.match_status = 'EXACT'
+          AND o.product_id IS NOT NULL
+         JOIN merchant_offer_current_promotions current_promotion
+           ON current_promotion.offer_id = o.id
+          AND current_promotion.canonical_product_id = o.product_id
+          AND current_promotion.promoted_checked_at = o.checked_at
+         WHERE s.merchant_id = $1
+           AND s.merchant_product_id = $2
+           AND s.expires_at > $3
+           AND o.expires_at > $3
+           AND s.checked_at >= current_promotion.promoted_checked_at
+           AND NOT EXISTS (
+             SELECT 1
+             FROM merchant_promotion_decisions promoted
+             WHERE promoted.entity_kind = 'QUOTE'
+               AND promoted.source_identity_key = s.source_identity_key
+               AND promoted.status = 'QUOTE_PROMOTED'
+               AND promoted.offer_promotion_decision_id = current_promotion.promotion_decision_id
+               AND promoted.offer_revision = current_promotion.revision
+           )
+         ORDER BY s.checked_at ASC, s.id COLLATE "C" ASC`,
         [merchantId, merchantProductId, clock.now()]
       );
       const results: PromotionResult[] = [];
@@ -405,6 +513,7 @@ function normalizeOptions(options: PromotionOptions): {
   decisionVersion: number;
   decidedBy: string;
   explicitReview: boolean;
+  expectedCurrentOfferPromotionDecisionId?: string;
 } {
   const decisionVersion = options.decisionVersion ?? 1;
   const decidedBy = options.decidedBy ?? "system:ingestion-worker";
@@ -414,10 +523,20 @@ function normalizeOptions(options: PromotionOptions): {
   if (decidedBy.trim().length === 0 || decidedBy.length > 200) {
     throw new Error("decision actor is invalid");
   }
+  const expectedCurrentOfferPromotionDecisionId = options.expectedCurrentOfferPromotionDecisionId;
+  if (
+    expectedCurrentOfferPromotionDecisionId !== undefined &&
+    !/^[a-f0-9]{64}$/u.test(expectedCurrentOfferPromotionDecisionId)
+  ) {
+    throw new Error("expected current offer promotion decision ID is invalid");
+  }
   return {
     decisionVersion,
     decidedBy,
-    explicitReview: decisionVersion > 1 && !decidedBy.startsWith("system:")
+    explicitReview: decisionVersion > 1 && !decidedBy.startsWith("system:"),
+    ...(expectedCurrentOfferPromotionDecisionId === undefined
+      ? {}
+      : { expectedCurrentOfferPromotionDecisionId })
   };
 }
 
@@ -616,13 +735,24 @@ async function selectOfferByMerchantSku(
   return result.rows[0];
 }
 
+async function currentOfferPromotionDecisionId(
+  transaction: SqlExecutor,
+  offerId: string
+): Promise<string | undefined> {
+  const result = await transaction.query<{ promotion_decision_id: string }>(
+    "SELECT promotion_decision_id FROM merchant_offer_current_promotions WHERE offer_id = $1",
+    [offerId]
+  );
+  return result.rows[0]?.promotion_decision_id;
+}
+
 async function upsertExactOffer(
   transaction: SqlExecutor,
   staging: ProductStagingRow,
   productId: string,
   matchEvidence: MerchantOffer["matchEvidence"],
   explicitReview: boolean
-): Promise<string> {
+): Promise<{ id: string; revision: number }> {
   const offer = staging.payload;
   const existing = await selectOfferByMerchantSku(
     transaction,
@@ -651,14 +781,11 @@ async function upsertExactOffer(
         throw new Error("equal-timestamp offer promotion conflicts with persisted Commerce state");
       }
     } else {
-      return existing.id;
+      return { id: existing.id, revision: await nextOfferRevision(transaction, existing.id) };
     }
   }
-  if (existing !== undefined && existing.checked_at > staging.checked_at && !explicitReview) {
-    if (existing.product_id !== productId) {
-      throw new Error("older staging cannot change the canonical product of a newer offer");
-    }
-    return existing.id;
+  if (existing !== undefined && existing.checked_at > staging.checked_at) {
+    throw new Error("older staging cannot change a newer Commerce offer");
   }
   if (existing === undefined) {
     await transaction.query(
@@ -684,13 +811,27 @@ async function upsertExactOffer(
     );
   }
   await replaceEvidence(transaction, "offer_evidence", "offer_id", offerId, staging.primary_evidence_id);
-  return offerId;
+  return { id: offerId, revision: await nextOfferRevision(transaction, offerId) };
+}
+
+async function nextOfferRevision(transaction: SqlExecutor, offerId: string): Promise<number> {
+  const result = await transaction.query<{ revision: string }>(
+    `SELECT COALESCE(max(offer_revision), 0)::text AS revision
+     FROM merchant_promotion_decisions
+     WHERE entity_kind = 'OFFER' AND status = 'EXACT_PROMOTED' AND promoted_offer_id = $1`,
+    [offerId]
+  );
+  const revision = Number(result.rows[0]?.revision ?? "0") + 1;
+  if (!Number.isSafeInteger(revision)) throw new Error("offer revision overflow");
+  return revision;
 }
 
 async function upsertQuote(
   transaction: SqlExecutor,
   staging: QuoteStagingRow,
-  offerId: string
+  offerId: string,
+  offerPromotionDecisionId: string,
+  offerRevision: number
 ): Promise<string> {
   const quote = staging.payload;
   const context = {
@@ -707,13 +848,15 @@ async function upsertQuote(
               'lineItems', line_items, 'eligibilityConditions', eligibility_conditions,
               'evidenceRefs', evidence_refs, 'expiresAt', expires_at
             ) AS snapshot
-     FROM price_quotes WHERE offer_id = $1 AND zip_code = $2 AND context_hash = $3 FOR UPDATE`,
-    [offerId, staging.zip_code, staging.context_hash]
+     FROM price_quotes WHERE offer_id = $1 AND zip_code = $2 AND context_hash = $3
+       AND offer_revision = $4 FOR UPDATE`,
+    [offerId, staging.zip_code, staging.context_hash, offerRevision]
   );
   const current = existing.rows[0];
   const quoteId = current?.id ?? canonicalHash({
     kind: "commerce-quote",
     offerId,
+    offerRevision,
     zipCode: staging.zip_code,
     contextHash: staging.context_hash
   });
@@ -732,27 +875,32 @@ async function upsertQuote(
     }
     return current.id;
   }
-  if (current !== undefined && current.checked_at > staging.checked_at) return current.id;
+  if (current !== undefined && current.checked_at > staging.checked_at) {
+    throw new Error("older quote staging cannot replace a newer Commerce quote");
+  }
   if (current === undefined) {
     await transaction.query(
       `INSERT INTO price_quotes (
          id, offer_id, zip_code, membership_context, status, delivered_price_cents,
          line_items, eligibility_conditions, evidence_refs, checked_at, expires_at, context_hash
-       ) VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7::jsonb, $8::jsonb, $9, $10, $11, $12)`,
+         , offer_promotion_decision_id, offer_revision
+       ) VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7::jsonb, $8::jsonb, $9, $10, $11, $12, $13, $14)`,
       [quoteId, offerId, staging.zip_code, JSON.stringify(context), quote.status,
         Number(staging.delivered_price_cents), JSON.stringify(lineItems),
         JSON.stringify(quote.conditions), [staging.primary_evidence_id], staging.checked_at,
-        staging.expires_at, staging.context_hash]
+        staging.expires_at, staging.context_hash, offerPromotionDecisionId, offerRevision]
     );
   } else {
     await transaction.query(
       `UPDATE price_quotes SET membership_context = $2::jsonb, status = $3,
          delivered_price_cents = $4, line_items = $5::jsonb,
          eligibility_conditions = $6::jsonb, evidence_refs = $7,
-         checked_at = $8, expires_at = $9 WHERE id = $1`,
+         checked_at = $8, expires_at = $9, offer_promotion_decision_id = $10,
+         offer_revision = $11 WHERE id = $1`,
       [quoteId, JSON.stringify(context), quote.status, Number(staging.delivered_price_cents),
         JSON.stringify(lineItems), JSON.stringify(quote.conditions),
-        [staging.primary_evidence_id], staging.checked_at, staging.expires_at]
+        [staging.primary_evidence_id], staging.checked_at, staging.expires_at,
+        offerPromotionDecisionId, offerRevision]
     );
   }
   await replaceEvidence(transaction, "quote_evidence", "quote_id", quoteId, staging.primary_evidence_id);
@@ -791,7 +939,8 @@ async function existingDecision(
   inputHash: string
 ): Promise<PromotionResult | undefined> {
   const result = await transaction.query<ExistingDecisionRow>(
-    `SELECT id, input_hash, status, canonical_product_id, promoted_offer_id, promoted_quote_id
+    `SELECT id, input_hash, status, canonical_product_id, promoted_offer_id, promoted_quote_id,
+            offer_promotion_decision_id, offer_revision::text
      FROM merchant_promotion_decisions
      WHERE entity_kind = $1 AND source_identity_key = $2 AND decision_version = $3`,
     [entityKind, sourceIdentityKey, decisionVersion]
@@ -804,36 +953,37 @@ async function existingDecision(
     status: row.status,
     ...(row.canonical_product_id === null ? {} : { canonicalProductId: row.canonical_product_id }),
     ...(row.promoted_offer_id === null ? {} : { offerId: row.promoted_offer_id }),
-    ...(row.promoted_quote_id === null ? {} : { quoteId: row.promoted_quote_id })
+    ...(row.promoted_quote_id === null ? {} : { quoteId: row.promoted_quote_id }),
+    ...(row.offer_promotion_decision_id === null
+      ? {}
+      : { offerPromotionDecisionId: row.offer_promotion_decision_id }),
+    ...(row.offer_revision === null ? {} : { offerRevision: Number(row.offer_revision) })
   };
 }
 
 async function insertDecision(transaction: SqlExecutor, write: DecisionWrite): Promise<string> {
-  const id = canonicalHash({
-    kind: "merchant-promotion-decision",
-    entityKind: write.entityKind,
-    sourceIdentityKey: write.sourceIdentityKey,
-    decisionVersion: write.decisionVersion
-  });
+  const id = decisionRecordId(write.entityKind, write.sourceIdentityKey, write.decisionVersion);
   await transaction.query(
     `INSERT INTO merchant_promotion_decisions (
        id, input_hash, entity_kind, source_identity_key, decision_version,
        staging_record_id, merchant_id, merchant_product_id, source_version, status,
        canonical_product_id, promoted_offer_id, promoted_quote_id, primary_evidence_id,
+       offer_promotion_decision_id, offer_revision,
        source_url, source_type, source_content_hash, source_captured_at,
        external_evidence_refs, match_basis, match_evidence, reason, questions,
        candidate_product_ids, zip_code, memberships, context_hash, staged_checked_at,
        staged_expires_at, staged_record_hash, decided_by
      ) VALUES (
        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
-       $15, $16, $17, $18, $19::jsonb, $20, $21::jsonb, $22, $23::jsonb,
-       $24::jsonb, $25, $26::jsonb, $27, $28, $29, $30, $31
+       $15, $16, $17, $18, $19, $20, $21::jsonb, $22, $23::jsonb, $24, $25::jsonb,
+       $26::jsonb, $27, $28::jsonb, $29, $30, $31, $32, $33
      )`,
     [id, write.inputHash, write.entityKind, write.sourceIdentityKey,
       write.decisionVersion, write.stagingRecordId, write.merchantId,
       write.merchantProductId, write.sourceVersion, write.status,
       write.canonicalProductId ?? null, write.offerId ?? null, write.quoteId ?? null,
-      write.evidence.id, write.evidence.source_url, write.evidence.source_type,
+      write.evidence.id, write.offerPromotionDecisionId ?? null, write.offerRevision ?? null,
+      write.evidence.source_url, write.evidence.source_type,
       write.evidence.content_hash, write.evidence.captured_at,
       JSON.stringify(write.externalEvidenceRefs), write.matchBasis ?? null,
       JSON.stringify(write.matchEvidence), write.reason, JSON.stringify(write.questions),
@@ -843,6 +993,19 @@ async function insertDecision(transaction: SqlExecutor, write: DecisionWrite): P
       write.stagedRecordHash, write.decidedBy]
   );
   return id;
+}
+
+function decisionRecordId(
+  entityKind: "OFFER" | "QUOTE",
+  sourceIdentityKey: string,
+  decisionVersion: number
+): string {
+  return canonicalHash({
+    kind: "merchant-promotion-decision",
+    entityKind,
+    sourceIdentityKey,
+    decisionVersion
+  });
 }
 
 function baseDecision(

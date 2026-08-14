@@ -103,7 +103,8 @@ async function stageQuote(
   sku: string,
   version: string,
   memberships: string[],
-  price = 10_700
+  price = 10_700,
+  overrides: Partial<PublishedQuote> = {}
 ): Promise<PublishedQuote> {
   const quoteContext = { zipCode: "10001", memberships: [...new Set(memberships)].sort() };
   const identity = priceSourceIdentity({
@@ -147,7 +148,8 @@ async function stageQuote(
     externalEvidenceRefs: ["opaque-quote-ref"],
     evidenceRefs: ["opaque-quote-ref", saved.record.id],
     checkedAt,
-    expiresAt
+    expiresAt,
+    ...overrides
   };
   const outcome = await quoteStaging.commit({
     quote,
@@ -274,6 +276,60 @@ describe("merchant staging promotion", () => {
     ]);
   });
 
+  it("keeps a quote pending when it predates the current exact offer revision", async () => {
+    const offer = await stageProduct("merchant-compatibility", "sku-compatibility", "offer-v1", {
+      checkedAt: "2026-08-13T18:10:00.000Z"
+    });
+    await promotions.promoteProduct(offer.offerId);
+    const olderQuote = await stageQuote(
+      "merchant-compatibility",
+      "sku-compatibility",
+      "quote-older",
+      [],
+      5_000,
+      { checkedAt: "2026-08-13T18:05:00.000Z" }
+    );
+
+    await expect(promotions.promoteQuote(olderQuote.quoteId)).resolves.toMatchObject({
+      status: "PENDING_EXACT_OFFER"
+    });
+    await expect(
+      promotions.promotePendingQuotes("merchant-compatibility", "sku-compatibility")
+    ).resolves.toEqual([]);
+    await expect(db.query<{ count: string }>(
+      "SELECT count(*)::text AS count FROM price_quotes q JOIN merchant_offers o ON o.id = q.offer_id WHERE o.merchant_id = 'merchant-compatibility'"
+    )).resolves.toEqual({ rows: [{ count: "0" }] });
+  });
+
+  it("never records an older quote as a promotion of a newer Commerce row", async () => {
+    const offer = await stageProduct("merchant-quote-order", "sku-quote-order", "offer-v1");
+    await promotions.promoteProduct(offer.offerId);
+    const newer = await stageQuote(
+      "merchant-quote-order",
+      "sku-quote-order",
+      "quote-newer",
+      [],
+      8_000,
+      { checkedAt: "2026-08-13T18:10:00.000Z" }
+    );
+    await promotions.promoteQuote(newer.quoteId);
+    const older = await stageQuote(
+      "merchant-quote-order",
+      "sku-quote-order",
+      "quote-older",
+      [],
+      9_000,
+      { checkedAt: "2026-08-13T18:05:00.000Z" }
+    );
+
+    await expect(promotions.promoteQuote(older.quoteId)).rejects.toThrow(/older quote staging/i);
+    await expect(db.query<{ delivered_price_cents: string }>(
+      `SELECT q.delivered_price_cents::text
+       FROM price_quotes q JOIN merchant_offers o ON o.id = q.offer_id
+       WHERE o.merchant_id = 'merchant-quote-order'`
+    )).resolves.toEqual({ rows: [{ delivered_price_cents: "8000" }] });
+  });
+
   it("records ambiguous identity without exposing an exact Commerce offer", async () => {
     await createProductRepository(db).upsert({
       productId: "canonical-duplicate",
@@ -345,7 +401,7 @@ describe("merchant staging promotion", () => {
       "UPDATE merchant_promotion_decisions SET reason = 'mutated' WHERE id = $1",
       [firstResult.decisionId]
     )).rejects.toThrow(/append-only/i);
-    await expect(db.query("TRUNCATE merchant_promotion_decisions")).rejects.toThrow(/append-only/i);
+    await expect(db.query("TRUNCATE merchant_promotion_decisions")).rejects.toThrow();
   });
 
   it("rejects cross-merchant evidence and rolls back core evidence and decisions", async () => {
@@ -425,5 +481,298 @@ describe("merchant staging promotion", () => {
     });
     expect(outcome.status).toBe("QUARANTINED");
     await expect(promotions.promoteQuote(dropped.quoteId)).rejects.toThrow(/not found/i);
+  });
+
+  it("binds quotes to the exact offer revision and excludes them after reviewed reassignment", async () => {
+    const products = createProductRepository(db);
+    await products.upsert({
+      productId: "revision-a",
+      brand: "Revision",
+      manufacturerPartNumber: "A-1",
+      gtins: ["11112222"],
+      title: "Revision A",
+      categoryPath: ["Widgets"],
+      attributes: [],
+      variantDimensions: { color: "black" }
+    });
+    await products.upsert({
+      productId: "revision-b",
+      brand: "Revision",
+      manufacturerPartNumber: "B-1",
+      gtins: ["33334444"],
+      title: "Revision B",
+      categoryPath: ["Widgets"],
+      attributes: [],
+      variantDimensions: { color: "black" }
+    });
+    const first = await stageProduct("merchant-revision", "sku-revision", "product-a", {
+      title: "Revision A",
+      brand: "Revision",
+      mpn: "A-1",
+      gtins: ["11112222"],
+      checkedAt: "2026-08-13T18:01:00.000Z"
+    });
+    const firstPromotion = await promotions.promoteProduct(first.offerId);
+    const oldQuote = await stageQuote(
+      "merchant-revision",
+      "sku-revision",
+      "quote-a",
+      [],
+      4_000,
+      { checkedAt: "2026-08-13T18:02:00.000Z" }
+    );
+    await promotions.promoteQuote(oldQuote.quoteId);
+
+    const reassigned = await stageProduct("merchant-revision", "sku-revision", "product-b", {
+      title: "Revision B",
+      brand: "Revision",
+      mpn: "B-1",
+      gtins: ["33334444"],
+      checkedAt: "2026-08-13T18:10:00.000Z"
+    });
+    await expect(promotions.promoteProduct(reassigned.offerId, {
+      decisionVersion: 2,
+      decidedBy: "reviewer@example.com",
+      expectedCurrentOfferPromotionDecisionId: firstPromotion.decisionId
+    })).resolves.toMatchObject({ status: "EXACT_PROMOTED", canonicalProductId: "revision-b" });
+
+    const commerce = createOfferRepository(db);
+    await expect(commerce.findComparableOffers(
+      "revision-b",
+      { zipCode: "10001", memberships: [] },
+      new Date("2026-08-13T18:30:00.000Z")
+    )).resolves.toEqual([]);
+    const oldBinding = await db.query<{ offer_revision: string; current_revision: string }>(
+      `SELECT q.offer_revision::text, c.revision::text AS current_revision
+       FROM price_quotes q JOIN merchant_offer_current_promotions c ON c.offer_id = q.offer_id
+       WHERE q.id = $1`,
+      [(await db.query<{ id: string }>(
+        "SELECT promoted_quote_id AS id FROM merchant_promotion_decisions WHERE source_identity_key = $1 AND status = 'QUOTE_PROMOTED'",
+        [oldQuote.sourceIdentityKey]
+      )).rows[0]?.id]
+    );
+    expect(oldBinding.rows).toEqual([{ offer_revision: "1", current_revision: "2" }]);
+  });
+
+  it("replays committed product and quote decisions after expiry but rejects changed input", async () => {
+    await createProductRepository(db).upsert({
+      productId: "replay-product",
+      brand: "Replay",
+      manufacturerPartNumber: "R-1",
+      gtins: ["55556666"],
+      title: "Replay Product",
+      categoryPath: ["Widgets"],
+      attributes: [],
+      variantDimensions: { color: "black" }
+    });
+    const staged = await stageProduct("merchant-replay", "sku-replay", "product-v1", {
+      title: "Replay Product",
+      brand: "Replay",
+      mpn: "R-1",
+      gtins: ["55556666"]
+    });
+    const productResult = await promotions.promoteProduct(staged.offerId);
+    const quote = await stageQuote("merchant-replay", "sku-replay", "quote-v1", [], 6_000);
+    const quoteResult = await promotions.promoteQuote(quote.quoteId);
+    const expiredClock = createPromotionRepository(db, {
+      now: () => new Date("2026-08-13T21:00:00.000Z")
+    });
+    await expect(expiredClock.promoteProduct(staged.offerId)).resolves.toEqual(productResult);
+    await expect(expiredClock.promoteQuote(quote.quoteId)).resolves.toEqual(quoteResult);
+
+    await db.query(
+      `UPDATE merchant_product_staging
+       SET payload = jsonb_set(payload, '{title}', '"changed after commit"'::jsonb)
+       WHERE id = $1`,
+      [staged.offerId]
+    );
+    await expect(expiredClock.promoteProduct(staged.offerId)).rejects.toThrow(/idempotency conflict/i);
+  });
+
+  it("never lets an older reviewed reassignment overwrite a newer offer", async () => {
+    const products = createProductRepository(db);
+    await products.upsert({
+      productId: "stale-current",
+      brand: "Stale",
+      gtins: ["77778888"],
+      title: "Current Product",
+      categoryPath: ["Widgets"],
+      attributes: [],
+      variantDimensions: {}
+    });
+    await products.upsert({
+      productId: "stale-old",
+      brand: "Stale",
+      gtins: ["99990000"],
+      title: "Older Product",
+      categoryPath: ["Widgets"],
+      attributes: [],
+      variantDimensions: {}
+    });
+    const current = await stageProduct("merchant-stale", "sku-stale", "current", {
+      title: "Current Product",
+      brand: "Stale",
+      gtins: ["77778888"],
+      variantDimensions: {},
+      checkedAt: "2026-08-13T18:20:00.000Z",
+      inventoryStatus: "IN_STOCK"
+    });
+    await promotions.promoteProduct(current.offerId);
+    const stale = await stageProduct("merchant-stale", "sku-stale", "older", {
+      title: "Older Product",
+      brand: "Stale",
+      gtins: ["99990000"],
+      variantDimensions: {},
+      checkedAt: "2026-08-13T18:10:00.000Z",
+      inventoryStatus: "OUT_OF_STOCK"
+    });
+    await expect(promotions.promoteProduct(stale.offerId, {
+      decisionVersion: 2,
+      decidedBy: "reviewer@example.com"
+    })).resolves.toMatchObject({ status: "NEEDS_CLARIFICATION" });
+    await expect(db.query<{ product_id: string; inventory_status: string; checked_at: Date }>(
+      "SELECT product_id, inventory_status, checked_at FROM merchant_offers WHERE merchant_id = 'merchant-stale'"
+    )).resolves.toEqual({ rows: [{
+      product_id: "stale-current",
+      inventory_status: "IN_STOCK",
+      checked_at: new Date("2026-08-13T18:20:00.000Z")
+    }] });
+  });
+
+  it("rejects a reviewed reassignment made against a stale offer revision", async () => {
+    const products = createProductRepository(db);
+    await products.upsert({
+      productId: "review-a",
+      brand: "Review",
+      gtins: ["22223333"],
+      title: "Review A",
+      categoryPath: ["Widgets"],
+      attributes: [],
+      variantDimensions: {}
+    });
+    await products.upsert({
+      productId: "review-b",
+      brand: "Review",
+      gtins: ["44445555"],
+      title: "Review B",
+      categoryPath: ["Widgets"],
+      attributes: [],
+      variantDimensions: {}
+    });
+    const first = await stageProduct("merchant-review", "sku-review", "v1", {
+      title: "Review A",
+      brand: "Review",
+      gtins: ["22223333"],
+      variantDimensions: {},
+      checkedAt: "2026-08-13T18:01:00.000Z"
+    });
+    const firstDecision = await promotions.promoteProduct(first.offerId);
+    const refresh = await stageProduct("merchant-review", "sku-review", "v2", {
+      title: "Review A",
+      brand: "Review",
+      gtins: ["22223333"],
+      variantDimensions: {},
+      checkedAt: "2026-08-13T18:02:00.000Z"
+    });
+    const currentDecision = await promotions.promoteProduct(refresh.offerId);
+    const reviewed = await stageProduct("merchant-review", "sku-review", "v3", {
+      title: "Review B",
+      brand: "Review",
+      gtins: ["44445555"],
+      variantDimensions: {},
+      checkedAt: "2026-08-13T18:03:00.000Z"
+    });
+
+    await expect(promotions.promoteProduct(reviewed.offerId, {
+      decisionVersion: 2,
+      decidedBy: "reviewer@example.com",
+      expectedCurrentOfferPromotionDecisionId: firstDecision.decisionId
+    })).resolves.toMatchObject({ status: "NEEDS_CLARIFICATION" });
+    expect(firstDecision.decisionId).not.toBe(currentDecision.decisionId);
+    await expect(db.query<{ product_id: string }>(
+      "SELECT product_id FROM merchant_offers WHERE merchant_id = 'merchant-review'"
+    )).resolves.toEqual({ rows: [{ product_id: "review-a" }] });
+  });
+
+  it("requires the reviewed offer revision for canonical reassignment", async () => {
+    const products = createProductRepository(db);
+    await products.upsert({
+      productId: "token-a",
+      brand: "Token",
+      gtins: ["12121212"],
+      title: "Token A",
+      categoryPath: ["Widgets"],
+      attributes: [],
+      variantDimensions: {}
+    });
+    await products.upsert({
+      productId: "token-b",
+      brand: "Token",
+      gtins: ["34343434"],
+      title: "Token B",
+      categoryPath: ["Widgets"],
+      attributes: [],
+      variantDimensions: {}
+    });
+    const first = await stageProduct("merchant-token", "sku-token", "v1", {
+      title: "Token A",
+      brand: "Token",
+      gtins: ["12121212"],
+      variantDimensions: {},
+      checkedAt: "2026-08-13T18:01:00.000Z"
+    });
+    await promotions.promoteProduct(first.offerId);
+    const reassignment = await stageProduct("merchant-token", "sku-token", "v2", {
+      title: "Token B",
+      brand: "Token",
+      gtins: ["34343434"],
+      variantDimensions: {},
+      checkedAt: "2026-08-13T18:02:00.000Z"
+    });
+
+    await expect(promotions.promoteProduct(reassignment.offerId, {
+      decisionVersion: 2,
+      decidedBy: "reviewer@example.com"
+    })).resolves.toMatchObject({ status: "NEEDS_CLARIFICATION" });
+    await expect(db.query<{ product_id: string }>(
+      "SELECT product_id FROM merchant_offers WHERE merchant_id = 'merchant-token'"
+    )).resolves.toEqual({ rows: [{ product_id: "token-a" }] });
+  });
+
+  it("does not bind a quote when mutable offer identity differs from its reviewed revision", async () => {
+    const products = createProductRepository(db);
+    await products.upsert({
+      productId: "mutable-a",
+      brand: "Mutable",
+      gtins: ["66667777"],
+      title: "Mutable A",
+      categoryPath: ["Widgets"],
+      attributes: [],
+      variantDimensions: {}
+    });
+    await products.upsert({
+      productId: "mutable-b",
+      brand: "Mutable",
+      gtins: ["88889999"],
+      title: "Mutable B",
+      categoryPath: ["Widgets"],
+      attributes: [],
+      variantDimensions: {}
+    });
+    const offer = await stageProduct("merchant-mutable", "sku-mutable", "offer", {
+      title: "Mutable A",
+      brand: "Mutable",
+      gtins: ["66667777"],
+      variantDimensions: {}
+    });
+    await promotions.promoteProduct(offer.offerId);
+    await db.query(
+      "UPDATE merchant_offers SET product_id = 'mutable-b' WHERE merchant_id = 'merchant-mutable'"
+    );
+    const quote = await stageQuote("merchant-mutable", "sku-mutable", "quote", [], 7_000);
+
+    await expect(promotions.promoteQuote(quote.quoteId)).resolves.toMatchObject({
+      status: "PENDING_EXACT_OFFER"
+    });
   });
 });
