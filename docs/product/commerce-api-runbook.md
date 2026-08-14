@@ -44,7 +44,8 @@ The bearer token is required whenever the API starts, including development/test
 binds. The server binds to `127.0.0.1:3000` by default. `COMMERCE_API_HOST` accepts only explicit IP
 bind targets (`127.0.0.1`, `::1`, `0.0.0.0`, or `::`); put TLS and network policy at the service
 edge when using a non-loopback bind. Every `/v1` request requires the bearer token. `GET /health`
-is the only unauthenticated endpoint and returns only `{ "status": "ok" }`.
+is the only unauthenticated endpoint and returns only `{ "status": "ok" }`; it is a process
+liveness check, not a database-readiness guarantee.
 
 With zero gate-approved merchants, the executable exits without listening and prints a
 deterministic disabled event without opening PostgreSQL. Gate validation errors fail startup.

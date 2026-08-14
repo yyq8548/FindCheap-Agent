@@ -9,3 +9,12 @@ node_modules
 **/__pycache__
 artifacts
 *.log
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+credentials*
+secrets*
