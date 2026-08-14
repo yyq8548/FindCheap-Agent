@@ -20,6 +20,7 @@
     "products:backfill-identity-keys": "tsx scripts/backfill-product-identity-keys.ts",
     "eval:matching": "tsx scripts/evaluate-matching.ts",
     "merchants:score": "tsx scripts/score-merchants.ts",
+    "merchants:bestbuy-probe": "tsx scripts/probe-bestbuy-products.ts",
     "merchants:gate": "tsx scripts/validate-enabled-merchants.ts"
   },
   "dependencies": {

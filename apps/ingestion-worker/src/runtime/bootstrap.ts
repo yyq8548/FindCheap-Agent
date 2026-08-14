@@ -104,7 +104,7 @@ function requireOperationalEnvironment(environment: IngestionEnvironment): {
 }
 
 function canUseBrandMpnIdentity(entry: GateApprovedMerchantConfig): boolean {
-  if (entry.config.source.type === "jsonld") return true;
+  if (entry.config.source.type === "jsonld" || entry.config.source.type === "api") return true;
   const fields = entry.config.source.fields;
   return fields?.brand !== undefined && fields.mpn !== undefined;
 }
@@ -177,7 +177,10 @@ export async function startIngestionRuntime(
   const factories: RuntimeFactories = {
     loadConfigs: loadGateApprovedMerchantConfigs,
     createDatabase,
-    createSource: (entry) => createConfiguredSource(entry.config, entry.candidate, { clock }),
+    createSource: (entry) => createConfiguredSource(entry.config, entry.candidate, {
+      clock,
+      environment: environmentInput
+    }),
     createPersistence: createIngestionPersistence,
     createPromotions: createPromotionRepository,
     createQueues: createRefreshQueues,

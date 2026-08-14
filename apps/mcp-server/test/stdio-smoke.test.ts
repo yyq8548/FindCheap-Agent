@@ -47,13 +47,26 @@ describe("installed plugin stdio", () => {
         arguments: { query: "OLED65C4PUA", zipCode: "33433" }
       });
 
-      expect(tools.tools.map((tool) => tool.name)).toEqual(["compare_products"]);
+      expect(tools.tools.map((tool) => tool.name)).toEqual([
+        "compare_products",
+        "search_bestbuy_products"
+      ]);
       expect(comparison.structuredContent).toEqual({
         status: "DATA_SOURCE_UNAVAILABLE",
         message: "Live comparison is unavailable because no approved shopping data source is connected.",
         exactOffers: [],
         similarOffers: [],
         questions: []
+      });
+      const bestBuy = await client.callTool({
+        name: "search_bestbuy_products",
+        arguments: { query: "Sony WH-1000XM5", limit: 5 }
+      });
+      expect(bestBuy.structuredContent).toMatchObject({
+        status: "DATA_SOURCE_UNAVAILABLE",
+        merchant: "Best Buy",
+        priceScope: "ITEM_PRICE_ONLY",
+        products: []
       });
     } finally {
       await client.close();

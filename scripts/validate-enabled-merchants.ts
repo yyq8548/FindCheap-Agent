@@ -24,7 +24,7 @@ const REQUIRED_DECISION_HEADINGS = [
 
 const SECRET_KEY = /(?:secret|token|password|api[_-]?key|private[_-]?key)/iu;
 const SECRET_VALUE = /(?:-----BEGIN [A-Z ]*PRIVATE KEY-----|\b(?:sk|rk|pk)_[A-Za-z0-9_-]{16,}|\bgh[pousr]_[A-Za-z0-9]{20,})/u;
-const CONFIGURED_SOURCE_TYPES = new Set(["feed", "jsonld", "http"]);
+const CONFIGURED_SOURCE_TYPES = new Set(["feed", "jsonld", "http", "api"]);
 
 export type MerchantGatePaths = {
   root: string;
