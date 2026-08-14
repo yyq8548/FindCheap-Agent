@@ -17,19 +17,25 @@ import type {
   QuoteContext
 } from "./compare-products.js";
 
-const MAX_PRODUCTS = 2;
+const MAX_PRODUCTS = 1;
+const MAX_OFFERS_PER_PRODUCT = 50;
 
-const OfferRowSchema = z.object({
-  product_id: z.string().min(1),
+const ProductRowSchema = z.object({
+  id: z.string().min(1),
   brand: z.string().min(1),
   manufacturer_part_number: z.string().nullable(),
   gtins: z.array(z.string()),
   title: z.string().min(1),
   category_path: z.array(z.string()),
   attributes: z.array(z.unknown()),
-  variant_dimensions: z.record(z.string(), z.string()),
+  variant_dimensions: z.record(z.string(), z.string())
+}).strict();
+
+const OfferRowSchema = z.object({
   offer_id: z.string().min(1),
   merchant_id: z.string().min(1),
+  promotion_decision_id: z.string().min(1),
+  revision: z.union([z.string(), z.number().int().positive()]),
   seller_name: z.string().min(1),
   merchant_url: HttpsUrlSchema
 }).strict();
@@ -37,9 +43,14 @@ const OfferRowSchema = z.object({
 const QuoteRowSchema = z.object({
   context_hash: z.string().regex(/^[a-f0-9]{64}$/u),
   memberships: z.array(z.string()),
+  promoted_quote_id: z.string().min(1),
+  primary_evidence_id: z.string().min(1),
+  staged_checked_at: z.coerce.date(),
+  staged_expires_at: z.coerce.date(),
   promoted_quote_snapshot: PriceQuoteSchema
 }).strict();
 
+type ProductRow = z.infer<typeof ProductRowSchema>;
 type OfferRow = z.infer<typeof OfferRowSchema>;
 type QuoteRow = z.infer<typeof QuoteRowSchema>;
 
@@ -50,29 +61,20 @@ export type CurrentOfferStore = CurrentOfferRepository & {
   ): Promise<ContextualQuoteSet | undefined>;
 };
 
-export function createCurrentOfferStore(db: Database): CurrentOfferStore {
+export function createCurrentOfferStore(
+  db: Database,
+  enabledMerchantIds: ReadonlySet<string>
+): CurrentOfferStore {
+  const merchantIds = [...enabledMerchantIds].sort();
   return {
     async search(query, now) {
+      if (merchantIds.length === 0) return noStrongIdentity();
       const normalized = normalizeQuery(query);
-      const gtins = extractGtins(query);
-      const result = await db.query<OfferRow>(
-        `WITH matched_products AS (
-           SELECT p.id, p.brand, p.manufacturer_part_number, p.gtins, p.title,
-                  p.category_path, p.attributes, p.variant_dimensions
-           FROM products p
-           WHERE p.id = $1
-              OR (cardinality($2::text[]) > 0 AND p.gtins && $2::text[])
-              OR (p.identity_mpn_key IS NOT NULL AND length(p.identity_mpn_key) >= 3
-                  AND position(p.identity_mpn_key in $3) > 0)
-              OR lower(p.title) = lower($1)
-              OR position(lower($1) in lower(p.title)) > 0
-           ORDER BY p.id COLLATE "C"
-           LIMIT $4
-         )
-         SELECT p.id AS product_id, p.brand, p.manufacturer_part_number, p.gtins,
-                p.title, p.category_path, p.attributes, p.variant_dimensions,
-                o.id AS offer_id, o.merchant_id, o.seller_name, o.merchant_url
-         FROM matched_products p
+      const gtin = normalizeGtin(query);
+      const products = await db.query<ProductRow>(
+        `SELECT DISTINCT p.id, p.brand, p.manufacturer_part_number, p.gtins, p.title,
+                p.category_path, p.attributes, p.variant_dimensions
+         FROM products p
          JOIN merchant_offers o ON o.product_id = p.id
          JOIN merchant_offer_current_promotions current_promotion ON current_promotion.offer_id = o.id
          JOIN merchant_promotion_decisions offer_decision
@@ -84,31 +86,77 @@ export function createCurrentOfferStore(db: Database): CurrentOfferStore {
           AND offer_decision.entity_kind = 'OFFER'
          WHERE o.match_status = 'EXACT'
            AND o.inventory_status = 'IN_STOCK'
+           AND o.merchant_id = ANY($1::text[])
            AND current_promotion.canonical_product_id = p.id
            AND current_promotion.promoted_checked_at = o.checked_at
-           AND o.checked_at <= $5 AND o.expires_at > $5
-         ORDER BY p.id COLLATE "C", o.id COLLATE "C"`,
-        [query.trim(), gtins, normalized, MAX_PRODUCTS + 1, now]
+           AND o.checked_at <= $2 AND o.expires_at > $2
+           AND (
+             p.id = $3
+             OR ($4::text IS NOT NULL AND $4 = ANY(p.gtins))
+             OR (p.identity_brand_key IS NOT NULL AND p.identity_mpn_key IS NOT NULL
+                 AND p.identity_brand_key || p.identity_mpn_key = $5)
+             OR regexp_replace(
+                  lower(p.title || COALESCE((
+                    SELECT ' ' || string_agg(variant.value, ' ' ORDER BY variant.key)
+                    FROM jsonb_each_text(p.variant_dimensions) AS variant(key, value)
+                  ), '')),
+                  '[^[:alnum:]]+', '', 'g'
+                ) = $5
+           )
+         ORDER BY p.id
+         LIMIT $6`,
+        [merchantIds, now, query.trim(), gtin ?? null, normalized, MAX_PRODUCTS + 1]
       );
-      const rows = result.rows.map((row) => OfferRowSchema.parse(row));
-      const productIds = [...new Set(rows.map((row) => row.product_id))];
-      if (productIds.length !== 1) {
+      const productRows = products.rows.map((row) => ProductRowSchema.parse(row));
+      if (productRows.length !== 1) {
         return {
           status: "NEEDS_CLARIFICATION",
-          questions: [productIds.length === 0
+          questions: [productRows.length === 0
             ? "Please provide an exact model number or GTIN for a currently available product."
             : "Multiple products match. Please provide the exact model, variant, or GTIN."]
         };
       }
-      const product = canonicalProduct(rows[0] as OfferRow);
+      const product = canonicalProduct(productRows[0] as ProductRow);
+      const offers = await db.query<OfferRow>(
+        `SELECT o.id AS offer_id, o.merchant_id, o.seller_name, o.merchant_url,
+                current_promotion.promotion_decision_id,
+                current_promotion.revision::text
+         FROM merchant_offers o
+         JOIN merchant_offer_current_promotions current_promotion ON current_promotion.offer_id = o.id
+         JOIN merchant_promotion_decisions offer_decision
+           ON offer_decision.id = current_promotion.promotion_decision_id
+          AND offer_decision.promoted_offer_id = o.id
+          AND offer_decision.offer_revision = current_promotion.revision
+          AND offer_decision.canonical_product_id = o.product_id
+          AND offer_decision.status = 'EXACT_PROMOTED'
+          AND offer_decision.entity_kind = 'OFFER'
+         WHERE o.product_id = $1
+           AND o.merchant_id = ANY($2::text[])
+           AND o.match_status = 'EXACT'
+           AND o.inventory_status = 'IN_STOCK'
+           AND current_promotion.canonical_product_id = o.product_id
+           AND current_promotion.promoted_checked_at = o.checked_at
+           AND o.checked_at <= $3 AND o.expires_at > $3
+         ORDER BY o.id COLLATE "C"
+         LIMIT $4`,
+        [product.productId, merchantIds, now, MAX_OFFERS_PER_PRODUCT + 1]
+      );
+      const offerRows = offers.rows.map((row) => OfferRowSchema.parse(row));
+      if (offerRows.length > MAX_OFFERS_PER_PRODUCT) {
+        return {
+          status: "NEEDS_CLARIFICATION",
+          questions: ["Too many current offers match this product; comparison is temporarily unavailable."]
+        };
+      }
       return {
         status: "RESOLVED",
         product,
-        candidates: rows.map((row) => comparableOffer(row, product))
+        candidates: offerRows.map((row) => comparableOffer(row, product))
       };
     },
 
     async quoteExactOffer(candidate, context) {
+      if (!enabledMerchantIds.has(candidate.merchantId)) return undefined;
       const regularMemberships: string[] = [];
       const requestedMemberships = [...new Set(context.memberships)].sort();
       const contexts = [regularMemberships, ...(requestedMemberships.length === 0 ? [] : [requestedMemberships])];
@@ -120,18 +168,26 @@ export function createCurrentOfferStore(db: Database): CurrentOfferStore {
         `SELECT DISTINCT ON (quote_decision.context_hash)
                 quote_decision.context_hash,
                 quote_decision.memberships,
+                quote_decision.promoted_quote_id,
+                quote_decision.primary_evidence_id,
+                quote_decision.staged_checked_at,
+                quote_decision.staged_expires_at,
                 quote_decision.promoted_quote_snapshot
          FROM merchant_promotion_decisions quote_decision
          JOIN price_quotes q ON q.id = quote_decision.promoted_quote_id
          JOIN merchant_offer_current_promotions current_promotion
            ON current_promotion.offer_id = quote_decision.promoted_offer_id
-          AND quote_decision.offer_promotion_decision_id = current_promotion.promotion_decision_id
-          AND quote_decision.offer_revision = current_promotion.revision
+          AND current_promotion.promotion_decision_id = $5
+          AND current_promotion.revision = $6
+          AND current_promotion.canonical_product_id = $7
+          AND quote_decision.offer_promotion_decision_id = $5
+          AND quote_decision.offer_revision = $6
           AND quote_decision.status = 'QUOTE_PROMOTED'
           AND quote_decision.entity_kind = 'QUOTE'
           AND quote_decision.canonical_product_id = current_promotion.canonical_product_id
          JOIN merchant_offers o ON o.id = quote_decision.promoted_offer_id
          WHERE quote_decision.promoted_offer_id = $1
+           AND quote_decision.merchant_id = $8
            AND quote_decision.zip_code = $2
            AND quote_decision.context_hash = ANY($3::text[])
            AND quote_decision.staged_checked_at <= $4
@@ -139,13 +195,16 @@ export function createCurrentOfferStore(db: Database): CurrentOfferStore {
            AND quote_decision.promoted_quote_snapshot IS NOT NULL
            AND o.match_status = 'EXACT'
            AND o.inventory_status = 'IN_STOCK'
+           AND o.merchant_id = $8
            AND o.product_id = current_promotion.canonical_product_id
            AND o.checked_at = current_promotion.promoted_checked_at
            AND o.checked_at <= $4 AND o.expires_at > $4
          ORDER BY quote_decision.context_hash,
                   quote_decision.staged_checked_at DESC,
                   quote_decision.id COLLATE "C" DESC`,
-        [candidate.offerId, context.zipCode, hashes, context.now]
+        [candidate.offerId, context.zipCode, hashes, context.now,
+          candidate.promotionDecisionId, candidate.offerRevision,
+          candidate.canonicalProductId, candidate.merchantId]
       );
       const byHash = new Map<string, { memberships: string[]; quote: PriceQuote }>();
       for (const raw of result.rows) {
@@ -156,7 +215,7 @@ export function createCurrentOfferStore(db: Database): CurrentOfferStore {
         if (expected === undefined || !sameStrings(row.memberships, expected)) {
           continue;
         }
-        if (!isConsistentSnapshot(row.promoted_quote_snapshot, candidate.offerId, context.now)) continue;
+        if (!isConsistentSnapshot(row, candidate.offerId, context.now)) continue;
         byHash.set(row.context_hash, { memberships: expected, quote: row.promoted_quote_snapshot });
       }
       const regular = byHash.get(hashes[0] as string)?.quote;
@@ -183,15 +242,9 @@ function normalizeQuery(query: string): string {
   return normalizeToken(query);
 }
 
-function extractGtins(query: string): string[] {
-  return [...new Set(
-    query.match(/\d(?:[ -]?\d){7,13}/gu)?.flatMap((value) => normalizeGtin(value) ?? []) ?? []
-  )];
-}
-
-function canonicalProduct(row: OfferRow): CanonicalProduct {
+function canonicalProduct(row: ProductRow): CanonicalProduct {
   return CanonicalProductSchema.parse({
-    productId: row.product_id,
+    productId: row.id,
     brand: row.brand,
     ...(row.manufacturer_part_number === null ? {} : { manufacturerPartNumber: row.manufacturer_part_number }),
     gtins: row.gtins,
@@ -203,9 +256,16 @@ function canonicalProduct(row: OfferRow): CanonicalProduct {
 }
 
 function comparableOffer(row: OfferRow, product: CanonicalProduct): ComparableOffer {
+  const offerRevision = Number(row.revision);
+  if (!Number.isSafeInteger(offerRevision) || offerRevision < 1) {
+    throw new Error("stored offer revision is invalid");
+  }
   return {
     offerId: row.offer_id,
     merchantId: row.merchant_id,
+    canonicalProductId: product.productId,
+    promotionDecisionId: row.promotion_decision_id,
+    offerRevision,
     sellerName: row.seller_name,
     merchantUrl: row.merchant_url,
     product: {
@@ -219,9 +279,21 @@ function comparableOffer(row: OfferRow, product: CanonicalProduct): ComparableOf
   };
 }
 
-function isConsistentSnapshot(quote: PriceQuote, offerId: string, now: Date): boolean {
+function noStrongIdentity() {
+  return {
+    status: "NEEDS_CLARIFICATION" as const,
+    questions: ["Please provide an exact model number or GTIN for a currently available product."]
+  };
+}
+
+function isConsistentSnapshot(row: QuoteRow, offerId: string, now: Date): boolean {
+  const quote = row.promoted_quote_snapshot;
   const total = quote.lineItems.reduce((sum, item) => sum + item.amount.amountCents, 0);
   return quote.offerId === offerId &&
+    quote.quoteId === row.promoted_quote_id &&
+    Date.parse(quote.checkedAt) === row.staged_checked_at.getTime() &&
+    Date.parse(quote.expiresAt) === row.staged_expires_at.getTime() &&
+    quote.evidenceRefs.includes(row.primary_evidence_id) &&
     total === quote.deliveredPrice.amountCents &&
     Date.parse(quote.checkedAt) <= now.getTime() &&
     Date.parse(quote.expiresAt) > now.getTime();

@@ -253,7 +253,7 @@ describe("merchant staging promotion", () => {
     expect(memberRows[0]?.deliveredPrice.amountCents).toBe(9_700);
     expect(memberRows[0]?.lineItems.map((line) => line.kind)).not.toContain("COUPON");
 
-    const store = createCurrentOfferStore(db);
+    const store = createCurrentOfferStore(db, new Set(["merchant-a"]));
     const app = buildApp({
       offers: store,
       quoteExactOffer: store.quoteExactOffer,
@@ -263,7 +263,7 @@ describe("merchant staging promotion", () => {
       method: "POST",
       url: "/v1/comparisons",
       headers: { authorization: `Bearer ${"a".repeat(32)}` },
-      payload: { query: "Model-1", zipCode: "10001", memberships: ["club"] }
+      payload: { query: "Acme Model-1", zipCode: "10001", memberships: ["club"] }
     });
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({
@@ -279,7 +279,7 @@ describe("merchant staging promotion", () => {
       }],
       similarOffers: []
     });
-    const search = await store.search("Model-1", new Date("2026-08-13T18:30:00.000Z"));
+    const search = await store.search("Acme Model-1", new Date("2026-08-13T18:30:00.000Z"));
     if (search.status !== "RESOLVED") throw new Error("fixture product did not resolve");
     const candidate = search.candidates[0];
     if (candidate === undefined) throw new Error("fixture offer missing");
@@ -317,7 +317,7 @@ describe("merchant staging promotion", () => {
     await app.close();
   });
 
-  it("fails closed when a query resolves to multiple promoted products", async () => {
+  it("requires strong identity instead of comparing a weak title substring", async () => {
     await createProductRepository(db).upsert({
       productId: "canonical-ambiguous",
       brand: "Acme",
@@ -337,10 +337,11 @@ describe("merchant staging promotion", () => {
     await promotions.promoteProduct(staged.offerId);
 
     await expect(
-      createCurrentOfferStore(db).search("Acme Model", new Date("2026-08-13T18:30:00.000Z"))
+      createCurrentOfferStore(db, new Set(["merchant-ambiguous-query"]))
+        .search("Acme Model", new Date("2026-08-13T18:30:00.000Z"))
     ).resolves.toEqual({
       status: "NEEDS_CLARIFICATION",
-      questions: ["Multiple products match. Please provide the exact model, variant, or GTIN."]
+      questions: ["Please provide an exact model number or GTIN for a currently available product."]
     });
   });
 
@@ -616,6 +617,15 @@ describe("merchant staging promotion", () => {
     );
     await promotions.promoteQuote(oldQuote.quoteId);
 
+    const currentStore = createCurrentOfferStore(db, new Set(["merchant-revision"]));
+    const beforeReassignment = await currentStore.search(
+      "Revision A-1",
+      new Date("2026-08-13T18:30:00.000Z")
+    );
+    if (beforeReassignment.status !== "RESOLVED") throw new Error("original product did not resolve");
+    const oldCandidate = beforeReassignment.candidates[0];
+    if (oldCandidate === undefined) throw new Error("original offer missing");
+
     const reassigned = await stageProduct("merchant-revision", "sku-revision", "product-b", {
       title: "Revision B",
       brand: "Revision",
@@ -645,15 +655,19 @@ describe("merchant staging promotion", () => {
       )).rows[0]?.id]
     );
     expect(oldBinding.rows).toEqual([{ offer_revision: "1", current_revision: "2" }]);
-    const currentStore = createCurrentOfferStore(db);
     const currentSearch = await currentStore.search(
-      "33334444",
+      "Revision B-1",
       new Date("2026-08-13T18:30:00.000Z")
     );
     if (currentSearch.status !== "RESOLVED") throw new Error("reassigned product did not resolve");
     const currentCandidate = currentSearch.candidates[0];
     if (currentCandidate === undefined) throw new Error("reassigned offer missing");
     await expect(currentStore.quoteExactOffer(currentCandidate, {
+      zipCode: "10001",
+      memberships: [],
+      now: new Date("2026-08-13T18:30:00.000Z")
+    })).resolves.toBeUndefined();
+    await expect(currentStore.quoteExactOffer(oldCandidate, {
       zipCode: "10001",
       memberships: [],
       now: new Date("2026-08-13T18:30:00.000Z")
@@ -684,7 +698,8 @@ describe("merchant staging promotion", () => {
       now: () => new Date("2026-08-13T21:00:00.000Z")
     });
     await expect(
-      createCurrentOfferStore(db).search("R-1", new Date("2026-08-13T21:00:00.000Z"))
+      createCurrentOfferStore(db, new Set(["merchant-replay"]))
+        .search("Replay R-1", new Date("2026-08-13T21:00:00.000Z"))
     ).resolves.toMatchObject({ status: "NEEDS_CLARIFICATION" });
     await expect(expiredClock.promoteProduct(staged.offerId)).resolves.toEqual(productResult);
     await expect(expiredClock.promoteQuote(quote.quoteId)).resolves.toEqual(quoteResult);

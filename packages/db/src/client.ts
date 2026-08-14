@@ -10,8 +10,21 @@ export interface Database extends SqlExecutor {
   transaction<T>(work: (transaction: SqlExecutor) => Promise<T>): Promise<T>;
 }
 
-export function createDatabase(connectionString: string): Database {
-  const pool = new Pool({ connectionString });
+export type DatabaseTimeouts = {
+  statementTimeoutMs?: number;
+  queryTimeoutMs?: number;
+  connectionTimeoutMs?: number;
+};
+
+export function createDatabase(connectionString: string, timeouts: DatabaseTimeouts = {}): Database {
+  const pool = new Pool({
+    connectionString,
+    ...(timeouts.statementTimeoutMs === undefined ? {} : { statement_timeout: timeouts.statementTimeoutMs }),
+    ...(timeouts.queryTimeoutMs === undefined ? {} : { query_timeout: timeouts.queryTimeoutMs }),
+    ...(timeouts.connectionTimeoutMs === undefined
+      ? {}
+      : { connectionTimeoutMillis: timeouts.connectionTimeoutMs })
+  });
 
   return {
     async connect() {

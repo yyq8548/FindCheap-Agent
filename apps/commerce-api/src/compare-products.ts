@@ -34,6 +34,9 @@ type ComparisonOffer = z.infer<typeof ComparisonOfferSchema>;
 export type ComparableOffer = {
   offerId: string;
   merchantId: string;
+  canonicalProductId: string;
+  promotionDecisionId: string;
+  offerRevision: number;
   sellerName: string;
   merchantUrl: string;
   product: CandidateProduct;

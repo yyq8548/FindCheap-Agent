@@ -22,6 +22,9 @@ export function parseCommerceEnvironment(
   if (bearerToken !== undefined && (bearerToken.length < 32 || bearerToken.length > 512)) {
     throw new Error("COMMERCE_API_TOKEN must contain 32 through 512 characters");
   }
+  if (databaseUrl !== undefined && bearerToken === undefined) {
+    throw new Error("COMMERCE_API_TOKEN is required whenever DATABASE_URL is configured");
+  }
   if (nodeEnvironment === "production") {
     if (databaseUrl === undefined) throw new Error("DATABASE_URL is required in production");
     if (bearerToken === undefined) throw new Error("COMMERCE_API_TOKEN is required in production");

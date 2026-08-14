@@ -9,7 +9,7 @@ export async function runCommerceMain(): Promise<CommerceRuntime> {
     console.log(JSON.stringify({
       event: "commerce.disabled",
       status: "disabled",
-      reason: "no_database",
+      reason: "no_enabled_merchants",
       enabledMerchants: 0,
       acceptingRequests: false
     }));

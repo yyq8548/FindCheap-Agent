@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
 import { compareProducts, type CompareDeps } from "../src/compare-products.js";
 
+const bearerToken = "test-commerce-bearer-token-with-32-characters";
+const testApp = (dependencies: CompareDeps) => buildApp(dependencies, { bearerToken });
+const authorization = { authorization: `Bearer ${bearerToken}` };
+
 const canonicalProduct = {
   productId: "lg-oled-c4-65",
   brand: "LG",
@@ -30,6 +34,9 @@ const quote = (offerId: string, amountCents: number) => ({
 const candidate = (overrides: Record<string, unknown> = {}) => ({
   offerId: "offer-exact",
   merchantId: "merchant-1",
+  canonicalProductId: "lg-oled-c4-65",
+  promotionDecisionId: "promotion-1",
+  offerRevision: 1,
   sellerName: "Merchant One",
   merchantUrl: "https://merchant.example/products/offer-exact",
   product: {
@@ -60,7 +67,7 @@ const deps = (
 describe("POST /v1/comparisons", () => {
   it("separates exact offers and unpriced similar offers", async () => {
     const quotedOfferIds: string[] = [];
-    const app = buildApp(deps([
+    const app = testApp(deps([
       candidate(),
       candidate({
         offerId: "offer-similar",
@@ -80,6 +87,7 @@ describe("POST /v1/comparisons", () => {
     const response = await app.inject({
       method: "POST",
       url: "/v1/comparisons",
+      headers: authorization,
       payload: { query: "OLED65C4PUA", zipCode: "33433", memberships: ["costco"] }
     });
 
@@ -97,10 +105,11 @@ describe("POST /v1/comparisons", () => {
   });
 
   it("rejects non-US five-digit ZIP codes and unknown request fields", async () => {
-    const app = buildApp(deps());
+    const app = testApp(deps());
     const response = await app.inject({
       method: "POST",
       url: "/v1/comparisons",
+      headers: authorization,
       payload: { query: "OLED65C4PUA", zipCode: "3343-3", memberships: [], extra: true }
     });
 
@@ -109,10 +118,11 @@ describe("POST /v1/comparisons", () => {
   });
 
   it("rejects a whitespace-only product query", async () => {
-    const app = buildApp(deps());
+    const app = testApp(deps());
     const response = await app.inject({
       method: "POST",
       url: "/v1/comparisons",
+      headers: authorization,
       payload: { query: "   ", zipCode: "33433" }
     });
     expect(response.statusCode).toBe(400);
@@ -120,7 +130,7 @@ describe("POST /v1/comparisons", () => {
   });
 
   it("maps unexpected failures to a safe deterministic response", async () => {
-    const app = buildApp({
+    const app = testApp({
       offers: {
         async search() {
           throw new Error("merchant credentials: secret");
@@ -132,6 +142,7 @@ describe("POST /v1/comparisons", () => {
     const response = await app.inject({
       method: "POST",
       url: "/v1/comparisons",
+      headers: authorization,
       payload: { query: "OLED65C4PUA", zipCode: "33433" }
     });
 
@@ -155,14 +166,26 @@ describe("POST /v1/comparisons", () => {
     expect(health.json()).toEqual({ status: "ok" });
   });
 
+  it("never serves v1 when the app was composed without a token", async () => {
+    const app = buildApp(deps());
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/comparisons",
+      payload: { query: "OLED65C4PUA", zipCode: "33433" }
+    });
+    expect(response.statusCode).toBe(401);
+    expect(response.json()).toEqual({ error: "UNAUTHORIZED" });
+  });
+
   it("maps malformed quote output to a sanitized 500 instead of an input 400", async () => {
-    const app = buildApp(deps([candidate()], async () => ({
+    const app = testApp(deps([candidate()], async () => ({
       ...quote("offer-exact", 100000),
       itemPriceCents: 100000.5
     })));
     const response = await app.inject({
       method: "POST",
       url: "/v1/comparisons",
+      headers: authorization,
       payload: { query: "OLED65C4PUA", zipCode: "33433", memberships: [] }
     });
 
@@ -172,7 +195,7 @@ describe("POST /v1/comparisons", () => {
   });
 
   it("maps malformed repository clarification to a sanitized 500", async () => {
-    const app = buildApp({
+    const app = testApp({
       offers: {
         async search() {
           return { status: "NEEDS_CLARIFICATION", questions: [42] };
@@ -184,6 +207,7 @@ describe("POST /v1/comparisons", () => {
     const response = await app.inject({
       method: "POST",
       url: "/v1/comparisons",
+      headers: authorization,
       payload: { query: "AirPods", zipCode: "33433", memberships: [] }
     });
 
@@ -192,10 +216,11 @@ describe("POST /v1/comparisons", () => {
   });
 
   it("maps malformed final comparison output to a sanitized 500", async () => {
-    const app = buildApp(deps([candidate({ merchantUrl: "ftp://merchant.example/offer" })]));
+    const app = testApp(deps([candidate({ merchantUrl: "ftp://merchant.example/offer" })]));
     const response = await app.inject({
       method: "POST",
       url: "/v1/comparisons",
+      headers: authorization,
       payload: { query: "OLED65C4PUA", zipCode: "33433", memberships: [] }
     });
 

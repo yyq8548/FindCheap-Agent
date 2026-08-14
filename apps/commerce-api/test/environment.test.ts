@@ -28,6 +28,9 @@ describe("Commerce API environment", () => {
     expect(() => parseCommerceEnvironment({ COMMERCE_API_HOST: "commerce.example" })).toThrow();
     expect(() => parseCommerceEnvironment({ COMMERCE_API_TOKEN: "short" })).toThrow();
     expect(() => parseCommerceEnvironment({
+      DATABASE_URL: "postgresql://shopping:local-only@127.0.0.1:5432/shopping"
+    })).toThrow(/COMMERCE_API_TOKEN/);
+    expect(() => parseCommerceEnvironment({
       NODE_ENV: "production",
       DATABASE_URL: "postgresql://shopping:password@db.example/shopping",
       COMMERCE_API_TOKEN: "x".repeat(32)

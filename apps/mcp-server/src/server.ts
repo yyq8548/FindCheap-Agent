@@ -18,7 +18,7 @@ const MembershipIdsSchema = z
 
 export const CompareProductsInputSchema = z
   .object({
-    query: z.string().trim().min(1).max(300),
+    query: z.string().trim().min(2).max(300),
     zipCode: z.string().regex(/^\d{5}(?:-\d{4})?$/),
     membershipIds: MembershipIdsSchema.optional()
   })

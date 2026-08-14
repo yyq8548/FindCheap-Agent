@@ -7,14 +7,34 @@ import type { ComparePort, CompareProductsInput } from "./server.js";
 const MAX_RESPONSE_BYTES = 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 8_000;
 
-export function createCommerceApiComparePort(baseUrl: string, token: string): ComparePort {
+type ClientBounds = { timeoutMs?: number; maxResponseBytes?: number };
+
+export function createCommerceApiComparePort(
+  baseUrl: string,
+  token: string,
+  bounds: ClientBounds = {}
+): ComparePort {
   const origin = parseCommerceOrigin(baseUrl);
   if (token.length < 32 || token.length > 512) throw new Error("invalid Commerce API token");
+  const timeoutMs = bounds.timeoutMs ?? REQUEST_TIMEOUT_MS;
+  const maxResponseBytes = bounds.maxResponseBytes ?? MAX_RESPONSE_BYTES;
+  if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > REQUEST_TIMEOUT_MS) {
+    throw new Error("invalid Commerce API timeout");
+  }
+  if (!Number.isInteger(maxResponseBytes) || maxResponseBytes < 1 || maxResponseBytes > MAX_RESPONSE_BYTES) {
+    throw new Error("invalid Commerce API response limit");
+  }
   return {
     async compare(input) {
       const body = Buffer.from(JSON.stringify(apiInput(input)), "utf8");
       if (body.byteLength > 32 * 1024) throw new Error("Commerce API request exceeds limit");
-      const response = await requestJson(new URL("/v1/comparisons", origin), token, body);
+      const response = await requestJson(
+        new URL("/v1/comparisons", origin),
+        token,
+        body,
+        timeoutMs,
+        maxResponseBytes
+      );
       return ComparisonResultSchema.parse(response);
     }
   };
@@ -64,7 +84,13 @@ function parseCommerceOrigin(value: string): URL {
   return url;
 }
 
-function requestJson(url: URL, token: string, body: Buffer): Promise<unknown> {
+function requestJson(
+  url: URL,
+  token: string,
+  body: Buffer,
+  timeoutMs: number,
+  maxResponseBytes: number
+): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const transport = url.protocol === "https:" ? https : http;
     const request = transport.request(url, {
@@ -75,40 +101,56 @@ function requestJson(url: URL, token: string, body: Buffer): Promise<unknown> {
         "content-length": String(body.byteLength),
         accept: "application/json"
       },
-      timeout: REQUEST_TIMEOUT_MS
     }, (response) => {
       if (response.statusCode !== 200) {
-        response.resume();
-        reject(new Error("Commerce API returned a non-success response"));
+        response.destroy();
+        settleReject(new Error("Commerce API returned a non-success response"));
         return;
       }
       const contentType = response.headers["content-type"] ?? "";
       if (!contentType.toLowerCase().startsWith("application/json")) {
-        response.resume();
-        reject(new Error("Commerce API returned a non-JSON response"));
+        response.destroy();
+        settleReject(new Error("Commerce API returned a non-JSON response"));
         return;
       }
       const chunks: Buffer[] = [];
       let size = 0;
       response.on("data", (chunk: Buffer) => {
         size += chunk.byteLength;
-        if (size > MAX_RESPONSE_BYTES) {
-          response.destroy(new Error("Commerce API response exceeds limit"));
+        if (size > maxResponseBytes) {
+          response.destroy();
+          settleReject(new Error("Commerce API response exceeds limit"));
           return;
         }
         chunks.push(chunk);
       });
-      response.once("error", reject);
+      response.once("error", settleReject);
       response.once("end", () => {
         try {
-          resolve(JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown);
+          settleResolve(JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown);
         } catch {
-          reject(new Error("Commerce API returned invalid JSON"));
+          settleReject(new Error("Commerce API returned invalid JSON"));
         }
       });
     });
-    request.once("timeout", () => request.destroy(new Error("Commerce API request timed out")));
-    request.once("error", reject);
+    let settled = false;
+    const timer = setTimeout(() => {
+      request.destroy();
+      settleReject(new Error("Commerce API request timed out"));
+    }, timeoutMs);
+    const clear = (): boolean => {
+      if (settled) return false;
+      settled = true;
+      clearTimeout(timer);
+      return true;
+    };
+    function settleResolve(value: unknown): void {
+      if (clear()) resolve(value);
+    }
+    function settleReject(error: unknown): void {
+      if (clear()) reject(error);
+    }
+    request.once("error", settleReject);
     request.end(body);
   });
 }

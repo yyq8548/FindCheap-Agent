@@ -80,6 +80,48 @@ describe("Commerce API compare client", () => {
     await expect(client.compare({ query: "model", zipCode: "10001" })).rejects.toThrow(/non-success/);
   });
 
+  it("enforces an absolute wall-clock deadline against slow-drip responses", async () => {
+    const server = http.createServer((_request, response) => {
+      response.setHeader("content-type", "application/json");
+      response.write("{");
+      const interval = setInterval(() => response.write(" "), 10);
+      response.once("close", () => clearInterval(interval));
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (address === null || typeof address === "string") throw new Error("test server did not bind TCP");
+    const client = createCommerceApiComparePort(
+      `http://127.0.0.1:${address.port}`,
+      token,
+      { timeoutMs: 50 }
+    );
+    const startedAt = Date.now();
+    await expect(client.compare({ query: "model", zipCode: "10001" })).rejects.toThrow(/timed out/);
+    expect(Date.now() - startedAt).toBeLessThan(500);
+  });
+
+  it("destroys an oversized response immediately", async () => {
+    let closed = false;
+    const server = http.createServer((_request, response) => {
+      response.setHeader("content-type", "application/json");
+      response.once("close", () => { closed = true; });
+      response.end(JSON.stringify({ payload: "x".repeat(512) }));
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (address === null || typeof address === "string") throw new Error("test server did not bind TCP");
+    const client = createCommerceApiComparePort(
+      `http://127.0.0.1:${address.port}`,
+      token,
+      { maxResponseBytes: 32 }
+    );
+    await expect(client.compare({ query: "model", zipCode: "10001" })).rejects.toThrow(/exceeds limit/);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(closed).toBe(true);
+  });
+
   it("keeps absent or partial configuration unavailable", async () => {
     const absent = createComparePortFromEnvironment({}, createUnavailableComparePort);
     const partial = createComparePortFromEnvironment({

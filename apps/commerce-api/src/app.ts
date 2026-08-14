@@ -17,7 +17,7 @@ export function buildApp(deps: CompareDeps, options: { bearerToken?: string } = 
   app.get("/health", async () => ({ status: "ok" }));
   app.addHook("onRequest", async (request, reply) => {
     if (!request.url.startsWith("/v1/")) return;
-    if (options.bearerToken !== undefined && !validBearer(request.headers.authorization, options.bearerToken)) {
+    if (options.bearerToken === undefined || !validBearer(request.headers.authorization, options.bearerToken)) {
       await reply.status(401).send({ error: "UNAUTHORIZED" });
     }
   });
