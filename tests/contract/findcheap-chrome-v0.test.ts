@@ -26,7 +26,7 @@ describe("FindCheap-Agent v0.1 Chrome contract", () => {
 
     expect(skill).toContain("Risk tier: `R0`");
     expect(skill).toContain("one primary web search");
-    expect(skill).toContain("up to five merchant domains");
+    expect(skill).toContain("up to eight merchant domains");
     expect(skill).toContain("HTTPS public product pages");
     expect(skill).not.toContain("Navigate only to the exact host `https://www.bestbuy.com/`");
     expect(skill).toContain("BROWSER_OBSERVED");
@@ -47,17 +47,24 @@ describe("FindCheap-Agent v0.1 Chrome contract", () => {
     expect(skill).toContain("one compact JSON payload of at most 12,000 characters");
     expect(skill).toContain("Do not call `domSnapshot()` on every merchant page");
     expect(skill).toContain("one targeted locator read for that candidate only");
-    expect(skill).toContain("five direct product-detail URLs");
+    expect(skill).toContain("eight direct product-detail URLs");
     expect(skill).toContain("same browser tool call");
     expect(skill).toContain("three, then at most two");
     expect(skill).toContain("one unified extractor per merchant page");
     expect(skill).toContain("Do not open merchant category, search, or listing pages");
     expect(skill).toContain("Keep `NEW`, `USED`, and `REFURBISHED` offers in separate groups");
     expect(skill).toContain("one conditional refinement search");
-    expect(skill).toContain("fewer than three verified `NEW`");
+    expect(skill).toContain("If fewer than three pass");
     expect(skill).toContain("Do not stop after the first discovery page");
     expect(skill).toContain("Run all page extractors with `Promise.all`");
     expect(skill).toContain("never use a serial `for...await` loop");
+    expect(skill).toContain("verify the first five candidates");
+    expect(skill).toContain("verify up to three reserve candidates");
+    expect(skill).toContain("Stop as soon as three requested-condition `EXACT` offers pass");
+    expect(skill).toContain("Do not open reserve candidates when the first batch already produced three");
+    expect(skill).toContain("## Excluded candidates");
+    expect(skill).toContain("`CONDITION_NOT_VERIFIED`");
+    expect(skill).toContain("one short exclusion reason for every inspected candidate");
   });
 
   it("advertises the Chrome Beta instead of unavailable v0.2 features", async () => {
