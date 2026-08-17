@@ -25,12 +25,12 @@ describe("FindCheap-Agent v0.1 Chrome contract", () => {
     const skill = await readFile(skillPath, "utf8");
 
     expect(skill).toContain("Risk tier: `R0`");
-    expect(skill).toContain("one web search");
+    expect(skill).toContain("one primary web search");
     expect(skill).toContain("up to five merchant domains");
     expect(skill).toContain("HTTPS public product pages");
     expect(skill).not.toContain("Navigate only to the exact host `https://www.bestbuy.com/`");
     expect(skill).toContain("BROWSER_OBSERVED");
-    expect(skill).toContain("maximum of 8 visible discovery results");
+    expect(skill).toContain("maximum of 8 visible results per discovery search");
     expect(skill).toContain("Ask for explicit permission before opening Chrome");
     expect(skill).toContain("Do not sign in");
     expect(skill).toContain("Do not add anything to a cart");
@@ -53,6 +53,11 @@ describe("FindCheap-Agent v0.1 Chrome contract", () => {
     expect(skill).toContain("one unified extractor per merchant page");
     expect(skill).toContain("Do not open merchant category, search, or listing pages");
     expect(skill).toContain("Keep `NEW`, `USED`, and `REFURBISHED` offers in separate groups");
+    expect(skill).toContain("one conditional refinement search");
+    expect(skill).toContain("fewer than three verified `NEW`");
+    expect(skill).toContain("Do not stop after the first discovery page");
+    expect(skill).toContain("Run all page extractors with `Promise.all`");
+    expect(skill).toContain("never use a serial `for...await` loop");
   });
 
   it("advertises the Chrome Beta instead of unavailable v0.2 features", async () => {
