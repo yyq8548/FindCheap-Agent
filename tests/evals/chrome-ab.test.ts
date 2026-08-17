@@ -66,6 +66,27 @@ describe("FindCheap Chrome DOM/CDP golden evaluation", () => {
     )).toBe(true);
   });
 
+  it("accepts product pages from different HTTPS merchants and rejects discovery or unsafe URLs", () => {
+    const expectation = { expectedOutcome: "EXACT" as const, expectedTokens: ["sony", "wh-1000xm5"] };
+
+    expect(classifyGoldenObservation(expectation, {
+      pageType: "DETAIL",
+      products: [{ title: "Sony WH-1000XM5 Headphones", url: "https://www.walmart.com/ip/123" }]
+    })).toBe(true);
+    expect(classifyGoldenObservation(expectation, {
+      pageType: "DETAIL",
+      products: [{ title: "Sony WH-1000XM5 Headphones", url: "https://www.ebay.com/itm/123" }]
+    })).toBe(true);
+    expect(classifyGoldenObservation(expectation, {
+      pageType: "SEARCH",
+      products: [{ title: "Sony WH-1000XM5 Headphones", url: "https://www.google.com/search?q=sony" }]
+    })).toBe(false);
+    expect(classifyGoldenObservation(expectation, {
+      pageType: "DETAIL",
+      products: [{ title: "Sony WH-1000XM5 Headphones", url: "http://shop.example.com/product/123" }]
+    })).toBe(false);
+  });
+
   it("treats unrelated recommendations as no relevant result", () => {
     expect(classifyGoldenObservation(
       { expectedOutcome: "NO_RESULT", expectedPageType: "SEARCH", expectedTokens: [], relevanceTokens: ["acme", "zzz", "99183"] },

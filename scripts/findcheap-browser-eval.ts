@@ -1,3 +1,5 @@
+import { isIP } from "node:net";
+
 export type BrowserPageType = "SEARCH" | "DETAIL";
 
 export type BrowserProductObservation = {
@@ -28,7 +30,7 @@ export function classifyGoldenObservation(
     return false;
   }
 
-  const products = observation.products.filter(hasAllowedBestBuyUrl);
+  const products = observation.products.filter(hasAllowedMerchantUrl);
   if (expectation.expectedOutcome === "AMBIGUOUS") return products.length >= 2;
   if (expectation.expectedOutcome === "NO_RESULT") {
     const relevanceTokens = expectation.relevanceTokens ?? [];
@@ -63,9 +65,29 @@ function normalizeToken(value: string): string {
   return value.normalize("NFKC").toLocaleLowerCase("en-US").replace(/[^a-z0-9]+/gu, "");
 }
 
-function hasAllowedBestBuyUrl(product: BrowserProductObservation): boolean {
+const DISCOVERY_OR_SHORTENER_HOSTS = [
+  "google.com",
+  "bing.com",
+  "duckduckgo.com",
+  "search.yahoo.com",
+  "t.co",
+  "bit.ly",
+  "tinyurl.com"
+] as const;
+
+function hasAllowedMerchantUrl(product: BrowserProductObservation): boolean {
   try {
-    return new URL(product.url).hostname === "www.bestbuy.com";
+    const url = new URL(product.url);
+    const hostname = url.hostname.toLocaleLowerCase("en-US");
+    return url.protocol === "https:"
+      && url.username === ""
+      && url.password === ""
+      && hostname.includes(".")
+      && !hostname.endsWith(".")
+      && isIP(hostname.replace(/^\[|\]$/gu, "")) === 0
+      && !DISCOVERY_OR_SHORTENER_HOSTS.some(
+        (blockedHost) => hostname === blockedHost || hostname.endsWith(`.${blockedHost}`)
+      );
   } catch {
     return false;
   }
