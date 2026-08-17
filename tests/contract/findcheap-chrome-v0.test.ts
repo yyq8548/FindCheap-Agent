@@ -43,6 +43,10 @@ describe("FindCheap-Agent v0.1 Chrome contract", () => {
     expect(skill).toContain("Return the best three among verified candidates");
     expect(skill).toContain("Prefer direct merchant offers over third-party marketplace offers");
     expect(skill).toContain("Never claim these are the best offers on the entire internet");
+    expect(skill).toContain("at most three concurrent navigations");
+    expect(skill).toContain("one compact JSON payload of at most 12,000 characters");
+    expect(skill).toContain("Do not call `domSnapshot()` on every merchant page");
+    expect(skill).toContain("one targeted locator read for that candidate only");
   });
 
   it("advertises the Chrome Beta instead of unavailable v0.2 features", async () => {

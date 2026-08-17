@@ -28,6 +28,14 @@ Risk tier: `R0`. Perform one read-only public-product lookup. Do not persist bro
 6. Do not retry permission denial, CAPTCHA, bot defense, access denial, unexpected redirect, or an identity mismatch.
 7. Determine relevance before returning cards. Treat unrelated recommendations as no relevant result; do not expose them as matches merely because a merchant rendered product cards.
 
+## Performance path
+
+1. After discovery, verify the shortlisted merchant tabs in one bounded browser batch with at most three concurrent navigations. Keep the total merchant-domain and retry budgets unchanged; if an origin permission prompt appears, pause that candidate instead of bypassing or automating the prompt.
+2. For the search page and each merchant page, prefer one read-only `playwright.evaluate` that returns one compact JSON payload of at most 12,000 characters containing only final URL, title, visible identity, price, seller, condition, availability, and canonical-link evidence.
+3. Do not call `domSnapshot()` on every merchant page and do not return full page text or HTML. A discovery-page snapshot is allowed only when the compact read cannot identify candidate links.
+4. If the compact read lacks a required field, make one targeted locator read for that candidate only. Do not reread every page.
+5. Rank from the compact records in one pass, then close non-deliverable candidate tabs after evidence has been captured.
+
 ## Ranking and selection
 
 1. Rank only candidates with independently visible `EXACT` identity evidence and the requested variant. Keep `SIMILAR` and `UNCONFIRMED` candidates outside the main ranking.
@@ -43,7 +51,7 @@ Risk tier: `R0`. Perform one read-only public-product lookup. Do not persist bro
 - Do not add anything to a cart, begin checkout, reserve inventory, submit forms, place an order, or make a payment.
 - After entering a merchant product domain, stop on an unexpected cross-domain redirect. Returning to the search-results page to inspect another selected merchant is allowed within the five-domain budget.
 - Do not bypass CAPTCHA, bot protection, access denial, robots controls, or geographic restrictions.
-- Limit extraction to two attempts: the initial batched read plus at most one verified transient retry.
+- Limit each page extraction to two attempts: the initial compact read plus at most one verified transient retry.
 - Do not save screenshots, page HTML, credentials, or product observations after the response.
 - Do not claim an exact match unless visible model, SKU, UPC, or sufficient variant evidence supports it. Label alternatives `SIMILAR` and keep them out of exact ranking.
 

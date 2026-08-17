@@ -1,6 +1,6 @@
 {
   "name": "shopping-agent",
-  "version": "0.1.0+codex.20260817221013",
+  "version": "0.1.0+codex.20260817222311",
   "description": "Use authorized Chrome for a bounded, read-only web-wide product search without purchasing.",
   "author": {
     "name": "yyq8548"
