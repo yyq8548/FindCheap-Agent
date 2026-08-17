@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "tasks": [
+    { "id": "headphones-sony-xm5", "category": "headphones", "query": "Sony WH-1000XM5", "expectedOutcome": "EXACT", "expectedTokens": ["sony", "wh-1000xm5"] },
+    { "id": "headphones-airpods-pro", "category": "headphones", "query": "Apple AirPods Pro 2 USB-C", "expectedOutcome": "EXACT", "expectedTokens": ["apple", "airpods", "pro"] },
+    { "id": "console-switch-oled", "category": "gaming", "query": "Nintendo Switch OLED", "expectedOutcome": "EXACT", "expectedPageType": "SEARCH", "expectedTokens": ["switch", "oled"] },
+    { "id": "phone-galaxy-s25", "category": "phones", "query": "Samsung Galaxy S25 Ultra 256GB", "expectedOutcome": "EXACT", "expectedTokens": ["samsung", "galaxy", "s25", "ultra", "256gb"] },
+    { "id": "tv-lg-c5", "category": "televisions", "query": "LG 65 inch C5 OLED TV", "expectedOutcome": "EXACT", "expectedPageType": "SEARCH", "expectedTokens": ["lg", "65", "c5", "oled"] },
+    { "id": "vacuum-dyson-v15", "category": "vacuums", "query": "Dyson V15 Detect", "expectedOutcome": "EXACT", "expectedTokens": ["dyson", "v15", "detect"] },
+    { "id": "camera-canon-r50", "category": "cameras", "query": "Canon EOS R50", "expectedOutcome": "EXACT", "expectedTokens": ["canon", "eos", "r50"] },
+    { "id": "watch-garmin-265", "category": "wearables", "query": "Garmin Forerunner 265", "expectedOutcome": "EXACT", "expectedTokens": ["garmin", "forerunner", "265"] },
+    { "id": "headphones-bose-qc-ultra", "category": "headphones", "query": "Bose QuietComfort Ultra Headphones", "expectedOutcome": "EXACT", "expectedTokens": ["bose", "quietcomfort", "ultra"] },
+    { "id": "console-ps5-slim", "category": "gaming", "query": "PlayStation 5 Slim Disc Console", "expectedOutcome": "EXACT", "expectedTokens": ["playstation", "5", "slim"] },
+    { "id": "laptop-macbook-air", "category": "computers", "query": "MacBook Air 13 inch 16GB 256GB Midnight", "expectedOutcome": "EXACT", "expectedTokens": ["apple", "macbook", "air", "13"] },
+    { "id": "tablet-ipad-air", "category": "tablets", "query": "Apple iPad Air 11 inch 128GB Purple", "expectedOutcome": "EXACT", "expectedPageType": "SEARCH", "expectedTokens": ["apple", "ipad", "air", "11", "128gb", "purple"] },
+    { "id": "appliance-ninja-air-fryer", "category": "small-appliances", "query": "Ninja Air Fryer AF141", "expectedOutcome": "EXACT", "expectedTokens": ["ninja", "air", "fryer"] },
+    { "id": "sku-sony-xm5", "category": "headphones", "query": "6505727", "expectedOutcome": "EXACT", "expectedPageType": "DETAIL", "expectedTokens": ["sony", "wh-1000xm5"] },
+    { "id": "streaming-roku-ultra", "category": "streaming", "query": "Roku Ultra 2024", "expectedOutcome": "EXACT", "expectedTokens": ["roku", "ultra"] },
+    { "id": "mouse-logitech-3s", "category": "computer-accessories", "query": "Logitech MX Master 3S", "expectedOutcome": "EXACT", "expectedTokens": ["logitech", "mx", "master", "3s"] },
+    { "id": "ambiguous-gaming-laptop", "category": "computers", "query": "gaming laptop", "expectedOutcome": "AMBIGUOUS", "expectedTokens": [] },
+    { "id": "ambiguous-oled-tv", "category": "televisions", "query": "65 inch OLED TV", "expectedOutcome": "AMBIGUOUS", "expectedTokens": [] },
+    { "id": "no-result-fictional-model", "category": "negative", "query": "ACME-ZZZ-NOT-REAL-99183", "expectedOutcome": "NO_RESULT", "expectedPageType": "SEARCH", "expectedTokens": [], "relevanceTokens": ["acme", "zzz", "99183"] },
+    { "id": "no-result-fictional-sku", "category": "negative", "query": "99999999999999999999", "expectedOutcome": "NO_RESULT", "expectedPageType": "SEARCH", "expectedTokens": [], "relevanceTokens": ["99999999999999999999"] }
+  ]
+}
