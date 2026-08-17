@@ -1,47 +1,81 @@
-# Chrome DOM/CDP Golden A/B — 2026-08-17
+# Chrome extraction Golden A/B — 2026-08-17
 
 ## Outcome
 
-Status: **BLOCKED AT CAPABILITY PREFLIGHT**
+Twenty paired, read-only Best Buy trials completed in the user's authorized Chrome session.
 
-The installed Codex Chrome extension exposes the high-level DOM/Playwright API, but it does not expose a raw CDP tab capability. The evaluation therefore stopped before the 20 paired trials. A page-evaluation call was not relabeled as CDP.
+Raw CDP was not available as a Codex tab capability. The executable fallback compared:
 
-## Frozen evaluation set
+- A: high-level Locator calls
+- B: one batched Direct Evaluate call
 
-- 20 unique Best Buy searches
-- 16 exact-product tasks
-- 2 ambiguous-query tasks
-- 2 no-result tasks
-- 12 product categories
+Direct Evaluate is a proxy extraction strategy, not raw CDP. It must not be described or shipped as a raw-CDP implementation.
 
-The frozen inputs are in `tests/evals/findcheap-chrome-golden.json`.
+## Results
 
-## Preflight evidence
+| Metric | Locator | Direct Evaluate |
+|---|---:|---:|
+| Task success | 55% | 50% |
+| Exact precision | 50% | 50% |
+| p50 extraction latency | 1,985 ms | 1,291 ms |
+| p95 extraction latency | 5,150 ms | 4,335 ms |
+| Extraction errors | 5 | 6 |
+| Safety violations | 0 | 0 |
 
-- Browser: user's authorized Chrome session
-- Host: `www.bestbuy.com` only
-- Allowed actions: read-only navigation and public-result extraction
-- Disallowed actions: login changes, cart, checkout, payment, CAPTCHA bypass
-- Advertised tab capabilities: `pageAssets`; no `cdp`
-- DOM smoke query: `Sony WH-1000XM5`
-- DOM smoke result: five public product cards extracted
-- First result: `Sony - WH-1000XM5 Wireless Noise Cancelling Over-the-Ear Headphones - Black`
-- First displayed price: `$249.99`
-- DOM extraction latency: `43.357 ms` (single smoke sample; not a benchmark)
-- Safety violations: 0
+Direct Evaluate improved p95 by 15.8%, below the 20% promotion gate. It also had lower task success and one additional extraction error.
+
+Decision: **retain Locator**. Do not promote Direct Evaluate or raw CDP.
+
+## Per-task evidence
+
+`E` means the browser-control channel timed out. Latencies include only extraction, not navigation or the stabilization wait.
+
+| Task | Locator ms | Locator | Direct ms | Direct |
+|---|---:|:---:|---:|:---:|
+| headphones-sony-xm5 | 3,225 | E | 3,320 | E |
+| headphones-airpods-pro | 911 | PASS | 156 | PASS |
+| console-switch-oled | 5,150 | FAIL | 1,016 | FAIL |
+| phone-galaxy-s25 | 472 | PASS | 1,291 | PASS |
+| tv-lg-c4 | 5,080 | E | 3,634 | FAIL |
+| vacuum-dyson-v15 | 3,131 | E | 4,069 | E |
+| camera-canon-r50 | 1,060 | PASS | 242 | PASS |
+| watch-garmin-265 | 4,173 | E | 3,022 | E |
+| headphones-bose-qc-ultra | 4,575 | E | 1,428 | PASS |
+| console-ps5-slim | 1,985 | PASS | 1,004 | PASS |
+| laptop-macbook-air | 4,970 | PASS | 1,605 | PASS |
+| tablet-ipad-blue | 2,920 | FAIL | 4,935 | E |
+| appliance-ninja-air-fryer | 1,868 | PASS | 702 | PASS |
+| sku-sony-xm5 | 519 | FAIL | 572 | FAIL |
+| streaming-roku-ultra | 915 | PASS | 351 | PASS |
+| mouse-logitech-3s | 3,131 | PASS | 3,683 | E |
+| ambiguous-gaming-laptop | 264 | PASS | 35 | PASS |
+| ambiguous-oled-tv | 1,026 | PASS | 4,335 | E |
+| no-result-fictional-model | 5,448 | FAIL | 1,297 | FAIL |
+| no-result-fictional-sku | 60 | PASS | 27 | PASS |
+
+## Findings
+
+1. Both strategies use the extension's underlying CDP transport and hit its fixed command-dispatch deadline. This is the largest reliability issue.
+2. Batching reduces median latency, but did not improve tail latency enough and did not preserve correctness.
+3. Five Golden expectations need repair before the next benchmark:
+   - Nintendo Switch OLED: the live title omits the `Nintendo` token.
+   - SKU `6505727`: Best Buy redirects directly to a product page; the search-list extractor sees zero cards.
+   - Fictional model: Best Buy returns unrelated recommendations instead of an empty list.
+   - LG C4 and the iPad query reflect changed catalog/search ranking and need current human-reviewed expectations.
+4. No login, cart, checkout, payment, CAPTCHA, HTML capture, screenshots, cookies, or private data were used.
 
 ## Promotion gate
 
-CDP can replace DOM only when all 20 paired trials are available and:
+An alternative may replace Locator only when all are true:
 
-- task success is at least 85%
-- exact precision is at least 98%
-- correctness is not worse than DOM
-- p95 extraction latency improves by at least 20%
-- safety violations are zero
+- task success at least 85%
+- exact precision at least 98%
+- no correctness regression versus Locator
+- p95 latency improves by at least 20%
+- zero safety violations
 
-Current decision: **retain DOM**. This is an environment/capability decision, not a performance conclusion.
+## Next experiment
 
-## Unblock condition
+Repair the five affected expectations above, add product-detail extraction for direct SKU redirects, and rerun three repetitions per task. Raw CDP can be tested only if a future Codex Chrome build advertises a `cdp` tab capability.
 
-Install or enable a Codex Chrome build that advertises a tab capability with ID `cdp`. Then rerun the same frozen tasks, on the same loaded page per pair, alternating extractor order.
+Official Chrome extension documentation: <https://learn.chatgpt.com/docs/chrome-extension>
