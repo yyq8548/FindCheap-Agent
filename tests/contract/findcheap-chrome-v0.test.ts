@@ -26,11 +26,11 @@ describe("FindCheap-Agent v0.1 Chrome contract", () => {
 
     expect(skill).toContain("Risk tier: `R0`");
     expect(skill).toContain("one web search");
-    expect(skill).toContain("up to three merchant domains");
+    expect(skill).toContain("up to five merchant domains");
     expect(skill).toContain("HTTPS public product pages");
     expect(skill).not.toContain("Navigate only to the exact host `https://www.bestbuy.com/`");
     expect(skill).toContain("BROWSER_OBSERVED");
-    expect(skill).toContain("maximum of 5 visible results");
+    expect(skill).toContain("maximum of 8 visible discovery results");
     expect(skill).toContain("Ask for explicit permission before opening Chrome");
     expect(skill).toContain("Do not sign in");
     expect(skill).toContain("Do not add anything to a cart");
@@ -40,6 +40,9 @@ describe("FindCheap-Agent v0.1 Chrome contract", () => {
     expect(skill).toContain("do not assume every product identifier or redirect uses the same format");
     expect(skill).toContain("retry once");
     expect(skill).toContain("unrelated recommendations");
+    expect(skill).toContain("Return the best three among verified candidates");
+    expect(skill).toContain("Prefer direct merchant offers over third-party marketplace offers");
+    expect(skill).toContain("Never claim these are the best offers on the entire internet");
   });
 
   it("advertises the Chrome Beta instead of unavailable v0.2 features", async () => {
@@ -51,7 +54,7 @@ describe("FindCheap-Agent v0.1 Chrome contract", () => {
     expect(manifest.version).toMatch(/^0\.1\.0\+codex\./u);
     expect(manifest.interface.longDescription).toMatch(/authorized Chrome/u);
     expect(manifest.interface.defaultPrompt).toEqual([
-      "Use authorized Chrome to search the web for this exact product."
+      "Use authorized Chrome to find the best three verified options for this exact product."
     ]);
   });
 });
