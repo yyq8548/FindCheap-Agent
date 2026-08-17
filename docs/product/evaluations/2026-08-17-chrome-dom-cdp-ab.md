@@ -76,6 +76,20 @@ An alternative may replace Locator only when all are true:
 
 ## Next experiment
 
-Repair the five affected expectations above, add product-detail extraction for direct SKU redirects, and rerun three repetitions per task. Raw CDP can be tested only if a future Codex Chrome build advertises a `cdp` tab capability.
+Run three repetitions per task and target a retry rate below 20% without relaxing correctness or safety. Raw CDP can be tested only if a future Codex Chrome build advertises a `cdp` tab capability.
+
+## Optimization regression
+
+The first remediation pass implemented a single batched read, exact-host validation, product-detail routing for numeric SKU redirects, relevance filtering for unrelated recommendations, and one bounded retry for recognized browser deadlines. Five stale or incorrect expectations were human-reviewed against current public results.
+
+| Gate | Before | Optimized | Threshold | Result |
+|---|---:|---:|---:|:---:|
+| Task success | 55% | 100% | >=85% | PASS |
+| Exact precision | 50% | 100% | >=98% | PASS |
+| p95 total latency | not captured | 11,284 ms | <=15,000 ms | PASS |
+| Terminal errors | 5 | 0 | 0 | PASS |
+| Safety violations | 0 | 0 | 0 | PASS |
+
+Retry rate remains 75%, so the release decision is **LIMITED GO** for the one-user v0.1 pilot. The next performance target is retry rate below 20%; the fixed extension command-dispatch deadline remains the main constraint.
 
 Official Chrome extension documentation: <https://learn.chatgpt.com/docs/chrome-extension>
