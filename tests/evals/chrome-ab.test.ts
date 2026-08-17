@@ -90,11 +90,11 @@ describe("FindCheap Chrome DOM/CDP golden evaluation", () => {
 
   it("selects the three strongest direct exact offers from the verified Sony trial", () => {
     const selected = selectBestVerifiedOptions([
-      { merchant: "Sony", sellerType: "DIRECT", title: "Sony WH-1000XM5 Black", url: "https://electronics.sony.com/p/wh1000xm5-b", match: "EXACT", variantMatch: true, itemPriceCents: 24800, availability: "IN_STOCK" },
-      { merchant: "Best Buy", sellerType: "DIRECT", title: "Sony WH1000XM5/B", url: "https://www.bestbuy.com/site/6505727.p", match: "EXACT", variantMatch: true, itemPriceCents: 24999, availability: "IN_STOCK" },
-      { merchant: "Target", sellerType: "DIRECT", title: "Sony WH-1000XM5", url: "https://www.target.com/p/sony-wh-1000xm5/-/A-1", match: "EXACT", variantMatch: true, itemPriceCents: 24999, availability: "IN_STOCK" },
-      { merchant: "Best Buy Marketplace", sellerType: "MARKETPLACE", title: "Sony WH-1000XM5", url: "https://www.bestbuy.com/marketplace/offer/1", match: "EXACT", variantMatch: true, itemPriceCents: 21900, availability: "IN_STOCK" },
-      { merchant: "Example", sellerType: "DIRECT", title: "Sony WH-1000XM4", url: "https://shop.example.com/xm4", match: "SIMILAR", variantMatch: false, itemPriceCents: 19900, availability: "IN_STOCK" }
+      { merchant: "Sony", sellerType: "DIRECT", condition: "NEW", title: "Sony WH-1000XM5 Black", url: "https://electronics.sony.com/p/wh1000xm5-b", match: "EXACT", variantMatch: true, itemPriceCents: 24800, availability: "IN_STOCK" },
+      { merchant: "Best Buy", sellerType: "DIRECT", condition: "NEW", title: "Sony WH1000XM5/B", url: "https://www.bestbuy.com/site/6505727.p", match: "EXACT", variantMatch: true, itemPriceCents: 24999, availability: "IN_STOCK" },
+      { merchant: "Target", sellerType: "DIRECT", condition: "NEW", title: "Sony WH-1000XM5", url: "https://www.target.com/p/sony-wh-1000xm5/-/A-1", match: "EXACT", variantMatch: true, itemPriceCents: 24999, availability: "IN_STOCK" },
+      { merchant: "Best Buy Marketplace", sellerType: "MARKETPLACE", condition: "NEW", title: "Sony WH-1000XM5", url: "https://www.bestbuy.com/marketplace/offer/1", match: "EXACT", variantMatch: true, itemPriceCents: 21900, availability: "IN_STOCK" },
+      { merchant: "Example", sellerType: "DIRECT", condition: "USED", title: "Sony WH-1000XM4", url: "https://shop.example.com/xm4", match: "SIMILAR", variantMatch: false, itemPriceCents: 19900, availability: "IN_STOCK" }
     ]);
 
     expect(selected.map((candidate) => candidate.merchant)).toEqual(["Sony", "Best Buy", "Target"]);
@@ -102,12 +102,12 @@ describe("FindCheap Chrome DOM/CDP golden evaluation", () => {
 
   it("orders verified options by seller, availability, price, and stable tie-breakers", () => {
     const selected = selectBestVerifiedOptions([
-      { merchant: "Marketplace", sellerType: "MARKETPLACE", title: "Exact", url: "https://market.example.com/1", match: "EXACT", variantMatch: true, itemPriceCents: 10000, availability: "IN_STOCK" },
-      { merchant: "Unknown Stock", sellerType: "DIRECT", title: "Exact", url: "https://unknown.example.com/1", match: "EXACT", variantMatch: true, itemPriceCents: 20000, availability: "UNKNOWN" },
-      { merchant: "Higher In Stock", sellerType: "DIRECT", title: "Exact", url: "https://higher.example.com/1", match: "EXACT", variantMatch: true, itemPriceCents: 22000, availability: "IN_STOCK" },
-      { merchant: "Out Of Stock", sellerType: "DIRECT", title: "Exact", url: "https://out.example.com/1", match: "EXACT", variantMatch: true, itemPriceCents: 18000, availability: "OUT_OF_STOCK" },
-      { merchant: "Lower In Stock", sellerType: "DIRECT", title: "Exact", url: "https://lower.example.com/1", match: "EXACT", variantMatch: true, itemPriceCents: 21000, availability: "IN_STOCK" },
-      { merchant: "Wrong Variant", sellerType: "DIRECT", title: "Exact", url: "https://variant.example.com/1", match: "EXACT", variantMatch: false, itemPriceCents: 9000, availability: "IN_STOCK" }
+      { merchant: "Marketplace", sellerType: "MARKETPLACE", condition: "NEW", title: "Exact", url: "https://market.example.com/1", match: "EXACT", variantMatch: true, itemPriceCents: 10000, availability: "IN_STOCK" },
+      { merchant: "Unknown Stock", sellerType: "DIRECT", condition: "NEW", title: "Exact", url: "https://unknown.example.com/1", match: "EXACT", variantMatch: true, itemPriceCents: 20000, availability: "UNKNOWN" },
+      { merchant: "Higher In Stock", sellerType: "DIRECT", condition: "NEW", title: "Exact", url: "https://higher.example.com/1", match: "EXACT", variantMatch: true, itemPriceCents: 22000, availability: "IN_STOCK" },
+      { merchant: "Out Of Stock", sellerType: "DIRECT", condition: "NEW", title: "Exact", url: "https://out.example.com/1", match: "EXACT", variantMatch: true, itemPriceCents: 18000, availability: "OUT_OF_STOCK" },
+      { merchant: "Lower In Stock", sellerType: "DIRECT", condition: "NEW", title: "Exact", url: "https://lower.example.com/1", match: "EXACT", variantMatch: true, itemPriceCents: 21000, availability: "IN_STOCK" },
+      { merchant: "Wrong Variant", sellerType: "DIRECT", condition: "NEW", title: "Exact", url: "https://variant.example.com/1", match: "EXACT", variantMatch: false, itemPriceCents: 9000, availability: "IN_STOCK" }
     ]);
 
     expect(selected.map((candidate) => candidate.merchant)).toEqual([
@@ -115,6 +115,16 @@ describe("FindCheap Chrome DOM/CDP golden evaluation", () => {
       "Higher In Stock",
       "Unknown Stock"
     ]);
+  });
+
+  it("keeps lower-priced used and refurbished offers below verified new offers", () => {
+    const selected = selectBestVerifiedOptions([
+      { merchant: "Used", sellerType: "DIRECT", condition: "USED", title: "Exact", url: "https://used.example.com/1", match: "EXACT", variantMatch: true, itemPriceCents: 5000, availability: "IN_STOCK" },
+      { merchant: "Refurbished", sellerType: "DIRECT", condition: "REFURBISHED", title: "Exact", url: "https://refurb.example.com/1", match: "EXACT", variantMatch: true, itemPriceCents: 7000, availability: "IN_STOCK" },
+      { merchant: "New", sellerType: "DIRECT", condition: "NEW", title: "Exact", url: "https://new.example.com/1", match: "EXACT", variantMatch: true, itemPriceCents: 20000, availability: "IN_STOCK" }
+    ]);
+
+    expect(selected.map((candidate) => candidate.condition)).toEqual(["NEW", "REFURBISHED", "USED"]);
   });
 
   it("treats unrelated recommendations as no relevant result", () => {

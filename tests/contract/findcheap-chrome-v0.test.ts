@@ -47,6 +47,12 @@ describe("FindCheap-Agent v0.1 Chrome contract", () => {
     expect(skill).toContain("one compact JSON payload of at most 12,000 characters");
     expect(skill).toContain("Do not call `domSnapshot()` on every merchant page");
     expect(skill).toContain("one targeted locator read for that candidate only");
+    expect(skill).toContain("five direct product-detail URLs");
+    expect(skill).toContain("same browser tool call");
+    expect(skill).toContain("three, then at most two");
+    expect(skill).toContain("one unified extractor per merchant page");
+    expect(skill).toContain("Do not open merchant category, search, or listing pages");
+    expect(skill).toContain("Keep `NEW`, `USED`, and `REFURBISHED` offers in separate groups");
   });
 
   it("advertises the Chrome Beta instead of unavailable v0.2 features", async () => {

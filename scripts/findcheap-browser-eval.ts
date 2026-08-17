@@ -22,6 +22,7 @@ export type BrowserObservation = {
 export type BrowserRankCandidate = BrowserProductObservation & {
   merchant: string;
   sellerType: "DIRECT" | "MARKETPLACE";
+  condition: "NEW" | "REFURBISHED" | "USED" | "UNKNOWN";
   match: "EXACT" | "SIMILAR" | "UNCONFIRMED";
   variantMatch: boolean | undefined;
   itemPriceCents: number | undefined;
@@ -102,11 +103,19 @@ function normalizeToken(value: string): string {
 }
 
 function compareRankCandidates(left: BrowserRankCandidate, right: BrowserRankCandidate): number {
-  return sellerRank(left.sellerType) - sellerRank(right.sellerType)
+  return conditionRank(left.condition) - conditionRank(right.condition)
+    || sellerRank(left.sellerType) - sellerRank(right.sellerType)
     || availabilityRank(left.availability) - availabilityRank(right.availability)
     || priceRank(left.itemPriceCents) - priceRank(right.itemPriceCents)
     || compareCodeUnits(left.merchant, right.merchant)
     || compareCodeUnits(left.url, right.url);
+}
+
+function conditionRank(value: BrowserRankCandidate["condition"]): number {
+  if (value === "NEW") return 0;
+  if (value === "UNKNOWN") return 1;
+  if (value === "REFURBISHED") return 2;
+  return 3;
 }
 
 function sellerRank(value: BrowserRankCandidate["sellerType"]): number {

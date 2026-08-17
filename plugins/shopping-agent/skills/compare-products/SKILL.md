@@ -21,7 +21,7 @@ Risk tier: `R0`. Perform one read-only public-product lookup. Do not persist bro
 ## Optimized extraction procedure
 
 1. After navigation, wait for one stable visible signal: search results, a product-detail heading, an explicit no-result message, CAPTCHA, or access denial.
-2. Route by the final HTTPS URL and visible page type. Read a merchant search page as a bounded result list and a product detail page as one candidate; do not assume every product identifier or redirect uses the same format.
+2. Route by the final HTTPS URL and visible page type. Read only the original web-search page as a bounded discovery list and each merchant product-detail page as one candidate; do not assume every product identifier or redirect uses the same format.
 3. Use one batched visible-DOM read per inspected merchant page and collect no more than five verified candidates in total. Do not issue separate browser calls for every field on every card.
 4. Validate every canonical URL against the exact final merchant hostname currently being inspected. Record that hostname with the result; never return a search-engine or redirector URL as the product source.
 5. If the browser reports a CDP command-dispatch or isolated-world deadline, verify that the tab is still on the expected HTTPS merchant host and that no CAPTCHA, access denial, or safety interstitial is visible, then retry once. Never make a third extraction attempt.
@@ -30,19 +30,21 @@ Risk tier: `R0`. Perform one read-only public-product lookup. Do not persist bro
 
 ## Performance path
 
-1. After discovery, verify the shortlisted merchant tabs in one bounded browser batch with at most three concurrent navigations. Keep the total merchant-domain and retry budgets unchanged; if an origin permission prompt appears, pause that candidate instead of bypassing or automating the prompt.
-2. For the search page and each merchant page, prefer one read-only `playwright.evaluate` that returns one compact JSON payload of at most 12,000 characters containing only final URL, title, visible identity, price, seller, condition, availability, and canonical-link evidence.
-3. Do not call `domSnapshot()` on every merchant page and do not return full page text or HTML. A discovery-page snapshot is allowed only when the compact read cannot identify candidate links.
-4. If the compact read lacks a required field, make one targeted locator read for that candidate only. Do not reread every page.
-5. Rank from the compact records in one pass, then close non-deliverable candidate tabs after evidence has been captured.
+1. Discovery must produce up to five direct product-detail URLs on distinct merchant domains. Do not open merchant category, search, or listing pages as verification candidates. Skip a discovery result when no direct product-detail URL is available.
+2. In the same browser tool call, create all shortlisted tabs and navigate with at most three concurrent navigations: three, then at most two. Keep the total merchant-domain and retry budgets unchanged; if an origin permission prompt appears, pause that candidate instead of bypassing or automating the prompt.
+3. Run one unified extractor per merchant page. Each extractor returns one compact JSON payload of at most 12,000 characters containing only final URL, title, visible identity, price, seller, condition, availability, and canonical-link evidence. Finish both navigation batches and compact extraction before another reasoning step.
+4. Do not call `domSnapshot()` on every merchant page and do not return full page text or HTML. A discovery-page snapshot is allowed only when the compact read cannot identify candidate links.
+5. If the compact read lacks one required field, make one targeted locator read for that candidate only. Do not reread every page or open a merchant listing page to seek another offer.
+6. Classify, filter, deduplicate, and rank all compact records locally in one deterministic pass, then close candidate tabs. Do not use another browser call to rank or format results.
 
 ## Ranking and selection
 
 1. Rank only candidates with independently visible `EXACT` identity evidence and the requested variant. Keep `SIMILAR` and `UNCONFIRMED` candidates outside the main ranking.
-2. Deduplicate by merchant or clearly identified seller. Prefer direct merchant offers over third-party marketplace offers, then prefer visible in-stock status, then lower visible item price. Use merchant name and canonical URL only as deterministic tie-breakers.
-3. Do not treat an add-to-cart button as proof of delivered availability. Report only the availability language visibly shown on the page.
-4. Return the best three among verified candidates. Return fewer than three when fewer exact, source-linked candidates pass verification; never fill the ranking with weaker matches.
-5. Never claim these are the best offers on the entire internet. Say they are the best three among the candidates inspected during this bounded search.
+2. Deduplicate by merchant or clearly identified seller. Keep `NEW`, `USED`, and `REFURBISHED` offers in separate groups. Unless the user requests another condition, rank `NEW` offers in the main list; show condition-labeled alternatives separately and never let a cheaper used item outrank a new item.
+3. Within one condition group: Prefer direct merchant offers over third-party marketplace offers, then prefer visible in-stock status, then lower visible item price. Use merchant name and canonical URL only as deterministic tie-breakers.
+4. Do not treat an add-to-cart button as proof of delivered availability. Report only the availability language visibly shown on the page.
+5. Return the best three among verified candidates. Return fewer than three when fewer exact, source-linked candidates in the requested condition pass verification; never fill the main ranking with weaker matches or another condition.
+6. Never claim these are the best offers on the entire internet. Say they are the best three among the candidates inspected during this bounded search.
 
 ## Hard boundaries
 
