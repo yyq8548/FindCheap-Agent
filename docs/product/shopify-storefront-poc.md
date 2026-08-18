@@ -17,7 +17,7 @@
 ## Data, tools, permissions, and human controls
 
 - Allowed API and product hosts: only the exact bare/`www` host pair for each of the ten fixed registry entries. Callers cannot supply a host.
-- Returned fields: handle, title, selected variant title, vendor, SKU, numeric barcode when valid, image, public USD item price, public availability, canonical product URL, and observation time.
+- Returned fields: handle, title, selected variant title/options, vendor, SKU, numeric barcode when valid, image, public USD item price, public availability, canonical product URL, match status/evidence, and observation time.
 - The connection uses the existing DNS/IP validation, pinned TLS transport, redirect validation, response-size cap, and request timeout.
 - No token, API key, cookie, browser account, or customer identity is used or stored.
 
@@ -29,7 +29,7 @@
 
 ## Evaluation and release gates
 
-- Deterministic tests cover search, handle lookup, mapping, invalid inputs, external URL rejection, unavailable configuration, MCP schema validation, and the merchant approval gate.
+- Deterministic tests cover search, handle lookup, mapping, invalid inputs, external URL rejection, unavailable configuration, MCP schema validation, the merchant approval gate, and 20 product-identity Golden Tasks.
 - A live probe must return public product records with source URL and timestamp without credentials.
 - `pnpm merchants:shopify-registry-audit` must pass all ten technical probes before release. This verifies access and schema only; it does not grant merchant or legal approval.
 - Hard invariants: zero arbitrary host access, zero secrets, zero purchase action, zero delivered-price claim, and zero automatic merchant enablement.
@@ -51,7 +51,8 @@
 ## Acceptance criteria and open decisions
 
 - `pnpm merchants:shopify-probe -- --query "Valhalla Java" --limit 3` returns live products.
-- Codex discovers `search_shopify_products`, calls it once per lookup, rejects unrelated results, and returns relevance-first merchant-diverse public item prices from the fixed ten-store registry.
+- Codex discovers `search_shopify_products`, calls it once per lookup, excludes `IRRELEVANT` products, ranks `EXACT` before `SIMILAR`, and returns merchant-diverse public item prices from the fixed ten-store registry.
+- Requested model, SKU, GTIN, color, size, and capacity evidence participates in matching. Similar-only results return a clarification question.
 - The tool never accepts a caller-provided host.
 - Open decision: whether each pilot's terms and data quality support production use. Owner approval is still required for every store.
 

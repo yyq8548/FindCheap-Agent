@@ -18,13 +18,18 @@ const ApiVersionSchema = z.literal("2026-07");
 const HandleSchema = z.string().trim().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u).max(200);
 const MoneySchema = z.object({ amount: z.string().regex(/^\d+(?:\.\d{1,2})?$/u), currencyCode: z.literal("USD") }).strict();
 const ImageSchema = z.object({ url: z.string().url() }).strict();
+const SelectedOptionSchema = z.object({
+  name: z.string().trim().min(1).max(80),
+  value: z.string().trim().min(1).max(200)
+}).strict();
 const VariantSchema = z.object({
   title: z.string().trim().min(1).max(500),
   sku: z.string().trim().max(200).nullable().optional(),
   barcode: z.string().trim().max(32).nullable().optional(),
   availableForSale: z.boolean(),
   price: MoneySchema,
-  image: ImageSchema.nullable().optional()
+  image: ImageSchema.nullable().optional(),
+  selectedOptions: z.array(SelectedOptionSchema).max(20)
 }).strict();
 const ProductSchema = z.object({
   title: z.string().trim().min(1).max(1_000),
@@ -60,6 +65,7 @@ const PRODUCT_FIELDS = `
     availableForSale
     price { amount currencyCode }
     image { url }
+    selectedOptions { name value }
   }
 `;
 const SEARCH_QUERY = `query SearchProducts($first: Int!, $query: String!) @inContext(country: US) {
@@ -203,6 +209,11 @@ function mapProduct(product: z.infer<typeof ProductSchema>, allowedHosts: readon
   if (product.vendor !== "") record.brand = product.vendor;
   if (product.productType !== "") record.productType = product.productType;
   if (product.tags.length > 0) record.tags = product.tags;
+  if (variant.selectedOptions.length > 0) {
+    record.variantDimensions = Object.fromEntries(
+      variant.selectedOptions.map((option) => [option.name, option.value])
+    );
+  }
   if (variant.sku !== undefined && variant.sku !== null && variant.sku !== "") record.mpn = variant.sku;
   const imageUrl = variant.image?.url ?? product.featuredImage?.url;
   if (imageUrl !== undefined) record.imageUrl = imageUrl;

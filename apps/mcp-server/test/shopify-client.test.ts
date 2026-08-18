@@ -34,7 +34,8 @@ describe("Shopify Storefront MCP client", () => {
       diagnostics: {
         cacheStatus: "MISS",
         chromeFallbackEligible: false,
-        selectionPolicy: "RELEVANCE_THEN_DIVERSE_MERCHANTS_THEN_PRICE"
+        irrelevantProductsExcluded: 0,
+        selectionPolicy: "EXACT_THEN_SIMILAR_THEN_DIVERSE_MERCHANTS_THEN_PRICE"
       }
     });
     expect(result.products.map((product) => [product.merchant, product.itemPrice?.amountCents])).toEqual([
@@ -135,6 +136,60 @@ describe("Shopify Storefront MCP client", () => {
     expect(result.products.map((product) => product.merchant)).toEqual(["ColourPop"]);
   });
 
+  it("ranks exact identity before cheaper similar products and excludes irrelevant products", async () => {
+    const safeFetch = vi.fn(async (input: { url: string }) => {
+      const host = new URL(input.url).hostname;
+      if (host === "kith.com") {
+        return storefrontResponse(input.url, host, "299.00", "Sony WH-1000XM5 Headphones", "Headphones");
+      }
+      if (host === "www.fashionnova.com") {
+        return storefrontResponse(input.url, host, "99.00", "Sony WH-1000XM4 Headphones", "Headphones");
+      }
+      if (host === "www.brooklinen.com") {
+        return storefrontResponse(input.url, host, "1.00", "Classic Pillowcase", "Bedding");
+      }
+      return storefrontResponse(input.url, host);
+    });
+    const port = createShopifyPortFromEnvironment(
+      { SHOPIFY_STOREFRONT_MODE: "fixed-ten" },
+      { safeFetch, clock: { now: () => new Date(now) } }
+    );
+
+    const result = await port.search({ query: "Sony WH-1000XM5", limit: 3 });
+
+    expect(result.products.map((product) => [product.title, product.matchStatus])).toEqual([
+      ["Sony WH-1000XM5 Headphones", "EXACT"],
+      ["Sony WH-1000XM4 Headphones", "SIMILAR"]
+    ]);
+    expect(result.questions).toEqual([]);
+    expect(result.diagnostics.irrelevantProductsExcluded).toBe(1);
+  });
+
+  it("marks a missing requested variant similar and asks for exact variant details", async () => {
+    const safeFetch = vi.fn(async (input: { url: string }) => {
+      const host = new URL(input.url).hostname;
+      return host === "www.allbirds.com"
+        ? storefrontResponse(input.url, host, "89.00", "Tree Runner", "Shoes", [{ name: "Color", value: "Red" }])
+        : storefrontResponse(input.url, host);
+    });
+    const port = createShopifyPortFromEnvironment(
+      { SHOPIFY_STOREFRONT_MODE: "fixed-ten" },
+      { safeFetch, clock: { now: () => new Date(now) } }
+    );
+
+    const result = await port.search({ query: "Tree Runner blue", limit: 3 });
+
+    expect(result.products).toEqual([expect.objectContaining({
+      merchant: "Allbirds",
+      matchStatus: "SIMILAR",
+      variantDimensions: { Color: "Red" },
+      matchEvidence: expect.arrayContaining(["missing query terms: blue"])
+    })]);
+    expect(result.questions).toEqual([
+      "Only similar products were found. Provide an exact model, SKU, GTIN, color, size, or capacity."
+    ]);
+  });
+
   it("coalesces concurrent duplicates and caches an identical repeated lookup", async () => {
     let elapsedMs = 0;
     const safeFetch = vi.fn(async (input: { url: string }) => {
@@ -230,7 +285,8 @@ function storefrontResponse(
   host: string,
   price?: string | string[],
   title?: string | string[],
-  productType?: string | string[]
+  productType?: string | string[],
+  selectedOptions: Array<{ name: string; value: string }> = []
 ) {
   const prices = price === undefined ? [] : Array.isArray(price) ? price : [price];
   const titles = title === undefined ? [] : Array.isArray(title) ? title : [title];
@@ -241,7 +297,8 @@ function storefrontResponse(
     onlineStoreUrl: `https://${host}/products/sample-${index + 1}`, featuredImage: null,
     selectedOrFirstAvailableVariant: {
       title: "Default Title", sku: `${host}-sku`, barcode: null,
-      availableForSale: true, price: { amount, currencyCode: "USD" }, image: null
+      availableForSale: true, price: { amount, currencyCode: "USD" }, image: null,
+      selectedOptions
     }
   }));
   return {

@@ -41,8 +41,10 @@ const shopifyPort: ShopifyPort = {
       apiDurationMs: 250,
       cacheStatus: "MISS",
       chromeFallbackEligible: false,
-      selectionPolicy: "RELEVANCE_THEN_DIVERSE_MERCHANTS_THEN_PRICE"
+      irrelevantProductsExcluded: 0,
+      selectionPolicy: "EXACT_THEN_SIMILAR_THEN_DIVERSE_MERCHANTS_THEN_PRICE"
     },
+    questions: [],
     products: [{
       merchantId: "death-wish-coffee",
       merchant: "Death Wish Coffee",
@@ -52,6 +54,9 @@ const shopifyPort: ShopifyPort = {
       brand: "Death Wish Coffee",
       sku: "5094SSC",
       gtins: ["810063341254"],
+      variantDimensions: { "Pack Size": "10 count" },
+      matchStatus: "EXACT",
+      matchEvidence: ["GTIN exact"],
       itemPrice: { amountCents: 1_499, currency: "USD" },
       availability: "IN_STOCK",
       merchantUrl: "https://deathwishcoffee.com/products/valhalla-java-single-serve-pods",
@@ -182,11 +187,14 @@ describe("shopping MCP server", () => {
         apiDurationMs: 250,
         cacheStatus: "MISS",
         chromeFallbackEligible: false,
-        selectionPolicy: "RELEVANCE_THEN_DIVERSE_MERCHANTS_THEN_PRICE"
+        irrelevantProductsExcluded: 0,
+        selectionPolicy: "EXACT_THEN_SIMILAR_THEN_DIVERSE_MERCHANTS_THEN_PRICE"
       },
+      questions: [],
       products: [{
         merchant: "Death Wish Coffee",
         handle: "valhalla-java-single-serve-pods",
+        matchStatus: "EXACT",
         itemPrice: { amountCents: 1_499 }
       }]
     });

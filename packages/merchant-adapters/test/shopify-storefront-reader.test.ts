@@ -16,7 +16,8 @@ const product = {
     barcode: "810063341254",
     availableForSale: true,
     price: { amount: "14.99", currencyCode: "USD" },
-    image: null
+    image: null,
+    selectedOptions: [{ name: "Pack Size", value: "10 count" }]
   }
 };
 
@@ -43,6 +44,7 @@ describe("Shopify Storefront reader", () => {
       gtins: ["810063341254"],
       productType: "Coffee",
       tags: ["Coffee", "Pods"],
+      variantDimensions: { "Pack Size": "10 count" },
       imageUrl: "https://cdn.shopify.com/product.jpg",
       rawOffer: {
         price: "14.99",

@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "tasks": [
+    { "id": "category-shirt-title", "query": "shirt", "candidate": { "title": "Floral Bloom Tee", "productType": "T-Shirts" }, "expected": "EXACT" },
+    { "id": "category-shoes-product-type", "query": "shoes", "candidate": { "title": "SELMA RED PATENT", "productType": "Shoes" }, "expected": "EXACT" },
+    { "id": "category-lipstick-product-type", "query": "lipstick", "candidate": { "title": "Honey Bunny", "productType": "Glossy Lipstick" }, "expected": "EXACT" },
+    { "id": "category-lipstick-print-jeans", "query": "lipstick", "candidate": { "title": "Lipstick Print Jeans", "productType": "Jeans" }, "expected": "IRRELEVANT" },
+    { "id": "sku-model-exact", "query": "Sony WH-1000XM5", "candidate": { "title": "Sony Wireless Headphones", "brand": "Sony", "sku": "WH1000XM5", "productType": "Headphones" }, "expected": "EXACT" },
+    { "id": "sku-model-similar", "query": "Sony WH-1000XM5", "candidate": { "title": "Sony WH-1000XM4 Headphones", "brand": "Sony", "sku": "WH1000XM4", "productType": "Headphones" }, "expected": "SIMILAR" },
+    { "id": "gtin-exact", "query": "810063341254", "candidate": { "title": "Valhalla Java Pods", "gtins": ["810063341254"], "productType": "Coffee" }, "expected": "EXACT" },
+    { "id": "gtin-wrong", "query": "810063341254", "candidate": { "title": "Valhalla Java Pods", "gtins": ["810063341255"], "productType": "Coffee" }, "expected": "IRRELEVANT" },
+    { "id": "variant-color-exact", "query": "Tree Runner blue", "candidate": { "title": "Tree Runner", "variantDimensions": { "Color": "Blue" } }, "expected": "EXACT" },
+    { "id": "variant-color-similar", "query": "Tree Runner blue", "candidate": { "title": "Tree Runner", "variantDimensions": { "Color": "Red" } }, "expected": "SIMILAR" },
+    { "id": "variant-size-exact", "query": "Pride Tee size 10", "candidate": { "title": "Pride Tee", "productType": "T-Shirts", "variantDimensions": { "Size": "10" } }, "expected": "EXACT" },
+    { "id": "variant-size-similar", "query": "Pride Tee size 10", "candidate": { "title": "Pride Tee", "productType": "T-Shirts", "variantDimensions": { "Size": "8" } }, "expected": "SIMILAR" },
+    { "id": "brand-model-exact", "query": "Allbirds Tree Runner", "candidate": { "title": "Tree Runner", "brand": "Allbirds", "productType": "Shoes" }, "expected": "EXACT" },
+    { "id": "brand-model-similar", "query": "Allbirds Tree Runner", "candidate": { "title": "Tree Dasher", "brand": "Allbirds", "productType": "Shoes" }, "expected": "SIMILAR" },
+    { "id": "coffee-pods-exact", "query": "Death Wish Coffee pods", "candidate": { "title": "Single-Serve Pods", "brand": "Death Wish Coffee", "productType": "Coffee", "tags": ["Pods"] }, "expected": "EXACT" },
+    { "id": "coffee-mug-irrelevant", "query": "coffee", "candidate": { "title": "Death Wish Coffee Mug", "brand": "Death Wish Coffee", "productType": "Drinkware" }, "expected": "IRRELEVANT" },
+    { "id": "water-exact", "query": "Liquid Death water", "candidate": { "title": "Mountain Water", "brand": "Liquid Death", "productType": "Water" }, "expected": "EXACT" },
+    { "id": "bracelet-shoes-irrelevant", "query": "bracelet", "candidate": { "title": "Court Sneaker", "productType": "Shoes" }, "expected": "IRRELEVANT" },
+    { "id": "descriptive-exact", "query": "Brooklinen classic percale sheets", "candidate": { "title": "Classic Percale Core Sheet Set", "brand": "Brooklinen", "productType": "Sheets" }, "expected": "EXACT" },
+    { "id": "descriptive-similar", "query": "Brooklinen linen sheets", "candidate": { "title": "Classic Percale Sheet Set", "brand": "Brooklinen", "productType": "Sheets" }, "expected": "SIMILAR" }
+  ]
+}

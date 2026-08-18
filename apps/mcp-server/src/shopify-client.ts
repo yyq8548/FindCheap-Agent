@@ -3,6 +3,10 @@ import {
   type ShopifyStorefrontReaderConfig
 } from "../../../packages/merchant-adapters/src/configured/shopify-storefront-reader.js";
 import type { ReaderDependencies } from "../../../packages/merchant-adapters/src/configured/feed-reader.js";
+import {
+  classifyShopifyCandidate,
+  type ShopifyMatchStatus
+} from "./shopify-match.js";
 
 export type ShopifyPilot = {
   merchantId: string;
@@ -41,6 +45,9 @@ export type ShopifyProduct = {
   brand?: string;
   sku?: string;
   gtins: string[];
+  variantDimensions: Record<string, string>;
+  matchStatus: Exclude<ShopifyMatchStatus, "IRRELEVANT">;
+  matchEvidence: string[];
   imageUrl?: string;
   itemPrice?: { amountCents: number; currency: "USD" };
   availability: "IN_STOCK" | "OUT_OF_STOCK" | "UNKNOWN";
@@ -48,9 +55,14 @@ export type ShopifyProduct = {
   checkedAt: string;
 };
 
-type ShopifyCandidate = ShopifyProduct & {
+type ShopifyCandidate = Omit<ShopifyProduct, "matchStatus" | "matchEvidence"> & {
   productType?: string;
   tags: string[];
+};
+
+type RankedShopifyCandidate = ShopifyCandidate & {
+  matchStatus: Exclude<ShopifyMatchStatus, "IRRELEVANT">;
+  matchEvidence: string[];
 };
 
 export type ShopifySearchResult = {
@@ -61,14 +73,20 @@ export type ShopifySearchResult = {
     apiDurationMs: number;
     cacheStatus: "MISS" | "HIT" | "COALESCED";
     chromeFallbackEligible: boolean;
-    selectionPolicy: "RELEVANCE_THEN_DIVERSE_MERCHANTS_THEN_PRICE";
+    irrelevantProductsExcluded: number;
+    selectionPolicy: "EXACT_THEN_SIMILAR_THEN_DIVERSE_MERCHANTS_THEN_PRICE";
   };
+  questions: string[];
   products: ShopifyProduct[];
 };
 
 export interface ShopifyPort {
   search(input: ShopifySearchInput): Promise<ShopifySearchResult>;
 }
+
+type ShopifySearchCore = Omit<ShopifySearchResult, "diagnostics"> & {
+  irrelevantProductsExcluded: number;
+};
 
 type ShopifyClientDependencies = ReaderDependencies & {
   monotonicNow?: () => number;
@@ -91,11 +109,11 @@ export function createShopifyPortFromEnvironment(
   let cache: {
     key: string;
     expiresAt: number;
-    result: Omit<ShopifySearchResult, "diagnostics">;
+    result: ShopifySearchCore;
   } | undefined;
   let inFlight: {
     key: string;
-    promise: Promise<Omit<ShopifySearchResult, "diagnostics">>;
+    promise: Promise<ShopifySearchCore>;
   } | undefined;
 
   return {
@@ -125,6 +143,7 @@ export function createShopifyPortFromEnvironment(
               ...(record.brand === undefined ? {} : { brand: record.brand }),
               ...(record.mpn === undefined ? {} : { sku: record.mpn }),
               gtins: record.gtins,
+              variantDimensions: record.variantDimensions ?? {},
               ...(record.imageUrl === undefined ? {} : { imageUrl: record.imageUrl }),
               ...(record.rawOffer.price === undefined
                 ? {}
@@ -144,17 +163,31 @@ export function createShopifyPortFromEnvironment(
         if (products.length === 0 && successful.length !== sources.length) {
           throw new Error("DATA_SOURCE_UNAVAILABLE");
         }
+        const classified = input.query === undefined
+          ? products.map((product): RankedShopifyCandidate => ({
+              ...product,
+              matchStatus: "EXACT",
+              matchEvidence: ["product handle exact"]
+            }))
+          : products.flatMap((product): RankedShopifyCandidate[] => {
+              const match = classifyShopifyCandidate(input.query ?? "", product);
+              return match.status === "IRRELEVANT" ? [] : [{
+                ...product,
+                matchStatus: match.status,
+                matchEvidence: match.evidence
+              }];
+            });
+        const selected = selectDiverseThenFill(rankAndDeduplicate(classified), input.limit);
         return {
           coverage: successful.length === sources.length ? "COMPLETE" : "PARTIAL",
           merchantsQueried: sources.length,
           merchantsSucceeded: successful.length,
-          products: selectDiverseThenFill(
-            rankAndDeduplicate(input.query === undefined ? products : products.filter(
-              (product) => isRelevantProduct(product, input.query ?? "")
-            )),
-            input.limit
-          ).map(toPublicProduct)
-        } satisfies Omit<ShopifySearchResult, "diagnostics">;
+          questions: selected.length > 0 && selected.every((product) => product.matchStatus === "SIMILAR")
+            ? ["Only similar products were found. Provide an exact model, SKU, GTIN, color, size, or capacity."]
+            : [],
+          irrelevantProductsExcluded: products.length - classified.length,
+          products: selected.map(toPublicProduct)
+        } satisfies ShopifySearchCore;
       })();
       inFlight = { key: cacheKey, promise };
       try {
@@ -194,18 +227,19 @@ function toAvailability(value: string | undefined): ShopifyProduct["availability
   return "UNKNOWN";
 }
 
-function rankAndDeduplicate(products: ShopifyCandidate[]): ShopifyCandidate[] {
-  const unique = new Map<string, ShopifyCandidate>();
+function rankAndDeduplicate(products: RankedShopifyCandidate[]): RankedShopifyCandidate[] {
+  const unique = new Map<string, RankedShopifyCandidate>();
   for (const product of products) if (!unique.has(product.merchantUrl)) unique.set(product.merchantUrl, product);
   return [...unique.values()].sort((left, right) =>
-    availabilityRank(left.availability) - availabilityRank(right.availability)
+    matchRank(left.matchStatus) - matchRank(right.matchStatus)
+    || availabilityRank(left.availability) - availabilityRank(right.availability)
     || (left.itemPrice?.amountCents ?? Number.MAX_SAFE_INTEGER) - (right.itemPrice?.amountCents ?? Number.MAX_SAFE_INTEGER)
     || compareText(left.merchant, right.merchant)
     || compareText(left.merchantUrl, right.merchantUrl));
 }
 
-function selectDiverseThenFill(products: ShopifyCandidate[], limit: number): ShopifyCandidate[] {
-  const selected: ShopifyCandidate[] = [];
+function selectDiverseThenFill(products: RankedShopifyCandidate[], limit: number): RankedShopifyCandidate[] {
+  const selected: RankedShopifyCandidate[] = [];
   const selectedUrls = new Set<string>();
   const merchants = new Set<string>();
   for (const product of products) {
@@ -224,71 +258,36 @@ function selectDiverseThenFill(products: ShopifyCandidate[], limit: number): Sho
 }
 
 function withDiagnostics(
-  result: Omit<ShopifySearchResult, "diagnostics">,
+  result: ShopifySearchCore,
   apiDurationMs: number,
   cacheStatus: "MISS" | "HIT" | "COALESCED"
 ): ShopifySearchResult {
+  const { irrelevantProductsExcluded, ...publicResult } = result;
   return {
-    ...result,
+    ...publicResult,
     diagnostics: {
       apiDurationMs,
       cacheStatus,
       chromeFallbackEligible: result.coverage === "COMPLETE" && result.products.length === 0,
-      selectionPolicy: "RELEVANCE_THEN_DIVERSE_MERCHANTS_THEN_PRICE"
+      irrelevantProductsExcluded,
+      selectionPolicy: "EXACT_THEN_SIMILAR_THEN_DIVERSE_MERCHANTS_THEN_PRICE"
     }
   };
 }
 
-const QUERY_EQUIVALENTS = [
-  { terms: ["shirt", "shirts", "tee", "tees", "tshirt", "tshirts"] },
-  { terms: ["shoe", "shoes", "sneaker", "sneakers"] },
-  { terms: ["headphone", "headphones", "headset", "headsets", "earbud", "earbuds"] },
-  { terms: ["sofa", "sofas", "couch", "couches"] },
-  { terms: ["tv", "television", "televisions"] },
-  { terms: ["fridge", "fridges", "refrigerator", "refrigerators"] },
-  { terms: ["phone", "phones", "smartphone", "smartphones"] },
-  { terms: ["laptop", "laptops", "notebook", "notebooks"] },
-  { terms: ["lipstick", "lipsticks", "lipgloss", "gloss"], productTypeOnly: true }
-] as const;
-
-function isRelevantProduct(product: ShopifyCandidate, query: string): boolean {
-  const queryTokens = tokenize(query);
-  if (queryTokens.length === 0) return false;
-  const productTokens = new Set(tokenize([
-    product.title,
-    product.brand,
-    product.sku,
-    product.handle,
-    product.productType,
-    ...product.tags,
-    ...product.gtins
-  ].filter((value): value is string => value !== undefined).join(" ")));
-  const identityTokens = queryTokens.filter((token) => /\d/u.test(token));
-  if (identityTokens.some((token) => !productTokens.has(token))) return false;
-  for (const group of QUERY_EQUIVALENTS) {
-    if (queryTokens.some((token) => group.terms.some((candidate) => candidate === token))) {
-      const evidence = "productTypeOnly" in group && group.productTypeOnly
-        ? new Set(tokenize(product.productType ?? ""))
-        : productTokens;
-      return group.terms.some((token) => evidence.has(token));
-    }
-  }
-  return queryTokens.some((token) => productTokens.has(token));
-}
-
-function toPublicProduct(candidate: ShopifyCandidate): ShopifyProduct {
+function toPublicProduct(candidate: RankedShopifyCandidate): ShopifyProduct {
   const { productType, tags, ...product } = candidate;
   void productType;
   void tags;
   return product;
 }
 
-function tokenize(value: string): string[] {
-  return value.normalize("NFKC").toLocaleLowerCase("en-US").match(/[\p{L}\p{N}]+/gu) ?? [];
-}
-
 function availabilityRank(value: ShopifyProduct["availability"]): number {
   return value === "IN_STOCK" ? 0 : value === "UNKNOWN" ? 1 : 2;
+}
+
+function matchRank(value: ShopifyProduct["matchStatus"]): number {
+  return value === "EXACT" ? 0 : 1;
 }
 
 function compareText(left: string, right: string): number {

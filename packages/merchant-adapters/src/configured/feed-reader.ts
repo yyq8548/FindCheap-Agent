@@ -68,6 +68,10 @@ export const RawMerchantRecordSchema = z
     mpn: z.string().min(1).optional(),
     productType: z.string().trim().min(1).max(200).optional(),
     tags: z.array(z.string().trim().min(1).max(200)).max(100).optional(),
+    variantDimensions: z.record(
+      z.string().trim().min(1).max(80),
+      z.string().trim().min(1).max(200)
+    ).optional(),
     imageUrl: z.string().url().optional(),
     rawOffer: RawOfferSchema.optional()
   })

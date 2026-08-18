@@ -148,6 +148,9 @@ const ShopifyProductOutputSchema = z.object({
   brand: z.string().optional(),
   sku: z.string().optional(),
   gtins: z.array(z.string()),
+  variantDimensions: z.record(z.string(), z.string()),
+  matchStatus: z.enum(["EXACT", "SIMILAR"]),
+  matchEvidence: z.array(z.string()),
   imageUrl: z.string().url().optional(),
   itemPrice: MoneyOutputSchema.optional(),
   availability: z.enum(["IN_STOCK", "OUT_OF_STOCK", "UNKNOWN"]),
@@ -167,8 +170,10 @@ const ShopifyProductsOutputShape = {
     apiDurationMs: z.number().int().nonnegative(),
     cacheStatus: z.enum(["MISS", "HIT", "COALESCED"]),
     chromeFallbackEligible: z.boolean(),
-    selectionPolicy: z.literal("RELEVANCE_THEN_DIVERSE_MERCHANTS_THEN_PRICE")
+    irrelevantProductsExcluded: z.number().int().nonnegative(),
+    selectionPolicy: z.literal("EXACT_THEN_SIMILAR_THEN_DIVERSE_MERCHANTS_THEN_PRICE")
   }),
+  questions: z.array(z.string()),
   products: z.array(ShopifyProductOutputSchema)
 };
 
@@ -271,7 +276,9 @@ function bestBuyUnavailableResult() {
 }
 
 function shopifyResult(result: ShopifySearchResult) {
-  const message = `The fixed Shopify registry returned ${result.products.length} product(s) from ${result.merchantsSucceeded}/${result.merchantsQueried} stores. Prices are public item prices only; shipping, tax, coupons, and member pricing are not included.`;
+  const exactCount = result.products.filter((product) => product.matchStatus === "EXACT").length;
+  const similarCount = result.products.length - exactCount;
+  const message = `The fixed Shopify registry returned ${result.products.length} product(s): ${exactCount} exact and ${similarCount} similar, from ${result.merchantsSucceeded}/${result.merchantsQueried} stores. Prices are public item prices only; shipping, tax, coupons, and member pricing are not included.`;
   return {
     content: [{ type: "text" as const, text: message }],
     structuredContent: {
@@ -283,6 +290,7 @@ function shopifyResult(result: ShopifySearchResult) {
       merchantsQueried: result.merchantsQueried,
       merchantsSucceeded: result.merchantsSucceeded,
       diagnostics: result.diagnostics,
+      questions: result.questions,
       products: result.products
     }
   };
@@ -303,8 +311,10 @@ function shopifyUnavailableResult() {
         apiDurationMs: 0,
         cacheStatus: "MISS" as const,
         chromeFallbackEligible: false,
-        selectionPolicy: "RELEVANCE_THEN_DIVERSE_MERCHANTS_THEN_PRICE" as const
+        irrelevantProductsExcluded: 0,
+        selectionPolicy: "EXACT_THEN_SIMILAR_THEN_DIVERSE_MERCHANTS_THEN_PRICE" as const
       },
+      questions: [],
       products: []
     }
   };
@@ -315,7 +325,7 @@ export function createShoppingServer(
   bestBuyPort: BestBuyPort = createUnavailableBestBuyPort(),
   shopifyPort: ShopifyPort = createUnavailableShopifyPort()
 ): McpServer {
-  const server = new McpServer({ name: "findcheap-agent", version: "0.1.0" });
+  const server = new McpServer({ name: "findcheap-agent", version: "0.2.1" });
 
   server.registerTool(
     "compare_products",
@@ -369,7 +379,7 @@ export function createShoppingServer(
     "search_shopify_products",
     {
       title: "Search Shopify products (Beta)",
-      description: "Search ten fixed tokenless Shopify Storefront pilots by product query or handle. Returns relevance-filtered, merchant-diverse public item prices.",
+      description: "Search ten fixed tokenless Shopify Storefront pilots by product query or handle. Returns exact matches before labeled similar products; irrelevant products are excluded.",
       inputSchema: ShopifyProductsInputSchema,
       outputSchema: ShopifyProductsOutputShape,
       annotations: {

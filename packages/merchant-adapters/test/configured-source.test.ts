@@ -356,7 +356,8 @@ describe("production configured source", () => {
               barcode: "851552005094",
               availableForSale: true,
               price: { amount: "14.99", currencyCode: "USD" },
-              image: null
+              image: null,
+              selectedOptions: []
             }
           }]
         }
