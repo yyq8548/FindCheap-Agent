@@ -24,25 +24,51 @@ function text(node: FakeNode): string {
 }
 
 describe("product-card MCP Apps UI", () => {
-  it("renders structured product results delivered by the host bridge", () => {
+  it("initializes the MCP Apps bridge before rendering host results", async () => {
     const script = PRODUCT_CARD_HTML.match(/<script>([\s\S]*)<\/script>/u)?.[1];
     expect(script).toBeDefined();
 
     const app = new FakeNode();
     let onMessage: ((event: { source: object; data: unknown }) => void) | undefined;
-    const parent = {};
+    const messages: unknown[] = [];
+    const parent = { postMessage: (message: unknown) => messages.push(message) };
     const window = {
       parent,
       openai: undefined,
       addEventListener: (_type: string, listener: typeof onMessage) => { onMessage = listener; },
-      setTimeout: () => 1
+      setTimeout: () => 1,
+      ResizeObserver: undefined
     };
     const document = {
       getElementById: () => app,
-      createElement: () => new FakeNode()
+      createElement: () => new FakeNode(),
+      documentElement: { scrollWidth: 700, scrollHeight: 320 },
+      body: { scrollWidth: 700, scrollHeight: 320 }
     };
 
-    vm.runInNewContext(script!, { window, document, URL, Intl, Number, String, Array, Object });
+    vm.runInNewContext(script!, { window, document, URL, Intl, Number, String, Array, Object, Promise, Map, Math });
+    expect(messages[0]).toEqual({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "ui/initialize",
+      params: {
+        protocolVersion: "2026-01-26",
+        appInfo: { name: "FindCheap product cards", version: "0.3.5" },
+        appCapabilities: { availableDisplayModes: ["inline"] }
+      }
+    });
+    onMessage?.({ source: parent, data: { jsonrpc: "2.0", id: 1, result: {} } });
+    await Promise.resolve();
+    expect(messages).toContainEqual({
+      jsonrpc: "2.0",
+      method: "ui/notifications/initialized",
+      params: {}
+    });
+    expect(messages).toContainEqual({
+      jsonrpc: "2.0",
+      method: "ui/notifications/size-changed",
+      params: { width: 700, height: 320 }
+    });
     onMessage?.({
       source: parent,
       data: {

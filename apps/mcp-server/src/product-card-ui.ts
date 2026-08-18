@@ -1,6 +1,6 @@
 import { SHOPIFY_REGISTRY } from "./shopify-registry.js";
 
-export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v2.html";
+export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v3.html";
 
 export const PRODUCT_CARD_RESOURCE_DOMAINS = [
   "https://cdn.shopify.com",
@@ -43,6 +43,23 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
   <script>
     const app = document.getElementById("app");
     let hasResult = false;
+    let nextRequestId = 1;
+    const pendingRequests = new Map();
+    const notify = (method, params = {}) => {
+      window.parent.postMessage({ jsonrpc: "2.0", method, params }, "*");
+    };
+    const request = (method, params) => {
+      const id = nextRequestId++;
+      window.parent.postMessage({ jsonrpc: "2.0", id, method, params }, "*");
+      return new Promise((resolve, reject) => pendingRequests.set(id, { resolve, reject }));
+    };
+    const reportSize = () => {
+      const root = document.documentElement;
+      const body = document.body;
+      const width = Math.ceil(Math.max(root?.scrollWidth || 0, body?.scrollWidth || 0));
+      const height = Math.ceil(Math.max(root?.scrollHeight || 0, body?.scrollHeight || 0));
+      if (width > 0 && height > 0) notify("ui/notifications/size-changed", { width, height });
+    };
     const make = (tag, className, text) => {
       const node = document.createElement(tag);
       if (className) node.className = className;
@@ -103,11 +120,19 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
         cards.append(card);
       }
       app.append(summary, cards);
+      window.setTimeout(reportSize, 0);
     }
     window.addEventListener("message", (event) => {
       if (event.source !== window.parent) return;
       const message = event.data;
       if (!message || message.jsonrpc !== "2.0") return;
+      if (message.id !== undefined && pendingRequests.has(message.id)) {
+        const pending = pendingRequests.get(message.id);
+        pendingRequests.delete(message.id);
+        if (message.error) pending.reject(message.error);
+        else pending.resolve(message.result);
+        return;
+      }
       if (message.method === "ui/notifications/tool-result") render(message.params?.structuredContent);
     }, { passive: true });
     const responseMetadata = window.openai?.toolResponseMetadata;
@@ -115,6 +140,19 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       || responseMetadata?.mcp_tool_result?.structuredContent
       || responseMetadata?.call_tool_result?.structuredContent;
     if (initialOutput) render(initialOutput);
+    request("ui/initialize", {
+      protocolVersion: "2026-01-26",
+      appInfo: { name: "FindCheap product cards", version: "0.3.5" },
+      appCapabilities: { availableDisplayModes: ["inline"] }
+    }).then(() => {
+      notify("ui/notifications/initialized");
+      reportSize();
+      if (typeof window.ResizeObserver === "function") {
+        new window.ResizeObserver(reportSize).observe(document.documentElement);
+      }
+    }).catch(() => {
+      app.replaceChildren(make("div", "empty error", "Product-card UI could not connect. Text results remain available."));
+    });
     window.setTimeout(() => {
       if (!hasResult) {
         app.replaceChildren(make("div", "empty error", "Product-card data did not arrive. Text results remain available."));
