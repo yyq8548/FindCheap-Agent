@@ -42,7 +42,8 @@ const VARIANT_COLORS = new Set([
   "navy", "orange", "pink", "purple", "red", "silver", "tan", "white", "yellow"
 ]);
 const ACCESSORY_TERMS = new Set([
-  "adapter", "cable", "case", "charger", "cover", "holder", "protector", "replacement", "stand"
+  "accessories", "accessory", "adapter", "cable", "case", "charger", "charm", "charms", "cover",
+  "holder", "keychain", "keychains", "keyring", "protector", "replacement", "stand"
 ]);
 
 export function classifyShopifyCandidate(

@@ -291,7 +291,29 @@ function bestBuyUnavailableResult() {
 function shopifyResult(result: ShopifySearchResult) {
   const exactCount = result.products.filter((product) => product.matchStatus === "EXACT").length;
   const similarCount = result.products.length - exactCount;
-  const message = `The audited Shopify registry returned ${result.products.length} product(s): ${exactCount} exact and ${similarCount} similar, from ${result.merchantsSucceeded}/${result.merchantsQueried} stores. Prices are public item prices only; shipping, tax, coupons, and member pricing are not included.`;
+  const summary = `The audited Shopify registry returned ${result.products.length} product(s): ${exactCount} exact and ${similarCount} similar, from ${result.merchantsSucceeded}/${result.merchantsQueried} stores. Prices are public item prices only; shipping, tax, coupons, and member pricing are not included.`;
+  const products = result.products.map((product, index) => {
+    const price = product.itemPrice === undefined
+      ? "price unavailable"
+      : `${product.itemPrice.currency} ${(product.itemPrice.amountCents / 100).toFixed(2)}`;
+    const variants = Object.entries(product.variantDimensions)
+      .map(([name, value]) => `${name}: ${value}`)
+      .join(", ");
+    return [
+      `${index + 1}. [${product.matchStatus}] ${product.title}`,
+      `merchant: ${product.merchant} (${product.sourceHost})`,
+      `price: ${price}`,
+      `availability: ${product.availability}`,
+      `match evidence: ${product.matchEvidence.join("; ")}`,
+      ...(variants === "" ? [] : [`variants: ${variants}`]),
+      `URL: ${product.merchantUrl}`
+    ].join(" | ");
+  });
+  const message = [
+    summary,
+    ...products,
+    "This response is complete. Do not call this tool again for this user lookup; format the answer from this response."
+  ].join("\n");
   return {
     content: [{ type: "text" as const, text: message }],
     structuredContent: {
@@ -401,7 +423,7 @@ export function createShoppingServer(
     "search_shopify_products",
     {
       title: "Search Shopify products (Beta)",
-      description: "Search a bounded audited Shopify Storefront registry by product query or handle. Set selectionMode=LOWEST_PRICE only for explicit cheapest requests; otherwise set selectionMode=MERCHANT_DIVERSE. Returns coverage diagnostics; exact matches rank before labeled similar products and irrelevant products are excluded.",
+      description: "Search a bounded audited Shopify Storefront registry by product query or handle. Do not call this tool more than once per user lookup. Set selectionMode=LOWEST_PRICE only for explicit cheapest requests; otherwise set selectionMode=MERCHANT_DIVERSE. The first response includes complete Top 3 text and structured details; exact matches rank before labeled similar products and irrelevant products are excluded.",
       inputSchema: ShopifyProductsToolInputSchema,
       outputSchema: ShopifyProductsOutputShape,
       annotations: {

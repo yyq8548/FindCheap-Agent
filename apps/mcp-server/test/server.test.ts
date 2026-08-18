@@ -161,6 +161,7 @@ describe("shopping MCP server", () => {
     ]);
     expect(tools.tools[2]?.inputSchema.required).toContain("selectionMode");
     expect(tools.tools[2]?.description).toContain("selectionMode=LOWEST_PRICE");
+    expect(tools.tools[2]?.description).toContain("Do not call this tool more than once per user lookup");
     expect(tools.tools[2]?.inputSchema.properties?.selectionMode).toMatchObject({
       description: expect.stringContaining("MERCHANT_DIVERSE")
     });
@@ -226,6 +227,8 @@ describe("shopping MCP server", () => {
         itemPrice: { amountCents: 1_499 }
       }]
     });
+    expect(JSON.stringify(result.content)).toContain("Valhalla Java Single-Serve Pods");
+    expect(JSON.stringify(result.content)).toContain("Do not call this tool again for this user lookup");
     expect(JSON.stringify(result)).not.toMatch(/deliveredPrice|rawEvidence/i);
   });
 

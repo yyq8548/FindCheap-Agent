@@ -114,7 +114,7 @@ describe("FindCheap-Agent v0.2.3 Chrome contract", () => {
     expect(manifest.interface.longDescription).toMatch(/Codex Plugin Agent/u);
     expect(manifest.interface.longDescription).toMatch(/authorized Chrome/u);
     expect(manifest.interface.defaultPrompt).toEqual([
-      "Search Shopify first. Call search_shopify_products once: limit=3; selectionMode=MERCHANT_DIVERSE unless cheapest is explicit."
+      "Shopify first. Call search_shopify_products exactly once: limit=3; selectionMode=MERCHANT_DIVERSE unless cheapest is explicit."
     ]);
     expect(new TextEncoder().encode(manifest.interface.defaultPrompt[0]).length).toBeLessThanOrEqual(128);
   });
