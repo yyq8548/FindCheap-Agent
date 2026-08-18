@@ -11,7 +11,7 @@
 
 - Use deterministic API tool calls, typed parsing, host allowlists, and failure isolation; no model planning or multi-agent workflow is needed.
 - The reusable reader calls `https://<audited-host>/api/2026-07/graphql.json` with a fixed GraphQL document and encoded variables.
-- The checked-in v1 registry contains Death Wish Coffee, Kith, Allbirds, Brooklinen, Fashion Nova, Tentree, ColourPop, Liquid Death, Pura Vida, and Steve Madden. Strict validation allows at most fifty entries. The MCP caller cannot supply a host or URL.
+- The checked-in v2 registry contains twenty technically verified stores: Death Wish Coffee, Kith, Allbirds, Brooklinen, Fashion Nova, Tentree, ColourPop, Liquid Death, Pura Vida, Steve Madden, Taylor Stitch, Beardbrand, Blenders Eyewear, UNTUCKit, Outerknown, Rebecca Minkoff, Gorjana, Parachute, Our Place, and Glossier. Strict validation allows at most fifty entries. The MCP caller cannot supply a host or URL.
 - `searchEnabled` controls this technical Beta search only. It is not merchant consent, legal approval, or Commerce enablement.
 - The formal ingestion path accepts the same `shopify-storefront` provider only after the existing catalog, legal, decision-record, and enablement gates pass.
 
@@ -33,7 +33,7 @@
 
 - Deterministic tests cover search, handle lookup, mapping, invalid inputs, external URL rejection, unavailable configuration, MCP schema validation, the merchant approval gate, and 20 product-identity Golden Tasks.
 - A live probe must return public product records with source URL and timestamp without credentials.
-- `pnpm merchants:shopify-registry-audit` must pass all ten technical probes before release. This verifies access and schema only; it does not grant merchant or legal approval.
+- `pnpm merchants:shopify-registry-audit` must pass all twenty technical probes before release. Every probe must return a schema-valid public product within three seconds, coverage must be 100%, and p95 latency must be at most 2.5 seconds. This verifies technical access, schema, price, and canonical URL only; it does not grant merchant, legal, or affiliate approval.
 - Hard invariants: zero arbitrary host access, zero secrets, zero purchase action, zero delivered-price claim, and zero automatic merchant enablement.
 
 ## Rollout, observability, and rollback
@@ -60,7 +60,7 @@
 
 ## Live evidence
 
-- On 2026-08-18 ET, `pnpm merchants:shopify-registry-audit` passed 10/10 fixed merchants. The scheduled workflow repeats this technical access check daily and fails closed on any error or empty probe.
+- On 2026-08-18 ET, `pnpm merchants:shopify-registry-audit` passed 20/20 fixed merchants with 100% coverage and 300 ms p95 latency. The scheduled workflow repeats this technical access and quality check daily and fails closed on any error, empty probe, or latency-budget breach.
 - On 2026-08-17 ET, the tokenless Storefront API returned three live results for `Valhalla Java`.
 - The selected `Valhalla Java Single-Serve Pods — 10 count` variant returned SKU `5094SSC`, barcode `851552005094`, public item price `$14.99 USD`, and `availableForSale: true`.
 - This verifies technical access only; it is not merchant or legal approval.

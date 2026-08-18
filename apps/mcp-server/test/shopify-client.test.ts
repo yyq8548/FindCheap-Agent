@@ -5,7 +5,7 @@ import { SHOPIFY_PILOTS, createShopifyPortFromEnvironment } from "../src/shopify
 const now = "2026-08-18T01:00:00.000Z";
 
 describe("Shopify Storefront MCP client", () => {
-  it("searches the fixed ten-store registry and ranks relevant item prices", async () => {
+  it("searches the fixed twenty-store registry and ranks relevant item prices", async () => {
     const prices = new Map<string, string | string[]>([
       ["deathwishcoffee.com", "19.99"], ["kith.com", "29.99"],
       ["www.allbirds.com", "14.99"], ["www.brooklinen.com", "24.99"],
@@ -22,15 +22,15 @@ describe("Shopify Storefront MCP client", () => {
 
     const result = await port.search({ query: "shirt", limit: 3 });
 
-    expect(SHOPIFY_PILOTS).toHaveLength(10);
-    expect(safeFetch).toHaveBeenCalledTimes(10);
+    expect(SHOPIFY_PILOTS).toHaveLength(20);
+    expect(safeFetch).toHaveBeenCalledTimes(20);
     expect(new Set(safeFetch.mock.calls.map(([input]) => new URL(input.url).hostname))).toEqual(
       new Set(SHOPIFY_PILOTS.map((pilot) => pilot.apiHost))
     );
     expect(result).toMatchObject({
       coverage: "COMPLETE",
-      merchantsQueried: 10,
-      merchantsSucceeded: 10,
+      merchantsQueried: 20,
+      merchantsSucceeded: 20,
       diagnostics: {
         cacheStatus: "MISS",
         chromeFallbackEligible: false,
@@ -39,7 +39,7 @@ describe("Shopify Storefront MCP client", () => {
         coveragePercent: 100,
         failedMerchantIds: [],
         timedOutMerchantIds: [],
-        registryVersion: "v1",
+        registryVersion: "v2",
         searchTimeoutMs: 3_000,
         selectionPolicy: "EXACT_THEN_SIMILAR_THEN_DIVERSE_MERCHANTS_THEN_PRICE"
       }
@@ -240,8 +240,8 @@ describe("Shopify Storefront MCP client", () => {
     ]);
     const third = await port.search({ query: "shirt", limit: 3 });
 
-    expect(safeFetch).toHaveBeenCalledTimes(10);
-    expect(first.diagnostics).toMatchObject({ cacheStatus: "MISS", apiDurationMs: 100 });
+    expect(safeFetch).toHaveBeenCalledTimes(20);
+    expect(first.diagnostics).toMatchObject({ cacheStatus: "MISS", apiDurationMs: 200 });
     expect(second.diagnostics).toMatchObject({ cacheStatus: "COALESCED", apiDurationMs: 0 });
     expect(third.diagnostics).toMatchObject({ cacheStatus: "HIT", apiDurationMs: 0 });
     expect(second.products).toEqual(first.products);
@@ -267,10 +267,10 @@ describe("Shopify Storefront MCP client", () => {
     const result = await port.search({ query: "shoes", limit: 3 });
 
     expect(result.coverage).toBe("PARTIAL");
-    expect(result.merchantsSucceeded).toBe(9);
+    expect(result.merchantsSucceeded).toBe(19);
     expect(result.diagnostics).toMatchObject({
       merchantsFailed: 1,
-      coveragePercent: 90,
+      coveragePercent: 95,
       failedMerchantIds: ["kith"],
       timedOutMerchantIds: []
     });
@@ -315,7 +315,7 @@ describe("Shopify Storefront MCP client", () => {
     }
   });
 
-  it("returns complete empty only when all ten stores succeed", async () => {
+  it("returns complete empty only when all twenty stores succeed", async () => {
     const safeFetch = vi.fn(async (input: { url: string }) => storefrontResponse(input.url, new URL(input.url).hostname));
     const port = createShopifyPortFromEnvironment(
       { SHOPIFY_STOREFRONT_MODE: "audited-registry" },
@@ -323,8 +323,8 @@ describe("Shopify Storefront MCP client", () => {
     );
     await expect(port.search({ query: "no-match", limit: 3 })).resolves.toMatchObject({
       coverage: "COMPLETE",
-      merchantsQueried: 10,
-      merchantsSucceeded: 10,
+      merchantsQueried: 20,
+      merchantsSucceeded: 20,
       diagnostics: { chromeFallbackEligible: true },
       products: []
     });
