@@ -3876,6 +3876,11 @@
       "format": "esm",
       "imports": [
         {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:crypto"
+        },
+        {
           "kind": "import-statement",
           "original": "@modelcontextprotocol/sdk/server/mcp.js",
           "path": "../../node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/server/mcp.js"
@@ -3999,7 +4004,7 @@
   },
   "outputs": {
     "../../plugins/shopping-agent/dist/mcp-server.js": {
-      "bytes": 404564,
+      "bytes": 405209,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
@@ -4042,6 +4047,11 @@
           "external": true,
           "kind": "import-statement",
           "path": "node:https"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:crypto"
         }
       ],
       "inputs": {
@@ -4559,7 +4569,7 @@
           "bytesInOutput": 5958
         },
         "src/server.ts": {
-          "bytesInOutput": 17174
+          "bytesInOutput": 17819
         },
         "src/shopify-client.ts": {
           "bytesInOutput": 6820

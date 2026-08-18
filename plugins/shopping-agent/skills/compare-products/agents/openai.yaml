@@ -1,4 +1,4 @@
 interface:
-  display_name: "FindCheap-Agent v0.3.3"
+  display_name: "FindCheap-Agent v0.3.4"
   short_description: "Verified product cards and safe purchase links"
-  default_prompt: "Use $compare-products and call the auto-loaded search_shopify_products tool exactly once. Never locate or manually launch plugin files. Pass comparisonMode=SAME_PRODUCT for explicit same-product requests and DISCOVERY otherwise. For NEEDS_CLARIFICATION, ask the returned question and stop without Chrome. Use LOWEST_PRICE only for explicit cheapest requests; otherwise use MERCHANT_DIVERSE. Report comparison.status exactly."
+  default_prompt: "Call search_shopify_products once with no preamble; then call render_product_cards once with renderId. Never launch MCP."

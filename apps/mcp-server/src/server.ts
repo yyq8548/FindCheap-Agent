@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import {
@@ -216,6 +217,7 @@ const ShopifyProductOutputSchema = z.object({
 });
 
 const ShopifyProductsOutputShape = {
+  renderId: z.string().uuid().optional(),
   status: z.enum(["OK", "NEEDS_CLARIFICATION", "DATA_SOURCE_UNAVAILABLE"]),
   message: z.string(),
   source: z.literal("SHOPIFY_STOREFRONT_API"),
@@ -580,7 +582,24 @@ export function createShoppingServer(
   bestBuyPort: BestBuyPort = createUnavailableBestBuyPort(),
   shopifyPort: ShopifyPort = createUnavailableShopifyPort()
 ): McpServer {
-  const server = new McpServer({ name: "findcheap-agent", version: "0.3.3" });
+  const server = new McpServer({ name: "findcheap-agent", version: "0.3.4" });
+  const renderSnapshots = new Map<string, {
+    expiresAt: number;
+    content: ReturnType<typeof shopifyResult>["structuredContent"] & { renderId: string };
+  }>();
+  const rememberSnapshot = (
+    content: ReturnType<typeof shopifyResult>["structuredContent"]
+  ): ReturnType<typeof shopifyResult>["structuredContent"] & { renderId: string } => {
+    const renderId = randomUUID();
+    const snapshot = { ...content, renderId };
+    renderSnapshots.set(renderId, { expiresAt: Date.now() + 5 * 60_000, content: snapshot });
+    while (renderSnapshots.size > 32) {
+      const oldest = renderSnapshots.keys().next().value as string | undefined;
+      if (oldest === undefined) break;
+      renderSnapshots.delete(oldest);
+    }
+    return snapshot;
+  };
 
   server.registerResource(
     "findcheap-product-cards",
@@ -661,7 +680,7 @@ export function createShoppingServer(
     "search_shopify_products",
     {
       title: "Search Shopify products (Beta)",
-      description: "Search a bounded audited Shopify Storefront registry by product query or handle. Do not call this tool more than once per user lookup. Set comparisonMode=SAME_PRODUCT for an explicit like-for-like request and DISCOVERY otherwise. Generic SAME_PRODUCT input returns NEEDS_CLARIFICATION before merchant calls. Pass an explicit budget through maxItemPriceCents as integer USD cents; keep price words and currency symbols out of query. Set selectionMode=LOWEST_PRICE only for explicit cheapest requests; otherwise set selectionMode=MERCHANT_DIVERSE. Cross-merchant offers are grouped only by exact GTIN plus variant or exact brand plus MPN/SKU plus variant; title similarity never proves the same product.",
+      description: "Search audited Shopify stores once per lookup. Use comparisonMode=SAME_PRODUCT only with exact identity; selectionMode=LOWEST_PRICE only when cheapest is explicit, otherwise MERCHANT_DIVERSE. Put budget in maxItemPriceCents. Do not call this tool more than once per user lookup.",
       inputSchema: ShopifyProductsToolInputSchema,
       outputSchema: ShopifyProductsOutputShape,
       annotations: {
@@ -669,12 +688,6 @@ export function createShoppingServer(
         destructiveHint: false,
         idempotentHint: true,
         openWorldHint: true
-      },
-      _meta: {
-        ui: { resourceUri: PRODUCT_CARD_UI_URI },
-        "openai/outputTemplate": PRODUCT_CARD_UI_URI,
-        "openai/toolInvocation/invoking": "Searching verified stores…",
-        "openai/toolInvocation/invoked": "Verified product cards ready."
       }
     },
     async (input) => {
@@ -688,13 +701,60 @@ export function createShoppingServer(
       }
       try {
         const result = await shopifyPort.search(validatedInput);
-        return shopifyResult(result, {
+        const response = shopifyResult(result, {
           ...(validatedInput.zipCode === undefined ? {} : { zipCode: validatedInput.zipCode }),
           membershipIds: validatedInput.membershipIds ?? []
         });
+        if (response.structuredContent.products.length === 0) return response;
+        return {
+          ...response,
+          structuredContent: rememberSnapshot(response.structuredContent)
+        };
       } catch {
         return shopifyUnavailableResult(validatedInput.selectionMode, validatedInput);
       }
+    }
+  );
+
+  server.registerTool(
+    "render_product_cards",
+    {
+      title: "Render verified product cards",
+      description: "Render the immutable snapshot identified by renderId from search_shopify_products.",
+      inputSchema: z.object({ renderId: z.string().uuid() }).strict(),
+      outputSchema: ShopifyProductsOutputShape,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false
+      },
+      _meta: {
+        ui: { resourceUri: PRODUCT_CARD_UI_URI },
+        "openai/outputTemplate": PRODUCT_CARD_UI_URI,
+        "openai/toolInvocation/invoking": "Rendering verified product cards…",
+        "openai/toolInvocation/invoked": "Verified product cards ready."
+      }
+    },
+    async ({ renderId }) => {
+      const snapshot = renderSnapshots.get(renderId);
+      if (snapshot === undefined || snapshot.expiresAt <= Date.now()) {
+        renderSnapshots.delete(renderId);
+        return {
+          isError: true,
+          content: [{
+            type: "text" as const,
+            text: "Product-card snapshot is unavailable. Run search_shopify_products once."
+          }]
+        };
+      }
+      return {
+        content: [{
+          type: "text" as const,
+          text: `Rendered ${snapshot.content.products.length} verified product card${snapshot.content.products.length === 1 ? "" : "s"}.`
+        }],
+        structuredContent: snapshot.content
+      };
     }
   );
 

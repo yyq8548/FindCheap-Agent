@@ -142,12 +142,14 @@ const comparison: ComparisonResult = {
 };
 
 describe("shopping MCP server", () => {
-  it("publishes a safe MCP Apps product-card resource and binds it to Shopify search", async () => {
+  it("publishes a safe MCP Apps resource bound only to explicit card rendering", async () => {
     const client = await connect({ compare: async () => comparison });
 
     const tools = await client.listTools();
-    const tool = tools.tools.find((candidate) => candidate.name === "search_shopify_products");
-    expect(tool?._meta).toMatchObject({
+    const searchTool = tools.tools.find((candidate) => candidate.name === "search_shopify_products");
+    const renderTool = tools.tools.find((candidate) => candidate.name === "render_product_cards");
+    expect(searchTool?._meta).toBeUndefined();
+    expect(renderTool?._meta).toMatchObject({
       ui: { resourceUri: "ui://findcheap/product-cards/v1.html" },
       "openai/outputTemplate": "ui://findcheap/product-cards/v1.html"
     });
@@ -176,7 +178,8 @@ describe("shopping MCP server", () => {
     expect(tools.tools.map((tool) => tool.name)).toEqual([
       "compare_products",
       "search_bestbuy_products",
-      "search_shopify_products"
+      "search_shopify_products",
+      "render_product_cards"
     ]);
     expect(Object.keys(tools.tools[0]?.inputSchema.properties ?? {}).sort()).toEqual([
       "membershipIds",
@@ -206,6 +209,7 @@ describe("shopping MCP server", () => {
     expect(tools.tools[2]?.inputSchema.properties?.selectionMode).toMatchObject({
       description: expect.stringContaining("MERCHANT_DIVERSE")
     });
+    expect(Object.keys(tools.tools[3]?.inputSchema.properties ?? {})).toEqual(["renderId"]);
     expect(tools.tools[0]?.annotations).toMatchObject({
       readOnlyHint: true,
       destructiveHint: false
@@ -316,6 +320,21 @@ describe("shopping MCP server", () => {
         affiliateLinksApproved: 0
       }
     });
+    const renderId = (result.structuredContent as { renderId?: unknown })?.renderId;
+    expect(renderId).toEqual(expect.any(String));
+
+    const rendered = await client.callTool({
+      name: "render_product_cards",
+      arguments: { renderId }
+    });
+    expect(rendered.structuredContent).toMatchObject({
+      renderId,
+      products: [{ card: { title: "Valhalla Java Single-Serve Pods — 10 count" } }]
+    });
+    expect(rendered.content).toEqual([{
+      type: "text",
+      text: "Rendered 1 verified product card."
+    }]);
   });
 
   it("uses canonical links when no affiliate relationship is approved", async () => {
@@ -429,7 +448,6 @@ describe("shopping MCP server", () => {
         selectionMode: "MERCHANT_DIVERSE"
       }
     });
-
     expect(search).not.toHaveBeenCalled();
     expect(result.structuredContent).toMatchObject({
       status: "NEEDS_CLARIFICATION",
@@ -438,6 +456,22 @@ describe("shopping MCP server", () => {
       questions: [expect.stringContaining("brand")]
     });
     expect(JSON.stringify(result.content)).toContain("NEEDS_CLARIFICATION");
+  });
+
+  it("fails closed when a card render snapshot is absent or expired", async () => {
+    const client = await connect({ compare: async () => comparison });
+
+    const result = await client.callTool({
+      name: "render_product_cards",
+      arguments: { renderId: "00000000-0000-4000-8000-000000000000" }
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toEqual([{
+      type: "text",
+      text: "Product-card snapshot is unavailable. Run search_shopify_products once."
+    }]);
+    expect(result.structuredContent).toBeUndefined();
   });
 
   it.each([

@@ -61,3 +61,7 @@ bundle-location work from normal searches. Shopify results now attach a versione
 resource that renders up to three verified product cards while preserving the complete text and
 structured result for clients without UI support.
 
+v0.3.4 removes pre-search narration and separates retrieval from presentation: one Shopify search
+returns a short-lived `renderId`, then `render_product_cards` renders the immutable result through the
+MCP Apps UI resource. Search remains independently usable by clients without UI support.
+

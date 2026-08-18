@@ -1,6 +1,6 @@
 {
   "name": "shopping-agent",
-  "version": "0.3.3+codex.20260818225456",
+  "version": "0.3.4+codex.20260818231019",
   "description": "Return verified product cards with evidence-bounded pricing, coupon, and purchase-link status.",
   "author": {
     "name": "yyq8548"
@@ -12,14 +12,14 @@
   "interface": {
     "displayName": "FindCheap-Agent",
     "shortDescription": "Verified cards, pricing, coupons, and safe links.",
-    "longDescription": "FindCheap-Agent is a Codex Plugin Agent. v0.3.3 auto-loads its MCP tools, searches a 45-store technically audited Shopify Storefront registry once, verifies same-product identity, renders MCP UI product cards, reports evidence-bounded pricing and Coupon status, uses approved affiliate links only when audited, otherwise preserves the canonical merchant link, and uses authorized Chrome only after complete zero-result API coverage.",
+    "longDescription": "FindCheap-Agent is a Codex Plugin Agent. v0.3.4 calls its auto-loaded MCP search without a preamble, searches a 45-store technically audited Shopify Storefront registry once, verifies same-product identity, and explicitly renders a dynamic MCP UI product-card snapshot. It uses authorized Chrome only after complete zero-result API coverage.",
     "developerName": "yyq8548",
     "category": "Productivity",
     "capabilities": [
       "Interactive"
     ],
     "defaultPrompt": [
-      "Shopify first; call search_shopify_products once. Use comparisonMode=SAME_PRODUCT for comparisons; otherwise DISCOVERY."
+      "Call search_shopify_products once with no preamble; then call render_product_cards once with renderId. Never launch MCP."
     ]
   }
 }

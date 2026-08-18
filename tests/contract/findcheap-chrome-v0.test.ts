@@ -21,13 +21,15 @@ const manifestPath = path.join(
 );
 const readmePath = path.join(root, "README.md");
 
-describe("FindCheap-Agent v0.3.3 Chrome contract", () => {
+describe("FindCheap-Agent v0.3.4 Chrome contract", () => {
   it("uses Shopify first and Chrome only after a successful zero-result response", async () => {
     const skill = await readFile(skillPath, "utf8");
 
     expect(skill).toContain("Shopify-first default");
     expect(skill).toContain("The plugin MCP server is auto-loaded");
     expect(skill).toContain("Never inspect the plugin cache");
+    expect(skill).toContain("do not announce, explain, or summarize the plan before the tool call");
+    expect(skill).toContain("call `render_product_cards` exactly once with the returned `renderId`");
     expect(skill).toContain("`search_shopify_products`");
     expect(skill).toContain("Call `search_shopify_products` exactly once per user lookup");
     expect(skill).toContain("Do not repeat a successful call");
@@ -125,11 +127,11 @@ describe("FindCheap-Agent v0.3.3 Chrome contract", () => {
       interface: { defaultPrompt: string[]; longDescription: string };
     };
 
-    expect(manifest.version).toMatch(/^0\.3\.3(?:\+codex\.)?/u);
+    expect(manifest.version).toMatch(/^0\.3\.4(?:\+codex\.)?/u);
     expect(manifest.interface.longDescription).toMatch(/Codex Plugin Agent/u);
     expect(manifest.interface.longDescription).toMatch(/authorized Chrome/u);
     expect(manifest.interface.defaultPrompt).toEqual([
-      "Shopify first; call search_shopify_products once. Use comparisonMode=SAME_PRODUCT for comparisons; otherwise DISCOVERY."
+      "Call search_shopify_products once with no preamble; then call render_product_cards once with renderId. Never launch MCP."
     ]);
     expect(new TextEncoder().encode(manifest.interface.defaultPrompt[0]).length).toBeLessThanOrEqual(128);
   });
