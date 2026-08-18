@@ -1,6 +1,6 @@
 {
   "name": "shopping-agent",
-  "version": "0.1.0+codex.20260818040519",
+  "version": "0.1.2+codex.20260818041512",
   "description": "Search five fixed Shopify APIs first, with authorized Chrome only after complete zero-result coverage.",
   "author": {
     "name": "yyq8548"
@@ -12,12 +12,12 @@
   "interface": {
     "displayName": "FindCheap-Agent",
     "shortDescription": "Search five Shopify stores before Chrome fallback.",
-    "longDescription": "FindCheap-Agent is a Codex Plugin Agent. v0.1.1 searches five fixed Shopify Storefront pilots in parallel and uses authorized Chrome only after complete API coverage returns zero products, without membership, checkout, or payment actions.",
+    "longDescription": "FindCheap-Agent is a Codex Plugin Agent. v0.1.2 searches five fixed Shopify Storefront pilots once, prioritizes merchant diversity, reports diagnostics, and uses authorized Chrome only after complete API coverage returns zero products.",
     "developerName": "yyq8548",
     "category": "Productivity",
     "capabilities": [],
     "defaultPrompt": [
-      "Use FindCheap-Agent to search the five-store Shopify registry first and use authorized Chrome only when complete API coverage returns zero products."
+      "Use FindCheap-Agent to call the five-store Shopify search once, return three merchant-diverse lowest prices, and use authorized Chrome only after complete zero-result coverage."
     ]
   }
 }

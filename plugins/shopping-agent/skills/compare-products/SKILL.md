@@ -3,7 +3,7 @@ name: compare-products
 description: Search five fixed Shopify Storefront APIs first for ordinary FindCheap-Agent product requests, then use the user's authorized Chrome session only after complete API coverage returns zero products. Use for current public item price, availability, or exact-model requests. Membership, delivered-price, coupon, checkout, and payment requests are out of scope in v0.1.
 ---
 
-# FindCheap-Agent v0.1 product search
+# FindCheap-Agent v0.1.2 product search
 
 Risk tier: `R0`. Perform one read-only public-product lookup. Do not persist browser data.
 
@@ -11,13 +11,15 @@ Risk tier: `R0`. Perform one read-only public-product lookup. Do not persist bro
 
 Apply this routing before any browser action:
 
-1. **Shopify-first default.** For an ordinary product search, call `search_shopify_products` before any Chrome search. This API covers only the fixed five-store registry—Death Wish Coffee, Kith, Allbirds, Brooklinen, and Fashion Nova—not all Shopify stores or the whole web.
+1. **Shopify-first default.** For an ordinary product search, call `search_shopify_products` before any Chrome search. Call `search_shopify_products` exactly once per user lookup. Do not repeat a successful call to verify, rerank, or reformat its result. This API covers only the fixed five-store registry—Death Wish Coffee, Kith, Allbirds, Brooklinen, and Fashion Nova—not all Shopify stores or the whole web.
 2. If Shopify returns `status: OK` and one or more products, return those API results. Do not open Chrome when Shopify returns one or more products.
 3. Use the Chrome workflow only when Shopify returns `status: OK`, `coverage: COMPLETE`, and `products.length === 0`. This is a single bounded fallback for the current lookup; never run Shopify and Chrome in parallel.
 4. Do not use Chrome for `coverage: PARTIAL`, an API error, `DATA_SOURCE_UNAVAILABLE`, malformed response, or timeout. Return available API products when partial coverage produced results; otherwise report the API failure.
 5. If the user explicitly requests no Chrome, return the empty Shopify result without fallback. If the user explicitly names another tool or source, follow that explicit request instead of the ordinary Shopify-first default.
 
 For an API result, preserve the tool's source label and pricing scope. Do not relabel it `BROWSER_OBSERVED`, claim that it covers the web, or add tax, shipping, coupon, membership, or delivered-price claims.
+
+For every response report `API duration`, Shopify coverage, and Chrome fallback: `NOT_USED` or `USED`. Render the fallback value as `NOT_USED` when API products are returned or fallback is ineligible. Use `USED` only after Chrome was actually opened. The API ranks one lowest-priced result per merchant first, then fills remaining slots by price when fewer merchants have results.
 
 The remaining instructions apply only after the successful zero-result Shopify response selects the Chrome fallback.
 

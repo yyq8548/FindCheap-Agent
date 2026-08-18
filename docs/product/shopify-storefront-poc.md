@@ -51,7 +51,7 @@
 ## Acceptance criteria and open decisions
 
 - `pnpm merchants:shopify-probe -- --query "Valhalla Java" --limit 3` returns live products.
-- Codex discovers `search_shopify_products` and returns globally ranked public item prices from the fixed five-store registry.
+- Codex discovers `search_shopify_products`, calls it once per lookup, and returns merchant-diverse public item prices from the fixed five-store registry.
 - The tool never accepts a caller-provided host.
 - Open decision: whether each pilot's terms and data quality support production use. Owner approval is still required for every store.
 

@@ -37,6 +37,12 @@ const shopifyPort: ShopifyPort = {
     coverage: "COMPLETE",
     merchantsQueried: 5,
     merchantsSucceeded: 5,
+    diagnostics: {
+      apiDurationMs: 250,
+      cacheStatus: "MISS",
+      chromeFallbackEligible: false,
+      selectionPolicy: "DIVERSE_MERCHANTS_THEN_PRICE"
+    },
     products: [{
       merchantId: "death-wish-coffee",
       merchant: "Death Wish Coffee",
@@ -172,6 +178,12 @@ describe("shopping MCP server", () => {
       coverage: "COMPLETE",
       merchantsQueried: 5,
       merchantsSucceeded: 5,
+      diagnostics: {
+        apiDurationMs: 250,
+        cacheStatus: "MISS",
+        chromeFallbackEligible: false,
+        selectionPolicy: "DIVERSE_MERCHANTS_THEN_PRICE"
+      },
       products: [{
         merchant: "Death Wish Coffee",
         handle: "valhalla-java-single-serve-pods",

@@ -6,7 +6,8 @@ The shipped Codex plugin lives at `plugins/shopping-agent/`. Codex orchestrates 
 
 - an authorized Chrome skill for a read-only, web-wide v0.1 product search;
 - a local stdio MCP server for audited Commerce data, the credential-gated Best Buy pilot, and a
-  fixed five-store tokenless Shopify Storefront Beta registry.
+  fixed five-store tokenless Shopify Storefront Beta registry with one-call deduplication,
+  merchant-diverse Top 3 selection, and API diagnostics.
 
 The Chrome path discovers up to eight merchant product pages, verifies five first, inspects up to
 three reserves only when needed, and returns no more than three exact, source-linked offers. It

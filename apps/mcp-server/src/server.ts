@@ -163,6 +163,12 @@ const ShopifyProductsOutputShape = {
   coverage: z.enum(["COMPLETE", "PARTIAL", "UNAVAILABLE"]),
   merchantsQueried: z.number().int(),
   merchantsSucceeded: z.number().int(),
+  diagnostics: z.object({
+    apiDurationMs: z.number().int().nonnegative(),
+    cacheStatus: z.enum(["MISS", "HIT", "COALESCED"]),
+    chromeFallbackEligible: z.boolean(),
+    selectionPolicy: z.literal("DIVERSE_MERCHANTS_THEN_PRICE")
+  }),
   products: z.array(ShopifyProductOutputSchema)
 };
 
@@ -276,6 +282,7 @@ function shopifyResult(result: ShopifySearchResult) {
       coverage: result.coverage,
       merchantsQueried: result.merchantsQueried,
       merchantsSucceeded: result.merchantsSucceeded,
+      diagnostics: result.diagnostics,
       products: result.products
     }
   };
@@ -292,6 +299,12 @@ function shopifyUnavailableResult() {
       coverage: "UNAVAILABLE" as const,
       merchantsQueried: 5,
       merchantsSucceeded: 0,
+      diagnostics: {
+        apiDurationMs: 0,
+        cacheStatus: "MISS" as const,
+        chromeFallbackEligible: false,
+        selectionPolicy: "DIVERSE_MERCHANTS_THEN_PRICE" as const
+      },
       products: []
     }
   };

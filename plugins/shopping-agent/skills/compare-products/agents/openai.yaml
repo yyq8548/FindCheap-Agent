@@ -1,4 +1,4 @@
 interface:
   display_name: "FindCheap-Agent v0.1"
-  short_description: "Search five Shopify stores; Chrome only after complete empty coverage"
-  default_prompt: "Use $compare-products to search the fixed five-store Shopify registry first and use authorized Chrome only when complete API coverage returns zero products."
+  short_description: "Search five Shopify stores once; prefer merchant diversity"
+  default_prompt: "Use $compare-products to search five Shopify stores once, return three merchant-diverse lowest prices, and use Chrome only after complete zero-result coverage."

@@ -27,12 +27,16 @@ describe("FindCheap-Agent v0.1 Chrome contract", () => {
 
     expect(skill).toContain("Shopify-first default");
     expect(skill).toContain("`search_shopify_products`");
+    expect(skill).toContain("Call `search_shopify_products` exactly once per user lookup");
+    expect(skill).toContain("Do not repeat a successful call");
     expect(skill).toContain("`status: OK`, `coverage: COMPLETE`, and `products.length === 0`");
     expect(skill).toContain("`coverage: PARTIAL`");
     expect(skill).toContain("Death Wish Coffee, Kith, Allbirds, Brooklinen, and Fashion Nova");
     expect(skill).toContain("Do not open Chrome when Shopify returns one or more products");
     expect(skill).toContain("an API error, `DATA_SOURCE_UNAVAILABLE`, malformed response, or timeout");
     expect(skill).toContain("explicitly requests no Chrome");
+    expect(skill).toContain("API duration");
+    expect(skill).toContain("Chrome fallback: `NOT_USED` or `USED`");
   });
 
   it("defines one bounded, user-authorized web-wide merchant workflow", async () => {
@@ -91,11 +95,11 @@ describe("FindCheap-Agent v0.1 Chrome contract", () => {
       interface: { defaultPrompt: string[]; longDescription: string };
     };
 
-    expect(manifest.version).toMatch(/^0\.1\.0\+codex\./u);
+    expect(manifest.version).toMatch(/^0\.1\.2\+codex\./u);
     expect(manifest.interface.longDescription).toMatch(/Codex Plugin Agent/u);
     expect(manifest.interface.longDescription).toMatch(/authorized Chrome/u);
     expect(manifest.interface.defaultPrompt).toEqual([
-      "Use FindCheap-Agent to search the five-store Shopify registry first and use authorized Chrome only when complete API coverage returns zero products."
+      "Use FindCheap-Agent to call the five-store Shopify search once, return three merchant-diverse lowest prices, and use authorized Chrome only after complete zero-result coverage."
     ]);
   });
 
