@@ -5,7 +5,7 @@ import { SHOPIFY_PILOTS, createShopifyPortFromEnvironment } from "../src/shopify
 const now = "2026-08-18T01:00:00.000Z";
 
 describe("Shopify Storefront MCP client", () => {
-  it("searches the fixed ten-store registry and ranks relevant item prices", async () => {
+  it("searches the fixed twenty-store registry and ranks relevant item prices", async () => {
     const prices = new Map<string, string | string[]>([
       ["deathwishcoffee.com", "19.99"], ["kith.com", "29.99"],
       ["www.allbirds.com", "14.99"], ["www.brooklinen.com", "24.99"],
@@ -16,25 +16,31 @@ describe("Shopify Storefront MCP client", () => {
       return storefrontResponse(input.url, host, prices.get(host));
     });
     const port = createShopifyPortFromEnvironment(
-      { SHOPIFY_STOREFRONT_MODE: "fixed-ten" },
+      { SHOPIFY_STOREFRONT_MODE: "audited-registry" },
       { safeFetch, clock: { now: () => new Date(now) } }
     );
 
     const result = await port.search({ query: "shirt", limit: 3 });
 
-    expect(SHOPIFY_PILOTS).toHaveLength(10);
-    expect(safeFetch).toHaveBeenCalledTimes(10);
+    expect(SHOPIFY_PILOTS).toHaveLength(20);
+    expect(safeFetch).toHaveBeenCalledTimes(20);
     expect(new Set(safeFetch.mock.calls.map(([input]) => new URL(input.url).hostname))).toEqual(
       new Set(SHOPIFY_PILOTS.map((pilot) => pilot.apiHost))
     );
     expect(result).toMatchObject({
       coverage: "COMPLETE",
-      merchantsQueried: 10,
-      merchantsSucceeded: 10,
+      merchantsQueried: 20,
+      merchantsSucceeded: 20,
       diagnostics: {
         cacheStatus: "MISS",
         chromeFallbackEligible: false,
         irrelevantProductsExcluded: 0,
+        merchantsFailed: 0,
+        coveragePercent: 100,
+        failedMerchantIds: [],
+        timedOutMerchantIds: [],
+        registryVersion: "v2",
+        searchTimeoutMs: 3_000,
         selectionPolicy: "EXACT_THEN_SIMILAR_THEN_DIVERSE_MERCHANTS_THEN_PRICE"
       }
     });
@@ -56,7 +62,7 @@ describe("Shopify Storefront MCP client", () => {
         : undefined);
     });
     const port = createShopifyPortFromEnvironment(
-      { SHOPIFY_STOREFRONT_MODE: "fixed-ten" },
+      { SHOPIFY_STOREFRONT_MODE: "audited-registry" },
       { safeFetch, clock: { now: () => new Date(now) } }
     );
 
@@ -78,7 +84,7 @@ describe("Shopify Storefront MCP client", () => {
       return storefrontResponse(input.url, host, prices.get(host));
     });
     const port = createShopifyPortFromEnvironment(
-      { SHOPIFY_STOREFRONT_MODE: "fixed-ten" },
+      { SHOPIFY_STOREFRONT_MODE: "audited-registry" },
       { safeFetch, clock: { now: () => new Date(now) } }
     );
 
@@ -105,7 +111,7 @@ describe("Shopify Storefront MCP client", () => {
       return storefrontResponse(input.url, host);
     });
     const port = createShopifyPortFromEnvironment(
-      { SHOPIFY_STOREFRONT_MODE: "fixed-ten" },
+      { SHOPIFY_STOREFRONT_MODE: "audited-registry" },
       { safeFetch, clock: { now: () => new Date(now) } }
     );
 
@@ -126,7 +132,7 @@ describe("Shopify Storefront MCP client", () => {
         : storefrontResponse(input.url, host);
     });
     const port = createShopifyPortFromEnvironment(
-      { SHOPIFY_STOREFRONT_MODE: "fixed-ten" },
+      { SHOPIFY_STOREFRONT_MODE: "audited-registry" },
       { safeFetch, clock: { now: () => new Date(now) } }
     );
 
@@ -150,7 +156,7 @@ describe("Shopify Storefront MCP client", () => {
       return storefrontResponse(input.url, host);
     });
     const port = createShopifyPortFromEnvironment(
-      { SHOPIFY_STOREFRONT_MODE: "fixed-ten" },
+      { SHOPIFY_STOREFRONT_MODE: "audited-registry" },
       { safeFetch, clock: { now: () => new Date(now) } }
     );
 
@@ -174,7 +180,7 @@ describe("Shopify Storefront MCP client", () => {
       return storefrontResponse(input.url, host);
     });
     const port = createShopifyPortFromEnvironment(
-      { SHOPIFY_STOREFRONT_MODE: "fixed-ten" },
+      { SHOPIFY_STOREFRONT_MODE: "audited-registry" },
       { safeFetch, clock: { now: () => new Date(now) } }
     );
 
@@ -188,6 +194,92 @@ describe("Shopify Storefront MCP client", () => {
     expect(result.diagnostics.irrelevantProductsExcluded).toBe(1);
   });
 
+  it("excludes explicit used inventory by default but keeps unlabeled inventory", async () => {
+    const registry = {
+      version: "v-condition",
+      merchants: SHOPIFY_PILOTS.filter((merchant) => ["outerknown", "steve-madden"].includes(merchant.merchantId))
+    };
+    const safeFetch = vi.fn(async (input: { url: string }) => {
+      const host = new URL(input.url).hostname;
+      return host === "www.outerknown.com"
+        ? storefrontResponse(input.url, host, "114.00", "Ambassador Blue Jeans", "Jeans", [], {
+            handle: "ambassador-blue-jeans-resale",
+            sku: "AMB-BLUE_used",
+            tags: ["Resale"]
+          })
+        : storefrontResponse(input.url, host, "119.00", "Imperial Blue Jeans", "Jeans");
+    });
+    const port = createShopifyPortFromEnvironment(
+      { SHOPIFY_STOREFRONT_MODE: "audited-registry" },
+      { safeFetch, clock: { now: () => new Date(now) }, registry }
+    );
+
+    const result = await port.search({ query: "blue jeans", limit: 3 });
+
+    expect(result.products).toEqual([expect.objectContaining({
+      title: "Imperial Blue Jeans",
+      condition: "UNKNOWN"
+    })]);
+    expect(result.diagnostics.conditionProductsExcluded).toBe(1);
+  });
+
+  it("returns explicit used inventory only when used condition is requested", async () => {
+    const registry = {
+      version: "v-condition",
+      merchants: SHOPIFY_PILOTS.filter((merchant) => ["outerknown", "steve-madden"].includes(merchant.merchantId))
+    };
+    const safeFetch = vi.fn(async (input: { url: string }) => {
+      const host = new URL(input.url).hostname;
+      return host === "www.outerknown.com"
+        ? storefrontResponse(input.url, host, "114.00", "Ambassador Blue Jeans", "Jeans", [], {
+            handle: "ambassador-blue-jeans-resale",
+            sku: "AMB-BLUE_used",
+            tags: ["Resale"]
+          })
+        : storefrontResponse(input.url, host, "119.00", "Imperial Blue Jeans", "Jeans");
+    });
+    const port = createShopifyPortFromEnvironment(
+      { SHOPIFY_STOREFRONT_MODE: "audited-registry" },
+      { safeFetch, clock: { now: () => new Date(now) }, registry }
+    );
+
+    const result = await port.search({ query: "used blue jeans", limit: 3 });
+
+    expect(result.products).toEqual([expect.objectContaining({
+      title: "Ambassador Blue Jeans",
+      condition: "USED"
+    })]);
+    expect(result.diagnostics.conditionProductsExcluded).toBe(1);
+  });
+
+  it.each([
+    ["refurbished blue jeans", "Certified Refurbished Blue Jeans", [], "REFURBISHED"],
+    ["open box blue jeans", "Open Box Blue Jeans", [], "OPEN_BOX"],
+    ["new blue jeans", "Blue Jeans", ["condition:new"], "NEW"]
+  ] as const)("recognizes an explicitly requested condition: %s", async (query, title, tags, condition) => {
+    const registry = {
+      version: "v-condition",
+      merchants: SHOPIFY_PILOTS.filter((merchant) => merchant.merchantId === "steve-madden")
+    };
+    const safeFetch = vi.fn(async (input: { url: string }) => storefrontResponse(
+      input.url,
+      new URL(input.url).hostname,
+      "119.00",
+      title,
+      "Jeans",
+      [],
+      { tags: [...tags] }
+    ));
+    const port = createShopifyPortFromEnvironment(
+      { SHOPIFY_STOREFRONT_MODE: "audited-registry" },
+      { safeFetch, clock: { now: () => new Date(now) }, registry }
+    );
+
+    const result = await port.search({ query, limit: 3 });
+
+    expect(result.products).toEqual([expect.objectContaining({ condition })]);
+  });
+
   it("marks a missing requested variant similar and asks for exact variant details", async () => {
     const safeFetch = vi.fn(async (input: { url: string }) => {
       const host = new URL(input.url).hostname;
@@ -196,7 +288,7 @@ describe("Shopify Storefront MCP client", () => {
         : storefrontResponse(input.url, host);
     });
     const port = createShopifyPortFromEnvironment(
-      { SHOPIFY_STOREFRONT_MODE: "fixed-ten" },
+      { SHOPIFY_STOREFRONT_MODE: "audited-registry" },
       { safeFetch, clock: { now: () => new Date(now) } }
     );
 
@@ -220,7 +312,7 @@ describe("Shopify Storefront MCP client", () => {
       return storefrontResponse(input.url, new URL(input.url).hostname, "20.00");
     });
     const port = createShopifyPortFromEnvironment(
-      { SHOPIFY_STOREFRONT_MODE: "fixed-ten" },
+      { SHOPIFY_STOREFRONT_MODE: "audited-registry" },
       {
         safeFetch,
         clock: { now: () => new Date(now) },
@@ -234,8 +326,8 @@ describe("Shopify Storefront MCP client", () => {
     ]);
     const third = await port.search({ query: "shirt", limit: 3 });
 
-    expect(safeFetch).toHaveBeenCalledTimes(10);
-    expect(first.diagnostics).toMatchObject({ cacheStatus: "MISS", apiDurationMs: 100 });
+    expect(safeFetch).toHaveBeenCalledTimes(20);
+    expect(first.diagnostics).toMatchObject({ cacheStatus: "MISS", apiDurationMs: 200 });
     expect(second.diagnostics).toMatchObject({ cacheStatus: "COALESCED", apiDurationMs: 0 });
     expect(third.diagnostics).toMatchObject({ cacheStatus: "HIT", apiDurationMs: 0 });
     expect(second.products).toEqual(first.products);
@@ -254,28 +346,71 @@ describe("Shopify Storefront MCP client", () => {
       );
     });
     const port = createShopifyPortFromEnvironment(
-      { SHOPIFY_STOREFRONT_MODE: "fixed-ten" },
+      { SHOPIFY_STOREFRONT_MODE: "audited-registry" },
       { safeFetch, clock: { now: () => new Date(now) } }
     );
 
     const result = await port.search({ query: "shoes", limit: 3 });
 
     expect(result.coverage).toBe("PARTIAL");
-    expect(result.merchantsSucceeded).toBe(9);
+    expect(result.merchantsSucceeded).toBe(19);
+    expect(result.diagnostics).toMatchObject({
+      merchantsFailed: 1,
+      coveragePercent: 95,
+      failedMerchantIds: ["kith"],
+      timedOutMerchantIds: []
+    });
     expect(result.products).toHaveLength(1);
     expect(result.products[0]?.merchant).toBe("Allbirds");
   });
 
-  it("returns complete empty only when all ten stores succeed", async () => {
+  it("uses the configured registry and isolates a merchant that exceeds the search deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      const registry = { version: "v-test", merchants: SHOPIFY_PILOTS.slice(0, 2) };
+      const safeFetch = vi.fn(async (input: { url: string }) => {
+        const host = new URL(input.url).hostname;
+        if (host === "kith.com") return new Promise<never>(() => undefined);
+        return storefrontResponse(input.url, host, "19.99", "Coffee Shirt", "Shirt");
+      });
+      const port = createShopifyPortFromEnvironment(
+        { SHOPIFY_STOREFRONT_MODE: "audited-registry", SHOPIFY_SEARCH_TIMEOUT_MS: "100" },
+        { safeFetch, clock: { now: () => new Date(now) }, registry }
+      );
+
+      const pending = port.search({ query: "shirt", limit: 3 });
+      await vi.advanceTimersByTimeAsync(100);
+      const result = await pending;
+
+      expect(safeFetch).toHaveBeenCalledTimes(2);
+      expect(result).toMatchObject({
+        coverage: "PARTIAL",
+        merchantsQueried: 2,
+        merchantsSucceeded: 1,
+        diagnostics: {
+          merchantsFailed: 1,
+          coveragePercent: 50,
+          failedMerchantIds: ["kith"],
+          timedOutMerchantIds: ["kith"],
+          registryVersion: "v-test",
+          searchTimeoutMs: 100
+        }
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("returns complete empty only when all twenty stores succeed", async () => {
     const safeFetch = vi.fn(async (input: { url: string }) => storefrontResponse(input.url, new URL(input.url).hostname));
     const port = createShopifyPortFromEnvironment(
-      { SHOPIFY_STOREFRONT_MODE: "fixed-ten" },
+      { SHOPIFY_STOREFRONT_MODE: "audited-registry" },
       { safeFetch, clock: { now: () => new Date(now) } }
     );
     await expect(port.search({ query: "no-match", limit: 3 })).resolves.toMatchObject({
       coverage: "COMPLETE",
-      merchantsQueried: 10,
-      merchantsSucceeded: 10,
+      merchantsQueried: 20,
+      merchantsSucceeded: 20,
       diagnostics: { chromeFallbackEligible: true },
       products: []
     });
@@ -287,19 +422,27 @@ describe("Shopify Storefront MCP client", () => {
       return storefrontResponse(input.url, new URL(input.url).hostname);
     });
     const port = createShopifyPortFromEnvironment(
-      { SHOPIFY_STOREFRONT_MODE: "fixed-ten" },
+      { SHOPIFY_STOREFRONT_MODE: "audited-registry" },
       { safeFetch, clock: { now: () => new Date(now) } }
     );
     await expect(port.search({ query: "no-match", limit: 3 })).rejects.toThrow("DATA_SOURCE_UNAVAILABLE");
   });
 
-  it("fails closed unless the exact fixed registry mode is configured", async () => {
+  it("fails closed unless the audited registry mode is configured", async () => {
     await expect(createShopifyPortFromEnvironment({}).search({ query: "coffee", limit: 5 }))
       .rejects.toThrow("DATA_SOURCE_UNAVAILABLE");
     await expect(createShopifyPortFromEnvironment({ SHOPIFY_STOREFRONT_MODE: "fixed-five" })
       .search({ query: "coffee", limit: 5 })).rejects.toThrow("DATA_SOURCE_UNAVAILABLE");
     await expect(createShopifyPortFromEnvironment({ SHOPIFY_STOREFRONT_MODE: "evil.example" })
       .search({ query: "coffee", limit: 5 })).rejects.toThrow("DATA_SOURCE_UNAVAILABLE");
+    expect(() => createShopifyPortFromEnvironment({
+      SHOPIFY_STOREFRONT_MODE: "audited-registry",
+      SHOPIFY_SEARCH_TIMEOUT_MS: "99"
+    })).toThrow("SHOPIFY_SEARCH_TIMEOUT_MS is invalid");
+    expect(() => createShopifyPortFromEnvironment({
+      SHOPIFY_STOREFRONT_MODE: "audited-registry",
+      SHOPIFY_SEARCH_TIMEOUT_MS: "10001"
+    })).toThrow("SHOPIFY_SEARCH_TIMEOUT_MS is invalid");
   });
 });
 
@@ -309,17 +452,18 @@ function storefrontResponse(
   price?: string | string[],
   title?: string | string[],
   productType?: string | string[],
-  selectedOptions: Array<{ name: string; value: string }> = []
+  selectedOptions: Array<{ name: string; value: string }> = [],
+  metadata: { handle?: string; sku?: string; tags?: string[] } = {}
 ) {
   const prices = price === undefined ? [] : Array.isArray(price) ? price : [price];
   const titles = title === undefined ? [] : Array.isArray(title) ? title : [title];
   const productTypes = productType === undefined ? [] : Array.isArray(productType) ? productType : [productType];
   const nodes = prices.map((amount, index) => ({
-    title: titles[index] ?? `Sample Shirt ${index + 1}`, handle: `sample-${index + 1}`, vendor: host,
-    productType: productTypes[index] ?? "", tags: [],
-    onlineStoreUrl: `https://${host}/products/sample-${index + 1}`, featuredImage: null,
+    title: titles[index] ?? `Sample Shirt ${index + 1}`, handle: metadata.handle ?? `sample-${index + 1}`, vendor: host,
+    productType: productTypes[index] ?? "", tags: metadata.tags ?? [],
+    onlineStoreUrl: `https://${host}/products/${metadata.handle ?? `sample-${index + 1}`}`, featuredImage: null,
     selectedOrFirstAvailableVariant: {
-      title: "Default Title", sku: `${host}-sku`, barcode: null,
+      title: "Default Title", sku: metadata.sku ?? `${host}-sku`, barcode: null,
       availableForSale: true, price: { amount, currencyCode: "USD" }, image: null,
       selectedOptions
     }

@@ -24,7 +24,7 @@ const unavailableMessage =
 const bestBuyUnavailableMessage =
   "Best Buy live product data is unavailable because BEST_BUY_API_KEY is not configured or the official API request failed.";
 const shopifyUnavailableMessage =
-  "Shopify Storefront Beta data is unavailable because the fixed ten-store registry is not configured or its public API coverage is incomplete.";
+  "Shopify Storefront Beta data is unavailable because the audited registry is not configured or its public API coverage is incomplete.";
 
 const MembershipIdsSchema = z
   .array(z.string().trim().min(1).max(80))
@@ -43,28 +43,31 @@ export const CompareProductsInputSchema = z
 
 export type CompareProductsInput = z.infer<typeof CompareProductsInputSchema>;
 
-export const BestBuyProductsInputSchema = z
-  .object({
-    query: z.string().trim().min(2).max(300).optional(),
-    sku: z.string().regex(/^\d{1,20}$/u).optional(),
-    limit: z.number().int().min(1).max(50).default(10)
-  })
-  .strict()
-  .refine((input) => (input.query === undefined) !== (input.sku === undefined), {
-    message: "Provide exactly one of query or sku"
-  });
+const BestBuyProductsToolInputSchema = z.object({
+  query: z.string().trim().min(2).max(300).optional(),
+  sku: z.string().regex(/^\d{1,20}$/u).optional(),
+  limit: z.number().int().min(1).max(50).default(10)
+}).strict();
 
-export const ShopifyProductsInputSchema = z
-  .object({
-    query: z.string().trim().min(2).max(300).optional(),
-    handle: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u).max(200).optional(),
-    limit: z.number().int().min(1).max(3).default(3),
-    selectionMode: z.enum(["LOWEST_PRICE", "MERCHANT_DIVERSE"])
-  })
-  .strict()
-  .refine((input) => (input.query === undefined) !== (input.handle === undefined), {
+export const BestBuyProductsInputSchema = BestBuyProductsToolInputSchema.refine(
+  (input) => (input.query === undefined) !== (input.sku === undefined), {
+    message: "Provide exactly one of query or sku"
+  }
+);
+
+const ShopifyProductsToolInputSchema = z.object({
+  query: z.string().trim().min(2).max(300).optional(),
+  handle: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u).max(200).optional(),
+  limit: z.number().int().min(1).max(3).default(3),
+  selectionMode: z.enum(["LOWEST_PRICE", "MERCHANT_DIVERSE"])
+    .describe("Use LOWEST_PRICE only for an explicit cheapest request; use MERCHANT_DIVERSE otherwise.")
+}).strict();
+
+export const ShopifyProductsInputSchema = ShopifyProductsToolInputSchema.refine(
+  (input) => (input.query === undefined) !== (input.handle === undefined), {
     message: "Provide exactly one of query or handle"
-  });
+  }
+);
 
 export interface ComparePort {
   compare(input: CompareProductsInput): Promise<ComparisonResult>;
@@ -152,6 +155,7 @@ const ShopifyProductOutputSchema = z.object({
   variantDimensions: z.record(z.string(), z.string()),
   matchStatus: z.enum(["EXACT", "SIMILAR"]),
   matchEvidence: z.array(z.string()),
+  condition: z.enum(["NEW", "USED", "REFURBISHED", "OPEN_BOX", "UNKNOWN"]),
   imageUrl: z.string().url().optional(),
   itemPrice: MoneyOutputSchema.optional(),
   availability: z.enum(["IN_STOCK", "OUT_OF_STOCK", "UNKNOWN"]),
@@ -172,6 +176,13 @@ const ShopifyProductsOutputShape = {
     cacheStatus: z.enum(["MISS", "HIT", "COALESCED"]),
     chromeFallbackEligible: z.boolean(),
     irrelevantProductsExcluded: z.number().int().nonnegative(),
+    conditionProductsExcluded: z.number().int().nonnegative(),
+    merchantsFailed: z.number().int().nonnegative(),
+    coveragePercent: z.number().int().min(0).max(100),
+    failedMerchantIds: z.array(z.string()),
+    timedOutMerchantIds: z.array(z.string()),
+    registryVersion: z.string(),
+    searchTimeoutMs: z.number().int().nonnegative(),
     selectionPolicy: z.enum([
       "EXACT_THEN_SIMILAR_THEN_PRICE",
       "EXACT_THEN_SIMILAR_THEN_DIVERSE_MERCHANTS_THEN_PRICE"
@@ -282,7 +293,30 @@ function bestBuyUnavailableResult() {
 function shopifyResult(result: ShopifySearchResult) {
   const exactCount = result.products.filter((product) => product.matchStatus === "EXACT").length;
   const similarCount = result.products.length - exactCount;
-  const message = `The fixed Shopify registry returned ${result.products.length} product(s): ${exactCount} exact and ${similarCount} similar, from ${result.merchantsSucceeded}/${result.merchantsQueried} stores. Prices are public item prices only; shipping, tax, coupons, and member pricing are not included.`;
+  const summary = `The audited Shopify registry returned ${result.products.length} product(s): ${exactCount} exact and ${similarCount} similar, from ${result.merchantsSucceeded}/${result.merchantsQueried} stores. Prices are public item prices only; shipping, tax, coupons, and member pricing are not included.`;
+  const products = result.products.map((product, index) => {
+    const price = product.itemPrice === undefined
+      ? "price unavailable"
+      : `${product.itemPrice.currency} ${(product.itemPrice.amountCents / 100).toFixed(2)}`;
+    const variants = Object.entries(product.variantDimensions)
+      .map(([name, value]) => `${name}: ${value}`)
+      .join(", ");
+    return [
+      `${index + 1}. [${product.matchStatus}] ${product.title}`,
+      `merchant: ${product.merchant} (${product.sourceHost})`,
+      `price: ${price}`,
+      `availability: ${product.availability}`,
+      `condition: ${product.condition}`,
+      `match evidence: ${product.matchEvidence.join("; ")}`,
+      ...(variants === "" ? [] : [`variants: ${variants}`]),
+      `URL: ${product.merchantUrl}`
+    ].join(" | ");
+  });
+  const message = [
+    summary,
+    ...products,
+    "This response is complete. Do not call this tool again for this user lookup; format the answer from this response."
+  ].join("\n");
   return {
     content: [{ type: "text" as const, text: message }],
     structuredContent: {
@@ -309,13 +343,20 @@ function shopifyUnavailableResult(selectionMode: "LOWEST_PRICE" | "MERCHANT_DIVE
       source: "SHOPIFY_STOREFRONT_API" as const,
       priceScope: "ITEM_PRICE_ONLY" as const,
       coverage: "UNAVAILABLE" as const,
-      merchantsQueried: 10,
+      merchantsQueried: 0,
       merchantsSucceeded: 0,
       diagnostics: {
         apiDurationMs: 0,
         cacheStatus: "MISS" as const,
         chromeFallbackEligible: false,
         irrelevantProductsExcluded: 0,
+        conditionProductsExcluded: 0,
+        merchantsFailed: 0,
+        coveragePercent: 0,
+        failedMerchantIds: [],
+        timedOutMerchantIds: [],
+        registryVersion: "UNAVAILABLE",
+        searchTimeoutMs: 0,
         selectionPolicy: selectionMode === "LOWEST_PRICE"
           ? "EXACT_THEN_SIMILAR_THEN_PRICE" as const
           : "EXACT_THEN_SIMILAR_THEN_DIVERSE_MERCHANTS_THEN_PRICE" as const
@@ -331,7 +372,7 @@ export function createShoppingServer(
   bestBuyPort: BestBuyPort = createUnavailableBestBuyPort(),
   shopifyPort: ShopifyPort = createUnavailableShopifyPort()
 ): McpServer {
-  const server = new McpServer({ name: "findcheap-agent", version: "0.2.1" });
+  const server = new McpServer({ name: "findcheap-agent", version: "0.2.3" });
 
   server.registerTool(
     "compare_products",
@@ -362,7 +403,7 @@ export function createShoppingServer(
     {
       title: "Search Best Buy products (Beta)",
       description: "Search the official Best Buy Products API by product query or numeric SKU. Returns item price only, not delivered price.",
-      inputSchema: BestBuyProductsInputSchema,
+      inputSchema: BestBuyProductsToolInputSchema,
       outputSchema: BestBuyProductsOutputShape,
       annotations: {
         readOnlyHint: true,
@@ -372,8 +413,9 @@ export function createShoppingServer(
       }
     },
     async (input) => {
+      const validatedInput = BestBuyProductsInputSchema.parse(input);
       try {
-        const result = await bestBuyPort.search(input);
+        const result = await bestBuyPort.search(validatedInput);
         return bestBuyResult(result.products);
       } catch {
         return bestBuyUnavailableResult();
@@ -385,8 +427,8 @@ export function createShoppingServer(
     "search_shopify_products",
     {
       title: "Search Shopify products (Beta)",
-      description: "Search ten fixed tokenless Shopify Storefront pilots by product query or handle. Requires Top 3 ranking intent: literal lowest price or merchant-diverse recommendations. Returns exact matches before labeled similar products; irrelevant products are excluded.",
-      inputSchema: ShopifyProductsInputSchema,
+      description: "Search a bounded audited Shopify Storefront registry by product query or handle. Do not call this tool more than once per user lookup. Set selectionMode=LOWEST_PRICE only for explicit cheapest requests; otherwise set selectionMode=MERCHANT_DIVERSE. The first response includes complete Top 3 text and structured details; exact matches rank before labeled similar products and irrelevant products are excluded.",
+      inputSchema: ShopifyProductsToolInputSchema,
       outputSchema: ShopifyProductsOutputShape,
       annotations: {
         readOnlyHint: true,
@@ -396,11 +438,12 @@ export function createShoppingServer(
       }
     },
     async (input) => {
+      const validatedInput = ShopifyProductsInputSchema.parse(input);
       try {
-        const result = await shopifyPort.search(input);
+        const result = await shopifyPort.search(validatedInput);
         return shopifyResult(result);
       } catch {
-        return shopifyUnavailableResult(input.selectionMode);
+        return shopifyUnavailableResult(validatedInput.selectionMode);
       }
     }
   );

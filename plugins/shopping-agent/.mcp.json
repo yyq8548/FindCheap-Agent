@@ -6,7 +6,8 @@
       "args": ["./dist/mcp-server.js"],
       "cwd": ".",
       "env": {
-        "SHOPIFY_STOREFRONT_MODE": "fixed-ten"
+        "SHOPIFY_STOREFRONT_MODE": "audited-registry",
+        "SHOPIFY_SEARCH_TIMEOUT_MS": "3000"
       }
     }
   }

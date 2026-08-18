@@ -9,7 +9,7 @@ import {
 
 const goldenPath = new URL("./shopify-match-golden.json", import.meta.url);
 
-describe("FindCheap v0.2.1 Shopify product matching gate", () => {
+describe("FindCheap v0.2.2 Shopify product matching gate", () => {
   it("classifies all 20 golden tasks deterministically", async () => {
     const golden = JSON.parse(await readFile(goldenPath, "utf8")) as {
       tasks: Array<{
@@ -61,5 +61,20 @@ describe("FindCheap v0.2.1 Shopify product matching gate", () => {
       brand: "Generic",
       productType: "Cases"
     })).toMatchObject({ status: "IRRELEVANT" });
+  });
+
+  it("rejects a jeans-shaped accessory from a jeans search", () => {
+    expect(classifyShopifyCandidate("blue jeans", {
+      title: "Denim Jeans Key Charm",
+      productType: "Accessories",
+      variantDimensions: { Color: "Dark Denim" }
+    })).toMatchObject({ status: "IRRELEVANT" });
+  });
+
+  it("keeps accessories when the user explicitly requests one", () => {
+    expect(classifyShopifyCandidate("denim key charm", {
+      title: "Denim Key Charm",
+      productType: "Accessories"
+    })).toMatchObject({ status: "EXACT" });
   });
 });

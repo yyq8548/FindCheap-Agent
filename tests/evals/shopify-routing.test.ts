@@ -5,7 +5,7 @@ import { scoreShopifyRouting, type ShopifyRoutingRun } from "../../scripts/evalu
 
 const goldenPath = new URL("./findcheap-chrome-golden.json", import.meta.url);
 
-describe("FindCheap v0.2.1 Shopify routing gate", () => {
+describe("FindCheap v0.2.2 Shopify routing gate", () => {
   it("passes all 20 golden tasks with one Shopify call and correct Chrome routing", async () => {
     const golden = JSON.parse(await readFile(goldenPath, "utf8")) as {
       tasks: Array<{ id: string; expectedOutcome: "EXACT" | "AMBIGUOUS" | "NO_RESULT" }>;

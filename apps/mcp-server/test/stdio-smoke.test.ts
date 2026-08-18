@@ -28,7 +28,10 @@ describe("installed plugin stdio", () => {
       command: "node",
       args: ["./dist/mcp-server.js"],
       cwd: ".",
-      env: { SHOPIFY_STOREFRONT_MODE: "fixed-ten" }
+      env: {
+        SHOPIFY_STOREFRONT_MODE: "audited-registry",
+        SHOPIFY_SEARCH_TIMEOUT_MS: "3000"
+      }
     });
 
     const transportErrors: Error[] = [];
@@ -55,6 +58,14 @@ describe("installed plugin stdio", () => {
         "search_bestbuy_products",
         "search_shopify_products"
       ]);
+      const shopifyTool = tools.tools.find((tool) => tool.name === "search_shopify_products");
+      expect(Object.keys(shopifyTool?.inputSchema.properties ?? {}).sort()).toEqual([
+        "handle",
+        "limit",
+        "query",
+        "selectionMode"
+      ]);
+      expect(shopifyTool?.inputSchema.required).toContain("selectionMode");
       expect(comparison.structuredContent).toEqual({
         status: "DATA_SOURCE_UNAVAILABLE",
         message: "Live comparison is unavailable because no approved shopping data source is connected.",

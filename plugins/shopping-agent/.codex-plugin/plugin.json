@@ -1,7 +1,7 @@
 {
   "name": "shopping-agent",
-  "version": "0.2.1+codex.20260818050731",
-  "description": "Search ten Shopify APIs with exact/similar matching, then use Chrome only after complete zero-result coverage.",
+  "version": "0.2.3+codex.20260818204439",
+  "description": "Search a bounded audited Shopify registry with coverage diagnostics, then use Chrome only after complete zero-result coverage.",
   "author": {
     "name": "yyq8548"
   },
@@ -11,13 +11,13 @@
   "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "FindCheap-Agent",
-    "shortDescription": "Match products across ten Shopify stores.",
-    "longDescription": "FindCheap-Agent is a Codex Plugin Agent. v0.2.1 searches ten fixed Shopify Storefront pilots once, returns an intent-aware Top 3 using literal lowest-price or merchant-diverse ranking, ranks exact identity and variant matches before labeled similar products, excludes irrelevant products, asks for missing details, and uses authorized Chrome only after complete API coverage returns zero products.",
+    "shortDescription": "Match products across audited Shopify stores.",
+    "longDescription": "FindCheap-Agent is a Codex Plugin Agent. v0.2.3 searches a 20-store technically audited Shopify Storefront registry once, applies availability, latency, relevance, variant, and condition gates, reports coverage, returns an intent-aware Top 3 using literal lowest-price or merchant-diverse ranking, and uses authorized Chrome only after complete API coverage returns zero products.",
     "developerName": "yyq8548",
     "category": "Productivity",
     "capabilities": [],
     "defaultPrompt": [
-      "Use FindCheap-Agent to search ten Shopify stores once. Always request Top 3: use LOWEST_PRICE for explicit cheapest requests and MERCHANT_DIVERSE otherwise; preserve the returned order. Return exact matches before labeled similar products, ask for missing model or variant details, and use authorized Chrome only after complete zero-result coverage."
+      "Shopify first. Call search_shopify_products exactly once: limit=3; selectionMode=MERCHANT_DIVERSE unless cheapest is explicit."
     ]
   }
 }
