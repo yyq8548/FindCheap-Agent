@@ -62,6 +62,7 @@ describe("installed plugin stdio", () => {
       expect(Object.keys(shopifyTool?.inputSchema.properties ?? {}).sort()).toEqual([
         "handle",
         "limit",
+        "maxItemPriceCents",
         "query",
         "selectionMode"
       ]);

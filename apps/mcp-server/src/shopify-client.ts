@@ -19,6 +19,7 @@ export type ShopifySearchInput = {
   query?: string | undefined;
   handle?: string | undefined;
   limit: number;
+  maxItemPriceCents?: number | undefined;
   selectionMode?: ShopifySelectionMode | undefined;
 };
 
@@ -59,12 +60,14 @@ export type ShopifySearchResult = {
   coverage: "COMPLETE" | "PARTIAL";
   merchantsQueried: number;
   merchantsSucceeded: number;
+  maxItemPriceCents?: number;
   diagnostics: {
     apiDurationMs: number;
     cacheStatus: "MISS" | "HIT" | "COALESCED";
     chromeFallbackEligible: boolean;
     irrelevantProductsExcluded: number;
     conditionProductsExcluded: number;
+    priceProductsExcluded: number;
     merchantsFailed: number;
     coveragePercent: number;
     failedMerchantIds: string[];
@@ -86,6 +89,7 @@ export interface ShopifyPort {
 type ShopifySearchCore = Omit<ShopifySearchResult, "diagnostics"> & {
   irrelevantProductsExcluded: number;
   conditionProductsExcluded: number;
+  priceProductsExcluded: number;
   selectionMode: ShopifySelectionMode;
   failedMerchantIds: string[];
   timedOutMerchantIds: string[];
@@ -193,13 +197,19 @@ export function createShopifyPortFromEnvironment(
         if (products.length === 0 && successful.length !== sources.length) {
           throw new Error("DATA_SOURCE_UNAVAILABLE");
         }
+        const maxItemPriceCents = input.maxItemPriceCents;
+        const priceEligible = maxItemPriceCents === undefined
+          ? products
+          : products.filter((product) =>
+              product.itemPrice !== undefined && product.itemPrice.amountCents <= maxItemPriceCents
+            );
         const classified = input.query === undefined
-          ? products.map((product): RankedShopifyCandidate => ({
+          ? priceEligible.map((product): RankedShopifyCandidate => ({
               ...product,
               matchStatus: "EXACT",
               matchEvidence: ["product handle exact"]
             }))
-          : products.flatMap((product): RankedShopifyCandidate[] => {
+          : priceEligible.flatMap((product): RankedShopifyCandidate[] => {
               const match = classifyShopifyCandidate(input.query ?? "", product);
               return match.status === "IRRELEVANT" ? [] : [{
                 ...product,
@@ -219,11 +229,13 @@ export function createShopifyPortFromEnvironment(
           coverage: successful.length === sources.length ? "COMPLETE" : "PARTIAL",
           merchantsQueried: sources.length,
           merchantsSucceeded: successful.length,
+          ...(maxItemPriceCents === undefined ? {} : { maxItemPriceCents }),
           questions: selected.length > 0 && selected.every((product) => product.matchStatus === "SIMILAR")
             ? ["Only similar products were found. Provide an exact model, SKU, GTIN, color, size, or capacity."]
             : [],
-          irrelevantProductsExcluded: products.length - classified.length,
+          irrelevantProductsExcluded: priceEligible.length - classified.length,
           conditionProductsExcluded: classified.length - conditionEligible.length,
+          priceProductsExcluded: products.length - priceEligible.length,
           selectionMode,
           failedMerchantIds: failed.map((entry) => entry.merchantId),
           timedOutMerchantIds: failed.filter((entry) => entry.timedOut).map((entry) => entry.merchantId),
@@ -323,6 +335,7 @@ function withDiagnostics(
   const {
     irrelevantProductsExcluded,
     conditionProductsExcluded,
+    priceProductsExcluded,
     selectionMode,
     failedMerchantIds,
     timedOutMerchantIds,
@@ -339,6 +352,7 @@ function withDiagnostics(
       chromeFallbackEligible: result.coverage === "COMPLETE" && result.products.length === 0,
       irrelevantProductsExcluded,
       conditionProductsExcluded,
+      priceProductsExcluded,
       merchantsFailed,
       coveragePercent: Math.round((result.merchantsSucceeded / result.merchantsQueried) * 100),
       failedMerchantIds,

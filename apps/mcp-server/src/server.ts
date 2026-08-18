@@ -56,9 +56,11 @@ export const BestBuyProductsInputSchema = BestBuyProductsToolInputSchema.refine(
 );
 
 const ShopifyProductsToolInputSchema = z.object({
-  query: z.string().trim().min(2).max(300).optional(),
+  query: z.string().trim().min(2).max(300).regex(/^[\p{L}\p{N}\s._+'-]+$/u).optional(),
   handle: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u).max(200).optional(),
   limit: z.number().int().min(1).max(3).default(3),
+  maxItemPriceCents: z.number().int().min(1).max(100_000_000).optional()
+    .describe("Inclusive public item-price ceiling in integer USD cents. Keep price words and currency symbols out of query."),
   selectionMode: z.enum(["LOWEST_PRICE", "MERCHANT_DIVERSE"])
     .describe("Use LOWEST_PRICE only for an explicit cheapest request; use MERCHANT_DIVERSE otherwise.")
 }).strict();
@@ -171,12 +173,14 @@ const ShopifyProductsOutputShape = {
   coverage: z.enum(["COMPLETE", "PARTIAL", "UNAVAILABLE"]),
   merchantsQueried: z.number().int(),
   merchantsSucceeded: z.number().int(),
+  maxItemPriceCents: z.number().int().positive().optional(),
   diagnostics: z.object({
     apiDurationMs: z.number().int().nonnegative(),
     cacheStatus: z.enum(["MISS", "HIT", "COALESCED"]),
     chromeFallbackEligible: z.boolean(),
     irrelevantProductsExcluded: z.number().int().nonnegative(),
     conditionProductsExcluded: z.number().int().nonnegative(),
+    priceProductsExcluded: z.number().int().nonnegative(),
     merchantsFailed: z.number().int().nonnegative(),
     coveragePercent: z.number().int().min(0).max(100),
     failedMerchantIds: z.array(z.string()),
@@ -293,7 +297,10 @@ function bestBuyUnavailableResult() {
 function shopifyResult(result: ShopifySearchResult) {
   const exactCount = result.products.filter((product) => product.matchStatus === "EXACT").length;
   const similarCount = result.products.length - exactCount;
-  const summary = `The audited Shopify registry returned ${result.products.length} product(s): ${exactCount} exact and ${similarCount} similar, from ${result.merchantsSucceeded}/${result.merchantsQueried} stores. Prices are public item prices only; shipping, tax, coupons, and member pricing are not included.`;
+  const priceLimit = result.maxItemPriceCents === undefined
+    ? ""
+    : ` Maximum item price: USD ${(result.maxItemPriceCents / 100).toFixed(2)}.`;
+  const summary = `The audited Shopify registry returned ${result.products.length} product(s): ${exactCount} exact and ${similarCount} similar, from ${result.merchantsSucceeded}/${result.merchantsQueried} stores.${priceLimit} Prices are public item prices only; shipping, tax, coupons, and member pricing are not included.`;
   const products = result.products.map((product, index) => {
     const price = product.itemPrice === undefined
       ? "price unavailable"
@@ -327,6 +334,7 @@ function shopifyResult(result: ShopifySearchResult) {
       coverage: result.coverage,
       merchantsQueried: result.merchantsQueried,
       merchantsSucceeded: result.merchantsSucceeded,
+      ...(result.maxItemPriceCents === undefined ? {} : { maxItemPriceCents: result.maxItemPriceCents }),
       diagnostics: result.diagnostics,
       questions: result.questions,
       products: result.products
@@ -351,6 +359,7 @@ function shopifyUnavailableResult(selectionMode: "LOWEST_PRICE" | "MERCHANT_DIVE
         chromeFallbackEligible: false,
         irrelevantProductsExcluded: 0,
         conditionProductsExcluded: 0,
+        priceProductsExcluded: 0,
         merchantsFailed: 0,
         coveragePercent: 0,
         failedMerchantIds: [],
@@ -427,7 +436,7 @@ export function createShoppingServer(
     "search_shopify_products",
     {
       title: "Search Shopify products (Beta)",
-      description: "Search a bounded audited Shopify Storefront registry by product query or handle. Do not call this tool more than once per user lookup. Set selectionMode=LOWEST_PRICE only for explicit cheapest requests; otherwise set selectionMode=MERCHANT_DIVERSE. The first response includes complete Top 3 text and structured details; exact matches rank before labeled similar products and irrelevant products are excluded.",
+      description: "Search a bounded audited Shopify Storefront registry by product query or handle. Do not call this tool more than once per user lookup. Pass an explicit budget through maxItemPriceCents as integer USD cents; keep price words and currency symbols out of query. Set selectionMode=LOWEST_PRICE only for explicit cheapest requests; otherwise set selectionMode=MERCHANT_DIVERSE. The first response includes complete Top 3 text and structured details; exact matches rank before labeled similar products and irrelevant or over-budget products are excluded.",
       inputSchema: ShopifyProductsToolInputSchema,
       outputSchema: ShopifyProductsOutputShape,
       annotations: {

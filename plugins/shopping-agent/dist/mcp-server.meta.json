@@ -3960,7 +3960,7 @@
   },
   "outputs": {
     "../../plugins/shopping-agent/dist/mcp-server.js": {
-      "bytes": 388180,
+      "bytes": 389092,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
@@ -4202,7 +4202,7 @@
           "bytesInOutput": 2379
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/discriminator/index.js": {
-          "bytesInOutput": 2293
+          "bytesInOutput": 2296
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/discriminator/types.js": {
           "bytesInOutput": 181
@@ -4211,7 +4211,7 @@
           "bytesInOutput": 235
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/format/format.js": {
-          "bytesInOutput": 1951
+          "bytesInOutput": 1954
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/format/index.js": {
           "bytesInOutput": 121
@@ -4454,7 +4454,7 @@
           "bytesInOutput": 649
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v4/core/schemas.js": {
-          "bytesInOutput": 18937
+          "bytesInOutput": 18940
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v4/core/to-json-schema.js": {
           "bytesInOutput": 11445
@@ -4514,10 +4514,10 @@
           "bytesInOutput": 2484
         },
         "src/server.ts": {
-          "bytesInOutput": 9451
+          "bytesInOutput": 10122
         },
         "src/shopify-client.ts": {
-          "bytesInOutput": 6207
+          "bytesInOutput": 6439
         },
         "src/shopify-match.ts": {
           "bytesInOutput": 3228

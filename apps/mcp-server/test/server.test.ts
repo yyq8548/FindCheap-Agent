@@ -43,6 +43,7 @@ const shopifyPort: ShopifyPort = {
       chromeFallbackEligible: false,
       irrelevantProductsExcluded: 0,
       conditionProductsExcluded: 0,
+      priceProductsExcluded: 0,
       merchantsFailed: 0,
       coveragePercent: 100,
       failedMerchantIds: [],
@@ -158,11 +159,13 @@ describe("shopping MCP server", () => {
     expect(Object.keys(tools.tools[2]?.inputSchema.properties ?? {}).sort()).toEqual([
       "handle",
       "limit",
+      "maxItemPriceCents",
       "query",
       "selectionMode"
     ]);
     expect(tools.tools[2]?.inputSchema.required).toContain("selectionMode");
     expect(tools.tools[2]?.description).toContain("selectionMode=LOWEST_PRICE");
+    expect(tools.tools[2]?.description).toContain("maxItemPriceCents");
     expect(tools.tools[2]?.description).toContain("Do not call this tool more than once per user lookup");
     expect(tools.tools[2]?.inputSchema.properties?.selectionMode).toMatchObject({
       description: expect.stringContaining("MERCHANT_DIVERSE")
@@ -214,6 +217,7 @@ describe("shopping MCP server", () => {
         chromeFallbackEligible: false,
         irrelevantProductsExcluded: 0,
         conditionProductsExcluded: 0,
+        priceProductsExcluded: 0,
         merchantsFailed: 0,
         coveragePercent: 100,
         failedMerchantIds: [],
@@ -237,6 +241,32 @@ describe("shopping MCP server", () => {
     expect(JSON.stringify(result)).not.toMatch(/deliveredPrice|rawEvidence/i);
   });
 
+  it("forwards an exact item-price ceiling and reports it in the response", async () => {
+    const search = vi.fn(async () => ({
+      ...await shopifyPort.search({ query: "anime shirt", limit: 3 }),
+      maxItemPriceCents: 8_000
+    }));
+    const client = await connect(
+      { compare: async () => comparison },
+      bestBuyPort,
+      { search }
+    );
+
+    const result = await client.callTool({
+      name: "search_shopify_products",
+      arguments: {
+        query: "anime shirt",
+        limit: 3,
+        selectionMode: "MERCHANT_DIVERSE",
+        maxItemPriceCents: 8_000
+      }
+    });
+
+    expect(search).toHaveBeenCalledWith(expect.objectContaining({ maxItemPriceCents: 8_000 }));
+    expect(result.structuredContent).toMatchObject({ status: "OK", maxItemPriceCents: 8_000 });
+    expect(JSON.stringify(result.content)).toContain("USD 80.00");
+  });
+
   it.each([
     {},
     { query: "coffee" },
@@ -244,6 +274,9 @@ describe("shopping MCP server", () => {
     { query: " " },
     { handle: "../admin" },
     { query: "coffee", limit: 4, selectionMode: "MERCHANT_DIVERSE" },
+    { query: "coffee", selectionMode: "MERCHANT_DIVERSE", maxItemPriceCents: 0 },
+    { query: "coffee", selectionMode: "MERCHANT_DIVERSE", maxItemPriceCents: 10.5 },
+    { query: "coffee under $80", selectionMode: "MERCHANT_DIVERSE", maxItemPriceCents: 8_000 },
     { query: "coffee", arbitraryUrl: "https://evil.example" },
     { query: "coffee", selectionMode: "UNSAFE" }
   ])("rejects invalid Shopify input %#", async (args) => {

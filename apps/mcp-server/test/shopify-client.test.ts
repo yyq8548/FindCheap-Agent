@@ -96,6 +96,34 @@ describe("Shopify Storefront MCP client", () => {
     expect(result.diagnostics.selectionPolicy).toBe("EXACT_THEN_SIMILAR_THEN_PRICE");
   });
 
+  it("applies an inclusive item-price ceiling before ranking", async () => {
+    const safeFetch = vi.fn(async (input: { url: string }) => {
+      const host = new URL(input.url).hostname;
+      if (host === "www.fashionnova.com") {
+        return storefrontResponse(input.url, host, ["80.00", "80.01"], ["Anime Shirt", "Anime Tee"]);
+      }
+      if (host === "deathwishcoffee.com") {
+        return storefrontResponse(input.url, host, "79.99", "Anime Shirt Sweatshirt");
+      }
+      return storefrontResponse(input.url, host);
+    });
+    const port = createShopifyPortFromEnvironment(
+      { SHOPIFY_STOREFRONT_MODE: "audited-registry" },
+      { safeFetch, clock: { now: () => new Date(now) } }
+    );
+
+    const result = await port.search({
+      query: "anime shirt sweatshirt",
+      limit: 3,
+      selectionMode: "MERCHANT_DIVERSE",
+      maxItemPriceCents: 8_000
+    });
+
+    expect(result.maxItemPriceCents).toBe(8_000);
+    expect(result.products.map((product) => product.itemPrice?.amountCents)).toEqual([7_999, 8_000]);
+    expect(result.diagnostics.priceProductsExcluded).toBe(1);
+  });
+
   it("rejects unrelated low-price products before merchant diversity and price ranking", async () => {
     const safeFetch = vi.fn(async (input: { url: string }) => {
       const host = new URL(input.url).hostname;

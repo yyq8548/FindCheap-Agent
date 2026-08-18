@@ -48,6 +48,9 @@ describe("FindCheap-Agent v0.2.3 Chrome contract", () => {
     expect(skill).toContain("`matchEvidence`");
     expect(skill).toContain("`variantDimensions`");
     expect(skill).toContain("Always pass `limit: 3`");
+    expect(skill).toContain("pass `maxItemPriceCents` as exact integer cents");
+    expect(skill).toContain("Do not include price words or currency symbols in `query`");
+    expect(skill).toContain("priceProductsExcluded");
     expect(skill).toContain("`LOWEST_PRICE`");
     expect(skill).toContain("`MERCHANT_DIVERSE`");
     expect(skill).toContain("Do not re-sort the returned products");
