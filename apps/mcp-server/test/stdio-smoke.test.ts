@@ -28,7 +28,10 @@ describe("installed plugin stdio", () => {
       command: "node",
       args: ["./dist/mcp-server.js"],
       cwd: ".",
-      env: { SHOPIFY_STOREFRONT_MODE: "fixed-ten" }
+      env: {
+        SHOPIFY_STOREFRONT_MODE: "audited-registry",
+        SHOPIFY_SEARCH_TIMEOUT_MS: "3000"
+      }
     });
 
     const transportErrors: Error[] = [];

@@ -9,7 +9,7 @@ import {
 
 const goldenPath = new URL("./shopify-match-golden.json", import.meta.url);
 
-describe("FindCheap v0.2.1 Shopify product matching gate", () => {
+describe("FindCheap v0.2.2 Shopify product matching gate", () => {
   it("classifies all 20 golden tasks deterministically", async () => {
     const golden = JSON.parse(await readFile(goldenPath, "utf8")) as {
       tasks: Array<{

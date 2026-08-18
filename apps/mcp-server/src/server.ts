@@ -24,7 +24,7 @@ const unavailableMessage =
 const bestBuyUnavailableMessage =
   "Best Buy live product data is unavailable because BEST_BUY_API_KEY is not configured or the official API request failed.";
 const shopifyUnavailableMessage =
-  "Shopify Storefront Beta data is unavailable because the fixed ten-store registry is not configured or its public API coverage is incomplete.";
+  "Shopify Storefront Beta data is unavailable because the audited registry is not configured or its public API coverage is incomplete.";
 
 const MembershipIdsSchema = z
   .array(z.string().trim().min(1).max(80))
@@ -172,6 +172,12 @@ const ShopifyProductsOutputShape = {
     cacheStatus: z.enum(["MISS", "HIT", "COALESCED"]),
     chromeFallbackEligible: z.boolean(),
     irrelevantProductsExcluded: z.number().int().nonnegative(),
+    merchantsFailed: z.number().int().nonnegative(),
+    coveragePercent: z.number().int().min(0).max(100),
+    failedMerchantIds: z.array(z.string()),
+    timedOutMerchantIds: z.array(z.string()),
+    registryVersion: z.string(),
+    searchTimeoutMs: z.number().int().nonnegative(),
     selectionPolicy: z.enum([
       "EXACT_THEN_SIMILAR_THEN_PRICE",
       "EXACT_THEN_SIMILAR_THEN_DIVERSE_MERCHANTS_THEN_PRICE"
@@ -282,7 +288,7 @@ function bestBuyUnavailableResult() {
 function shopifyResult(result: ShopifySearchResult) {
   const exactCount = result.products.filter((product) => product.matchStatus === "EXACT").length;
   const similarCount = result.products.length - exactCount;
-  const message = `The fixed Shopify registry returned ${result.products.length} product(s): ${exactCount} exact and ${similarCount} similar, from ${result.merchantsSucceeded}/${result.merchantsQueried} stores. Prices are public item prices only; shipping, tax, coupons, and member pricing are not included.`;
+  const message = `The audited Shopify registry returned ${result.products.length} product(s): ${exactCount} exact and ${similarCount} similar, from ${result.merchantsSucceeded}/${result.merchantsQueried} stores. Prices are public item prices only; shipping, tax, coupons, and member pricing are not included.`;
   return {
     content: [{ type: "text" as const, text: message }],
     structuredContent: {
@@ -309,13 +315,19 @@ function shopifyUnavailableResult(selectionMode: "LOWEST_PRICE" | "MERCHANT_DIVE
       source: "SHOPIFY_STOREFRONT_API" as const,
       priceScope: "ITEM_PRICE_ONLY" as const,
       coverage: "UNAVAILABLE" as const,
-      merchantsQueried: 10,
+      merchantsQueried: 0,
       merchantsSucceeded: 0,
       diagnostics: {
         apiDurationMs: 0,
         cacheStatus: "MISS" as const,
         chromeFallbackEligible: false,
         irrelevantProductsExcluded: 0,
+        merchantsFailed: 0,
+        coveragePercent: 0,
+        failedMerchantIds: [],
+        timedOutMerchantIds: [],
+        registryVersion: "UNAVAILABLE",
+        searchTimeoutMs: 0,
         selectionPolicy: selectionMode === "LOWEST_PRICE"
           ? "EXACT_THEN_SIMILAR_THEN_PRICE" as const
           : "EXACT_THEN_SIMILAR_THEN_DIVERSE_MERCHANTS_THEN_PRICE" as const
@@ -331,7 +343,7 @@ export function createShoppingServer(
   bestBuyPort: BestBuyPort = createUnavailableBestBuyPort(),
   shopifyPort: ShopifyPort = createUnavailableShopifyPort()
 ): McpServer {
-  const server = new McpServer({ name: "findcheap-agent", version: "0.2.1" });
+  const server = new McpServer({ name: "findcheap-agent", version: "0.2.2" });
 
   server.registerTool(
     "compare_products",
@@ -385,7 +397,7 @@ export function createShoppingServer(
     "search_shopify_products",
     {
       title: "Search Shopify products (Beta)",
-      description: "Search ten fixed tokenless Shopify Storefront pilots by product query or handle. Requires Top 3 ranking intent: literal lowest price or merchant-diverse recommendations. Returns exact matches before labeled similar products; irrelevant products are excluded.",
+      description: "Search a bounded audited Shopify Storefront registry by product query or handle. Requires Top 3 ranking intent: literal lowest price or merchant-diverse recommendations. Returns coverage diagnostics; exact matches rank before labeled similar products and irrelevant products are excluded.",
       inputSchema: ShopifyProductsInputSchema,
       outputSchema: ShopifyProductsOutputShape,
       annotations: {

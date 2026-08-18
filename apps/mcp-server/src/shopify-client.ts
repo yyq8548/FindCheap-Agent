@@ -1,34 +1,19 @@
 import {
-  createShopifyStorefrontReader,
-  type ShopifyStorefrontReaderConfig
+  createShopifyStorefrontReader
 } from "../../../packages/merchant-adapters/src/configured/shopify-storefront-reader.js";
 import type { ReaderDependencies } from "../../../packages/merchant-adapters/src/configured/feed-reader.js";
 import {
   classifyShopifyCandidate,
   type ShopifyMatchStatus
 } from "./shopify-match.js";
+import {
+  SHOPIFY_REGISTRY,
+  type ShopifyPilot,
+  type ShopifyRegistry
+} from "./shopify-registry.js";
 
-export type ShopifyPilot = {
-  merchantId: string;
-  merchant: string;
-  apiHost: string;
-  allowedHosts: readonly string[];
-  apiVersion: ShopifyStorefrontReaderConfig["apiVersion"];
-  probeQuery: string;
-};
-
-export const SHOPIFY_PILOTS = [
-  pilot("death-wish-coffee", "Death Wish Coffee", "deathwishcoffee.com", "coffee"),
-  pilot("kith", "Kith", "kith.com", "shirt"),
-  pilot("allbirds", "Allbirds", "www.allbirds.com", "shoes"),
-  pilot("brooklinen", "Brooklinen", "www.brooklinen.com", "sheets"),
-  pilot("fashion-nova", "Fashion Nova", "www.fashionnova.com", "shirt"),
-  pilot("tentree", "Tentree", "tentree.com", "shirt"),
-  pilot("colourpop", "ColourPop", "colourpop.com", "lipstick"),
-  pilot("liquid-death", "Liquid Death", "liquiddeath.com", "water"),
-  pilot("pura-vida", "Pura Vida", "www.puravidabracelets.com", "bracelet"),
-  pilot("steve-madden", "Steve Madden", "www.stevemadden.com", "shoes")
-] as const satisfies readonly ShopifyPilot[];
+export type { ShopifyPilot } from "./shopify-registry.js";
+export const SHOPIFY_PILOTS = SHOPIFY_REGISTRY.merchants.filter((merchant) => merchant.searchEnabled);
 
 export type ShopifySearchInput = {
   query?: string | undefined;
@@ -77,6 +62,12 @@ export type ShopifySearchResult = {
     cacheStatus: "MISS" | "HIT" | "COALESCED";
     chromeFallbackEligible: boolean;
     irrelevantProductsExcluded: number;
+    merchantsFailed: number;
+    coveragePercent: number;
+    failedMerchantIds: string[];
+    timedOutMerchantIds: string[];
+    registryVersion: string;
+    searchTimeoutMs: number;
     selectionPolicy:
       | "EXACT_THEN_SIMILAR_THEN_PRICE"
       | "EXACT_THEN_SIMILAR_THEN_DIVERSE_MERCHANTS_THEN_PRICE";
@@ -92,19 +83,28 @@ export interface ShopifyPort {
 type ShopifySearchCore = Omit<ShopifySearchResult, "diagnostics"> & {
   irrelevantProductsExcluded: number;
   selectionMode: ShopifySelectionMode;
+  failedMerchantIds: string[];
+  timedOutMerchantIds: string[];
+  registryVersion: string;
+  searchTimeoutMs: number;
 };
 
 type ShopifyClientDependencies = ReaderDependencies & {
   monotonicNow?: () => number;
+  registry?: ShopifyRegistry;
 };
 
 export function createShopifyPortFromEnvironment(
   environment: NodeJS.ProcessEnv | Record<string, string | undefined>,
   dependencies: ShopifyClientDependencies = {}
 ): ShopifyPort {
-  if (environment.SHOPIFY_STOREFRONT_MODE !== "fixed-ten") return unavailablePort();
+  if (environment.SHOPIFY_STOREFRONT_MODE !== "audited-registry") return unavailablePort();
 
-  const sources = SHOPIFY_PILOTS.map((store) => ({
+  const registry = dependencies.registry ?? SHOPIFY_REGISTRY;
+  const enabledMerchants = registry.merchants.filter((merchant) => merchant.searchEnabled);
+  if (enabledMerchants.length === 0) return unavailablePort();
+  const searchTimeoutMs = parseSearchTimeout(environment.SHOPIFY_SEARCH_TIMEOUT_MS);
+  const sources = enabledMerchants.map((store) => ({
     store,
     reader: createShopifyStorefrontReader([...store.allowedHosts], {
       host: store.apiHost,
@@ -136,10 +136,11 @@ export function createShopifyPortFromEnvironment(
       }
       const promise = (async () => {
         const captures = await Promise.allSettled(sources.map(async ({ store, reader }) => {
-          const snapshot = input.handle === undefined
-            ? await reader.capture({ operation: "search", query: input.query ?? "", limit: input.limit })
-            : await reader.capture({ operation: "get", merchantProductId: input.handle });
-          return snapshot.records.map((record): ShopifyCandidate => {
+          const capture = input.handle === undefined
+            ? reader.capture({ operation: "search", query: input.query ?? "", limit: input.limit })
+            : reader.capture({ operation: "get", merchantProductId: input.handle });
+          const snapshot = await withMerchantTimeout(capture, searchTimeoutMs, store.merchantId);
+          const products = snapshot.records.map((record): ShopifyCandidate => {
             if (record.rawOffer?.url === undefined) throw new Error("Shopify product URL is missing");
             return {
               merchantId: store.merchantId,
@@ -162,11 +163,21 @@ export function createShopifyPortFromEnvironment(
               tags: record.tags ?? []
             };
           });
+          return { store, products };
         }));
 
-        const successful = captures.filter((capture): capture is PromiseFulfilledResult<ShopifyCandidate[]> =>
+        const successful = captures.filter((capture): capture is PromiseFulfilledResult<{
+          store: ShopifyPilot;
+          products: ShopifyCandidate[];
+        }> =>
           capture.status === "fulfilled");
-        const products = successful.flatMap((capture) => capture.value);
+        const failed = captures.flatMap((capture, index) => capture.status === "rejected"
+          ? [{
+              merchantId: sources[index]?.store.merchantId ?? "unknown",
+              timedOut: capture.reason instanceof MerchantSearchTimeoutError
+            }]
+          : []);
+        const products = successful.flatMap((capture) => capture.value.products);
         if (products.length === 0 && successful.length !== sources.length) {
           throw new Error("DATA_SOURCE_UNAVAILABLE");
         }
@@ -197,6 +208,10 @@ export function createShopifyPortFromEnvironment(
             : [],
           irrelevantProductsExcluded: products.length - classified.length,
           selectionMode,
+          failedMerchantIds: failed.map((entry) => entry.merchantId),
+          timedOutMerchantIds: failed.filter((entry) => entry.timedOut).map((entry) => entry.merchantId),
+          registryVersion: registry.version,
+          searchTimeoutMs,
           products: selected.map(toPublicProduct)
         } satisfies ShopifySearchCore;
       })();
@@ -219,18 +234,6 @@ export function createUnavailableShopifyPort(): ShopifyPort {
 
 function unavailablePort(): ShopifyPort {
   return { async search() { throw new Error("DATA_SOURCE_UNAVAILABLE"); } };
-}
-
-function pilot(merchantId: string, merchant: string, apiHost: string, probeQuery: string): ShopifyPilot {
-  const bareHost = apiHost.startsWith("www.") ? apiHost.slice(4) : apiHost;
-  return {
-    merchantId,
-    merchant,
-    apiHost,
-    allowedHosts: [bareHost, `www.${bareHost}`],
-    apiVersion: "2026-07",
-    probeQuery
-  };
 }
 
 function toAvailability(value: string | undefined): ShopifyProduct["availability"] {
@@ -273,7 +276,16 @@ function withDiagnostics(
   apiDurationMs: number,
   cacheStatus: "MISS" | "HIT" | "COALESCED"
 ): ShopifySearchResult {
-  const { irrelevantProductsExcluded, selectionMode, ...publicResult } = result;
+  const {
+    irrelevantProductsExcluded,
+    selectionMode,
+    failedMerchantIds,
+    timedOutMerchantIds,
+    registryVersion,
+    searchTimeoutMs,
+    ...publicResult
+  } = result;
+  const merchantsFailed = result.merchantsQueried - result.merchantsSucceeded;
   return {
     ...publicResult,
     diagnostics: {
@@ -281,11 +293,42 @@ function withDiagnostics(
       cacheStatus,
       chromeFallbackEligible: result.coverage === "COMPLETE" && result.products.length === 0,
       irrelevantProductsExcluded,
+      merchantsFailed,
+      coveragePercent: Math.round((result.merchantsSucceeded / result.merchantsQueried) * 100),
+      failedMerchantIds,
+      timedOutMerchantIds,
+      registryVersion,
+      searchTimeoutMs,
       selectionPolicy: selectionMode === "LOWEST_PRICE"
         ? "EXACT_THEN_SIMILAR_THEN_PRICE"
         : "EXACT_THEN_SIMILAR_THEN_DIVERSE_MERCHANTS_THEN_PRICE"
     }
   };
+}
+
+class MerchantSearchTimeoutError extends Error {}
+
+async function withMerchantTimeout<T>(operation: Promise<T>, timeoutMs: number, merchantId: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(
+      () => reject(new MerchantSearchTimeoutError(`Shopify merchant search timed out: ${merchantId}`)),
+      timeoutMs
+    );
+  });
+  try {
+    return await Promise.race([operation, timeout]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
+function parseSearchTimeout(value: string | undefined): number {
+  if (value === undefined) return 3_000;
+  if (!/^(?:[1-9]\d{2,3}|10000)$/u.test(value)) throw new Error("SHOPIFY_SEARCH_TIMEOUT_MS is invalid");
+  const timeout = Number(value);
+  if (timeout < 100 || timeout > 10_000) throw new Error("SHOPIFY_SEARCH_TIMEOUT_MS is invalid");
+  return timeout;
 }
 
 function toPublicProduct(candidate: RankedShopifyCandidate): ShopifyProduct {

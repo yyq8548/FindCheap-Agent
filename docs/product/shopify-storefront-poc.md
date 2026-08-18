@@ -2,7 +2,7 @@
 
 ## Outcome and assumptions
 
-- Outcome: add a reusable tokenless Shopify Storefront reader and expose one fixed, read-only ten-store MCP Beta search.
+- Outcome: expose a reusable tokenless Shopify Storefront reader through one bounded, configuration-driven MCP Beta registry.
 - Risk tier: `R0`; inputs and outputs are public product data.
 - Assumption: Shopify continues to permit tokenless access to published products for this storefront.
 - Out of scope: account data, checkout, cart, shipping, tax, coupons, membership pricing, persistence, and automatic merchant approval.
@@ -11,19 +11,21 @@
 
 - Use deterministic API tool calls, typed parsing, host allowlists, and failure isolation; no model planning or multi-agent workflow is needed.
 - The reusable reader calls `https://<audited-host>/api/2026-07/graphql.json` with a fixed GraphQL document and encoded variables.
-- The Codex MCP tool is fixed to Death Wish Coffee, Kith, Allbirds, Brooklinen, Fashion Nova, Tentree, ColourPop, Liquid Death, Pura Vida, and Steve Madden. It cannot accept an arbitrary host or URL.
+- The checked-in v1 registry contains Death Wish Coffee, Kith, Allbirds, Brooklinen, Fashion Nova, Tentree, ColourPop, Liquid Death, Pura Vida, and Steve Madden. Strict validation allows at most fifty entries. The MCP caller cannot supply a host or URL.
+- `searchEnabled` controls this technical Beta search only. It is not merchant consent, legal approval, or Commerce enablement.
 - The formal ingestion path accepts the same `shopify-storefront` provider only after the existing catalog, legal, decision-record, and enablement gates pass.
 
 ## Data, tools, permissions, and human controls
 
-- Allowed API and product hosts: only the exact bare/`www` host pair for each of the ten fixed registry entries. Callers cannot supply a host.
+- Allowed API and product hosts: only the exact bare/`www` host pair declared by each checked-in registry entry. Callers cannot supply a host.
 - Returned fields: handle, title, selected variant title/options, vendor, SKU, numeric barcode when valid, image, public USD item price, public availability, canonical product URL, match status/evidence, and observation time.
 - The connection uses the existing DNS/IP validation, pinned TLS transport, redirect validation, response-size cap, and request timeout.
 - No token, API key, cookie, browser account, or customer identity is used or stored.
 
 ## Failure and recovery design
 
-- Reject arbitrary hosts, unsafe handles and search queries, non-USD prices, malformed GraphQL responses, GraphQL errors, external product URLs, non-JSON responses, redirects outside the allowlist, timeouts, and oversized responses.
+- Reject arbitrary hosts, invalid or duplicate registry identities, unsafe handles and search queries, non-USD prices, malformed GraphQL responses, GraphQL errors, external product URLs, non-JSON responses, redirects outside the allowlist, timeouts, and oversized responses.
+- Run registry searches concurrently with a three-second per-store deadline. Isolate failed stores, report coverage percentage and failed/timed-out merchant IDs, and fail closed when incomplete coverage yields no products.
 - Return `DATA_SOURCE_UNAVAILABLE` through MCP instead of inventing products.
 - Rollback: remove the MCP environment entry or revert the connector commit. Commerce and ingestion remain unaffected because no real merchant is enabled.
 
@@ -44,7 +46,7 @@
 ## Implementation milestones
 
 1. Tokenless reader and CLI probe.
-2. Fixed-host MCP Beta tool.
+2. Bounded audited-registry MCP Beta tool.
 3. At least 100 manually reviewed product/variant identity samples and legal review.
 4. Only after approval: add an enabled merchant configuration and connect it to audited comparison ingestion.
 

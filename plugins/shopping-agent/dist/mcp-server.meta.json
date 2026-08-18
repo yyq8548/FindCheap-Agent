@@ -1,5 +1,9 @@
 {
   "inputs": {
+    "../../config/shopify/registry.ts": {
+      "format": "esm",
+      "imports": []
+    },
     "../../node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/experimental/tasks/helpers.js": {
       "format": "esm",
       "imports": []
@@ -3896,12 +3900,32 @@
           "kind": "import-statement",
           "original": "./shopify-match.js",
           "path": "src/shopify-match.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./shopify-registry.js",
+          "path": "src/shopify-registry.ts"
         }
       ]
     },
     "src/shopify-match.ts": {
       "format": "esm",
       "imports": []
+    },
+    "src/shopify-registry.ts": {
+      "format": "esm",
+      "imports": [
+        {
+          "kind": "import-statement",
+          "original": "zod",
+          "path": "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/index.js"
+        },
+        {
+          "kind": "import-statement",
+          "original": "../../../config/shopify/registry.js",
+          "path": "../../config/shopify/registry.ts"
+        }
+      ]
     },
     "src/stdio.ts": {
       "format": "esm",
@@ -3936,7 +3960,7 @@
   },
   "outputs": {
     "../../plugins/shopping-agent/dist/mcp-server.js": {
-      "bytes": 380845,
+      "bytes": 383840,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
@@ -3982,6 +4006,9 @@
         }
       ],
       "inputs": {
+        "../../config/shopify/registry.ts": {
+          "bytesInOutput": 797
+        },
         "../../node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/experimental/tasks/helpers.js": {
           "bytesInOutput": 703
         },
@@ -4487,13 +4514,16 @@
           "bytesInOutput": 2484
         },
         "src/server.ts": {
-          "bytesInOutput": 7988
+          "bytesInOutput": 8387
         },
         "src/shopify-client.ts": {
-          "bytesInOutput": 4688
+          "bytesInOutput": 5223
         },
         "src/shopify-match.ts": {
           "bytesInOutput": 3152
+        },
+        "src/shopify-registry.ts": {
+          "bytesInOutput": 1264
         },
         "src/stdio.ts": {
           "bytesInOutput": 195

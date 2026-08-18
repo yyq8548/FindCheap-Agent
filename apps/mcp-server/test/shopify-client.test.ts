@@ -16,7 +16,7 @@ describe("Shopify Storefront MCP client", () => {
       return storefrontResponse(input.url, host, prices.get(host));
     });
     const port = createShopifyPortFromEnvironment(
-      { SHOPIFY_STOREFRONT_MODE: "fixed-ten" },
+      { SHOPIFY_STOREFRONT_MODE: "audited-registry" },
       { safeFetch, clock: { now: () => new Date(now) } }
     );
 
@@ -35,6 +35,12 @@ describe("Shopify Storefront MCP client", () => {
         cacheStatus: "MISS",
         chromeFallbackEligible: false,
         irrelevantProductsExcluded: 0,
+        merchantsFailed: 0,
+        coveragePercent: 100,
+        failedMerchantIds: [],
+        timedOutMerchantIds: [],
+        registryVersion: "v1",
+        searchTimeoutMs: 3_000,
         selectionPolicy: "EXACT_THEN_SIMILAR_THEN_DIVERSE_MERCHANTS_THEN_PRICE"
       }
     });
@@ -56,7 +62,7 @@ describe("Shopify Storefront MCP client", () => {
         : undefined);
     });
     const port = createShopifyPortFromEnvironment(
-      { SHOPIFY_STOREFRONT_MODE: "fixed-ten" },
+      { SHOPIFY_STOREFRONT_MODE: "audited-registry" },
       { safeFetch, clock: { now: () => new Date(now) } }
     );
 
@@ -78,7 +84,7 @@ describe("Shopify Storefront MCP client", () => {
       return storefrontResponse(input.url, host, prices.get(host));
     });
     const port = createShopifyPortFromEnvironment(
-      { SHOPIFY_STOREFRONT_MODE: "fixed-ten" },
+      { SHOPIFY_STOREFRONT_MODE: "audited-registry" },
       { safeFetch, clock: { now: () => new Date(now) } }
     );
 
@@ -105,7 +111,7 @@ describe("Shopify Storefront MCP client", () => {
       return storefrontResponse(input.url, host);
     });
     const port = createShopifyPortFromEnvironment(
-      { SHOPIFY_STOREFRONT_MODE: "fixed-ten" },
+      { SHOPIFY_STOREFRONT_MODE: "audited-registry" },
       { safeFetch, clock: { now: () => new Date(now) } }
     );
 
@@ -126,7 +132,7 @@ describe("Shopify Storefront MCP client", () => {
         : storefrontResponse(input.url, host);
     });
     const port = createShopifyPortFromEnvironment(
-      { SHOPIFY_STOREFRONT_MODE: "fixed-ten" },
+      { SHOPIFY_STOREFRONT_MODE: "audited-registry" },
       { safeFetch, clock: { now: () => new Date(now) } }
     );
 
@@ -150,7 +156,7 @@ describe("Shopify Storefront MCP client", () => {
       return storefrontResponse(input.url, host);
     });
     const port = createShopifyPortFromEnvironment(
-      { SHOPIFY_STOREFRONT_MODE: "fixed-ten" },
+      { SHOPIFY_STOREFRONT_MODE: "audited-registry" },
       { safeFetch, clock: { now: () => new Date(now) } }
     );
 
@@ -174,7 +180,7 @@ describe("Shopify Storefront MCP client", () => {
       return storefrontResponse(input.url, host);
     });
     const port = createShopifyPortFromEnvironment(
-      { SHOPIFY_STOREFRONT_MODE: "fixed-ten" },
+      { SHOPIFY_STOREFRONT_MODE: "audited-registry" },
       { safeFetch, clock: { now: () => new Date(now) } }
     );
 
@@ -196,7 +202,7 @@ describe("Shopify Storefront MCP client", () => {
         : storefrontResponse(input.url, host);
     });
     const port = createShopifyPortFromEnvironment(
-      { SHOPIFY_STOREFRONT_MODE: "fixed-ten" },
+      { SHOPIFY_STOREFRONT_MODE: "audited-registry" },
       { safeFetch, clock: { now: () => new Date(now) } }
     );
 
@@ -220,7 +226,7 @@ describe("Shopify Storefront MCP client", () => {
       return storefrontResponse(input.url, new URL(input.url).hostname, "20.00");
     });
     const port = createShopifyPortFromEnvironment(
-      { SHOPIFY_STOREFRONT_MODE: "fixed-ten" },
+      { SHOPIFY_STOREFRONT_MODE: "audited-registry" },
       {
         safeFetch,
         clock: { now: () => new Date(now) },
@@ -254,7 +260,7 @@ describe("Shopify Storefront MCP client", () => {
       );
     });
     const port = createShopifyPortFromEnvironment(
-      { SHOPIFY_STOREFRONT_MODE: "fixed-ten" },
+      { SHOPIFY_STOREFRONT_MODE: "audited-registry" },
       { safeFetch, clock: { now: () => new Date(now) } }
     );
 
@@ -262,14 +268,57 @@ describe("Shopify Storefront MCP client", () => {
 
     expect(result.coverage).toBe("PARTIAL");
     expect(result.merchantsSucceeded).toBe(9);
+    expect(result.diagnostics).toMatchObject({
+      merchantsFailed: 1,
+      coveragePercent: 90,
+      failedMerchantIds: ["kith"],
+      timedOutMerchantIds: []
+    });
     expect(result.products).toHaveLength(1);
     expect(result.products[0]?.merchant).toBe("Allbirds");
+  });
+
+  it("uses the configured registry and isolates a merchant that exceeds the search deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      const registry = { version: "v-test", merchants: SHOPIFY_PILOTS.slice(0, 2) };
+      const safeFetch = vi.fn(async (input: { url: string }) => {
+        const host = new URL(input.url).hostname;
+        if (host === "kith.com") return new Promise<never>(() => undefined);
+        return storefrontResponse(input.url, host, "19.99", "Coffee Shirt", "Shirt");
+      });
+      const port = createShopifyPortFromEnvironment(
+        { SHOPIFY_STOREFRONT_MODE: "audited-registry", SHOPIFY_SEARCH_TIMEOUT_MS: "100" },
+        { safeFetch, clock: { now: () => new Date(now) }, registry }
+      );
+
+      const pending = port.search({ query: "shirt", limit: 3 });
+      await vi.advanceTimersByTimeAsync(100);
+      const result = await pending;
+
+      expect(safeFetch).toHaveBeenCalledTimes(2);
+      expect(result).toMatchObject({
+        coverage: "PARTIAL",
+        merchantsQueried: 2,
+        merchantsSucceeded: 1,
+        diagnostics: {
+          merchantsFailed: 1,
+          coveragePercent: 50,
+          failedMerchantIds: ["kith"],
+          timedOutMerchantIds: ["kith"],
+          registryVersion: "v-test",
+          searchTimeoutMs: 100
+        }
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("returns complete empty only when all ten stores succeed", async () => {
     const safeFetch = vi.fn(async (input: { url: string }) => storefrontResponse(input.url, new URL(input.url).hostname));
     const port = createShopifyPortFromEnvironment(
-      { SHOPIFY_STOREFRONT_MODE: "fixed-ten" },
+      { SHOPIFY_STOREFRONT_MODE: "audited-registry" },
       { safeFetch, clock: { now: () => new Date(now) } }
     );
     await expect(port.search({ query: "no-match", limit: 3 })).resolves.toMatchObject({
@@ -287,19 +336,27 @@ describe("Shopify Storefront MCP client", () => {
       return storefrontResponse(input.url, new URL(input.url).hostname);
     });
     const port = createShopifyPortFromEnvironment(
-      { SHOPIFY_STOREFRONT_MODE: "fixed-ten" },
+      { SHOPIFY_STOREFRONT_MODE: "audited-registry" },
       { safeFetch, clock: { now: () => new Date(now) } }
     );
     await expect(port.search({ query: "no-match", limit: 3 })).rejects.toThrow("DATA_SOURCE_UNAVAILABLE");
   });
 
-  it("fails closed unless the exact fixed registry mode is configured", async () => {
+  it("fails closed unless the audited registry mode is configured", async () => {
     await expect(createShopifyPortFromEnvironment({}).search({ query: "coffee", limit: 5 }))
       .rejects.toThrow("DATA_SOURCE_UNAVAILABLE");
     await expect(createShopifyPortFromEnvironment({ SHOPIFY_STOREFRONT_MODE: "fixed-five" })
       .search({ query: "coffee", limit: 5 })).rejects.toThrow("DATA_SOURCE_UNAVAILABLE");
     await expect(createShopifyPortFromEnvironment({ SHOPIFY_STOREFRONT_MODE: "evil.example" })
       .search({ query: "coffee", limit: 5 })).rejects.toThrow("DATA_SOURCE_UNAVAILABLE");
+    expect(() => createShopifyPortFromEnvironment({
+      SHOPIFY_STOREFRONT_MODE: "audited-registry",
+      SHOPIFY_SEARCH_TIMEOUT_MS: "99"
+    })).toThrow("SHOPIFY_SEARCH_TIMEOUT_MS is invalid");
+    expect(() => createShopifyPortFromEnvironment({
+      SHOPIFY_STOREFRONT_MODE: "audited-registry",
+      SHOPIFY_SEARCH_TIMEOUT_MS: "10001"
+    })).toThrow("SHOPIFY_SEARCH_TIMEOUT_MS is invalid");
   });
 });
 
