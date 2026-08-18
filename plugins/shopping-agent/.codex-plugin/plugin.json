@@ -1,7 +1,7 @@
 {
   "name": "shopping-agent",
-  "version": "0.3.1+codex.20260818180111",
-  "description": "Verify same-product offers and expose evidence-bounded ZIP pricing status across a bounded Shopify registry.",
+  "version": "0.3.2+codex.20260818180716",
+  "description": "Return verified product cards with evidence-bounded pricing, coupon, and purchase-link status.",
   "author": {
     "name": "yyq8548"
   },
@@ -11,8 +11,8 @@
   "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "FindCheap-Agent",
-    "shortDescription": "Verify offers and pricing evidence across Shopify stores.",
-    "longDescription": "FindCheap-Agent is a Codex Plugin Agent. v0.3.1 searches a 45-store technically audited Shopify Storefront registry once, verifies same-product identity, accepts a US ZIP and memberships, reports verified regular item price and freshness, marks unverified shipping, tax, fees, member price, and delivered price unavailable instead of estimating them, and uses authorized Chrome only after complete zero-result API coverage.",
+    "shortDescription": "Verified cards, pricing, coupons, and safe links.",
+    "longDescription": "FindCheap-Agent is a Codex Plugin Agent. v0.3.2 searches a 45-store technically audited Shopify Storefront registry once, verifies same-product identity, returns dynamic product cards, reports evidence-bounded pricing and Coupon status, uses approved affiliate links only when audited, otherwise preserves the canonical merchant link, and uses authorized Chrome only after complete zero-result API coverage.",
     "developerName": "yyq8548",
     "category": "Productivity",
     "capabilities": [],

@@ -183,7 +183,31 @@ const ShopifyProductOutputSchema = z.object({
     mandatoryFees: z.object({ status: z.literal("UNAVAILABLE"), reason: z.string() }),
     deliveredPrice: z.object({ status: z.literal("UNAVAILABLE"), reason: z.string() })
   }),
-  freshness: z.object({ status: z.literal("OBSERVED_AT_QUERY"), checkedAt: z.string() })
+  freshness: z.object({ status: z.literal("OBSERVED_AT_QUERY"), checkedAt: z.string() }),
+  coupons: z.object({
+    status: z.enum(["VERIFIED", "UNAVAILABLE"]),
+    verified: z.array(z.object({
+      code: z.string().optional(),
+      amount: MoneyOutputSchema,
+      eligibility: z.array(z.string()),
+      validTo: z.string()
+    }))
+  }),
+  purchaseLink: z.object({
+    kind: z.enum(["APPROVED_AFFILIATE", "CANONICAL"]),
+    url: z.string().url()
+  }),
+  card: z.object({
+    title: z.string(),
+    merchant: z.string(),
+    imageUrl: z.string().url().optional(),
+    primaryPrice: MoneyOutputSchema.optional(),
+    priceLabel: z.string(),
+    matchBadge: z.enum(["EXACT", "SIMILAR"]),
+    conditionBadge: z.enum(["NEW", "USED", "REFURBISHED", "OPEN_BOX", "UNKNOWN"]),
+    availability: z.enum(["IN_STOCK", "OUT_OF_STOCK", "UNKNOWN"]),
+    actionLabel: z.literal("View at merchant")
+  })
 });
 
 const ShopifyProductsOutputShape = {
@@ -194,6 +218,14 @@ const ShopifyProductsOutputShape = {
   pricingContext: z.object({
     zipCode: z.string().optional(),
     membershipIds: z.array(z.string())
+  }),
+  quality: z.object({
+    status: z.enum(["PASS", "PASS_WITH_LIMITATIONS"]),
+    cardsReturned: z.number().int().nonnegative(),
+    itemPricesVerified: z.number().int().nonnegative(),
+    couponsVerified: z.number().int().nonnegative(),
+    affiliateLinksApproved: z.number().int().nonnegative(),
+    limitations: z.array(z.string())
   }),
   coverage: z.enum(["COMPLETE", "PARTIAL", "NOT_QUERIED", "UNAVAILABLE"]),
   merchantsQueried: z.number().int(),
@@ -338,7 +370,7 @@ function shopifyResult(
   const comparison = result.comparison.status === "SAME_PRODUCT"
     ? ` Same-product comparison verified across ${result.comparison.merchantCount} merchants using ${result.comparison.evidence.join("; ")}.`
     : " No cross-merchant same-product identity was independently verified; results are discovery options, not like-for-like offers.";
-  const summary = `Comparison status: ${result.comparison.status}. The audited Shopify registry returned ${result.products.length} product(s): ${exactCount} exact and ${similarCount} similar, from ${result.merchantsSucceeded}/${result.merchantsQueried} stores.${priceLimit}${comparison} Prices are public item prices only; shipping, tax, mandatory fees, member price, and delivered price unavailable without verified merchant evidence.`;
+  const summary = `Comparison status: ${result.comparison.status}. The audited Shopify registry returned ${result.products.length} product card(s): ${exactCount} exact and ${similarCount} similar, from ${result.merchantsSucceeded}/${result.merchantsQueried} stores.${priceLimit}${comparison} Prices are public item prices only; shipping, tax, mandatory fees, member price, delivered price, and verified coupons are unavailable without merchant evidence. Purchase actions use canonical merchant links because no affiliate relationship is approved.`;
   const products = result.products.map((product, index) => {
     const price = product.itemPrice === undefined
       ? "price unavailable"
@@ -374,6 +406,18 @@ function shopifyResult(
         ...(context.zipCode === undefined ? {} : { zipCode: context.zipCode }),
         membershipIds: context.membershipIds ?? []
       },
+      quality: {
+        status: "PASS_WITH_LIMITATIONS" as const,
+        cardsReturned: result.products.length,
+        itemPricesVerified: result.products.filter((product) => product.itemPrice !== undefined).length,
+        couponsVerified: 0,
+        affiliateLinksApproved: 0,
+        limitations: [
+          "delivered price components are not verified",
+          "coupon source is unavailable",
+          "affiliate relationship is not approved"
+        ]
+      },
       coverage: result.coverage,
       merchantsQueried: result.merchantsQueried,
       merchantsSucceeded: result.merchantsSucceeded,
@@ -394,9 +438,37 @@ function shopifyResult(
           mandatoryFees: { status: "UNAVAILABLE" as const, reason: "mandatory fees were not verified" },
           deliveredPrice: { status: "UNAVAILABLE" as const, reason: "not all delivered-price components were verified" }
         },
-        freshness: { status: "OBSERVED_AT_QUERY" as const, checkedAt: product.checkedAt }
+        freshness: { status: "OBSERVED_AT_QUERY" as const, checkedAt: product.checkedAt },
+        coupons: { status: "UNAVAILABLE" as const, verified: [] },
+        purchaseLink: { kind: "CANONICAL" as const, url: product.merchantUrl },
+        card: {
+          title: product.title,
+          merchant: product.merchant,
+          ...(product.imageUrl === undefined ? {} : { imageUrl: product.imageUrl }),
+          ...(product.itemPrice === undefined ? {} : { primaryPrice: product.itemPrice }),
+          priceLabel: product.itemPrice === undefined ? "Item price unavailable" : "Verified item price",
+          matchBadge: product.matchStatus,
+          conditionBadge: product.condition,
+          availability: product.availability,
+          actionLabel: "View at merchant" as const
+        }
       }))
     }
+  };
+}
+
+function emptyShopifyQuality() {
+  return {
+    status: "PASS_WITH_LIMITATIONS" as const,
+    cardsReturned: 0,
+    itemPricesVerified: 0,
+    couponsVerified: 0,
+    affiliateLinksApproved: 0,
+    limitations: [
+      "no product cards were returned",
+      "coupon source is unavailable",
+      "affiliate relationship is not approved"
+    ]
   };
 }
 
@@ -417,6 +489,7 @@ function shopifyClarificationResult(
         ...(context.zipCode === undefined ? {} : { zipCode: context.zipCode }),
         membershipIds: context.membershipIds ?? []
       },
+      quality: emptyShopifyQuality(),
       coverage: "NOT_QUERIED" as const,
       merchantsQueried: 0,
       merchantsSucceeded: 0,
@@ -464,6 +537,7 @@ function shopifyUnavailableResult(
         ...(context.zipCode === undefined ? {} : { zipCode: context.zipCode }),
         membershipIds: context.membershipIds ?? []
       },
+      quality: emptyShopifyQuality(),
       coverage: "UNAVAILABLE" as const,
       merchantsQueried: 0,
       merchantsSucceeded: 0,
@@ -501,7 +575,7 @@ export function createShoppingServer(
   bestBuyPort: BestBuyPort = createUnavailableBestBuyPort(),
   shopifyPort: ShopifyPort = createUnavailableShopifyPort()
 ): McpServer {
-  const server = new McpServer({ name: "findcheap-agent", version: "0.3.1" });
+  const server = new McpServer({ name: "findcheap-agent", version: "0.3.2" });
 
   server.registerTool(
     "compare_products",

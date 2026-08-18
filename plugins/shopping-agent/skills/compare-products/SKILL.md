@@ -1,9 +1,9 @@
 ---
 name: compare-products
-description: Search a bounded audited Shopify Storefront registry first, verify same-product identity, and report evidence-bounded ZIP pricing status before authorized Chrome fallback. Coupon, checkout, and payment remain out of scope in v0.3.1.
+description: Search a bounded audited Shopify Storefront registry first, verify same-product identity, and render evidence-bounded product cards, Coupon status, and safe purchase links before authorized Chrome fallback. Checkout and payment remain out of scope in v0.3.2.
 ---
 
-# FindCheap-Agent v0.3.1 verified pricing status
+# FindCheap-Agent v0.3.2 verified product cards
 
 Risk tier: `R0`. Perform one read-only public-product lookup. Do not persist browser data.
 
@@ -28,6 +28,8 @@ Apply this routing before any browser action:
 6. If the user explicitly requests no Chrome, return the empty Shopify result without fallback. If the user explicitly names another tool or source, follow that explicit request instead of the ordinary Shopify-first default.
 
 For an API result, preserve `pricing`, `pricingContext`, `freshness`, and the source label. A Shopify Storefront item price may be `VERIFIED`; shipping, tax, mandatory fees, member price, and delivered price remain `UNAVAILABLE` unless the tool explicitly verifies them. Never estimate missing components or sum an incomplete delivered price.
+
+Render the returned `card` fields directly and preserve order. Show only coupons in `coupons.verified` when `coupons.status` is `VERIFIED`; never invent a code or discount. Use `purchaseLink` exactly as returned. `APPROVED_AFFILIATE` means an audited relationship supplied the link; `CANONICAL` is the direct merchant fallback and must not be described as affiliate. Report the returned `quality` status and limitations.
 
 For every response report `API duration`, Shopify coverage percentage, failed/timed-out merchant IDs, registry version, selected ranking mode, and Chrome fallback: `NOT_USED` or `USED`. Render the fallback value as `NOT_USED` when API products are returned or fallback is ineligible. Use `USED` only after Chrome was actually opened. Preserve the API's returned order. Never restore a rejected product to reach three results.
 

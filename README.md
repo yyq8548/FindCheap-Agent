@@ -51,3 +51,8 @@ freshness contract: the public regular item price is verified at query time; ZIP
 mandatory fees, member price, and delivered price are explicitly unavailable unless independently
 verified. Missing charges are never estimated or replaced with zero.
 
+v0.3.2 adds dynamic product-card data, explicit verified-or-unavailable Coupon status, safe purchase
+links, and a compact quality summary. The public Shopify registry currently has no audited Coupon
+or affiliate relationship, so it returns no codes and preserves each canonical merchant URL. Tagged
+affiliate links are emitted only by an independently approved source.
+
