@@ -19,6 +19,7 @@ const manifestPath = path.join(
   ".codex-plugin",
   "plugin.json"
 );
+const readmePath = path.join(root, "README.md");
 
 describe("FindCheap-Agent v0.1 Chrome contract", () => {
   it("defines one bounded, user-authorized web-wide merchant workflow", async () => {
@@ -74,9 +75,20 @@ describe("FindCheap-Agent v0.1 Chrome contract", () => {
     };
 
     expect(manifest.version).toMatch(/^0\.1\.0\+codex\./u);
+    expect(manifest.interface.longDescription).toMatch(/Codex Plugin Agent/u);
     expect(manifest.interface.longDescription).toMatch(/authorized Chrome/u);
     expect(manifest.interface.defaultPrompt).toEqual([
       "Use authorized Chrome to find the best three verified options for this exact product."
     ]);
+  });
+
+  it("defines the shipped product as a Codex Plugin Agent", async () => {
+    const readme = await readFile(readmePath, "utf8");
+
+    expect(readme).toContain("Product form: **Codex Plugin Agent**");
+    expect(readme).toContain("`plugins/shopping-agent/`");
+    expect(readme).toContain("authorized Chrome skill");
+    expect(readme).toContain("local stdio MCP server");
+    expect(readme).toContain("does not order, check out, or submit payment");
   });
 });

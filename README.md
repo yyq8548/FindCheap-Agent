@@ -1,13 +1,23 @@
 # FindCheap-Agent
 
-AI shopping comparison entry for US consumers and an initial set of 10–20 US merchants.
+Product form: **Codex Plugin Agent**.
+
+The shipped Codex plugin lives at `plugins/shopping-agent/`. Codex orchestrates two bounded paths:
+
+- an authorized Chrome skill for a read-only, web-wide v0.1 product search;
+- a local stdio MCP server for audited Commerce data and an official merchant API when configured.
+
+The Chrome path discovers up to eight merchant product pages, verifies five first, inspects up to
+three reserves only when needed, and returns no more than three exact, source-linked offers. It
+does not order, check out, or submit payment.
 
 The approved product specification and implementation plans live under `docs/superpowers/`.
 
 Current merchant status: **0 merchants are enabled**. Commerce API and Codex MCP results are
 served only from fresh, exact, audit-promoted Commerce records. Staging records, similar-item
 matches, expired prices, and quotes for another ZIP or membership context are never presented as
-exact comparisons. The product does not order, check out, or submit payment.
+exact comparisons. With no approved merchant configuration, MCP data access fails closed while the
+user-authorized Chrome v0.1 path remains available.
 
 See `docs/product/commerce-api-runbook.md` for deployment configuration.
 

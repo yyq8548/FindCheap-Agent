@@ -1,6 +1,6 @@
 {
   "name": "shopping-agent",
-  "version": "0.1.0+codex.20260817230553",
+  "version": "0.1.0+codex.20260818002746",
   "description": "Use authorized Chrome for a bounded, read-only web-wide product search without purchasing.",
   "author": {
     "name": "yyq8548"
@@ -12,7 +12,7 @@
   "interface": {
     "displayName": "FindCheap-Agent",
     "shortDescription": "Search public merchant sites through authorized Chrome.",
-    "longDescription": "FindCheap-Agent v0.1 uses authorized Chrome for one bounded web-wide search and returns the best three verified, source-linked public merchant options without membership, checkout, or payment actions.",
+    "longDescription": "FindCheap-Agent is a Codex Plugin Agent. v0.1 uses authorized Chrome for one bounded web-wide search and returns the best three verified, source-linked public merchant options without membership, checkout, or payment actions.",
     "developerName": "yyq8548",
     "category": "Productivity",
     "capabilities": [],
