@@ -1,9 +1,9 @@
 ---
 name: compare-products
-description: Search a bounded audited Shopify Storefront registry first, verify cross-merchant same-product identity, classify variant and condition evidence, then use the user's authorized Chrome session only after complete API coverage returns zero products. Membership, delivered-price, coupon, checkout, and payment requests are out of scope in v0.3.0.
+description: Search a bounded audited Shopify Storefront registry first, verify same-product identity, and report evidence-bounded ZIP pricing status before authorized Chrome fallback. Coupon, checkout, and payment remain out of scope in v0.3.1.
 ---
 
-# FindCheap-Agent v0.3.0 verified comparison
+# FindCheap-Agent v0.3.1 verified pricing status
 
 Risk tier: `R0`. Perform one read-only public-product lookup. Do not persist browser data.
 
@@ -11,7 +11,7 @@ Risk tier: `R0`. Perform one read-only public-product lookup. Do not persist bro
 
 Apply this routing before any browser action:
 
-1. **Shopify-first default.** For an ordinary product search, call `search_shopify_products` before any Chrome search. Call `search_shopify_products` exactly once per user lookup. Always pass `limit: 3`. When the user explicitly requests same-product, like-for-like, or 同款 comparison, pass `comparisonMode: SAME_PRODUCT`; otherwise pass `comparisonMode: DISCOVERY`. Pass `selectionMode: LOWEST_PRICE` when the user explicitly asks for cheapest, lowest price, or the lowest-priced products. Otherwise pass `selectionMode: MERCHANT_DIVERSE` for recommended options from different merchants. If the user gives a maximum item price, pass `maxItemPriceCents` as exact integer cents. Do not include price words or currency symbols in `query`; use it only for product, model, category, variant, and condition identity. Do not repeat a successful call to verify, rerank, or reformat its result. The checked-in v3 registry contains 45 technically verified stores spanning apparel, footwear, beauty, food, drink, home, cookware, jewelry, eyewear, grooming, toys, and reusable goods. Configuration is bounded to 50 stores; never claim all Shopify stores or whole-web coverage, and never describe public discovery or technical verification as merchant, legal, or affiliate approval.
+1. **Shopify-first default.** For an ordinary product search, call `search_shopify_products` before any Chrome search. Call `search_shopify_products` exactly once per user lookup. Always pass `limit: 3`. When the user explicitly requests same-product, like-for-like, or 同款 comparison, pass `comparisonMode: SAME_PRODUCT`; otherwise pass `comparisonMode: DISCOVERY`. Pass `selectionMode: LOWEST_PRICE` when the user explicitly asks for cheapest, lowest price, or the lowest-priced products. Otherwise pass `selectionMode: MERCHANT_DIVERSE` for recommended options from different merchants. If the user gives a maximum item price, pass `maxItemPriceCents` as exact integer cents. Pass a supplied US ZIP as `zipCode` and supplied membership program identifiers as `membershipIds`; never infer them. Do not include price words or currency symbols in `query`; use it only for product, model, category, variant, and condition identity. Do not repeat a successful call to verify, rerank, or reformat its result. The checked-in v3 registry contains 45 technically verified stores spanning apparel, footwear, beauty, food, drink, home, cookware, jewelry, eyewear, grooming, toys, and reusable goods. Configuration is bounded to 50 stores; never claim all Shopify stores or whole-web coverage, and never describe public discovery or technical verification as merchant, legal, or affiliate approval.
 2. For `NEEDS_CLARIFICATION`, ask the returned question and stop; do not search merchants again and do not call Chrome. A category, color, or theme alone is not enough for same-product comparison.
 3. If Shopify returns `status: OK` and one or more products, return those API results. Do not open Chrome when Shopify returns one or more products.
    - Present `EXACT` products first. Never describe `SIMILAR` as exact.
@@ -27,7 +27,7 @@ Apply this routing before any browser action:
 5. Do not use Chrome for `coverage: PARTIAL`, an API error, `DATA_SOURCE_UNAVAILABLE`, malformed response, or timeout. Return available API products when partial coverage produced results; otherwise report the API failure.
 6. If the user explicitly requests no Chrome, return the empty Shopify result without fallback. If the user explicitly names another tool or source, follow that explicit request instead of the ordinary Shopify-first default.
 
-For an API result, preserve the tool's source label and pricing scope. Do not relabel it `BROWSER_OBSERVED`, claim that it covers the web, or add tax, shipping, coupon, membership, or delivered-price claims.
+For an API result, preserve `pricing`, `pricingContext`, `freshness`, and the source label. A Shopify Storefront item price may be `VERIFIED`; shipping, tax, mandatory fees, member price, and delivered price remain `UNAVAILABLE` unless the tool explicitly verifies them. Never estimate missing components or sum an incomplete delivered price.
 
 For every response report `API duration`, Shopify coverage percentage, failed/timed-out merchant IDs, registry version, selected ranking mode, and Chrome fallback: `NOT_USED` or `USED`. Render the fallback value as `NOT_USED` when API products are returned or fallback is ineligible. Use `USED` only after Chrome was actually opened. Preserve the API's returned order. Never restore a rejected product to reach three results.
 
@@ -78,7 +78,7 @@ The remaining instructions apply only after the successful zero-result Shopify r
 
 ## Hard boundaries
 
-- Membership pricing is out of scope for v0.3.0. Do not ask for, inspect, or report membership or account-specific pricing.
+- Never sign in to obtain membership pricing. Report member price only when the tool returns it as verified; otherwise report `UNAVAILABLE`.
 - Do not sign in, inspect cookies or storage, open account pages, or read personal information.
 - Do not add anything to a cart, begin checkout, reserve inventory, submit forms, place an order, or make a payment.
 - After entering a merchant product domain, stop on an unexpected cross-domain redirect. Returning to the search-results page to inspect another selected merchant is allowed within the eight-domain budget.

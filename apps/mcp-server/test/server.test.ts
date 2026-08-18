@@ -167,8 +167,10 @@ describe("shopping MCP server", () => {
       "handle",
       "limit",
       "maxItemPriceCents",
+      "membershipIds",
       "query",
-      "selectionMode"
+      "selectionMode",
+      "zipCode"
     ]);
     expect(tools.tools[2]?.inputSchema.required).toContain("selectionMode");
     expect(tools.tools[2]?.inputSchema.required).toContain("comparisonMode");
@@ -246,13 +248,52 @@ describe("shopping MCP server", () => {
         handle: "valhalla-java-single-serve-pods",
         matchStatus: "EXACT",
         condition: "UNKNOWN",
-        itemPrice: { amountCents: 1_499 }
+        itemPrice: { amountCents: 1_499 },
+        pricing: {
+          scope: "ITEM_PRICE_ONLY",
+          regularItemPrice: { status: "VERIFIED", amount: { amountCents: 1_499 } },
+          memberPrice: { status: "UNAVAILABLE" },
+          shipping: { status: "UNAVAILABLE" },
+          tax: { status: "UNAVAILABLE" },
+          mandatoryFees: { status: "UNAVAILABLE" },
+          deliveredPrice: { status: "UNAVAILABLE" }
+        },
+        freshness: { status: "OBSERVED_AT_QUERY", checkedAt: "2026-08-18T01:00:00.000Z" }
       }]
     });
     expect(JSON.stringify(result.content)).toContain("Valhalla Java Single-Serve Pods");
     expect(JSON.stringify(result.content)).toContain("condition: UNKNOWN");
     expect(JSON.stringify(result.content)).toContain("Do not call this tool again for this user lookup");
-    expect(JSON.stringify(result)).not.toMatch(/deliveredPrice|rawEvidence/i);
+    expect(JSON.stringify(result)).not.toMatch(/rawEvidence/i);
+    expect(JSON.stringify(result)).not.toMatch(/deliveredPrice[^}]*amountCents/i);
+  });
+
+  it("accepts ZIP and memberships but never invents contextual prices", async () => {
+    const search = vi.fn(shopifyPort.search);
+    const client = await connect({ compare: async () => comparison }, bestBuyPort, { search });
+
+    const result = await client.callTool({
+      name: "search_shopify_products",
+      arguments: {
+        query: "Valhalla Java",
+        limit: 3,
+        comparisonMode: "DISCOVERY",
+        selectionMode: "MERCHANT_DIVERSE",
+        zipCode: "33433-1234",
+        membershipIds: ["shopify-plus"]
+      }
+    });
+
+    expect(search).toHaveBeenCalledWith(expect.objectContaining({
+      zipCode: "33433-1234",
+      membershipIds: ["shopify-plus"]
+    }));
+    expect(result.structuredContent).toMatchObject({
+      priceScope: "ITEM_PRICE_ONLY",
+      pricingContext: { zipCode: "33433-1234", membershipIds: ["shopify-plus"] },
+      products: [{ pricing: { deliveredPrice: { status: "UNAVAILABLE" } } }]
+    });
+    expect(JSON.stringify(result.content)).toContain("delivered price unavailable");
   });
 
   it("forwards an exact item-price ceiling and reports it in the response", async () => {
@@ -343,7 +384,9 @@ describe("shopping MCP server", () => {
     { query: "coffee under $80", comparisonMode: "DISCOVERY", selectionMode: "MERCHANT_DIVERSE", maxItemPriceCents: 8_000 },
     { query: "coffee", comparisonMode: "DISCOVERY", selectionMode: "MERCHANT_DIVERSE", arbitraryUrl: "https://evil.example" },
     { query: "coffee", comparisonMode: "DISCOVERY", selectionMode: "UNSAFE" },
-    { query: "coffee", comparisonMode: "UNSAFE", selectionMode: "MERCHANT_DIVERSE" }
+    { query: "coffee", comparisonMode: "UNSAFE", selectionMode: "MERCHANT_DIVERSE" },
+    { query: "coffee", comparisonMode: "DISCOVERY", selectionMode: "MERCHANT_DIVERSE", zipCode: "3343" },
+    { query: "coffee", comparisonMode: "DISCOVERY", selectionMode: "MERCHANT_DIVERSE", membershipIds: ["club", "club"] }
   ])("rejects invalid Shopify input %#", async (args) => {
     const search = vi.fn(shopifyPort.search);
     const client = await connect(

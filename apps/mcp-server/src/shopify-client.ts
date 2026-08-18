@@ -23,6 +23,8 @@ export type ShopifySearchInput = {
   maxItemPriceCents?: number | undefined;
   comparisonMode?: "DISCOVERY" | "SAME_PRODUCT" | undefined;
   selectionMode?: ShopifySelectionMode | undefined;
+  zipCode?: string | undefined;
+  membershipIds?: string[] | undefined;
 };
 
 export type ShopifySelectionMode = "LOWEST_PRICE" | "MERCHANT_DIVERSE";
