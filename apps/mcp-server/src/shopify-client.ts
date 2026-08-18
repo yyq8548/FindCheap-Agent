@@ -11,6 +11,7 @@ import {
   type ShopifyPilot,
   type ShopifyRegistry
 } from "./shopify-registry.js";
+import { selectSameProductGroup } from "./shopify-identity.js";
 
 export type { ShopifyPilot } from "./shopify-registry.js";
 export const SHOPIFY_PILOTS = SHOPIFY_REGISTRY.merchants.filter((merchant) => merchant.searchEnabled);
@@ -19,6 +20,8 @@ export type ShopifySearchInput = {
   query?: string | undefined;
   handle?: string | undefined;
   limit: number;
+  maxItemPriceCents?: number | undefined;
+  comparisonMode?: "DISCOVERY" | "SAME_PRODUCT" | undefined;
   selectionMode?: ShopifySelectionMode | undefined;
 };
 
@@ -59,12 +62,21 @@ export type ShopifySearchResult = {
   coverage: "COMPLETE" | "PARTIAL";
   merchantsQueried: number;
   merchantsSucceeded: number;
+  maxItemPriceCents?: number;
+  comparison: {
+    status: "SAME_PRODUCT" | "DISCOVERY_ONLY";
+    identityType?: "GTIN" | "BRAND_MPN";
+    evidence: string[];
+    merchantCount: number;
+    offerCount: number;
+  };
   diagnostics: {
     apiDurationMs: number;
     cacheStatus: "MISS" | "HIT" | "COALESCED";
     chromeFallbackEligible: boolean;
     irrelevantProductsExcluded: number;
     conditionProductsExcluded: number;
+    priceProductsExcluded: number;
     merchantsFailed: number;
     coveragePercent: number;
     failedMerchantIds: string[];
@@ -86,6 +98,7 @@ export interface ShopifyPort {
 type ShopifySearchCore = Omit<ShopifySearchResult, "diagnostics"> & {
   irrelevantProductsExcluded: number;
   conditionProductsExcluded: number;
+  priceProductsExcluded: number;
   selectionMode: ShopifySelectionMode;
   failedMerchantIds: string[];
   timedOutMerchantIds: string[];
@@ -193,13 +206,19 @@ export function createShopifyPortFromEnvironment(
         if (products.length === 0 && successful.length !== sources.length) {
           throw new Error("DATA_SOURCE_UNAVAILABLE");
         }
+        const maxItemPriceCents = input.maxItemPriceCents;
+        const priceEligible = maxItemPriceCents === undefined
+          ? products
+          : products.filter((product) =>
+              product.itemPrice !== undefined && product.itemPrice.amountCents <= maxItemPriceCents
+            );
         const classified = input.query === undefined
-          ? products.map((product): RankedShopifyCandidate => ({
+          ? priceEligible.map((product): RankedShopifyCandidate => ({
               ...product,
               matchStatus: "EXACT",
               matchEvidence: ["product handle exact"]
             }))
-          : products.flatMap((product): RankedShopifyCandidate[] => {
+          : priceEligible.flatMap((product): RankedShopifyCandidate[] => {
               const match = classifyShopifyCandidate(input.query ?? "", product);
               return match.status === "IRRELEVANT" ? [] : [{
                 ...product,
@@ -212,18 +231,38 @@ export function createShopifyPortFromEnvironment(
           conditionMatches(product.condition, conditionIntent)
         );
         const ranked = rankAndDeduplicate(conditionEligible);
+        const sameProductGroup = selectSameProductGroup(
+          ranked.filter((product) => product.matchStatus === "EXACT")
+        );
+        const selectionPool = sameProductGroup?.offers ?? ranked;
         const selected = selectionMode === "LOWEST_PRICE"
-          ? ranked.slice(0, input.limit)
-          : selectDiverseThenFill(ranked, input.limit);
+          ? selectionPool.slice(0, input.limit)
+          : selectDiverseThenFill(selectionPool, input.limit);
         return {
           coverage: successful.length === sources.length ? "COMPLETE" : "PARTIAL",
           merchantsQueried: sources.length,
           merchantsSucceeded: successful.length,
+          ...(maxItemPriceCents === undefined ? {} : { maxItemPriceCents }),
+          comparison: sameProductGroup === undefined
+            ? {
+                status: "DISCOVERY_ONLY",
+                evidence: ["no independently verified cross-merchant identity"],
+                merchantCount: new Set(selected.map((product) => product.merchantId)).size,
+                offerCount: selected.length
+              }
+            : {
+                status: "SAME_PRODUCT",
+                identityType: sameProductGroup.identityType,
+                evidence: sameProductGroup.evidence,
+                merchantCount: sameProductGroup.offers.length,
+                offerCount: sameProductGroup.offers.length
+              },
           questions: selected.length > 0 && selected.every((product) => product.matchStatus === "SIMILAR")
             ? ["Only similar products were found. Provide an exact model, SKU, GTIN, color, size, or capacity."]
             : [],
-          irrelevantProductsExcluded: products.length - classified.length,
+          irrelevantProductsExcluded: priceEligible.length - classified.length,
           conditionProductsExcluded: classified.length - conditionEligible.length,
+          priceProductsExcluded: products.length - priceEligible.length,
           selectionMode,
           failedMerchantIds: failed.map((entry) => entry.merchantId),
           timedOutMerchantIds: failed.filter((entry) => entry.timedOut).map((entry) => entry.merchantId),
@@ -323,6 +362,7 @@ function withDiagnostics(
   const {
     irrelevantProductsExcluded,
     conditionProductsExcluded,
+    priceProductsExcluded,
     selectionMode,
     failedMerchantIds,
     timedOutMerchantIds,
@@ -339,6 +379,7 @@ function withDiagnostics(
       chromeFallbackEligible: result.coverage === "COMPLETE" && result.products.length === 0,
       irrelevantProductsExcluded,
       conditionProductsExcluded,
+      priceProductsExcluded,
       merchantsFailed,
       coveragePercent: Math.round((result.merchantsSucceeded / result.merchantsQueried) * 100),
       failedMerchantIds,

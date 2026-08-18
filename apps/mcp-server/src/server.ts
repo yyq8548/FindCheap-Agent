@@ -15,6 +15,7 @@ import {
   type ShopifyPort,
   type ShopifySearchResult
 } from "./shopify-client.js";
+import { hasSpecificProductIdentity } from "./shopify-match.js";
 
 export type { BestBuyPort } from "./bestbuy-client.js";
 export type { ShopifyPort } from "./shopify-client.js";
@@ -56,9 +57,13 @@ export const BestBuyProductsInputSchema = BestBuyProductsToolInputSchema.refine(
 );
 
 const ShopifyProductsToolInputSchema = z.object({
-  query: z.string().trim().min(2).max(300).optional(),
+  query: z.string().trim().min(2).max(300).regex(/^[\p{L}\p{N}\s._+'-]+$/u).optional(),
   handle: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u).max(200).optional(),
   limit: z.number().int().min(1).max(3).default(3),
+  maxItemPriceCents: z.number().int().min(1).max(100_000_000).optional()
+    .describe("Inclusive public item-price ceiling in integer USD cents. Keep price words and currency symbols out of query."),
+  comparisonMode: z.enum(["DISCOVERY", "SAME_PRODUCT"])
+    .describe("Use SAME_PRODUCT only for an explicit like-for-like comparison request; use DISCOVERY otherwise."),
   selectionMode: z.enum(["LOWEST_PRICE", "MERCHANT_DIVERSE"])
     .describe("Use LOWEST_PRICE only for an explicit cheapest request; use MERCHANT_DIVERSE otherwise.")
 }).strict();
@@ -164,19 +169,28 @@ const ShopifyProductOutputSchema = z.object({
 });
 
 const ShopifyProductsOutputShape = {
-  status: z.enum(["OK", "DATA_SOURCE_UNAVAILABLE"]),
+  status: z.enum(["OK", "NEEDS_CLARIFICATION", "DATA_SOURCE_UNAVAILABLE"]),
   message: z.string(),
   source: z.literal("SHOPIFY_STOREFRONT_API"),
   priceScope: z.literal("ITEM_PRICE_ONLY"),
-  coverage: z.enum(["COMPLETE", "PARTIAL", "UNAVAILABLE"]),
+  coverage: z.enum(["COMPLETE", "PARTIAL", "NOT_QUERIED", "UNAVAILABLE"]),
   merchantsQueried: z.number().int(),
   merchantsSucceeded: z.number().int(),
+  maxItemPriceCents: z.number().int().positive().optional(),
+  comparison: z.object({
+    status: z.enum(["SAME_PRODUCT", "DISCOVERY_ONLY", "NEEDS_CLARIFICATION", "UNAVAILABLE"]),
+    identityType: z.enum(["GTIN", "BRAND_MPN"]).optional(),
+    evidence: z.array(z.string()),
+    merchantCount: z.number().int().nonnegative(),
+    offerCount: z.number().int().nonnegative()
+  }),
   diagnostics: z.object({
     apiDurationMs: z.number().int().nonnegative(),
     cacheStatus: z.enum(["MISS", "HIT", "COALESCED"]),
     chromeFallbackEligible: z.boolean(),
     irrelevantProductsExcluded: z.number().int().nonnegative(),
     conditionProductsExcluded: z.number().int().nonnegative(),
+    priceProductsExcluded: z.number().int().nonnegative(),
     merchantsFailed: z.number().int().nonnegative(),
     coveragePercent: z.number().int().min(0).max(100),
     failedMerchantIds: z.array(z.string()),
@@ -293,7 +307,13 @@ function bestBuyUnavailableResult() {
 function shopifyResult(result: ShopifySearchResult) {
   const exactCount = result.products.filter((product) => product.matchStatus === "EXACT").length;
   const similarCount = result.products.length - exactCount;
-  const summary = `The audited Shopify registry returned ${result.products.length} product(s): ${exactCount} exact and ${similarCount} similar, from ${result.merchantsSucceeded}/${result.merchantsQueried} stores. Prices are public item prices only; shipping, tax, coupons, and member pricing are not included.`;
+  const priceLimit = result.maxItemPriceCents === undefined
+    ? ""
+    : ` Maximum item price: USD ${(result.maxItemPriceCents / 100).toFixed(2)}.`;
+  const comparison = result.comparison.status === "SAME_PRODUCT"
+    ? ` Same-product comparison verified across ${result.comparison.merchantCount} merchants using ${result.comparison.evidence.join("; ")}.`
+    : " No cross-merchant same-product identity was independently verified; results are discovery options, not like-for-like offers.";
+  const summary = `Comparison status: ${result.comparison.status}. The audited Shopify registry returned ${result.products.length} product(s): ${exactCount} exact and ${similarCount} similar, from ${result.merchantsSucceeded}/${result.merchantsQueried} stores.${priceLimit}${comparison} Prices are public item prices only; shipping, tax, coupons, and member pricing are not included.`;
   const products = result.products.map((product, index) => {
     const price = product.itemPrice === undefined
       ? "price unavailable"
@@ -327,9 +347,53 @@ function shopifyResult(result: ShopifySearchResult) {
       coverage: result.coverage,
       merchantsQueried: result.merchantsQueried,
       merchantsSucceeded: result.merchantsSucceeded,
+      ...(result.maxItemPriceCents === undefined ? {} : { maxItemPriceCents: result.maxItemPriceCents }),
+      comparison: result.comparison,
       diagnostics: result.diagnostics,
       questions: result.questions,
       products: result.products
+    }
+  };
+}
+
+function shopifyClarificationResult(selectionMode: "LOWEST_PRICE" | "MERCHANT_DIVERSE") {
+  const question = "Provide a brand and exact model/MPN/GTIN, or a direct product URL, before requesting same-product comparison.";
+  const message = `Comparison status: NEEDS_CLARIFICATION. ${question} No merchant API was queried and Chrome is not eligible.`;
+  return {
+    content: [{ type: "text" as const, text: message }],
+    structuredContent: {
+      status: "NEEDS_CLARIFICATION" as const,
+      message,
+      source: "SHOPIFY_STOREFRONT_API" as const,
+      priceScope: "ITEM_PRICE_ONLY" as const,
+      coverage: "NOT_QUERIED" as const,
+      merchantsQueried: 0,
+      merchantsSucceeded: 0,
+      comparison: {
+        status: "NEEDS_CLARIFICATION" as const,
+        evidence: ["specific product identity absent"],
+        merchantCount: 0,
+        offerCount: 0
+      },
+      diagnostics: {
+        apiDurationMs: 0,
+        cacheStatus: "MISS" as const,
+        chromeFallbackEligible: false,
+        irrelevantProductsExcluded: 0,
+        conditionProductsExcluded: 0,
+        priceProductsExcluded: 0,
+        merchantsFailed: 0,
+        coveragePercent: 0,
+        failedMerchantIds: [],
+        timedOutMerchantIds: [],
+        registryVersion: "NOT_QUERIED",
+        searchTimeoutMs: 0,
+        selectionPolicy: selectionMode === "LOWEST_PRICE"
+          ? "EXACT_THEN_SIMILAR_THEN_PRICE" as const
+          : "EXACT_THEN_SIMILAR_THEN_DIVERSE_MERCHANTS_THEN_PRICE" as const
+      },
+      questions: [question],
+      products: []
     }
   };
 }
@@ -345,12 +409,19 @@ function shopifyUnavailableResult(selectionMode: "LOWEST_PRICE" | "MERCHANT_DIVE
       coverage: "UNAVAILABLE" as const,
       merchantsQueried: 0,
       merchantsSucceeded: 0,
+      comparison: {
+        status: "UNAVAILABLE" as const,
+        evidence: [],
+        merchantCount: 0,
+        offerCount: 0
+      },
       diagnostics: {
         apiDurationMs: 0,
         cacheStatus: "MISS" as const,
         chromeFallbackEligible: false,
         irrelevantProductsExcluded: 0,
         conditionProductsExcluded: 0,
+        priceProductsExcluded: 0,
         merchantsFailed: 0,
         coveragePercent: 0,
         failedMerchantIds: [],
@@ -427,7 +498,7 @@ export function createShoppingServer(
     "search_shopify_products",
     {
       title: "Search Shopify products (Beta)",
-      description: "Search a bounded audited Shopify Storefront registry by product query or handle. Do not call this tool more than once per user lookup. Set selectionMode=LOWEST_PRICE only for explicit cheapest requests; otherwise set selectionMode=MERCHANT_DIVERSE. The first response includes complete Top 3 text and structured details; exact matches rank before labeled similar products and irrelevant products are excluded.",
+      description: "Search a bounded audited Shopify Storefront registry by product query or handle. Do not call this tool more than once per user lookup. Set comparisonMode=SAME_PRODUCT for an explicit like-for-like request and DISCOVERY otherwise. Generic SAME_PRODUCT input returns NEEDS_CLARIFICATION before merchant calls. Pass an explicit budget through maxItemPriceCents as integer USD cents; keep price words and currency symbols out of query. Set selectionMode=LOWEST_PRICE only for explicit cheapest requests; otherwise set selectionMode=MERCHANT_DIVERSE. Cross-merchant offers are grouped only by exact GTIN plus variant or exact brand plus MPN/SKU plus variant; title similarity never proves the same product.",
       inputSchema: ShopifyProductsToolInputSchema,
       outputSchema: ShopifyProductsOutputShape,
       annotations: {
@@ -439,6 +510,13 @@ export function createShoppingServer(
     },
     async (input) => {
       const validatedInput = ShopifyProductsInputSchema.parse(input);
+      if (
+        validatedInput.comparisonMode === "SAME_PRODUCT" &&
+        validatedInput.query !== undefined &&
+        !hasSpecificProductIdentity(validatedInput.query)
+      ) {
+        return shopifyClarificationResult(validatedInput.selectionMode);
+      }
       try {
         const result = await shopifyPort.search(validatedInput);
         return shopifyResult(result);

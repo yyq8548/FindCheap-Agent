@@ -5,7 +5,7 @@ import { SHOPIFY_PILOTS, createShopifyPortFromEnvironment } from "../src/shopify
 const now = "2026-08-18T01:00:00.000Z";
 
 describe("Shopify Storefront MCP client", () => {
-  it("searches the fixed twenty-store registry and ranks relevant item prices", async () => {
+  it("searches the fixed forty-five-store registry and ranks relevant item prices", async () => {
     const prices = new Map<string, string | string[]>([
       ["deathwishcoffee.com", "19.99"], ["kith.com", "29.99"],
       ["www.allbirds.com", "14.99"], ["www.brooklinen.com", "24.99"],
@@ -22,15 +22,15 @@ describe("Shopify Storefront MCP client", () => {
 
     const result = await port.search({ query: "shirt", limit: 3 });
 
-    expect(SHOPIFY_PILOTS).toHaveLength(20);
-    expect(safeFetch).toHaveBeenCalledTimes(20);
+    expect(SHOPIFY_PILOTS).toHaveLength(45);
+    expect(safeFetch).toHaveBeenCalledTimes(45);
     expect(new Set(safeFetch.mock.calls.map(([input]) => new URL(input.url).hostname))).toEqual(
       new Set(SHOPIFY_PILOTS.map((pilot) => pilot.apiHost))
     );
     expect(result).toMatchObject({
       coverage: "COMPLETE",
-      merchantsQueried: 20,
-      merchantsSucceeded: 20,
+      merchantsQueried: 45,
+      merchantsSucceeded: 45,
       diagnostics: {
         cacheStatus: "MISS",
         chromeFallbackEligible: false,
@@ -39,7 +39,7 @@ describe("Shopify Storefront MCP client", () => {
         coveragePercent: 100,
         failedMerchantIds: [],
         timedOutMerchantIds: [],
-        registryVersion: "v2",
+        registryVersion: "v3",
         searchTimeoutMs: 3_000,
         selectionPolicy: "EXACT_THEN_SIMILAR_THEN_DIVERSE_MERCHANTS_THEN_PRICE"
       }
@@ -94,6 +94,89 @@ describe("Shopify Storefront MCP client", () => {
       ["Fashion Nova", 999], ["Fashion Nova", 1_099], ["Fashion Nova", 1_199]
     ]);
     expect(result.diagnostics.selectionPolicy).toBe("EXACT_THEN_SIMILAR_THEN_PRICE");
+  });
+
+  it("applies an inclusive item-price ceiling before ranking", async () => {
+    const safeFetch = vi.fn(async (input: { url: string }) => {
+      const host = new URL(input.url).hostname;
+      if (host === "www.fashionnova.com") {
+        return storefrontResponse(input.url, host, ["80.00", "80.01"], ["Anime Shirt", "Anime Tee"]);
+      }
+      if (host === "deathwishcoffee.com") {
+        return storefrontResponse(input.url, host, "79.99", "Anime Shirt Sweatshirt");
+      }
+      return storefrontResponse(input.url, host);
+    });
+    const port = createShopifyPortFromEnvironment(
+      { SHOPIFY_STOREFRONT_MODE: "audited-registry" },
+      { safeFetch, clock: { now: () => new Date(now) } }
+    );
+
+    const result = await port.search({
+      query: "anime shirt sweatshirt",
+      limit: 3,
+      selectionMode: "MERCHANT_DIVERSE",
+      maxItemPriceCents: 8_000
+    });
+
+    expect(result.maxItemPriceCents).toBe(8_000);
+    expect(result.products.map((product) => product.itemPrice?.amountCents)).toEqual([7_999, 8_000]);
+    expect(result.diagnostics.priceProductsExcluded).toBe(1);
+  });
+
+  it("returns only independently verified same-product offers when two merchants share identity", async () => {
+    const safeFetch = vi.fn(async (input: { url: string }) => {
+      const host = new URL(input.url).hostname;
+      if (["deathwishcoffee.com", "www.fashionnova.com"].includes(host)) {
+        return storefrontResponse(input.url, host, host === "deathwishcoffee.com" ? "24.00" : "25.00", "Anime Shirt", "T-Shirts", [], {
+          barcode: "810063341254"
+        });
+      }
+      return host === "kith.com"
+        ? storefrontResponse(input.url, host, "9.00", "Anime Shirt", "T-Shirts", [], {
+            barcode: "810063341255"
+          })
+        : storefrontResponse(input.url, host);
+    });
+    const port = createShopifyPortFromEnvironment(
+      { SHOPIFY_STOREFRONT_MODE: "audited-registry" },
+      { safeFetch, clock: { now: () => new Date(now) } }
+    );
+
+    const result = await port.search({ query: "anime shirt", limit: 3, selectionMode: "LOWEST_PRICE" });
+
+    expect(result.comparison).toEqual({
+      status: "SAME_PRODUCT",
+      identityType: "GTIN",
+      evidence: ["GTIN and variant exact"],
+      merchantCount: 2,
+      offerCount: 2
+    });
+    expect(result.products.map((product) => product.itemPrice?.amountCents)).toEqual([2_400, 2_500]);
+    expect(new Set(result.products.map((product) => product.gtins[0]))).toEqual(new Set(["810063341254"]));
+  });
+
+  it("does not group matching GTINs when variants conflict", async () => {
+    const safeFetch = vi.fn(async (input: { url: string }) => {
+      const host = new URL(input.url).hostname;
+      if (!["deathwishcoffee.com", "www.fashionnova.com"].includes(host)) {
+        return storefrontResponse(input.url, host);
+      }
+      const selectedOptions = host === "deathwishcoffee.com"
+        ? [{ name: "Color", value: "Black" }]
+        : [{ name: "Color", value: "White" }];
+      return storefrontResponse(input.url, host, "25.00", "Anime Shirt", "T-Shirts", selectedOptions, {
+        barcode: "810063341254"
+      });
+    });
+    const port = createShopifyPortFromEnvironment(
+      { SHOPIFY_STOREFRONT_MODE: "audited-registry" },
+      { safeFetch, clock: { now: () => new Date(now) } }
+    );
+
+    const result = await port.search({ query: "anime shirt", limit: 3, selectionMode: "MERCHANT_DIVERSE" });
+
+    expect(result.comparison.status).toBe("DISCOVERY_ONLY");
   });
 
   it("rejects unrelated low-price products before merchant diversity and price ranking", async () => {
@@ -326,8 +409,8 @@ describe("Shopify Storefront MCP client", () => {
     ]);
     const third = await port.search({ query: "shirt", limit: 3 });
 
-    expect(safeFetch).toHaveBeenCalledTimes(20);
-    expect(first.diagnostics).toMatchObject({ cacheStatus: "MISS", apiDurationMs: 200 });
+    expect(safeFetch).toHaveBeenCalledTimes(45);
+    expect(first.diagnostics).toMatchObject({ cacheStatus: "MISS", apiDurationMs: 450 });
     expect(second.diagnostics).toMatchObject({ cacheStatus: "COALESCED", apiDurationMs: 0 });
     expect(third.diagnostics).toMatchObject({ cacheStatus: "HIT", apiDurationMs: 0 });
     expect(second.products).toEqual(first.products);
@@ -353,10 +436,10 @@ describe("Shopify Storefront MCP client", () => {
     const result = await port.search({ query: "shoes", limit: 3 });
 
     expect(result.coverage).toBe("PARTIAL");
-    expect(result.merchantsSucceeded).toBe(19);
+    expect(result.merchantsSucceeded).toBe(44);
     expect(result.diagnostics).toMatchObject({
       merchantsFailed: 1,
-      coveragePercent: 95,
+      coveragePercent: 98,
       failedMerchantIds: ["kith"],
       timedOutMerchantIds: []
     });
@@ -401,7 +484,7 @@ describe("Shopify Storefront MCP client", () => {
     }
   });
 
-  it("returns complete empty only when all twenty stores succeed", async () => {
+  it("returns complete empty only when all forty-five stores succeed", async () => {
     const safeFetch = vi.fn(async (input: { url: string }) => storefrontResponse(input.url, new URL(input.url).hostname));
     const port = createShopifyPortFromEnvironment(
       { SHOPIFY_STOREFRONT_MODE: "audited-registry" },
@@ -409,8 +492,8 @@ describe("Shopify Storefront MCP client", () => {
     );
     await expect(port.search({ query: "no-match", limit: 3 })).resolves.toMatchObject({
       coverage: "COMPLETE",
-      merchantsQueried: 20,
-      merchantsSucceeded: 20,
+      merchantsQueried: 45,
+      merchantsSucceeded: 45,
       diagnostics: { chromeFallbackEligible: true },
       products: []
     });
@@ -453,17 +536,17 @@ function storefrontResponse(
   title?: string | string[],
   productType?: string | string[],
   selectedOptions: Array<{ name: string; value: string }> = [],
-  metadata: { handle?: string; sku?: string; tags?: string[] } = {}
+  metadata: { handle?: string; sku?: string; tags?: string[]; barcode?: string; vendor?: string } = {}
 ) {
   const prices = price === undefined ? [] : Array.isArray(price) ? price : [price];
   const titles = title === undefined ? [] : Array.isArray(title) ? title : [title];
   const productTypes = productType === undefined ? [] : Array.isArray(productType) ? productType : [productType];
   const nodes = prices.map((amount, index) => ({
-    title: titles[index] ?? `Sample Shirt ${index + 1}`, handle: metadata.handle ?? `sample-${index + 1}`, vendor: host,
+    title: titles[index] ?? `Sample Shirt ${index + 1}`, handle: metadata.handle ?? `sample-${index + 1}`, vendor: metadata.vendor ?? host,
     productType: productTypes[index] ?? "", tags: metadata.tags ?? [],
     onlineStoreUrl: `https://${host}/products/${metadata.handle ?? `sample-${index + 1}`}`, featuredImage: null,
     selectedOrFirstAvailableVariant: {
-      title: "Default Title", sku: metadata.sku ?? `${host}-sku`, barcode: null,
+      title: "Default Title", sku: metadata.sku ?? `${host}-sku`, barcode: metadata.barcode ?? null,
       availableForSale: true, price: { amount, currencyCode: "USD" }, image: null,
       selectedOptions
     }

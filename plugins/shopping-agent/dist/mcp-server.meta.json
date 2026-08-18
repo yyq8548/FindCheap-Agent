@@ -3798,6 +3798,10 @@
         }
       ]
     },
+    "../../packages/product-identity/src/normalize.ts": {
+      "format": "esm",
+      "imports": []
+    },
     "../ingestion-worker/src/network/safe-fetch.ts": {
       "format": "esm",
       "imports": [
@@ -3885,6 +3889,11 @@
           "kind": "import-statement",
           "original": "./shopify-client.js",
           "path": "src/shopify-client.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./shopify-match.js",
+          "path": "src/shopify-match.ts"
         }
       ]
     },
@@ -3905,6 +3914,21 @@
           "kind": "import-statement",
           "original": "./shopify-registry.js",
           "path": "src/shopify-registry.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./shopify-identity.js",
+          "path": "src/shopify-identity.ts"
+        }
+      ]
+    },
+    "src/shopify-identity.ts": {
+      "format": "esm",
+      "imports": [
+        {
+          "kind": "import-statement",
+          "original": "../../../packages/product-identity/src/normalize.js",
+          "path": "../../packages/product-identity/src/normalize.ts"
         }
       ]
     },
@@ -3960,7 +3984,7 @@
   },
   "outputs": {
     "../../plugins/shopping-agent/dist/mcp-server.js": {
-      "bytes": 386601,
+      "bytes": 393725,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
@@ -4007,7 +4031,7 @@
       ],
       "inputs": {
         "../../config/shopify/registry.ts": {
-          "bytesInOutput": 1414
+          "bytesInOutput": 2958
         },
         "../../node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/experimental/tasks/helpers.js": {
           "bytesInOutput": 703
@@ -4076,7 +4100,7 @@
           "bytesInOutput": 2585
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/compile/errors.js": {
-          "bytesInOutput": 3104
+          "bytesInOutput": 3139
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/compile/index.js": {
           "bytesInOutput": 4688
@@ -4202,7 +4226,7 @@
           "bytesInOutput": 2379
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/discriminator/index.js": {
-          "bytesInOutput": 2293
+          "bytesInOutput": 2296
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/discriminator/types.js": {
           "bytesInOutput": 181
@@ -4211,7 +4235,7 @@
           "bytesInOutput": 235
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/format/format.js": {
-          "bytesInOutput": 1951
+          "bytesInOutput": 1954
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/format/index.js": {
           "bytesInOutput": 121
@@ -4454,7 +4478,7 @@
           "bytesInOutput": 649
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v4/core/schemas.js": {
-          "bytesInOutput": 18937
+          "bytesInOutput": 18940
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v4/core/to-json-schema.js": {
           "bytesInOutput": 11445
@@ -4504,6 +4528,9 @@
         "../../packages/merchant-adapters/src/configured/shopify-storefront-reader.ts": {
           "bytesInOutput": 4664
         },
+        "../../packages/product-identity/src/normalize.ts": {
+          "bytesInOutput": 242
+        },
         "../ingestion-worker/src/network/safe-fetch.ts": {
           "bytesInOutput": 7439
         },
@@ -4514,13 +4541,16 @@
           "bytesInOutput": 2484
         },
         "src/server.ts": {
-          "bytesInOutput": 9451
+          "bytesInOutput": 12293
         },
         "src/shopify-client.ts": {
-          "bytesInOutput": 6207
+          "bytesInOutput": 6820
+        },
+        "src/shopify-identity.ts": {
+          "bytesInOutput": 1158
         },
         "src/shopify-match.ts": {
-          "bytesInOutput": 3228
+          "bytesInOutput": 3909
         },
         "src/shopify-registry.ts": {
           "bytesInOutput": 1264
