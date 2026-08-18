@@ -53,7 +53,10 @@ describe("FindCheap-Agent v0.1 Chrome contract", () => {
     expect(skill).toContain("three, then at most two");
     expect(skill).toContain("one unified extractor per merchant page");
     expect(skill).toContain("Do not open merchant category, search, or listing pages");
-    expect(skill).toContain("Keep `NEW`, `USED`, and `REFURBISHED` offers in separate groups");
+    expect(skill).toContain("Treat an absent condition label as `UNKNOWN`");
+    expect(skill).toContain("Keep exact `UNKNOWN`-condition offers eligible");
+    expect(skill).toContain("rank them after verified `NEW` offers");
+    expect(skill).toContain("Do not describe an `UNKNOWN` offer as new");
     expect(skill).toContain("one conditional refinement search");
     expect(skill).toContain("If fewer than three pass");
     expect(skill).toContain("Do not stop after the first discovery page");
@@ -61,10 +64,11 @@ describe("FindCheap-Agent v0.1 Chrome contract", () => {
     expect(skill).toContain("never use a serial `for...await` loop");
     expect(skill).toContain("verify the first five candidates");
     expect(skill).toContain("verify up to three reserve candidates");
-    expect(skill).toContain("Stop as soon as three requested-condition `EXACT` offers pass");
+    expect(skill).toContain("Stop as soon as three condition-eligible `EXACT` offers pass");
     expect(skill).toContain("Do not open reserve candidates when the first batch already produced three");
     expect(skill).toContain("## Excluded candidates");
-    expect(skill).toContain("`CONDITION_NOT_VERIFIED`");
+    expect(skill).toContain("`CONDITION_MISMATCH`");
+    expect(skill).not.toContain("`CONDITION_NOT_VERIFIED`");
     expect(skill).toContain("one short exclusion reason for every inspected candidate");
   });
 

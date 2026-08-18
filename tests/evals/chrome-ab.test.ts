@@ -117,14 +117,15 @@ describe("FindCheap Chrome DOM/CDP golden evaluation", () => {
     ]);
   });
 
-  it("keeps lower-priced used and refurbished offers below verified new offers", () => {
+  it("keeps unknown condition eligible after verified new offers", () => {
     const selected = selectBestVerifiedOptions([
       { merchant: "Used", sellerType: "DIRECT", condition: "USED", title: "Exact", url: "https://used.example.com/1", match: "EXACT", variantMatch: true, itemPriceCents: 5000, availability: "IN_STOCK" },
       { merchant: "Refurbished", sellerType: "DIRECT", condition: "REFURBISHED", title: "Exact", url: "https://refurb.example.com/1", match: "EXACT", variantMatch: true, itemPriceCents: 7000, availability: "IN_STOCK" },
+      { merchant: "Unlabeled", sellerType: "DIRECT", condition: "UNKNOWN", title: "Exact", url: "https://unlabeled.example.com/1", match: "EXACT", variantMatch: true, itemPriceCents: 10000, availability: "IN_STOCK" },
       { merchant: "New", sellerType: "DIRECT", condition: "NEW", title: "Exact", url: "https://new.example.com/1", match: "EXACT", variantMatch: true, itemPriceCents: 20000, availability: "IN_STOCK" }
     ]);
 
-    expect(selected.map((candidate) => candidate.condition)).toEqual(["NEW", "REFURBISHED", "USED"]);
+    expect(selected.map((candidate) => candidate.condition)).toEqual(["NEW", "UNKNOWN", "REFURBISHED"]);
   });
 
   it("treats unrelated recommendations as no relevant result", () => {
