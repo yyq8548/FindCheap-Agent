@@ -1,4 +1,4 @@
 interface:
   display_name: "FindCheap-Agent v0.1"
-  short_description: "Search Best Buy safely with authorized Chrome"
-  default_prompt: "Use $compare-products to search Best Buy once through my authorized Chrome."
+  short_description: "Search public merchant sites with authorized Chrome"
+  default_prompt: "Use $compare-products to find the best three verified options through my authorized Chrome."
