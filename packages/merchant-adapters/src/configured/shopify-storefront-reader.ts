@@ -30,6 +30,8 @@ const ProductSchema = z.object({
   title: z.string().trim().min(1).max(1_000),
   handle: HandleSchema,
   vendor: z.string().trim().max(300),
+  productType: z.string().trim().max(200),
+  tags: z.array(z.string().trim().min(1).max(200)).max(100),
   onlineStoreUrl: z.string().url(),
   featuredImage: ImageSchema.nullable().optional(),
   selectedOrFirstAvailableVariant: VariantSchema.nullable()
@@ -47,6 +49,8 @@ const PRODUCT_FIELDS = `
   title
   handle
   vendor
+  productType
+  tags
   onlineStoreUrl
   featuredImage { url }
   selectedOrFirstAvailableVariant {
@@ -197,6 +201,8 @@ function mapProduct(product: z.infer<typeof ProductSchema>, allowedHosts: readon
     }
   };
   if (product.vendor !== "") record.brand = product.vendor;
+  if (product.productType !== "") record.productType = product.productType;
+  if (product.tags.length > 0) record.tags = product.tags;
   if (variant.sku !== undefined && variant.sku !== null && variant.sku !== "") record.mpn = variant.sku;
   const imageUrl = variant.image?.url ?? product.featuredImage?.url;
   if (imageUrl !== undefined) record.imageUrl = imageUrl;

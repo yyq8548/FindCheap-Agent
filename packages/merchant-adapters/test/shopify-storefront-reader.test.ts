@@ -6,6 +6,8 @@ const product = {
   title: "Valhalla Java Single-Serve Pods",
   handle: "valhalla-java-single-serve-pods",
   vendor: "Death Wish Coffee",
+  productType: "Coffee",
+  tags: ["Coffee", "Pods"],
   onlineStoreUrl: "https://deathwishcoffee.com/products/valhalla-java-single-serve-pods",
   featuredImage: { url: "https://cdn.shopify.com/product.jpg" },
   selectedOrFirstAvailableVariant: {
@@ -39,6 +41,8 @@ describe("Shopify Storefront reader", () => {
       brand: "Death Wish Coffee",
       mpn: "5094SSC",
       gtins: ["810063341254"],
+      productType: "Coffee",
+      tags: ["Coffee", "Pods"],
       imageUrl: "https://cdn.shopify.com/product.jpg",
       rawOffer: {
         price: "14.99",

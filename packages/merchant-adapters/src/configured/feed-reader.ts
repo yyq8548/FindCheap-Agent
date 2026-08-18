@@ -66,6 +66,8 @@ export const RawMerchantRecordSchema = z
     brand: z.string().min(1).optional(),
     gtins: z.array(z.string().min(1)),
     mpn: z.string().min(1).optional(),
+    productType: z.string().trim().min(1).max(200).optional(),
+    tags: z.array(z.string().trim().min(1).max(200)).max(100).optional(),
     imageUrl: z.string().url().optional(),
     rawOffer: RawOfferSchema.optional()
   })

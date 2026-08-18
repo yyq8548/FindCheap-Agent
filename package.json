@@ -22,6 +22,7 @@
     "merchants:score": "tsx scripts/score-merchants.ts",
     "merchants:bestbuy-probe": "tsx scripts/probe-bestbuy-products.ts",
     "merchants:shopify-probe": "tsx scripts/probe-shopify-storefront.ts",
+    "merchants:shopify-registry-audit": "tsx scripts/audit-shopify-registry.ts",
     "merchants:gate": "tsx scripts/validate-enabled-merchants.ts"
   },
   "dependencies": {

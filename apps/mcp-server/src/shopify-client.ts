@@ -4,20 +4,26 @@ import {
 } from "../../../packages/merchant-adapters/src/configured/shopify-storefront-reader.js";
 import type { ReaderDependencies } from "../../../packages/merchant-adapters/src/configured/feed-reader.js";
 
-type ShopifyPilot = {
+export type ShopifyPilot = {
   merchantId: string;
   merchant: string;
   apiHost: string;
   allowedHosts: readonly string[];
   apiVersion: ShopifyStorefrontReaderConfig["apiVersion"];
+  probeQuery: string;
 };
 
 export const SHOPIFY_PILOTS = [
-  pilot("death-wish-coffee", "Death Wish Coffee", "deathwishcoffee.com"),
-  pilot("kith", "Kith", "kith.com"),
-  pilot("allbirds", "Allbirds", "www.allbirds.com"),
-  pilot("brooklinen", "Brooklinen", "www.brooklinen.com"),
-  pilot("fashion-nova", "Fashion Nova", "www.fashionnova.com")
+  pilot("death-wish-coffee", "Death Wish Coffee", "deathwishcoffee.com", "coffee"),
+  pilot("kith", "Kith", "kith.com", "shirt"),
+  pilot("allbirds", "Allbirds", "www.allbirds.com", "shoes"),
+  pilot("brooklinen", "Brooklinen", "www.brooklinen.com", "sheets"),
+  pilot("fashion-nova", "Fashion Nova", "www.fashionnova.com", "shirt"),
+  pilot("tentree", "Tentree", "tentree.com", "shirt"),
+  pilot("colourpop", "ColourPop", "colourpop.com", "lipstick"),
+  pilot("liquid-death", "Liquid Death", "liquiddeath.com", "water"),
+  pilot("pura-vida", "Pura Vida", "www.puravidabracelets.com", "bracelet"),
+  pilot("steve-madden", "Steve Madden", "www.stevemadden.com", "shoes")
 ] as const satisfies readonly ShopifyPilot[];
 
 export type ShopifySearchInput = {
@@ -40,6 +46,11 @@ export type ShopifyProduct = {
   availability: "IN_STOCK" | "OUT_OF_STOCK" | "UNKNOWN";
   merchantUrl: string;
   checkedAt: string;
+};
+
+type ShopifyCandidate = ShopifyProduct & {
+  productType?: string;
+  tags: string[];
 };
 
 export type ShopifySearchResult = {
@@ -67,7 +78,7 @@ export function createShopifyPortFromEnvironment(
   environment: NodeJS.ProcessEnv | Record<string, string | undefined>,
   dependencies: ShopifyClientDependencies = {}
 ): ShopifyPort {
-  if (environment.SHOPIFY_STOREFRONT_MODE !== "fixed-five") return unavailablePort();
+  if (environment.SHOPIFY_STOREFRONT_MODE !== "fixed-ten") return unavailablePort();
 
   const sources = SHOPIFY_PILOTS.map((store) => ({
     store,
@@ -103,7 +114,7 @@ export function createShopifyPortFromEnvironment(
           const snapshot = input.handle === undefined
             ? await reader.capture({ operation: "search", query: input.query ?? "", limit: input.limit })
             : await reader.capture({ operation: "get", merchantProductId: input.handle });
-          return snapshot.records.map((record): ShopifyProduct => {
+          return snapshot.records.map((record): ShopifyCandidate => {
             if (record.rawOffer?.url === undefined) throw new Error("Shopify product URL is missing");
             return {
               merchantId: store.merchantId,
@@ -120,12 +131,14 @@ export function createShopifyPortFromEnvironment(
                 : { itemPrice: { amountCents: decimalToCents(record.rawOffer.price), currency: "USD" as const } }),
               availability: toAvailability(record.rawOffer.availability),
               merchantUrl: record.rawOffer.url,
-              checkedAt: snapshot.checkedAt
+              checkedAt: snapshot.checkedAt,
+              ...(record.productType === undefined ? {} : { productType: record.productType }),
+              tags: record.tags ?? []
             };
           });
         }));
 
-        const successful = captures.filter((capture): capture is PromiseFulfilledResult<ShopifyProduct[]> =>
+        const successful = captures.filter((capture): capture is PromiseFulfilledResult<ShopifyCandidate[]> =>
           capture.status === "fulfilled");
         const products = successful.flatMap((capture) => capture.value);
         if (products.length === 0 && successful.length !== sources.length) {
@@ -140,7 +153,7 @@ export function createShopifyPortFromEnvironment(
               (product) => isRelevantProduct(product, input.query ?? "")
             )),
             input.limit
-          )
+          ).map(toPublicProduct)
         } satisfies Omit<ShopifySearchResult, "diagnostics">;
       })();
       inFlight = { key: cacheKey, promise };
@@ -164,14 +177,15 @@ function unavailablePort(): ShopifyPort {
   return { async search() { throw new Error("DATA_SOURCE_UNAVAILABLE"); } };
 }
 
-function pilot(merchantId: string, merchant: string, apiHost: string): ShopifyPilot {
+function pilot(merchantId: string, merchant: string, apiHost: string, probeQuery: string): ShopifyPilot {
   const bareHost = apiHost.startsWith("www.") ? apiHost.slice(4) : apiHost;
   return {
     merchantId,
     merchant,
     apiHost,
     allowedHosts: [bareHost, `www.${bareHost}`],
-    apiVersion: "2026-07"
+    apiVersion: "2026-07",
+    probeQuery
   };
 }
 
@@ -180,8 +194,8 @@ function toAvailability(value: string | undefined): ShopifyProduct["availability
   return "UNKNOWN";
 }
 
-function rankAndDeduplicate(products: ShopifyProduct[]): ShopifyProduct[] {
-  const unique = new Map<string, ShopifyProduct>();
+function rankAndDeduplicate(products: ShopifyCandidate[]): ShopifyCandidate[] {
+  const unique = new Map<string, ShopifyCandidate>();
   for (const product of products) if (!unique.has(product.merchantUrl)) unique.set(product.merchantUrl, product);
   return [...unique.values()].sort((left, right) =>
     availabilityRank(left.availability) - availabilityRank(right.availability)
@@ -190,8 +204,8 @@ function rankAndDeduplicate(products: ShopifyProduct[]): ShopifyProduct[] {
     || compareText(left.merchantUrl, right.merchantUrl));
 }
 
-function selectDiverseThenFill(products: ShopifyProduct[], limit: number): ShopifyProduct[] {
-  const selected: ShopifyProduct[] = [];
+function selectDiverseThenFill(products: ShopifyCandidate[], limit: number): ShopifyCandidate[] {
+  const selected: ShopifyCandidate[] = [];
   const selectedUrls = new Set<string>();
   const merchants = new Set<string>();
   for (const product of products) {
@@ -226,17 +240,18 @@ function withDiagnostics(
 }
 
 const QUERY_EQUIVALENTS = [
-  ["shirt", "shirts", "tee", "tees", "tshirt", "tshirts"],
-  ["shoe", "shoes", "sneaker", "sneakers"],
-  ["headphone", "headphones", "headset", "headsets", "earbud", "earbuds"],
-  ["sofa", "sofas", "couch", "couches"],
-  ["tv", "television", "televisions"],
-  ["fridge", "fridges", "refrigerator", "refrigerators"],
-  ["phone", "phones", "smartphone", "smartphones"],
-  ["laptop", "laptops", "notebook", "notebooks"]
+  { terms: ["shirt", "shirts", "tee", "tees", "tshirt", "tshirts"] },
+  { terms: ["shoe", "shoes", "sneaker", "sneakers"] },
+  { terms: ["headphone", "headphones", "headset", "headsets", "earbud", "earbuds"] },
+  { terms: ["sofa", "sofas", "couch", "couches"] },
+  { terms: ["tv", "television", "televisions"] },
+  { terms: ["fridge", "fridges", "refrigerator", "refrigerators"] },
+  { terms: ["phone", "phones", "smartphone", "smartphones"] },
+  { terms: ["laptop", "laptops", "notebook", "notebooks"] },
+  { terms: ["lipstick", "lipsticks", "lipgloss", "gloss"], productTypeOnly: true }
 ] as const;
 
-function isRelevantProduct(product: ShopifyProduct, query: string): boolean {
+function isRelevantProduct(product: ShopifyCandidate, query: string): boolean {
   const queryTokens = tokenize(query);
   if (queryTokens.length === 0) return false;
   const productTokens = new Set(tokenize([
@@ -244,16 +259,28 @@ function isRelevantProduct(product: ShopifyProduct, query: string): boolean {
     product.brand,
     product.sku,
     product.handle,
+    product.productType,
+    ...product.tags,
     ...product.gtins
   ].filter((value): value is string => value !== undefined).join(" ")));
   const identityTokens = queryTokens.filter((token) => /\d/u.test(token));
   if (identityTokens.some((token) => !productTokens.has(token))) return false;
   for (const group of QUERY_EQUIVALENTS) {
-    if (queryTokens.some((token) => group.some((candidate) => candidate === token))) {
-      return group.some((token) => productTokens.has(token));
+    if (queryTokens.some((token) => group.terms.some((candidate) => candidate === token))) {
+      const evidence = "productTypeOnly" in group && group.productTypeOnly
+        ? new Set(tokenize(product.productType ?? ""))
+        : productTokens;
+      return group.terms.some((token) => evidence.has(token));
     }
   }
   return queryTokens.some((token) => productTokens.has(token));
+}
+
+function toPublicProduct(candidate: ShopifyCandidate): ShopifyProduct {
+  const { productType, tags, ...product } = candidate;
+  void productType;
+  void tags;
+  return product;
 }
 
 function tokenize(value: string): string[] {

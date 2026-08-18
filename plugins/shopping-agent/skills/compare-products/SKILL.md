@@ -1,9 +1,9 @@
 ---
 name: compare-products
-description: Search five fixed Shopify Storefront APIs first for ordinary FindCheap-Agent product requests, then use the user's authorized Chrome session only after complete API coverage returns zero products. Use for current public item price, availability, or exact-model requests. Membership, delivered-price, coupon, checkout, and payment requests are out of scope in v0.1.
+description: Search ten fixed Shopify Storefront APIs first for ordinary FindCheap-Agent product requests, then use the user's authorized Chrome session only after complete API coverage returns zero products. Use for current public item price, availability, or exact-model requests. Membership, delivered-price, coupon, checkout, and payment requests are out of scope in v0.2.0.
 ---
 
-# FindCheap-Agent v0.1.3 product search
+# FindCheap-Agent v0.2.0 product search
 
 Risk tier: `R0`. Perform one read-only public-product lookup. Do not persist browser data.
 
@@ -11,7 +11,7 @@ Risk tier: `R0`. Perform one read-only public-product lookup. Do not persist bro
 
 Apply this routing before any browser action:
 
-1. **Shopify-first default.** For an ordinary product search, call `search_shopify_products` before any Chrome search. Call `search_shopify_products` exactly once per user lookup. Do not repeat a successful call to verify, rerank, or reformat its result. This API covers only the fixed five-store registry—Death Wish Coffee, Kith, Allbirds, Brooklinen, and Fashion Nova—not all Shopify stores or the whole web.
+1. **Shopify-first default.** For an ordinary product search, call `search_shopify_products` before any Chrome search. Call `search_shopify_products` exactly once per user lookup. Do not repeat a successful call to verify, rerank, or reformat its result. This API covers only the fixed ten-store registry—Death Wish Coffee, Kith, Allbirds, Brooklinen, Fashion Nova, Tentree, ColourPop, Liquid Death, Pura Vida, and Steve Madden—not all Shopify stores or the whole web.
 2. If Shopify returns `status: OK` and one or more products, return those API results. Do not open Chrome when Shopify returns one or more products.
 3. Use the Chrome workflow only when Shopify returns `status: OK`, `coverage: COMPLETE`, and `products.length === 0`. This is a single bounded fallback for the current lookup; never run Shopify and Chrome in parallel.
 4. Do not use Chrome for `coverage: PARTIAL`, an API error, `DATA_SOURCE_UNAVAILABLE`, malformed response, or timeout. Return available API products when partial coverage produced results; otherwise report the API failure.
@@ -68,7 +68,7 @@ The remaining instructions apply only after the successful zero-result Shopify r
 
 ## Hard boundaries
 
-- Membership pricing is out of scope for v0.1. Do not ask for, inspect, or report membership or account-specific pricing.
+- Membership pricing is out of scope for v0.2.0. Do not ask for, inspect, or report membership or account-specific pricing.
 - Do not sign in, inspect cookies or storage, open account pages, or read personal information.
 - Do not add anything to a cart, begin checkout, reserve inventory, submit forms, place an order, or make a payment.
 - After entering a merchant product domain, stop on an unexpected cross-domain redirect. Returning to the search-results page to inspect another selected merchant is allowed within the eight-domain budget.

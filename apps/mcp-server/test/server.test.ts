@@ -35,8 +35,8 @@ const bestBuyPort: BestBuyPort = {
 const shopifyPort: ShopifyPort = {
   search: async () => ({
     coverage: "COMPLETE",
-    merchantsQueried: 5,
-    merchantsSucceeded: 5,
+    merchantsQueried: 10,
+    merchantsSucceeded: 10,
     diagnostics: {
       apiDurationMs: 250,
       cacheStatus: "MISS",
@@ -176,8 +176,8 @@ describe("shopping MCP server", () => {
       source: "SHOPIFY_STOREFRONT_API",
       priceScope: "ITEM_PRICE_ONLY",
       coverage: "COMPLETE",
-      merchantsQueried: 5,
-      merchantsSucceeded: 5,
+      merchantsQueried: 10,
+      merchantsSucceeded: 10,
       diagnostics: {
         apiDurationMs: 250,
         cacheStatus: "MISS",

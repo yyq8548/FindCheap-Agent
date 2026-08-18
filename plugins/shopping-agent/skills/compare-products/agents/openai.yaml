@@ -1,4 +1,4 @@
 interface:
-  display_name: "FindCheap-Agent v0.1"
-  short_description: "Search five Shopify stores; filter relevance before price"
-  default_prompt: "Use $compare-products to search five Shopify stores once, preserve the relevance-first merchant-diverse Top 3, and use Chrome only after complete zero-result coverage."
+  display_name: "FindCheap-Agent v0.2"
+  short_description: "Search ten Shopify stores; filter relevance before price"
+  default_prompt: "Use $compare-products to search ten Shopify stores once, preserve the relevance-first merchant-diverse Top 3, and use Chrome only after complete zero-result coverage."

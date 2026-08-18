@@ -24,7 +24,7 @@ const unavailableMessage =
 const bestBuyUnavailableMessage =
   "Best Buy live product data is unavailable because BEST_BUY_API_KEY is not configured or the official API request failed.";
 const shopifyUnavailableMessage =
-  "Shopify Storefront Beta data is unavailable because the fixed five-store registry is not configured or its public API coverage is incomplete.";
+  "Shopify Storefront Beta data is unavailable because the fixed ten-store registry is not configured or its public API coverage is incomplete.";
 
 const MembershipIdsSchema = z
   .array(z.string().trim().min(1).max(80))
@@ -297,7 +297,7 @@ function shopifyUnavailableResult() {
       source: "SHOPIFY_STOREFRONT_API" as const,
       priceScope: "ITEM_PRICE_ONLY" as const,
       coverage: "UNAVAILABLE" as const,
-      merchantsQueried: 5,
+      merchantsQueried: 10,
       merchantsSucceeded: 0,
       diagnostics: {
         apiDurationMs: 0,
@@ -369,7 +369,7 @@ export function createShoppingServer(
     "search_shopify_products",
     {
       title: "Search Shopify products (Beta)",
-      description: "Search five fixed tokenless Shopify Storefront pilots by product query or handle. Returns relevance-filtered, merchant-diverse public item prices.",
+      description: "Search ten fixed tokenless Shopify Storefront pilots by product query or handle. Returns relevance-filtered, merchant-diverse public item prices.",
       inputSchema: ShopifyProductsInputSchema,
       outputSchema: ShopifyProductsOutputShape,
       annotations: {

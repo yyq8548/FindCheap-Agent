@@ -6,7 +6,7 @@
       "args": ["./dist/mcp-server.js"],
       "cwd": ".",
       "env": {
-        "SHOPIFY_STOREFRONT_MODE": "fixed-five"
+        "SHOPIFY_STOREFRONT_MODE": "fixed-ten"
       }
     }
   }

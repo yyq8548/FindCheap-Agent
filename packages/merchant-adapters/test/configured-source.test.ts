@@ -346,6 +346,8 @@ describe("production configured source", () => {
             title: "Valhalla Java Single-Serve Pods",
             handle: "valhalla-java-single-serve-pods",
             vendor: "Death Wish Coffee",
+            productType: "Coffee",
+            tags: ["Coffee", "Pods"],
             onlineStoreUrl: "https://www.deathwishcoffee.com/products/valhalla-java-single-serve-pods",
             featuredImage: null,
             selectedOrFirstAvailableVariant: {
