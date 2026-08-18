@@ -33,7 +33,7 @@ describe("FindCheap-Agent v0.2.3 Chrome contract", () => {
     expect(skill).toContain("Never describe `UNKNOWN` as new");
     expect(skill).toContain("`status: OK`, `coverage: COMPLETE`, and `products.length === 0`");
     expect(skill).toContain("`coverage: PARTIAL`");
-    expect(skill).toContain("v2 registry contains 20 technically verified stores");
+    expect(skill).toContain("v3 registry contains 45 technically verified stores");
     expect(skill).toContain("Do not open Chrome when Shopify returns one or more products");
     expect(skill).toContain("an API error, `DATA_SOURCE_UNAVAILABLE`, malformed response, or timeout");
     expect(skill).toContain("explicitly requests no Chrome");

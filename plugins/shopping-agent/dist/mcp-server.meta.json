@@ -3960,7 +3960,7 @@
   },
   "outputs": {
     "../../plugins/shopping-agent/dist/mcp-server.js": {
-      "bytes": 386601,
+      "bytes": 388180,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
@@ -4007,7 +4007,7 @@
       ],
       "inputs": {
         "../../config/shopify/registry.ts": {
-          "bytesInOutput": 1414
+          "bytesInOutput": 2958
         },
         "../../node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/experimental/tasks/helpers.js": {
           "bytesInOutput": 703
@@ -4076,7 +4076,7 @@
           "bytesInOutput": 2585
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/compile/errors.js": {
-          "bytesInOutput": 3104
+          "bytesInOutput": 3139
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/compile/index.js": {
           "bytesInOutput": 4688

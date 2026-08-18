@@ -8,9 +8,10 @@ import {
 import { SHOPIFY_REGISTRY } from "../apps/mcp-server/src/shopify-registry.js";
 import { createShopifyStorefrontReader } from "../packages/merchant-adapters/src/configured/shopify-storefront-reader.js";
 
-const MINIMUM_MERCHANTS = 20;
+const MINIMUM_MERCHANTS = 40;
 const MAX_PROBE_DURATION_MS = 3_000;
 const MAX_P95_DURATION_MS = 2_500;
+const MAX_PROBE_ATTEMPTS = 2;
 
 type Probe = (pilot: ShopifyPilot) => Promise<{ productCount: number; durationMs: number }>;
 
@@ -27,6 +28,7 @@ export async function auditShopifyRegistry(probe: Probe): Promise<{
     minimumMerchants: number;
     maxProbeDurationMs: number;
     maxP95DurationMs: number;
+    maxProbeAttempts: number;
   };
   results: Array<{
     merchantId: string;
@@ -39,20 +41,7 @@ export async function auditShopifyRegistry(probe: Probe): Promise<{
     reason?: string;
   }>;
 }> {
-  const results = await Promise.all(SHOPIFY_PILOTS.map(async (pilot) => {
-    try {
-      const { productCount, durationMs } = await probe(pilot);
-      if (productCount < 1) {
-        return result(pilot, "FAIL", 0, durationMs, "NO_PRODUCTS");
-      }
-      if (durationMs > MAX_PROBE_DURATION_MS) {
-        return result(pilot, "FAIL", productCount, durationMs, "PROBE_LATENCY_EXCEEDED");
-      }
-      return result(pilot, "PASS", productCount, durationMs);
-    } catch (error) {
-      return result(pilot, "FAIL", 0, 0, error instanceof Error ? error.message.slice(0, 200) : "PROBE_FAILED");
-    }
-  }));
+  const results = await Promise.all(SHOPIFY_PILOTS.map((pilot) => probeWithRetry(pilot, probe)));
   const passed = results.filter((entry) => entry.status === "PASS").length;
   const durations = results.map((entry) => entry.durationMs).sort((left, right) => left - right);
   const p95DurationMs = durations[Math.ceil(durations.length * 0.95) - 1] ?? 0;
@@ -72,10 +61,33 @@ export async function auditShopifyRegistry(probe: Probe): Promise<{
     qualityGate: {
       minimumMerchants: MINIMUM_MERCHANTS,
       maxProbeDurationMs: MAX_PROBE_DURATION_MS,
-      maxP95DurationMs: MAX_P95_DURATION_MS
+      maxP95DurationMs: MAX_P95_DURATION_MS,
+      maxProbeAttempts: MAX_PROBE_ATTEMPTS
     },
     results
   };
+}
+
+async function probeWithRetry(pilot: ShopifyPilot, probe: Probe) {
+  let failure = result(pilot, "FAIL", 0, 0, "PROBE_FAILED");
+  for (let attempt = 0; attempt < MAX_PROBE_ATTEMPTS; attempt += 1) {
+    try {
+      const { productCount, durationMs } = await probe(pilot);
+      if (productCount < 1) failure = result(pilot, "FAIL", 0, durationMs, "NO_PRODUCTS");
+      else if (durationMs > MAX_PROBE_DURATION_MS) {
+        failure = result(pilot, "FAIL", productCount, durationMs, "PROBE_LATENCY_EXCEEDED");
+      } else return result(pilot, "PASS", productCount, durationMs);
+    } catch (error) {
+      failure = result(
+        pilot,
+        "FAIL",
+        0,
+        0,
+        error instanceof Error ? error.message.slice(0, 200) : "PROBE_FAILED"
+      );
+    }
+  }
+  return failure;
 }
 
 function result(

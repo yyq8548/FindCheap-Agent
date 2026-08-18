@@ -39,8 +39,8 @@ Default and explicit-new searches retain `NEW` and clearly labeled `UNKNOWN`; ex
 refurbished/renewed, and open-box inventory is returned only when requested.
 Explicit cheapest requests use literal price order and may include several products from one merchant;
 recommendation requests prefer merchant diversity. Codex must preserve the tool's returned order.
-The v2 registry contains twenty technically verified pilots and accepts at most fifty checked-in
-entries. Its release audit requires 20/20 non-empty schema-valid probes, a three-second per-store
-budget, and p95 latency at or below 2.5 seconds. Per-store failures and timeouts are isolated and
+The v3 registry contains forty-five technically verified pilots and accepts at most fifty checked-in
+entries. Its release audit requires 45/45 non-empty schema-valid probes, at most two attempts per
+store, a three-second attempt budget, and p95 latency at or below 2.5 seconds. Per-store failures and timeouts are isolated and
 reported through coverage diagnostics. Technical verification is not merchant, legal, or affiliate approval.
 

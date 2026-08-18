@@ -18,10 +18,10 @@ const merchant = {
 describe("audited Shopify merchant registry", () => {
   it("loads the checked-in registry with a bounded unique allowlist", () => {
     expect(SHOPIFY_REGISTRY.version).toMatch(/^v\d+$/u);
-    expect(SHOPIFY_REGISTRY.version).toBe("v2");
-    expect(SHOPIFY_REGISTRY.merchants).toHaveLength(20);
-    expect(new Set(SHOPIFY_REGISTRY.merchants.map((entry) => entry.merchantId)).size).toBe(20);
-    expect(new Set(SHOPIFY_REGISTRY.merchants.map((entry) => entry.apiHost)).size).toBe(20);
+    expect(SHOPIFY_REGISTRY.version).toBe("v3");
+    expect(SHOPIFY_REGISTRY.merchants).toHaveLength(45);
+    expect(new Set(SHOPIFY_REGISTRY.merchants.map((entry) => entry.merchantId)).size).toBe(45);
+    expect(new Set(SHOPIFY_REGISTRY.merchants.map((entry) => entry.apiHost)).size).toBe(45);
   });
 
   it("rejects duplicate identities, duplicate hosts, and unaudited sibling hosts", () => {
