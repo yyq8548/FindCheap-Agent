@@ -29,6 +29,8 @@ describe("FindCheap-Agent v0.2.3 Chrome contract", () => {
     expect(skill).toContain("`search_shopify_products`");
     expect(skill).toContain("Call `search_shopify_products` exactly once per user lookup");
     expect(skill).toContain("Do not repeat a successful call");
+    expect(skill).toContain("Default and explicit-new searches keep `NEW` and unlabeled `UNKNOWN`");
+    expect(skill).toContain("Never describe `UNKNOWN` as new");
     expect(skill).toContain("`status: OK`, `coverage: COMPLETE`, and `products.length === 0`");
     expect(skill).toContain("`coverage: PARTIAL`");
     expect(skill).toContain("v2 registry contains 20 technically verified stores");
@@ -39,6 +41,7 @@ describe("FindCheap-Agent v0.2.3 Chrome contract", () => {
     expect(skill).toContain("Chrome fallback: `NOT_USED` or `USED`");
     expect(skill).toContain("rejects unrelated products first");
     expect(skill).toContain("Never restore a rejected product");
+    expect(skill).toContain("Never restore a condition-excluded product");
     expect(skill).toContain("Present `EXACT` products first");
     expect(skill).toContain("Never describe `SIMILAR` as exact");
     expect(skill).toContain("Keep `IRRELEVANT` products excluded");

@@ -42,6 +42,7 @@ const shopifyPort: ShopifyPort = {
       cacheStatus: "MISS",
       chromeFallbackEligible: false,
       irrelevantProductsExcluded: 0,
+      conditionProductsExcluded: 0,
       merchantsFailed: 0,
       coveragePercent: 100,
       failedMerchantIds: [],
@@ -63,6 +64,7 @@ const shopifyPort: ShopifyPort = {
       variantDimensions: { "Pack Size": "10 count" },
       matchStatus: "EXACT",
       matchEvidence: ["GTIN exact"],
+      condition: "UNKNOWN",
       itemPrice: { amountCents: 1_499, currency: "USD" },
       availability: "IN_STOCK",
       merchantUrl: "https://deathwishcoffee.com/products/valhalla-java-single-serve-pods",
@@ -211,6 +213,7 @@ describe("shopping MCP server", () => {
         cacheStatus: "MISS",
         chromeFallbackEligible: false,
         irrelevantProductsExcluded: 0,
+        conditionProductsExcluded: 0,
         merchantsFailed: 0,
         coveragePercent: 100,
         failedMerchantIds: [],
@@ -224,10 +227,12 @@ describe("shopping MCP server", () => {
         merchant: "Death Wish Coffee",
         handle: "valhalla-java-single-serve-pods",
         matchStatus: "EXACT",
+        condition: "UNKNOWN",
         itemPrice: { amountCents: 1_499 }
       }]
     });
     expect(JSON.stringify(result.content)).toContain("Valhalla Java Single-Serve Pods");
+    expect(JSON.stringify(result.content)).toContain("condition: UNKNOWN");
     expect(JSON.stringify(result.content)).toContain("Do not call this tool again for this user lookup");
     expect(JSON.stringify(result)).not.toMatch(/deliveredPrice|rawEvidence/i);
   });

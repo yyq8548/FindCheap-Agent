@@ -23,6 +23,7 @@ export type ShopifySearchInput = {
 };
 
 export type ShopifySelectionMode = "LOWEST_PRICE" | "MERCHANT_DIVERSE";
+export type ShopifyCondition = "NEW" | "USED" | "REFURBISHED" | "OPEN_BOX" | "UNKNOWN";
 
 export type ShopifyProduct = {
   merchantId: string;
@@ -36,6 +37,7 @@ export type ShopifyProduct = {
   variantDimensions: Record<string, string>;
   matchStatus: Exclude<ShopifyMatchStatus, "IRRELEVANT">;
   matchEvidence: string[];
+  condition: ShopifyCondition;
   imageUrl?: string;
   itemPrice?: { amountCents: number; currency: "USD" };
   availability: "IN_STOCK" | "OUT_OF_STOCK" | "UNKNOWN";
@@ -62,6 +64,7 @@ export type ShopifySearchResult = {
     cacheStatus: "MISS" | "HIT" | "COALESCED";
     chromeFallbackEligible: boolean;
     irrelevantProductsExcluded: number;
+    conditionProductsExcluded: number;
     merchantsFailed: number;
     coveragePercent: number;
     failedMerchantIds: string[];
@@ -82,6 +85,7 @@ export interface ShopifyPort {
 
 type ShopifySearchCore = Omit<ShopifySearchResult, "diagnostics"> & {
   irrelevantProductsExcluded: number;
+  conditionProductsExcluded: number;
   selectionMode: ShopifySelectionMode;
   failedMerchantIds: string[];
   timedOutMerchantIds: string[];
@@ -160,7 +164,15 @@ export function createShopifyPortFromEnvironment(
               merchantUrl: record.rawOffer.url,
               checkedAt: snapshot.checkedAt,
               ...(record.productType === undefined ? {} : { productType: record.productType }),
-              tags: record.tags ?? []
+              tags: record.tags ?? [],
+              condition: detectCondition([
+                record.title,
+                record.merchantProductId,
+                record.mpn,
+                record.productType,
+                ...(record.tags ?? []),
+                ...Object.values(record.variantDimensions ?? {})
+              ])
             };
           });
           return { store, products };
@@ -195,7 +207,11 @@ export function createShopifyPortFromEnvironment(
                 matchEvidence: match.evidence
               }];
             });
-        const ranked = rankAndDeduplicate(classified);
+        const conditionIntent = requestedCondition(input.query);
+        const conditionEligible = classified.filter((product) =>
+          conditionMatches(product.condition, conditionIntent)
+        );
+        const ranked = rankAndDeduplicate(conditionEligible);
         const selected = selectionMode === "LOWEST_PRICE"
           ? ranked.slice(0, input.limit)
           : selectDiverseThenFill(ranked, input.limit);
@@ -207,6 +223,7 @@ export function createShopifyPortFromEnvironment(
             ? ["Only similar products were found. Provide an exact model, SKU, GTIN, color, size, or capacity."]
             : [],
           irrelevantProductsExcluded: products.length - classified.length,
+          conditionProductsExcluded: classified.length - conditionEligible.length,
           selectionMode,
           failedMerchantIds: failed.map((entry) => entry.merchantId),
           timedOutMerchantIds: failed.filter((entry) => entry.timedOut).map((entry) => entry.merchantId),
@@ -239,6 +256,33 @@ function unavailablePort(): ShopifyPort {
 function toAvailability(value: string | undefined): ShopifyProduct["availability"] {
   if (value === "IN_STOCK" || value === "OUT_OF_STOCK") return value;
   return "UNKNOWN";
+}
+
+function detectCondition(values: readonly (string | undefined)[]): ShopifyCondition {
+  const text = values.filter((value): value is string => value !== undefined)
+    .join(" ")
+    .normalize("NFKC")
+    .toLocaleLowerCase("en-US")
+    .replaceAll("_", " ");
+  if (/\bopen[\s_-]*box\b/u.test(text)) return "OPEN_BOX";
+  if (/\b(?:refurbished|renewed|reconditioned)\b/u.test(text)) return "REFURBISHED";
+  if (/\b(?:used|pre[\s_-]*owned|resale|second[\s_-]*hand|outerworn)\b/u.test(text)) return "USED";
+  if (/\bcondition[\s:_-]*new\b/u.test(text)) return "NEW";
+  return "UNKNOWN";
+}
+
+function requestedCondition(query: string | undefined): ShopifyCondition | "DEFAULT" {
+  const text = (query ?? "").normalize("NFKC").toLocaleLowerCase("en-US");
+  if (/\bopen[\s_-]*box\b/u.test(text)) return "OPEN_BOX";
+  if (/\b(?:refurbished|renewed|reconditioned)\b/u.test(text)) return "REFURBISHED";
+  if (/\b(?:used|pre[\s_-]*owned|resale|second[\s_-]*hand)\b/u.test(text)) return "USED";
+  return "DEFAULT";
+}
+
+function conditionMatches(condition: ShopifyCondition, requested: ShopifyCondition | "DEFAULT"): boolean {
+  return requested === "DEFAULT"
+    ? condition === "NEW" || condition === "UNKNOWN"
+    : condition === requested;
 }
 
 function rankAndDeduplicate(products: RankedShopifyCandidate[]): RankedShopifyCandidate[] {
@@ -278,6 +322,7 @@ function withDiagnostics(
 ): ShopifySearchResult {
   const {
     irrelevantProductsExcluded,
+    conditionProductsExcluded,
     selectionMode,
     failedMerchantIds,
     timedOutMerchantIds,
@@ -293,6 +338,7 @@ function withDiagnostics(
       cacheStatus,
       chromeFallbackEligible: result.coverage === "COMPLETE" && result.products.length === 0,
       irrelevantProductsExcluded,
+      conditionProductsExcluded,
       merchantsFailed,
       coveragePercent: Math.round((result.merchantsSucceeded / result.merchantsQueried) * 100),
       failedMerchantIds,

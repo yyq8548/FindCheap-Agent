@@ -194,6 +194,92 @@ describe("Shopify Storefront MCP client", () => {
     expect(result.diagnostics.irrelevantProductsExcluded).toBe(1);
   });
 
+  it("excludes explicit used inventory by default but keeps unlabeled inventory", async () => {
+    const registry = {
+      version: "v-condition",
+      merchants: SHOPIFY_PILOTS.filter((merchant) => ["outerknown", "steve-madden"].includes(merchant.merchantId))
+    };
+    const safeFetch = vi.fn(async (input: { url: string }) => {
+      const host = new URL(input.url).hostname;
+      return host === "www.outerknown.com"
+        ? storefrontResponse(input.url, host, "114.00", "Ambassador Blue Jeans", "Jeans", [], {
+            handle: "ambassador-blue-jeans-resale",
+            sku: "AMB-BLUE_used",
+            tags: ["Resale"]
+          })
+        : storefrontResponse(input.url, host, "119.00", "Imperial Blue Jeans", "Jeans");
+    });
+    const port = createShopifyPortFromEnvironment(
+      { SHOPIFY_STOREFRONT_MODE: "audited-registry" },
+      { safeFetch, clock: { now: () => new Date(now) }, registry }
+    );
+
+    const result = await port.search({ query: "blue jeans", limit: 3 });
+
+    expect(result.products).toEqual([expect.objectContaining({
+      title: "Imperial Blue Jeans",
+      condition: "UNKNOWN"
+    })]);
+    expect(result.diagnostics.conditionProductsExcluded).toBe(1);
+  });
+
+  it("returns explicit used inventory only when used condition is requested", async () => {
+    const registry = {
+      version: "v-condition",
+      merchants: SHOPIFY_PILOTS.filter((merchant) => ["outerknown", "steve-madden"].includes(merchant.merchantId))
+    };
+    const safeFetch = vi.fn(async (input: { url: string }) => {
+      const host = new URL(input.url).hostname;
+      return host === "www.outerknown.com"
+        ? storefrontResponse(input.url, host, "114.00", "Ambassador Blue Jeans", "Jeans", [], {
+            handle: "ambassador-blue-jeans-resale",
+            sku: "AMB-BLUE_used",
+            tags: ["Resale"]
+          })
+        : storefrontResponse(input.url, host, "119.00", "Imperial Blue Jeans", "Jeans");
+    });
+    const port = createShopifyPortFromEnvironment(
+      { SHOPIFY_STOREFRONT_MODE: "audited-registry" },
+      { safeFetch, clock: { now: () => new Date(now) }, registry }
+    );
+
+    const result = await port.search({ query: "used blue jeans", limit: 3 });
+
+    expect(result.products).toEqual([expect.objectContaining({
+      title: "Ambassador Blue Jeans",
+      condition: "USED"
+    })]);
+    expect(result.diagnostics.conditionProductsExcluded).toBe(1);
+  });
+
+  it.each([
+    ["refurbished blue jeans", "Certified Refurbished Blue Jeans", [], "REFURBISHED"],
+    ["open box blue jeans", "Open Box Blue Jeans", [], "OPEN_BOX"],
+    ["new blue jeans", "Blue Jeans", ["condition:new"], "NEW"]
+  ] as const)("recognizes an explicitly requested condition: %s", async (query, title, tags, condition) => {
+    const registry = {
+      version: "v-condition",
+      merchants: SHOPIFY_PILOTS.filter((merchant) => merchant.merchantId === "steve-madden")
+    };
+    const safeFetch = vi.fn(async (input: { url: string }) => storefrontResponse(
+      input.url,
+      new URL(input.url).hostname,
+      "119.00",
+      title,
+      "Jeans",
+      [],
+      { tags: [...tags] }
+    ));
+    const port = createShopifyPortFromEnvironment(
+      { SHOPIFY_STOREFRONT_MODE: "audited-registry" },
+      { safeFetch, clock: { now: () => new Date(now) }, registry }
+    );
+
+    const result = await port.search({ query, limit: 3 });
+
+    expect(result.products).toEqual([expect.objectContaining({ condition })]);
+  });
+
   it("marks a missing requested variant similar and asks for exact variant details", async () => {
     const safeFetch = vi.fn(async (input: { url: string }) => {
       const host = new URL(input.url).hostname;
@@ -366,17 +452,18 @@ function storefrontResponse(
   price?: string | string[],
   title?: string | string[],
   productType?: string | string[],
-  selectedOptions: Array<{ name: string; value: string }> = []
+  selectedOptions: Array<{ name: string; value: string }> = [],
+  metadata: { handle?: string; sku?: string; tags?: string[] } = {}
 ) {
   const prices = price === undefined ? [] : Array.isArray(price) ? price : [price];
   const titles = title === undefined ? [] : Array.isArray(title) ? title : [title];
   const productTypes = productType === undefined ? [] : Array.isArray(productType) ? productType : [productType];
   const nodes = prices.map((amount, index) => ({
-    title: titles[index] ?? `Sample Shirt ${index + 1}`, handle: `sample-${index + 1}`, vendor: host,
-    productType: productTypes[index] ?? "", tags: [],
-    onlineStoreUrl: `https://${host}/products/sample-${index + 1}`, featuredImage: null,
+    title: titles[index] ?? `Sample Shirt ${index + 1}`, handle: metadata.handle ?? `sample-${index + 1}`, vendor: host,
+    productType: productTypes[index] ?? "", tags: metadata.tags ?? [],
+    onlineStoreUrl: `https://${host}/products/${metadata.handle ?? `sample-${index + 1}`}`, featuredImage: null,
     selectedOrFirstAvailableVariant: {
-      title: "Default Title", sku: `${host}-sku`, barcode: null,
+      title: "Default Title", sku: metadata.sku ?? `${host}-sku`, barcode: null,
       availableForSale: true, price: { amount, currencyCode: "USD" }, image: null,
       selectedOptions
     }

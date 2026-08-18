@@ -34,6 +34,9 @@ shipping, tax, Coupon, membership, or delivered-price coverage.
 v0.2.3 classifies Shopify candidates as `EXACT`, `SIMILAR`, or internal `IRRELEVANT`. Irrelevant
 products never enter Top 3. Exact matches rank before cheaper similar products. When only similar
 products remain, the tool requests an exact model, SKU, GTIN, color, size, or capacity.
+Shopify results also expose `NEW`, `USED`, `REFURBISHED`, `OPEN_BOX`, or `UNKNOWN` condition.
+Default and explicit-new searches retain `NEW` and clearly labeled `UNKNOWN`; explicit used,
+refurbished/renewed, and open-box inventory is returned only when requested.
 Explicit cheapest requests use literal price order and may include several products from one merchant;
 recommendation requests prefer merchant diversity. Codex must preserve the tool's returned order.
 The v2 registry contains twenty technically verified pilots and accepts at most fifty checked-in

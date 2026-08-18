@@ -1,6 +1,6 @@
 ---
 name: compare-products
-description: Search a bounded audited Shopify Storefront registry first for ordinary FindCheap-Agent product requests, classify exact and similar products using identity and variant evidence, then use the user's authorized Chrome session only after complete API coverage returns zero products. Membership, delivered-price, coupon, checkout, and payment requests are out of scope in v0.2.3.
+description: Search a bounded audited Shopify Storefront registry first for ordinary FindCheap-Agent product requests, classify identity, variant, and condition evidence, then use the user's authorized Chrome session only after complete API coverage returns zero products. Membership, delivered-price, coupon, checkout, and payment requests are out of scope in v0.2.3.
 ---
 
 # FindCheap-Agent v0.2.3 product search
@@ -17,6 +17,8 @@ Apply this routing before any browser action:
    - Keep `IRRELEVANT` products excluded; the tool rejects unrelated products first and does not return them.
    - If `questions` is non-empty, ask that question after showing any labeled similar alternatives.
    - Cite `matchEvidence` and requested `variantDimensions` when explaining a match.
+   - Report returned `condition`. Default and explicit-new searches keep `NEW` and unlabeled `UNKNOWN`, with `UNKNOWN` clearly labeled; they exclude explicit `USED`, `REFURBISHED`, and `OPEN_BOX`. An explicit used, refurbished/renewed, or open-box request returns only that condition.
+   - Never describe `UNKNOWN` as new. Never restore a condition-excluded product to fill Top 3.
    - Preserve returned order. Do not re-sort the returned products. `LOWEST_PRICE` means literal price order after exact/similar and availability gates; `MERCHANT_DIVERSE` means one result per merchant before price-based fill.
 3. Use the Chrome workflow only when Shopify returns `status: OK`, `coverage: COMPLETE`, and `products.length === 0`. This is a single bounded fallback for the current lookup; never run Shopify and Chrome in parallel.
 4. Do not use Chrome for `coverage: PARTIAL`, an API error, `DATA_SOURCE_UNAVAILABLE`, malformed response, or timeout. Return available API products when partial coverage produced results; otherwise report the API failure.

@@ -3960,7 +3960,7 @@
   },
   "outputs": {
     "../../plugins/shopping-agent/dist/mcp-server.js": {
-      "bytes": 385416,
+      "bytes": 386601,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
@@ -4067,7 +4067,7 @@
           "bytesInOutput": 1696
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/compile/codegen/code.js": {
-          "bytesInOutput": 2551
+          "bytesInOutput": 2584
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/compile/codegen/index.js": {
           "bytesInOutput": 11758
@@ -4118,7 +4118,7 @@
           "bytesInOutput": 1978
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/core.js": {
-          "bytesInOutput": 12310
+          "bytesInOutput": 12306
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/refs/data.json": {
           "bytesInOutput": 358
@@ -4202,7 +4202,7 @@
           "bytesInOutput": 2379
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/discriminator/index.js": {
-          "bytesInOutput": 2296
+          "bytesInOutput": 2293
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/discriminator/types.js": {
           "bytesInOutput": 181
@@ -4211,7 +4211,7 @@
           "bytesInOutput": 235
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/format/format.js": {
-          "bytesInOutput": 1954
+          "bytesInOutput": 1951
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/format/index.js": {
           "bytesInOutput": 121
@@ -4454,7 +4454,7 @@
           "bytesInOutput": 649
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v4/core/schemas.js": {
-          "bytesInOutput": 18940
+          "bytesInOutput": 18937
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v4/core/to-json-schema.js": {
           "bytesInOutput": 11445
@@ -4514,10 +4514,10 @@
           "bytesInOutput": 2484
         },
         "src/server.ts": {
-          "bytesInOutput": 9270
+          "bytesInOutput": 9451
         },
         "src/shopify-client.ts": {
-          "bytesInOutput": 5223
+          "bytesInOutput": 6207
         },
         "src/shopify-match.ts": {
           "bytesInOutput": 3228
