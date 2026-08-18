@@ -58,7 +58,8 @@ export const ShopifyProductsInputSchema = z
   .object({
     query: z.string().trim().min(2).max(300).optional(),
     handle: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u).max(200).optional(),
-    limit: z.number().int().min(1).max(20).default(10)
+    limit: z.number().int().min(1).max(3).default(3),
+    selectionMode: z.enum(["LOWEST_PRICE", "MERCHANT_DIVERSE"])
   })
   .strict()
   .refine((input) => (input.query === undefined) !== (input.handle === undefined), {
@@ -171,7 +172,10 @@ const ShopifyProductsOutputShape = {
     cacheStatus: z.enum(["MISS", "HIT", "COALESCED"]),
     chromeFallbackEligible: z.boolean(),
     irrelevantProductsExcluded: z.number().int().nonnegative(),
-    selectionPolicy: z.literal("EXACT_THEN_SIMILAR_THEN_DIVERSE_MERCHANTS_THEN_PRICE")
+    selectionPolicy: z.enum([
+      "EXACT_THEN_SIMILAR_THEN_PRICE",
+      "EXACT_THEN_SIMILAR_THEN_DIVERSE_MERCHANTS_THEN_PRICE"
+    ])
   }),
   questions: z.array(z.string()),
   products: z.array(ShopifyProductOutputSchema)
@@ -296,7 +300,7 @@ function shopifyResult(result: ShopifySearchResult) {
   };
 }
 
-function shopifyUnavailableResult() {
+function shopifyUnavailableResult(selectionMode: "LOWEST_PRICE" | "MERCHANT_DIVERSE") {
   return {
     content: [{ type: "text" as const, text: shopifyUnavailableMessage }],
     structuredContent: {
@@ -312,7 +316,9 @@ function shopifyUnavailableResult() {
         cacheStatus: "MISS" as const,
         chromeFallbackEligible: false,
         irrelevantProductsExcluded: 0,
-        selectionPolicy: "EXACT_THEN_SIMILAR_THEN_DIVERSE_MERCHANTS_THEN_PRICE" as const
+        selectionPolicy: selectionMode === "LOWEST_PRICE"
+          ? "EXACT_THEN_SIMILAR_THEN_PRICE" as const
+          : "EXACT_THEN_SIMILAR_THEN_DIVERSE_MERCHANTS_THEN_PRICE" as const
       },
       questions: [],
       products: []
@@ -379,7 +385,7 @@ export function createShoppingServer(
     "search_shopify_products",
     {
       title: "Search Shopify products (Beta)",
-      description: "Search ten fixed tokenless Shopify Storefront pilots by product query or handle. Returns exact matches before labeled similar products; irrelevant products are excluded.",
+      description: "Search ten fixed tokenless Shopify Storefront pilots by product query or handle. Requires Top 3 ranking intent: literal lowest price or merchant-diverse recommendations. Returns exact matches before labeled similar products; irrelevant products are excluded.",
       inputSchema: ShopifyProductsInputSchema,
       outputSchema: ShopifyProductsOutputShape,
       annotations: {
@@ -394,7 +400,7 @@ export function createShoppingServer(
         const result = await shopifyPort.search(input);
         return shopifyResult(result);
       } catch {
-        return shopifyUnavailableResult();
+        return shopifyUnavailableResult(input.selectionMode);
       }
     }
   );

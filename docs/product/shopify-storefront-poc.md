@@ -51,7 +51,7 @@
 ## Acceptance criteria and open decisions
 
 - `pnpm merchants:shopify-probe -- --query "Valhalla Java" --limit 3` returns live products.
-- Codex discovers `search_shopify_products`, calls it once per lookup, excludes `IRRELEVANT` products, ranks `EXACT` before `SIMILAR`, and returns merchant-diverse public item prices from the fixed ten-store registry.
+- Codex discovers `search_shopify_products`, calls it once with `limit: 3`, excludes `IRRELEVANT` products, ranks `EXACT` before `SIMILAR`, and preserves the tool order. Explicit cheapest requests use `LOWEST_PRICE`; other recommendations use `MERCHANT_DIVERSE`.
 - Requested model, SKU, GTIN, color, size, and capacity evidence participates in matching. Similar-only results return a clarification question.
 - The tool never accepts a caller-provided host.
 - Open decision: whether each pilot's terms and data quality support production use. Owner approval is still required for every store.

@@ -34,7 +34,10 @@ export type ShopifySearchInput = {
   query?: string | undefined;
   handle?: string | undefined;
   limit: number;
+  selectionMode?: ShopifySelectionMode | undefined;
 };
+
+export type ShopifySelectionMode = "LOWEST_PRICE" | "MERCHANT_DIVERSE";
 
 export type ShopifyProduct = {
   merchantId: string;
@@ -74,7 +77,9 @@ export type ShopifySearchResult = {
     cacheStatus: "MISS" | "HIT" | "COALESCED";
     chromeFallbackEligible: boolean;
     irrelevantProductsExcluded: number;
-    selectionPolicy: "EXACT_THEN_SIMILAR_THEN_DIVERSE_MERCHANTS_THEN_PRICE";
+    selectionPolicy:
+      | "EXACT_THEN_SIMILAR_THEN_PRICE"
+      | "EXACT_THEN_SIMILAR_THEN_DIVERSE_MERCHANTS_THEN_PRICE";
   };
   questions: string[];
   products: ShopifyProduct[];
@@ -86,6 +91,7 @@ export interface ShopifyPort {
 
 type ShopifySearchCore = Omit<ShopifySearchResult, "diagnostics"> & {
   irrelevantProductsExcluded: number;
+  selectionMode: ShopifySelectionMode;
 };
 
 type ShopifyClientDependencies = ReaderDependencies & {
@@ -119,7 +125,8 @@ export function createShopifyPortFromEnvironment(
   return {
     async search(input) {
       const startedAt = monotonicNow();
-      const cacheKey = JSON.stringify(input);
+      const selectionMode = input.selectionMode ?? "MERCHANT_DIVERSE";
+      const cacheKey = JSON.stringify({ ...input, selectionMode });
       if (cache?.key === cacheKey && cache.expiresAt >= startedAt) {
         return withDiagnostics(cache.result, 0, "HIT");
       }
@@ -177,7 +184,10 @@ export function createShopifyPortFromEnvironment(
                 matchEvidence: match.evidence
               }];
             });
-        const selected = selectDiverseThenFill(rankAndDeduplicate(classified), input.limit);
+        const ranked = rankAndDeduplicate(classified);
+        const selected = selectionMode === "LOWEST_PRICE"
+          ? ranked.slice(0, input.limit)
+          : selectDiverseThenFill(ranked, input.limit);
         return {
           coverage: successful.length === sources.length ? "COMPLETE" : "PARTIAL",
           merchantsQueried: sources.length,
@@ -186,6 +196,7 @@ export function createShopifyPortFromEnvironment(
             ? ["Only similar products were found. Provide an exact model, SKU, GTIN, color, size, or capacity."]
             : [],
           irrelevantProductsExcluded: products.length - classified.length,
+          selectionMode,
           products: selected.map(toPublicProduct)
         } satisfies ShopifySearchCore;
       })();
@@ -262,7 +273,7 @@ function withDiagnostics(
   apiDurationMs: number,
   cacheStatus: "MISS" | "HIT" | "COALESCED"
 ): ShopifySearchResult {
-  const { irrelevantProductsExcluded, ...publicResult } = result;
+  const { irrelevantProductsExcluded, selectionMode, ...publicResult } = result;
   return {
     ...publicResult,
     diagnostics: {
@@ -270,7 +281,9 @@ function withDiagnostics(
       cacheStatus,
       chromeFallbackEligible: result.coverage === "COMPLETE" && result.products.length === 0,
       irrelevantProductsExcluded,
-      selectionPolicy: "EXACT_THEN_SIMILAR_THEN_DIVERSE_MERCHANTS_THEN_PRICE"
+      selectionPolicy: selectionMode === "LOWEST_PRICE"
+        ? "EXACT_THEN_SIMILAR_THEN_PRICE"
+        : "EXACT_THEN_SIMILAR_THEN_DIVERSE_MERCHANTS_THEN_PRICE"
     }
   };
 }

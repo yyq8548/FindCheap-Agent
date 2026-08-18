@@ -173,7 +173,7 @@ describe("shopping MCP server", () => {
 
     const result = await client.callTool({
       name: "search_shopify_products",
-      arguments: { query: "Valhalla Java", limit: 5 }
+      arguments: { query: "Valhalla Java", limit: 3, selectionMode: "MERCHANT_DIVERSE" }
     });
 
     expect(result.structuredContent).toMatchObject({
@@ -203,11 +203,13 @@ describe("shopping MCP server", () => {
 
   it.each([
     {},
+    { query: "coffee" },
     { query: "coffee", handle: "coffee" },
     { query: " " },
     { handle: "../admin" },
-    { query: "coffee", limit: 21 },
-    { query: "coffee", arbitraryUrl: "https://evil.example" }
+    { query: "coffee", limit: 4, selectionMode: "MERCHANT_DIVERSE" },
+    { query: "coffee", arbitraryUrl: "https://evil.example" },
+    { query: "coffee", selectionMode: "UNSAFE" }
   ])("rejects invalid Shopify input %#", async (args) => {
     const search = vi.fn(shopifyPort.search);
     const client = await connect(

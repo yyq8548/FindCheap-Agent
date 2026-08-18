@@ -11,19 +11,20 @@ Risk tier: `R0`. Perform one read-only public-product lookup. Do not persist bro
 
 Apply this routing before any browser action:
 
-1. **Shopify-first default.** For an ordinary product search, call `search_shopify_products` before any Chrome search. Call `search_shopify_products` exactly once per user lookup. Do not repeat a successful call to verify, rerank, or reformat its result. This API covers only the fixed ten-store registry—Death Wish Coffee, Kith, Allbirds, Brooklinen, Fashion Nova, Tentree, ColourPop, Liquid Death, Pura Vida, and Steve Madden—not all Shopify stores or the whole web.
+1. **Shopify-first default.** For an ordinary product search, call `search_shopify_products` before any Chrome search. Call `search_shopify_products` exactly once per user lookup. Always pass `limit: 3`. Pass `selectionMode: LOWEST_PRICE` when the user explicitly asks for cheapest, lowest price, or the lowest-priced products. Otherwise pass `selectionMode: MERCHANT_DIVERSE` for recommended options from different merchants. Do not repeat a successful call to verify, rerank, or reformat its result. This API covers only the fixed ten-store registry—Death Wish Coffee, Kith, Allbirds, Brooklinen, Fashion Nova, Tentree, ColourPop, Liquid Death, Pura Vida, and Steve Madden—not all Shopify stores or the whole web.
 2. If Shopify returns `status: OK` and one or more products, return those API results. Do not open Chrome when Shopify returns one or more products.
    - Present `EXACT` products first. Never describe `SIMILAR` as exact.
-   - Keep `IRRELEVANT` products excluded; the tool does not return them.
+   - Keep `IRRELEVANT` products excluded; the tool rejects unrelated products first and does not return them.
    - If `questions` is non-empty, ask that question after showing any labeled similar alternatives.
    - Cite `matchEvidence` and requested `variantDimensions` when explaining a match.
+   - Preserve returned order. Do not re-sort the returned products. `LOWEST_PRICE` means literal price order after exact/similar and availability gates; `MERCHANT_DIVERSE` means one result per merchant before price-based fill.
 3. Use the Chrome workflow only when Shopify returns `status: OK`, `coverage: COMPLETE`, and `products.length === 0`. This is a single bounded fallback for the current lookup; never run Shopify and Chrome in parallel.
 4. Do not use Chrome for `coverage: PARTIAL`, an API error, `DATA_SOURCE_UNAVAILABLE`, malformed response, or timeout. Return available API products when partial coverage produced results; otherwise report the API failure.
 5. If the user explicitly requests no Chrome, return the empty Shopify result without fallback. If the user explicitly names another tool or source, follow that explicit request instead of the ordinary Shopify-first default.
 
 For an API result, preserve the tool's source label and pricing scope. Do not relabel it `BROWSER_OBSERVED`, claim that it covers the web, or add tax, shipping, coupon, membership, or delivered-price claims.
 
-For every response report `API duration`, Shopify coverage, and Chrome fallback: `NOT_USED` or `USED`. Render the fallback value as `NOT_USED` when API products are returned or fallback is ineligible. Use `USED` only after Chrome was actually opened. Preserve the API's returned order. The API rejects unrelated products first, ranks one lowest-priced relevant result per merchant, then fills remaining slots with relevant products by price. Never restore a rejected product to reach three results.
+For every response report `API duration`, Shopify coverage, selected ranking mode, and Chrome fallback: `NOT_USED` or `USED`. Render the fallback value as `NOT_USED` when API products are returned or fallback is ineligible. Use `USED` only after Chrome was actually opened. Preserve the API's returned order. Never restore a rejected product to reach three results.
 
 The remaining instructions apply only after the successful zero-result Shopify response selects the Chrome fallback.
 

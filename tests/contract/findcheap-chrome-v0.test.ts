@@ -44,6 +44,10 @@ describe("FindCheap-Agent v0.2.1 Chrome contract", () => {
     expect(skill).toContain("Keep `IRRELEVANT` products excluded");
     expect(skill).toContain("`matchEvidence`");
     expect(skill).toContain("`variantDimensions`");
+    expect(skill).toContain("Always pass `limit: 3`");
+    expect(skill).toContain("`LOWEST_PRICE`");
+    expect(skill).toContain("`MERCHANT_DIVERSE`");
+    expect(skill).toContain("Do not re-sort the returned products");
   });
 
   it("defines one bounded, user-authorized web-wide merchant workflow", async () => {
@@ -106,7 +110,7 @@ describe("FindCheap-Agent v0.2.1 Chrome contract", () => {
     expect(manifest.interface.longDescription).toMatch(/Codex Plugin Agent/u);
     expect(manifest.interface.longDescription).toMatch(/authorized Chrome/u);
     expect(manifest.interface.defaultPrompt).toEqual([
-      "Use FindCheap-Agent to search ten Shopify stores once, return exact matches before labeled similar products, ask for missing model or variant details, and use authorized Chrome only after complete zero-result coverage."
+      "Use FindCheap-Agent to search ten Shopify stores once. Always request Top 3: use LOWEST_PRICE for explicit cheapest requests and MERCHANT_DIVERSE otherwise; preserve the returned order. Return exact matches before labeled similar products, ask for missing model or variant details, and use authorized Chrome only after complete zero-result coverage."
     ]);
   });
 

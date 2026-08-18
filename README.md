@@ -7,7 +7,7 @@ The shipped Codex plugin lives at `plugins/shopping-agent/`. Codex orchestrates 
 - an authorized Chrome skill for a read-only, web-wide v0.2.1 fallback search;
 - a local stdio MCP server for audited Commerce data, the credential-gated Best Buy pilot, and a
   fixed ten-store tokenless Shopify Storefront Beta registry with one-call deduplication,
-  exact-first merchant-diverse Top 3 selection, labeled similar alternatives, variant evidence,
+  exact-first intent-aware Top 3 selection (literal lowest price or merchant-diverse recommendations), labeled similar alternatives, variant evidence,
   clarification questions, and API diagnostics.
 
 The Chrome path discovers up to eight merchant product pages, verifies five first, inspects up to
@@ -34,4 +34,6 @@ shipping, tax, Coupon, membership, or delivered-price coverage.
 v0.2.1 classifies Shopify candidates as `EXACT`, `SIMILAR`, or internal `IRRELEVANT`. Irrelevant
 products never enter Top 3. Exact matches rank before cheaper similar products. When only similar
 products remain, the tool requests an exact model, SKU, GTIN, color, size, or capacity.
+Explicit cheapest requests use literal price order and may include several products from one merchant;
+recommendation requests prefer merchant diversity. Codex must preserve the tool's returned order.
 

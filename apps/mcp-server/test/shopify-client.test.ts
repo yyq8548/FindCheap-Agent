@@ -67,6 +67,29 @@ describe("Shopify Storefront MCP client", () => {
     ]);
   });
 
+  it("returns the literal three lowest prices when LOWEST_PRICE is requested", async () => {
+    const prices = new Map<string, string | string[]>([
+      ["deathwishcoffee.com", "19.99"], ["kith.com", "29.99"],
+      ["www.allbirds.com", "14.99"], ["www.brooklinen.com", "24.99"],
+      ["www.fashionnova.com", ["9.99", "10.99", "11.99"]]
+    ]);
+    const safeFetch = vi.fn(async (input: { url: string }) => {
+      const host = new URL(input.url).hostname;
+      return storefrontResponse(input.url, host, prices.get(host));
+    });
+    const port = createShopifyPortFromEnvironment(
+      { SHOPIFY_STOREFRONT_MODE: "fixed-ten" },
+      { safeFetch, clock: { now: () => new Date(now) } }
+    );
+
+    const result = await port.search({ query: "shirt", limit: 3, selectionMode: "LOWEST_PRICE" });
+
+    expect(result.products.map((product) => [product.merchant, product.itemPrice?.amountCents])).toEqual([
+      ["Fashion Nova", 999], ["Fashion Nova", 1_099], ["Fashion Nova", 1_199]
+    ]);
+    expect(result.diagnostics.selectionPolicy).toBe("EXACT_THEN_SIMILAR_THEN_PRICE");
+  });
+
   it("rejects unrelated low-price products before merchant diversity and price ranking", async () => {
     const safeFetch = vi.fn(async (input: { url: string }) => {
       const host = new URL(input.url).hostname;
