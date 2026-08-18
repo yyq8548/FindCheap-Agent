@@ -1,4 +1,4 @@
 interface:
   display_name: "FindCheap-Agent v0.1"
-  short_description: "Use merchant APIs first, with Chrome fallback"
-  default_prompt: "Use $compare-products to choose an applicable merchant API first, or authorized Chrome for a bounded web-wide search."
+  short_description: "Search Shopify first; Chrome only if empty"
+  default_prompt: "Use $compare-products to search Shopify first and use authorized Chrome only when Shopify returns zero products."

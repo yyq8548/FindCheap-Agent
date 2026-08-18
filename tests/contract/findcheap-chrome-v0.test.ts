@@ -22,16 +22,15 @@ const manifestPath = path.join(
 const readmePath = path.join(root, "README.md");
 
 describe("FindCheap-Agent v0.1 Chrome contract", () => {
-  it("routes explicit and fixed-store API requests before the Chrome fallback", async () => {
+  it("uses Shopify first and Chrome only after a successful zero-result response", async () => {
     const skill = await readFile(skillPath, "utf8");
 
-    expect(skill).toContain("Explicit tool request always wins");
+    expect(skill).toContain("Shopify-first default");
     expect(skill).toContain("`search_shopify_products`");
-    expect(skill).toContain("`search_bestbuy_products`");
-    expect(skill).toContain("`compare_products`");
-    expect(skill).toContain("Do not open Chrome before or after that API call");
-    expect(skill).toContain("Only use the Chrome workflow");
-    expect(skill).toContain("Do not silently fall back to Chrome");
+    expect(skill).toContain("`status: OK` and `products.length === 0`");
+    expect(skill).toContain("Do not open Chrome when Shopify returns one or more products");
+    expect(skill).toContain("Do not use Chrome for an API error");
+    expect(skill).toContain("explicitly requests no Chrome");
   });
 
   it("defines one bounded, user-authorized web-wide merchant workflow", async () => {
@@ -94,7 +93,7 @@ describe("FindCheap-Agent v0.1 Chrome contract", () => {
     expect(manifest.interface.longDescription).toMatch(/Codex Plugin Agent/u);
     expect(manifest.interface.longDescription).toMatch(/authorized Chrome/u);
     expect(manifest.interface.defaultPrompt).toEqual([
-      "Use FindCheap-Agent to choose an applicable merchant API first, or authorized Chrome for a bounded web-wide search."
+      "Use FindCheap-Agent to search Shopify first and use authorized Chrome only when Shopify returns zero products."
     ]);
   });
 

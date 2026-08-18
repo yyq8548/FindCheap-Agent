@@ -1,6 +1,6 @@
 ---
 name: compare-products
-description: Route FindCheap-Agent product requests to an applicable fixed merchant API first, or use the user's authorized Chrome session for bounded web-wide search. Use for current public item price, availability, or exact-model requests. Membership, delivered-price, coupon, checkout, and payment requests are out of scope in v0.1.
+description: Search the fixed Shopify Storefront API first for ordinary FindCheap-Agent product requests, then use the user's authorized Chrome session only after Shopify returns zero products. Use for current public item price, availability, or exact-model requests. Membership, delivered-price, coupon, checkout, and payment requests are out of scope in v0.1.
 ---
 
 # FindCheap-Agent v0.1 product search
@@ -11,15 +11,15 @@ Risk tier: `R0`. Perform one read-only public-product lookup. Do not persist bro
 
 Apply this routing before any browser action:
 
-1. **Explicit tool request always wins.** When the user names `search_shopify_products`, `search_bestbuy_products`, or `compare_products`, call exactly that MCP tool with the user's product query. Do not replace it with this skill's Chrome workflow.
-2. Use `search_shopify_products` for the fixed Death Wish Coffee or Shopify Storefront Beta pilot. Do not open Chrome before or after that API call.
-3. Use `search_bestbuy_products` only for a Best Buy request when its official API tool is configured. Use `compare_products` only for the audited Commerce comparison path.
-4. Only use the Chrome workflow for an explicit web-wide search, a request spanning merchants outside the fixed APIs, or when the user explicitly chooses authorized Chrome.
-5. If an API tool reports `DATA_SOURCE_UNAVAILABLE`, stop and report it. Offer Chrome as a separate fallback that requires the user's authorization. Do not silently fall back to Chrome.
+1. **Shopify-first default.** For an ordinary product search, call `search_shopify_products` before any Chrome search. This API covers only the fixed Death Wish Coffee pilot, not all Shopify stores or the whole web.
+2. If Shopify returns `status: OK` and one or more products, return those API results. Do not open Chrome when Shopify returns one or more products.
+3. Use the Chrome workflow only when Shopify returns `status: OK` and `products.length === 0`. This is a single bounded fallback for the current lookup; never run Shopify and Chrome in parallel.
+4. Do not use Chrome for an API error, `DATA_SOURCE_UNAVAILABLE`, malformed response, or timeout. Report the API failure instead.
+5. If the user explicitly requests no Chrome, return the empty Shopify result without fallback. If the user explicitly names another tool or source, follow that explicit request instead of the ordinary Shopify-first default.
 
 For an API result, preserve the tool's source label and pricing scope. Do not relabel it `BROWSER_OBSERVED`, claim that it covers the web, or add tax, shipping, coupon, membership, or delivered-price claims.
 
-The remaining instructions apply only after the Chrome route is selected.
+The remaining instructions apply only after the successful zero-result Shopify response selects the Chrome fallback.
 
 ## Contract
 
