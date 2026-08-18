@@ -248,6 +248,33 @@ describe("enabled merchant quality gate", () => {
     expect(await validateEnabledMerchants(paths)).toEqual({ minimum: 1, enabledCount: 1, failures: [] });
   });
 
+  it("accepts an audited Shopify Storefront provider without inline credentials", async () => {
+    const paths = await fixture({
+      candidates: [{
+        ...approvedCandidate("death-wish-coffee"),
+        name: "Death Wish Coffee",
+        provenSource: "api",
+        allowedHosts: ["deathwishcoffee.com"]
+      }],
+      configs: [{
+        file: "death-wish-coffee.yaml",
+        value: {
+          ...enabledConfig("death-wish-coffee"),
+          allowedHosts: ["deathwishcoffee.com"],
+          source: {
+            type: "api",
+            provider: "shopify-storefront",
+            host: "deathwishcoffee.com",
+            apiVersion: "2026-07"
+          },
+          seller: { name: "Death Wish Coffee", condition: "NEW" }
+        }
+      }],
+      decisions: [{ file: "death-wish-coffee.md", value: decisionMarkdown("Death Wish Coffee") }]
+    });
+    expect(await validateEnabledMerchants(paths)).toEqual({ minimum: 1, enabledCount: 1, failures: [] });
+  });
+
   it("reports source types outside configured adapters explicitly", async () => {
     const paths = await fixture({
       candidates: [{ ...approvedCandidate(), provenSource: "crawl4ai" }],

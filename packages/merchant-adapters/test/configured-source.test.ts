@@ -321,6 +321,58 @@ describe("production configured source", () => {
       });
   });
 
+  it("creates an audited tokenless Shopify Storefront API source", async () => {
+    const source = createConfiguredSource({
+      merchantId: "death-wish-coffee",
+      allowedHosts: ["deathwishcoffee.com", "www.deathwishcoffee.com"],
+      source: {
+        type: "api",
+        provider: "shopify-storefront",
+        host: "deathwishcoffee.com",
+        apiVersion: "2026-07"
+      },
+      ttlSeconds: { product: 900, price: 300, inventory: 300, coupon: 900 },
+      seller: { name: "Death Wish Coffee", condition: "NEW" }
+    }, {
+      ...auditedCandidate(),
+      id: "death-wish-coffee",
+      name: "Death Wish Coffee",
+      provenSource: "api",
+      allowedHosts: ["deathwishcoffee.com", "www.deathwishcoffee.com"]
+    }, dependencies(async (input) => response(JSON.stringify({
+      data: {
+        products: {
+          nodes: [{
+            title: "Valhalla Java Single-Serve Pods",
+            handle: "valhalla-java-single-serve-pods",
+            vendor: "Death Wish Coffee",
+            onlineStoreUrl: "https://www.deathwishcoffee.com/products/valhalla-java-single-serve-pods",
+            featuredImage: null,
+            selectedOrFirstAvailableVariant: {
+              title: "10 count",
+              sku: "5094SSC",
+              barcode: "851552005094",
+              availableForSale: true,
+              price: { amount: "14.99", currencyCode: "USD" },
+              image: null
+            }
+          }]
+        }
+      }
+    }), input.url)));
+
+    await expect(source.capture({ operation: "search", query: "Valhalla Java", limit: 3 }))
+      .resolves.toMatchObject({
+        merchantId: "death-wish-coffee",
+        sourceType: "api",
+        records: [{
+          merchantProductId: "valhalla-java-single-serve-pods",
+          mpn: "5094SSC",
+          rawOffer: { price: "14.99", availability: "IN_STOCK" }
+        }]
+      });
+  });
+
   it("rejects missing Best Buy credentials and invalid API source shapes", () => {
     const candidate = {
       ...auditedCandidate(),

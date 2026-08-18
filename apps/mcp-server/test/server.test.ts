@@ -6,7 +6,8 @@ import {
   createShoppingServer,
   createUnavailableComparePort,
   type BestBuyPort,
-  type ComparePort
+  type ComparePort,
+  type ShopifyPort
 } from "../src/server.js";
 
 const closers: Array<() => Promise<void>> = [];
@@ -31,8 +32,29 @@ const bestBuyPort: BestBuyPort = {
   })
 };
 
-async function connect(port: ComparePort, products: BestBuyPort = bestBuyPort) {
-  const server = createShoppingServer(port, products);
+const shopifyPort: ShopifyPort = {
+  search: async () => ({
+    merchant: "Death Wish Coffee",
+    products: [{
+      handle: "valhalla-java-single-serve-pods",
+      title: "Valhalla Java Single-Serve Pods — 10 count",
+      brand: "Death Wish Coffee",
+      sku: "5094SSC",
+      gtins: ["810063341254"],
+      itemPrice: { amountCents: 1_499, currency: "USD" },
+      availability: "IN_STOCK",
+      merchantUrl: "https://deathwishcoffee.com/products/valhalla-java-single-serve-pods",
+      checkedAt: "2026-08-18T01:00:00.000Z"
+    }]
+  })
+};
+
+async function connect(
+  port: ComparePort,
+  products: BestBuyPort = bestBuyPort,
+  shopify: ShopifyPort = shopifyPort
+) {
+  const server = createShoppingServer(port, products, shopify);
   const client = new Client({ name: "shopping-agent-test", version: "0.0.0" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
@@ -89,14 +111,15 @@ const comparison: ComparisonResult = {
 };
 
 describe("shopping MCP server", () => {
-  it("discovers the read-only comparison and Best Buy Beta tools", async () => {
+  it("discovers the read-only comparison and merchant Beta tools", async () => {
     const client = await connect({ compare: async () => comparison });
 
     const tools = await client.listTools();
 
     expect(tools.tools.map((tool) => tool.name)).toEqual([
       "compare_products",
-      "search_bestbuy_products"
+      "search_bestbuy_products",
+      "search_shopify_products"
     ]);
     expect(Object.keys(tools.tools[0]?.inputSchema.properties ?? {}).sort()).toEqual([
       "membershipIds",
@@ -127,6 +150,45 @@ describe("shopping MCP server", () => {
       products: [{ sku: "6568600", itemPrice: { amountCents: 34_999 } }]
     });
     expect(JSON.stringify(result)).not.toMatch(/deliveredPrice|apiKey/i);
+  });
+
+  it("returns tokenless Shopify Storefront item prices without claiming delivered price", async () => {
+    const client = await connect({ compare: async () => comparison });
+
+    const result = await client.callTool({
+      name: "search_shopify_products",
+      arguments: { query: "Valhalla Java", limit: 5 }
+    });
+
+    expect(result.structuredContent).toMatchObject({
+      status: "OK",
+      merchant: "Death Wish Coffee",
+      source: "SHOPIFY_STOREFRONT_API",
+      priceScope: "ITEM_PRICE_ONLY",
+      products: [{ handle: "valhalla-java-single-serve-pods", itemPrice: { amountCents: 1_499 } }]
+    });
+    expect(JSON.stringify(result)).not.toMatch(/deliveredPrice|rawEvidence/i);
+  });
+
+  it.each([
+    {},
+    { query: "coffee", handle: "coffee" },
+    { query: " " },
+    { handle: "../admin" },
+    { query: "coffee", limit: 21 },
+    { query: "coffee", arbitraryUrl: "https://evil.example" }
+  ])("rejects invalid Shopify input %#", async (args) => {
+    const search = vi.fn(shopifyPort.search);
+    const client = await connect(
+      { compare: async () => comparison },
+      bestBuyPort,
+      { search }
+    );
+
+    const result = await client.callTool({ name: "search_shopify_products", arguments: args });
+
+    expect(result.isError).toBe(true);
+    expect(search).not.toHaveBeenCalled();
   });
 
   it.each([
