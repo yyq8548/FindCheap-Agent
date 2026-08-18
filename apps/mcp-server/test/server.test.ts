@@ -160,6 +160,10 @@ describe("shopping MCP server", () => {
       "selectionMode"
     ]);
     expect(tools.tools[2]?.inputSchema.required).toContain("selectionMode");
+    expect(tools.tools[2]?.description).toContain("selectionMode=LOWEST_PRICE");
+    expect(tools.tools[2]?.inputSchema.properties?.selectionMode).toMatchObject({
+      description: expect.stringContaining("MERCHANT_DIVERSE")
+    });
     expect(tools.tools[0]?.annotations).toMatchObject({
       readOnlyHint: true,
       destructiveHint: false

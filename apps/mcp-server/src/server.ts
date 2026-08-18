@@ -60,6 +60,7 @@ const ShopifyProductsToolInputSchema = z.object({
   handle: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u).max(200).optional(),
   limit: z.number().int().min(1).max(3).default(3),
   selectionMode: z.enum(["LOWEST_PRICE", "MERCHANT_DIVERSE"])
+    .describe("Use LOWEST_PRICE only for an explicit cheapest request; use MERCHANT_DIVERSE otherwise.")
 }).strict();
 
 export const ShopifyProductsInputSchema = ShopifyProductsToolInputSchema.refine(
@@ -400,7 +401,7 @@ export function createShoppingServer(
     "search_shopify_products",
     {
       title: "Search Shopify products (Beta)",
-      description: "Search a bounded audited Shopify Storefront registry by product query or handle. Requires Top 3 ranking intent: literal lowest price or merchant-diverse recommendations. Returns coverage diagnostics; exact matches rank before labeled similar products and irrelevant products are excluded.",
+      description: "Search a bounded audited Shopify Storefront registry by product query or handle. Set selectionMode=LOWEST_PRICE only for explicit cheapest requests; otherwise set selectionMode=MERCHANT_DIVERSE. Returns coverage diagnostics; exact matches rank before labeled similar products and irrelevant products are excluded.",
       inputSchema: ShopifyProductsToolInputSchema,
       outputSchema: ShopifyProductsOutputShape,
       annotations: {

@@ -1,6 +1,6 @@
 {
   "name": "shopping-agent",
-  "version": "0.2.3+codex.20260818070925",
+  "version": "0.2.3+codex.20260818072348",
   "description": "Search a bounded audited Shopify registry with coverage diagnostics, then use Chrome only after complete zero-result coverage.",
   "author": {
     "name": "yyq8548"
@@ -17,7 +17,7 @@
     "category": "Productivity",
     "capabilities": [],
     "defaultPrompt": [
-      "Use FindCheap-Agent to search the audited Shopify registry once. Always request Top 3: use LOWEST_PRICE for explicit cheapest requests and MERCHANT_DIVERSE otherwise; preserve the returned order, report registry coverage, and use authorized Chrome only after complete zero-result coverage."
+      "Search Shopify first. Call search_shopify_products once: limit=3; selectionMode=MERCHANT_DIVERSE unless cheapest is explicit."
     ]
   }
 }
