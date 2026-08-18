@@ -22,6 +22,18 @@ const manifestPath = path.join(
 const readmePath = path.join(root, "README.md");
 
 describe("FindCheap-Agent v0.1 Chrome contract", () => {
+  it("routes explicit and fixed-store API requests before the Chrome fallback", async () => {
+    const skill = await readFile(skillPath, "utf8");
+
+    expect(skill).toContain("Explicit tool request always wins");
+    expect(skill).toContain("`search_shopify_products`");
+    expect(skill).toContain("`search_bestbuy_products`");
+    expect(skill).toContain("`compare_products`");
+    expect(skill).toContain("Do not open Chrome before or after that API call");
+    expect(skill).toContain("Only use the Chrome workflow");
+    expect(skill).toContain("Do not silently fall back to Chrome");
+  });
+
   it("defines one bounded, user-authorized web-wide merchant workflow", async () => {
     const skill = await readFile(skillPath, "utf8");
 
@@ -72,7 +84,7 @@ describe("FindCheap-Agent v0.1 Chrome contract", () => {
     expect(skill).toContain("one short exclusion reason for every inspected candidate");
   });
 
-  it("advertises the Chrome Beta instead of unavailable v0.2 features", async () => {
+  it("advertises API-first routing with Chrome as the web-wide fallback", async () => {
     const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as {
       version: string;
       interface: { defaultPrompt: string[]; longDescription: string };
@@ -82,7 +94,7 @@ describe("FindCheap-Agent v0.1 Chrome contract", () => {
     expect(manifest.interface.longDescription).toMatch(/Codex Plugin Agent/u);
     expect(manifest.interface.longDescription).toMatch(/authorized Chrome/u);
     expect(manifest.interface.defaultPrompt).toEqual([
-      "Use authorized Chrome to find the best three verified options for this exact product."
+      "Use FindCheap-Agent to choose an applicable merchant API first, or authorized Chrome for a bounded web-wide search."
     ]);
   });
 

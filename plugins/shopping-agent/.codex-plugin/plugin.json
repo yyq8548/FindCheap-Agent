@@ -1,6 +1,6 @@
 {
   "name": "shopping-agent",
-  "version": "0.1.0+codex.20260818033244",
+  "version": "0.1.0+codex.20260818033845",
   "description": "Use authorized Chrome and bounded public product APIs for read-only product search without purchasing.",
   "author": {
     "name": "yyq8548"
@@ -17,7 +17,7 @@
     "category": "Productivity",
     "capabilities": [],
     "defaultPrompt": [
-      "Use authorized Chrome to find the best three verified options for this exact product."
+      "Use FindCheap-Agent to choose an applicable merchant API first, or authorized Chrome for a bounded web-wide search."
     ]
   }
 }

@@ -1,4 +1,4 @@
 interface:
   display_name: "FindCheap-Agent v0.1"
-  short_description: "Search public merchant sites with authorized Chrome"
-  default_prompt: "Use $compare-products to find the best three verified options through my authorized Chrome."
+  short_description: "Use merchant APIs first, with Chrome fallback"
+  default_prompt: "Use $compare-products to choose an applicable merchant API first, or authorized Chrome for a bounded web-wide search."

@@ -1,11 +1,25 @@
 ---
 name: compare-products
-description: Search public merchant sites through the user's authorized Chrome session and return bounded, source-linked product cards. Use for FindCheap-Agent v0.1 web-wide shopping search, current public item price, availability, or exact-model requests. Membership, delivered-price, coupon, checkout, and payment requests are out of scope in v0.1.
+description: Route FindCheap-Agent product requests to an applicable fixed merchant API first, or use the user's authorized Chrome session for bounded web-wide search. Use for current public item price, availability, or exact-model requests. Membership, delivered-price, coupon, checkout, and payment requests are out of scope in v0.1.
 ---
 
-# FindCheap-Agent v0.1 browser search
+# FindCheap-Agent v0.1 product search
 
 Risk tier: `R0`. Perform one read-only public-product lookup. Do not persist browser data.
+
+## Source routing
+
+Apply this routing before any browser action:
+
+1. **Explicit tool request always wins.** When the user names `search_shopify_products`, `search_bestbuy_products`, or `compare_products`, call exactly that MCP tool with the user's product query. Do not replace it with this skill's Chrome workflow.
+2. Use `search_shopify_products` for the fixed Death Wish Coffee or Shopify Storefront Beta pilot. Do not open Chrome before or after that API call.
+3. Use `search_bestbuy_products` only for a Best Buy request when its official API tool is configured. Use `compare_products` only for the audited Commerce comparison path.
+4. Only use the Chrome workflow for an explicit web-wide search, a request spanning merchants outside the fixed APIs, or when the user explicitly chooses authorized Chrome.
+5. If an API tool reports `DATA_SOURCE_UNAVAILABLE`, stop and report it. Offer Chrome as a separate fallback that requires the user's authorization. Do not silently fall back to Chrome.
+
+For an API result, preserve the tool's source label and pricing scope. Do not relabel it `BROWSER_OBSERVED`, claim that it covers the web, or add tax, shipping, coupon, membership, or delivered-price claims.
+
+The remaining instructions apply only after the Chrome route is selected.
 
 ## Contract
 
