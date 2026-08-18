@@ -27,9 +27,11 @@ describe("FindCheap-Agent v0.1 Chrome contract", () => {
 
     expect(skill).toContain("Shopify-first default");
     expect(skill).toContain("`search_shopify_products`");
-    expect(skill).toContain("`status: OK` and `products.length === 0`");
+    expect(skill).toContain("`status: OK`, `coverage: COMPLETE`, and `products.length === 0`");
+    expect(skill).toContain("`coverage: PARTIAL`");
+    expect(skill).toContain("Death Wish Coffee, Kith, Allbirds, Brooklinen, and Fashion Nova");
     expect(skill).toContain("Do not open Chrome when Shopify returns one or more products");
-    expect(skill).toContain("Do not use Chrome for an API error");
+    expect(skill).toContain("an API error, `DATA_SOURCE_UNAVAILABLE`, malformed response, or timeout");
     expect(skill).toContain("explicitly requests no Chrome");
   });
 
@@ -93,7 +95,7 @@ describe("FindCheap-Agent v0.1 Chrome contract", () => {
     expect(manifest.interface.longDescription).toMatch(/Codex Plugin Agent/u);
     expect(manifest.interface.longDescription).toMatch(/authorized Chrome/u);
     expect(manifest.interface.defaultPrompt).toEqual([
-      "Use FindCheap-Agent to search Shopify first and use authorized Chrome only when Shopify returns zero products."
+      "Use FindCheap-Agent to search the five-store Shopify registry first and use authorized Chrome only when complete API coverage returns zero products."
     ]);
   });
 

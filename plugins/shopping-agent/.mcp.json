@@ -6,7 +6,7 @@
       "args": ["./dist/mcp-server.js"],
       "cwd": ".",
       "env": {
-        "SHOPIFY_STOREFRONT_HOST": "deathwishcoffee.com"
+        "SHOPIFY_STOREFRONT_MODE": "fixed-five"
       }
     }
   }

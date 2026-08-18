@@ -13,7 +13,7 @@ import {
 import {
   createUnavailableShopifyPort,
   type ShopifyPort,
-  type ShopifyProduct
+  type ShopifySearchResult
 } from "./shopify-client.js";
 
 export type { BestBuyPort } from "./bestbuy-client.js";
@@ -24,7 +24,7 @@ const unavailableMessage =
 const bestBuyUnavailableMessage =
   "Best Buy live product data is unavailable because BEST_BUY_API_KEY is not configured or the official API request failed.";
 const shopifyUnavailableMessage =
-  "Shopify Storefront Beta data is unavailable because the fixed pilot storefront is not configured or the public API request failed.";
+  "Shopify Storefront Beta data is unavailable because the fixed five-store registry is not configured or its public API coverage is incomplete.";
 
 const MembershipIdsSchema = z
   .array(z.string().trim().min(1).max(80))
@@ -140,6 +140,9 @@ const BestBuyProductsOutputShape = {
 };
 
 const ShopifyProductOutputSchema = z.object({
+  merchantId: z.string(),
+  merchant: z.string(),
+  sourceHost: z.string(),
   handle: z.string(),
   title: z.string(),
   brand: z.string().optional(),
@@ -155,9 +158,11 @@ const ShopifyProductOutputSchema = z.object({
 const ShopifyProductsOutputShape = {
   status: z.enum(["OK", "DATA_SOURCE_UNAVAILABLE"]),
   message: z.string(),
-  merchant: z.literal("Death Wish Coffee"),
   source: z.literal("SHOPIFY_STOREFRONT_API"),
   priceScope: z.literal("ITEM_PRICE_ONLY"),
+  coverage: z.enum(["COMPLETE", "PARTIAL", "UNAVAILABLE"]),
+  merchantsQueried: z.number().int(),
+  merchantsSucceeded: z.number().int(),
   products: z.array(ShopifyProductOutputSchema)
 };
 
@@ -259,17 +264,19 @@ function bestBuyUnavailableResult() {
   };
 }
 
-function shopifyResult(products: ShopifyProduct[]) {
-  const message = `Death Wish Coffee returned ${products.length} Shopify Storefront product(s). Prices are public item prices only; shipping, tax, coupons, and member pricing are not included.`;
+function shopifyResult(result: ShopifySearchResult) {
+  const message = `The fixed Shopify registry returned ${result.products.length} product(s) from ${result.merchantsSucceeded}/${result.merchantsQueried} stores. Prices are public item prices only; shipping, tax, coupons, and member pricing are not included.`;
   return {
     content: [{ type: "text" as const, text: message }],
     structuredContent: {
       status: "OK" as const,
       message,
-      merchant: "Death Wish Coffee" as const,
       source: "SHOPIFY_STOREFRONT_API" as const,
       priceScope: "ITEM_PRICE_ONLY" as const,
-      products
+      coverage: result.coverage,
+      merchantsQueried: result.merchantsQueried,
+      merchantsSucceeded: result.merchantsSucceeded,
+      products: result.products
     }
   };
 }
@@ -280,9 +287,11 @@ function shopifyUnavailableResult() {
     structuredContent: {
       status: "DATA_SOURCE_UNAVAILABLE" as const,
       message: shopifyUnavailableMessage,
-      merchant: "Death Wish Coffee" as const,
       source: "SHOPIFY_STOREFRONT_API" as const,
       priceScope: "ITEM_PRICE_ONLY" as const,
+      coverage: "UNAVAILABLE" as const,
+      merchantsQueried: 5,
+      merchantsSucceeded: 0,
       products: []
     }
   };
@@ -347,7 +356,7 @@ export function createShoppingServer(
     "search_shopify_products",
     {
       title: "Search Shopify products (Beta)",
-      description: "Search the fixed Death Wish Coffee Shopify Storefront pilot by product query or handle. Returns public item price only.",
+      description: "Search five fixed tokenless Shopify Storefront pilots by product query or handle. Returns up to 20 globally ranked public item prices.",
       inputSchema: ShopifyProductsInputSchema,
       outputSchema: ShopifyProductsOutputShape,
       annotations: {
@@ -360,7 +369,7 @@ export function createShoppingServer(
     async (input) => {
       try {
         const result = await shopifyPort.search(input);
-        return shopifyResult(result.products);
+        return shopifyResult(result);
       } catch {
         return shopifyUnavailableResult();
       }

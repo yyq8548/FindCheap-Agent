@@ -2,7 +2,7 @@
 
 ## Outcome and assumptions
 
-- Outcome: add a reusable tokenless Shopify Storefront reader and expose one fixed, read-only Death Wish Coffee MCP Beta search.
+- Outcome: add a reusable tokenless Shopify Storefront reader and expose one fixed, read-only five-store MCP Beta search.
 - Risk tier: `R0`; inputs and outputs are public product data.
 - Assumption: Shopify continues to permit tokenless access to published products for this storefront.
 - Out of scope: account data, checkout, cart, shipping, tax, coupons, membership pricing, persistence, and automatic merchant approval.
@@ -11,7 +11,7 @@
 
 - Use deterministic API tool calls, typed parsing, host allowlists, and failure isolation; no model planning or multi-agent workflow is needed.
 - The reusable reader calls `https://<audited-host>/api/2026-07/graphql.json` with a fixed GraphQL document and encoded variables.
-- The Codex MCP tool is fixed to Death Wish Coffee. It cannot accept an arbitrary host or URL.
+- The Codex MCP tool is fixed to Death Wish Coffee, Kith, Allbirds, Brooklinen, and Fashion Nova. It cannot accept an arbitrary host or URL.
 - The formal ingestion path accepts the same `shopify-storefront` provider only after the existing catalog, legal, decision-record, and enablement gates pass.
 
 ## Data, tools, permissions, and human controls
@@ -51,9 +51,9 @@
 ## Acceptance criteria and open decisions
 
 - `pnpm merchants:shopify-probe -- --query "Valhalla Java" --limit 3` returns live products.
-- Codex discovers `search_shopify_products` and returns Death Wish Coffee public item prices.
+- Codex discovers `search_shopify_products` and returns globally ranked public item prices from the fixed five-store registry.
 - The tool never accepts a caller-provided host.
-- Open decision: whether Death Wish Coffee terms and data quality support production use. Owner approval is still required.
+- Open decision: whether each pilot's terms and data quality support production use. Owner approval is still required for every store.
 
 ## Live evidence
 

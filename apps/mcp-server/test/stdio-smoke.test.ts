@@ -28,7 +28,7 @@ describe("installed plugin stdio", () => {
       command: "node",
       args: ["./dist/mcp-server.js"],
       cwd: ".",
-      env: { SHOPIFY_STOREFRONT_HOST: "deathwishcoffee.com" }
+      env: { SHOPIFY_STOREFRONT_MODE: "fixed-five" }
     });
 
     const transportErrors: Error[] = [];

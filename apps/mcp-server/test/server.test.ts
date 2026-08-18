@@ -34,8 +34,13 @@ const bestBuyPort: BestBuyPort = {
 
 const shopifyPort: ShopifyPort = {
   search: async () => ({
-    merchant: "Death Wish Coffee",
+    coverage: "COMPLETE",
+    merchantsQueried: 5,
+    merchantsSucceeded: 5,
     products: [{
+      merchantId: "death-wish-coffee",
+      merchant: "Death Wish Coffee",
+      sourceHost: "deathwishcoffee.com",
       handle: "valhalla-java-single-serve-pods",
       title: "Valhalla Java Single-Serve Pods — 10 count",
       brand: "Death Wish Coffee",
@@ -162,10 +167,16 @@ describe("shopping MCP server", () => {
 
     expect(result.structuredContent).toMatchObject({
       status: "OK",
-      merchant: "Death Wish Coffee",
       source: "SHOPIFY_STOREFRONT_API",
       priceScope: "ITEM_PRICE_ONLY",
-      products: [{ handle: "valhalla-java-single-serve-pods", itemPrice: { amountCents: 1_499 } }]
+      coverage: "COMPLETE",
+      merchantsQueried: 5,
+      merchantsSucceeded: 5,
+      products: [{
+        merchant: "Death Wish Coffee",
+        handle: "valhalla-java-single-serve-pods",
+        itemPrice: { amountCents: 1_499 }
+      }]
     });
     expect(JSON.stringify(result)).not.toMatch(/deliveredPrice|rawEvidence/i);
   });
