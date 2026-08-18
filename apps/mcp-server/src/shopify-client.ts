@@ -21,6 +21,7 @@ export type ShopifySearchInput = {
   handle?: string | undefined;
   limit: number;
   maxItemPriceCents?: number | undefined;
+  comparisonMode?: "DISCOVERY" | "SAME_PRODUCT" | undefined;
   selectionMode?: ShopifySelectionMode | undefined;
 };
 

@@ -163,6 +163,7 @@ describe("shopping MCP server", () => {
       "sku"
     ]);
     expect(Object.keys(tools.tools[2]?.inputSchema.properties ?? {}).sort()).toEqual([
+      "comparisonMode",
       "handle",
       "limit",
       "maxItemPriceCents",
@@ -170,6 +171,7 @@ describe("shopping MCP server", () => {
       "selectionMode"
     ]);
     expect(tools.tools[2]?.inputSchema.required).toContain("selectionMode");
+    expect(tools.tools[2]?.inputSchema.required).toContain("comparisonMode");
     expect(tools.tools[2]?.description).toContain("selectionMode=LOWEST_PRICE");
     expect(tools.tools[2]?.description).toContain("maxItemPriceCents");
     expect(tools.tools[2]?.description).toContain("Do not call this tool more than once per user lookup");
@@ -207,7 +209,7 @@ describe("shopping MCP server", () => {
 
     const result = await client.callTool({
       name: "search_shopify_products",
-      arguments: { query: "Valhalla Java", limit: 3, selectionMode: "MERCHANT_DIVERSE" }
+      arguments: { query: "Valhalla Java", limit: 3, comparisonMode: "DISCOVERY", selectionMode: "MERCHANT_DIVERSE" }
     });
 
     expect(result.structuredContent).toMatchObject({
@@ -269,6 +271,7 @@ describe("shopping MCP server", () => {
       arguments: {
         query: "anime shirt",
         limit: 3,
+        comparisonMode: "DISCOVERY",
         selectionMode: "MERCHANT_DIVERSE",
         maxItemPriceCents: 8_000
       }
@@ -294,27 +297,53 @@ describe("shopping MCP server", () => {
 
     const result = await client.callTool({
       name: "search_shopify_products",
-      arguments: { query: "Sony WH-1000XM5", limit: 3, selectionMode: "LOWEST_PRICE" }
+      arguments: { query: "Sony WH-1000XM5", limit: 3, comparisonMode: "SAME_PRODUCT", selectionMode: "LOWEST_PRICE" }
     });
 
     expect(result.structuredContent).toMatchObject({
       comparison: { status: "SAME_PRODUCT", identityType: "GTIN", merchantCount: 2 }
     });
     expect(JSON.stringify(result.content)).toContain("Same-product comparison verified across 2 merchants");
+    expect(search).toHaveBeenCalledWith(expect.objectContaining({ comparisonMode: "SAME_PRODUCT" }));
+  });
+
+  it("asks for hard identity before a generic same-product comparison without querying merchants", async () => {
+    const search = vi.fn(shopifyPort.search);
+    const client = await connect({ compare: async () => comparison }, bestBuyPort, { search });
+
+    const result = await client.callTool({
+      name: "search_shopify_products",
+      arguments: {
+        query: "blue jeans",
+        limit: 3,
+        comparisonMode: "SAME_PRODUCT",
+        selectionMode: "MERCHANT_DIVERSE"
+      }
+    });
+
+    expect(search).not.toHaveBeenCalled();
+    expect(result.structuredContent).toMatchObject({
+      status: "NEEDS_CLARIFICATION",
+      coverage: "NOT_QUERIED",
+      comparison: { status: "NEEDS_CLARIFICATION" },
+      questions: [expect.stringContaining("brand")]
+    });
+    expect(JSON.stringify(result.content)).toContain("NEEDS_CLARIFICATION");
   });
 
   it.each([
     {},
     { query: "coffee" },
-    { query: "coffee", handle: "coffee" },
-    { query: " " },
-    { handle: "../admin" },
-    { query: "coffee", limit: 4, selectionMode: "MERCHANT_DIVERSE" },
-    { query: "coffee", selectionMode: "MERCHANT_DIVERSE", maxItemPriceCents: 0 },
-    { query: "coffee", selectionMode: "MERCHANT_DIVERSE", maxItemPriceCents: 10.5 },
-    { query: "coffee under $80", selectionMode: "MERCHANT_DIVERSE", maxItemPriceCents: 8_000 },
-    { query: "coffee", arbitraryUrl: "https://evil.example" },
-    { query: "coffee", selectionMode: "UNSAFE" }
+    { query: "coffee", handle: "coffee", comparisonMode: "DISCOVERY", selectionMode: "MERCHANT_DIVERSE" },
+    { query: " ", comparisonMode: "DISCOVERY", selectionMode: "MERCHANT_DIVERSE" },
+    { handle: "../admin", comparisonMode: "DISCOVERY", selectionMode: "MERCHANT_DIVERSE" },
+    { query: "coffee", limit: 4, comparisonMode: "DISCOVERY", selectionMode: "MERCHANT_DIVERSE" },
+    { query: "coffee", comparisonMode: "DISCOVERY", selectionMode: "MERCHANT_DIVERSE", maxItemPriceCents: 0 },
+    { query: "coffee", comparisonMode: "DISCOVERY", selectionMode: "MERCHANT_DIVERSE", maxItemPriceCents: 10.5 },
+    { query: "coffee under $80", comparisonMode: "DISCOVERY", selectionMode: "MERCHANT_DIVERSE", maxItemPriceCents: 8_000 },
+    { query: "coffee", comparisonMode: "DISCOVERY", selectionMode: "MERCHANT_DIVERSE", arbitraryUrl: "https://evil.example" },
+    { query: "coffee", comparisonMode: "DISCOVERY", selectionMode: "UNSAFE" },
+    { query: "coffee", comparisonMode: "UNSAFE", selectionMode: "MERCHANT_DIVERSE" }
   ])("rejects invalid Shopify input %#", async (args) => {
     const search = vi.fn(shopifyPort.search);
     const client = await connect(

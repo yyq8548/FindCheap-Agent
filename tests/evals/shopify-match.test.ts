@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   classifyShopifyCandidate,
+  hasSpecificProductIdentity,
   type ShopifyMatchCandidate,
   type ShopifyMatchStatus
 } from "../../apps/mcp-server/src/shopify-match.js";
@@ -94,5 +95,17 @@ describe("FindCheap v0.2.2 Shopify product matching gate", () => {
       title: "Denim Key Charm",
       productType: "Accessories"
     })).toMatchObject({ status: "EXACT" });
+  });
+
+  it.each([
+    ["blue jeans", false],
+    ["anime shirt", false],
+    ["Sony headphones", false],
+    ["Sony WH-1000XM5", true],
+    ["810063341254", true],
+    ["Allbirds Tree Runner shoes", true],
+    ["Valhalla Java coffee", true]
+  ] as const)("classifies same-product query specificity for %s", (query, expected) => {
+    expect(hasSpecificProductIdentity(query)).toBe(expected);
   });
 });

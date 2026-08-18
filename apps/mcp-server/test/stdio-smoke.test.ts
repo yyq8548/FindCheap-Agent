@@ -60,6 +60,7 @@ describe("installed plugin stdio", () => {
       ]);
       const shopifyTool = tools.tools.find((tool) => tool.name === "search_shopify_products");
       expect(Object.keys(shopifyTool?.inputSchema.properties ?? {}).sort()).toEqual([
+        "comparisonMode",
         "handle",
         "limit",
         "maxItemPriceCents",
@@ -67,6 +68,7 @@ describe("installed plugin stdio", () => {
         "selectionMode"
       ]);
       expect(shopifyTool?.inputSchema.required).toContain("selectionMode");
+      expect(shopifyTool?.inputSchema.required).toContain("comparisonMode");
       expect(comparison.structuredContent).toEqual({
         status: "DATA_SOURCE_UNAVAILABLE",
         message: "Live comparison is unavailable because no approved shopping data source is connected.",

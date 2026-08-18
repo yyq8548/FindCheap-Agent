@@ -54,6 +54,10 @@ describe("FindCheap-Agent v0.3.0 Chrome contract", () => {
     expect(skill).toContain("`comparison.status`");
     expect(skill).toContain("`SAME_PRODUCT`");
     expect(skill).toContain("`DISCOVERY_ONLY`");
+    expect(skill).toContain("pass `comparisonMode: SAME_PRODUCT`");
+    expect(skill).toContain("pass `comparisonMode: DISCOVERY`");
+    expect(skill).toContain("`NEEDS_CLARIFICATION`");
+    expect(skill).toContain("do not call Chrome");
     expect(skill).toContain("`LOWEST_PRICE`");
     expect(skill).toContain("`MERCHANT_DIVERSE`");
     expect(skill).toContain("Do not re-sort the returned products");
@@ -123,7 +127,7 @@ describe("FindCheap-Agent v0.3.0 Chrome contract", () => {
     expect(manifest.interface.longDescription).toMatch(/Codex Plugin Agent/u);
     expect(manifest.interface.longDescription).toMatch(/authorized Chrome/u);
     expect(manifest.interface.defaultPrompt).toEqual([
-      "Shopify first. Call search_shopify_products exactly once: limit=3; selectionMode=MERCHANT_DIVERSE unless cheapest is explicit."
+      "Shopify first; call search_shopify_products once. Use comparisonMode=SAME_PRODUCT for comparisons; otherwise DISCOVERY."
     ]);
     expect(new TextEncoder().encode(manifest.interface.defaultPrompt[0]).length).toBeLessThanOrEqual(128);
   });

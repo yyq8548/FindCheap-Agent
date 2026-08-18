@@ -45,6 +45,24 @@ const ACCESSORY_TERMS = new Set([
   "accessories", "accessory", "adapter", "cable", "case", "charger", "charm", "charms", "cover",
   "holder", "keychain", "keychains", "keyring", "protector", "replacement", "stand"
 ]);
+const GENERIC_IDENTITY_TERMS = new Set([
+  ...IGNORED_QUERY_TERMS,
+  ...VARIANT_COLORS,
+  ...CATEGORY_GROUPS.flatMap((group) => [...group.terms]),
+  "apparel", "anime", "boot", "boots", "clothing", "dress", "dresses", "hoodie", "hoodies",
+  "jean", "jeans", "men", "mens", "open", "pants", "refurbished", "renewed", "sweater",
+  "sweaters", "sweatshirt", "sweatshirts", "top", "tops", "used", "women", "womens"
+]);
+
+export function hasSpecificProductIdentity(query: string): boolean {
+  const tokens = tokenize(query);
+  if (tokens.some((token) => /^\d{8,14}$/u.test(token))) return true;
+  if (tokens.some((token) => token.length >= 4 && /\p{L}/u.test(token) && /\d/u.test(token))) return true;
+  const identityTerms = new Set(tokens.filter((token) =>
+    token.length >= 2 && !GENERIC_IDENTITY_TERMS.has(token)
+  ));
+  return identityTerms.size >= 2;
+}
 
 export function classifyShopifyCandidate(
   query: string,

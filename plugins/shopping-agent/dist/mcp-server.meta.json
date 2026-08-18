@@ -3889,6 +3889,11 @@
           "kind": "import-statement",
           "original": "./shopify-client.js",
           "path": "src/shopify-client.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./shopify-match.js",
+          "path": "src/shopify-match.ts"
         }
       ]
     },
@@ -3979,7 +3984,7 @@
   },
   "outputs": {
     "../../plugins/shopping-agent/dist/mcp-server.js": {
-      "bytes": 391786,
+      "bytes": 393725,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
@@ -4536,7 +4541,7 @@
           "bytesInOutput": 2484
         },
         "src/server.ts": {
-          "bytesInOutput": 10825
+          "bytesInOutput": 12293
         },
         "src/shopify-client.ts": {
           "bytesInOutput": 6820
@@ -4545,7 +4550,7 @@
           "bytesInOutput": 1158
         },
         "src/shopify-match.ts": {
-          "bytesInOutput": 3438
+          "bytesInOutput": 3909
         },
         "src/shopify-registry.ts": {
           "bytesInOutput": 1264
