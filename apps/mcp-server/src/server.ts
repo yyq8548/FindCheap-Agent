@@ -16,6 +16,11 @@ import {
   type ShopifySearchResult
 } from "./shopify-client.js";
 import { hasSpecificProductIdentity } from "./shopify-match.js";
+import {
+  PRODUCT_CARD_HTML,
+  PRODUCT_CARD_RESOURCE_DOMAINS,
+  PRODUCT_CARD_UI_URI
+} from "./product-card-ui.js";
 
 export type { BestBuyPort } from "./bestbuy-client.js";
 export type { ShopifyPort } from "./shopify-client.js";
@@ -575,7 +580,33 @@ export function createShoppingServer(
   bestBuyPort: BestBuyPort = createUnavailableBestBuyPort(),
   shopifyPort: ShopifyPort = createUnavailableShopifyPort()
 ): McpServer {
-  const server = new McpServer({ name: "findcheap-agent", version: "0.3.2" });
+  const server = new McpServer({ name: "findcheap-agent", version: "0.3.3" });
+
+  server.registerResource(
+    "findcheap-product-cards",
+    PRODUCT_CARD_UI_URI,
+    {
+      title: "FindCheap verified product cards",
+      description: "Interactive cards for the latest verified Shopify product results.",
+      mimeType: "text/html;profile=mcp-app"
+    },
+    async () => ({
+      contents: [{
+        uri: PRODUCT_CARD_UI_URI,
+        mimeType: "text/html;profile=mcp-app",
+        text: PRODUCT_CARD_HTML,
+        _meta: {
+          ui: {
+            prefersBorder: true,
+            csp: {
+              connectDomains: [],
+              resourceDomains: PRODUCT_CARD_RESOURCE_DOMAINS
+            }
+          }
+        }
+      }]
+    })
+  );
 
   server.registerTool(
     "compare_products",
@@ -638,6 +669,12 @@ export function createShoppingServer(
         destructiveHint: false,
         idempotentHint: true,
         openWorldHint: true
+      },
+      _meta: {
+        ui: { resourceUri: PRODUCT_CARD_UI_URI },
+        "openai/outputTemplate": PRODUCT_CARD_UI_URI,
+        "openai/toolInvocation/invoking": "Searching verified stores…",
+        "openai/toolInvocation/invoked": "Verified product cards ready."
       }
     },
     async (input) => {

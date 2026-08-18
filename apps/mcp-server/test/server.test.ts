@@ -142,6 +142,32 @@ const comparison: ComparisonResult = {
 };
 
 describe("shopping MCP server", () => {
+  it("publishes a safe MCP Apps product-card resource and binds it to Shopify search", async () => {
+    const client = await connect({ compare: async () => comparison });
+
+    const tools = await client.listTools();
+    const tool = tools.tools.find((candidate) => candidate.name === "search_shopify_products");
+    expect(tool?._meta).toMatchObject({
+      ui: { resourceUri: "ui://findcheap/product-cards/v1.html" },
+      "openai/outputTemplate": "ui://findcheap/product-cards/v1.html"
+    });
+
+    const resources = await client.listResources();
+    expect(resources.resources).toEqual([expect.objectContaining({
+      name: "findcheap-product-cards",
+      uri: "ui://findcheap/product-cards/v1.html",
+      mimeType: "text/html;profile=mcp-app"
+    })]);
+
+    const resource = await client.readResource({ uri: "ui://findcheap/product-cards/v1.html" });
+    const content = resource.contents[0];
+    const html = content !== undefined && "text" in content ? content.text : "";
+    expect(html).toContain("ui/notifications/tool-result");
+    expect(html).toContain("window.openai?.toolOutput");
+    expect(html).toContain("textContent");
+    expect(html).not.toContain("innerHTML");
+  });
+
   it("discovers the read-only comparison and merchant Beta tools", async () => {
     const client = await connect({ compare: async () => comparison });
 
