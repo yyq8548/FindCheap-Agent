@@ -68,10 +68,13 @@ describe("installed plugin stdio", () => {
       expect(tools.tools.map((tool) => tool.name)).toEqual([
         "compare_products",
         "search_bestbuy_products",
-        "search_shopify_products"
+        "search_shopify_products",
+        "render_product_cards"
       ]);
       const shopifyTool = tools.tools.find((tool) => tool.name === "search_shopify_products");
-      expect(shopifyTool?._meta).toMatchObject({
+      const renderTool = tools.tools.find((tool) => tool.name === "render_product_cards");
+      expect(shopifyTool?._meta).toBeUndefined();
+      expect(renderTool?._meta).toMatchObject({
         ui: { resourceUri: "ui://findcheap/product-cards/v1.html" },
         "openai/outputTemplate": "ui://findcheap/product-cards/v1.html"
       });
