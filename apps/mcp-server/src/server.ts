@@ -43,28 +43,30 @@ export const CompareProductsInputSchema = z
 
 export type CompareProductsInput = z.infer<typeof CompareProductsInputSchema>;
 
-export const BestBuyProductsInputSchema = z
-  .object({
-    query: z.string().trim().min(2).max(300).optional(),
-    sku: z.string().regex(/^\d{1,20}$/u).optional(),
-    limit: z.number().int().min(1).max(50).default(10)
-  })
-  .strict()
-  .refine((input) => (input.query === undefined) !== (input.sku === undefined), {
-    message: "Provide exactly one of query or sku"
-  });
+const BestBuyProductsToolInputSchema = z.object({
+  query: z.string().trim().min(2).max(300).optional(),
+  sku: z.string().regex(/^\d{1,20}$/u).optional(),
+  limit: z.number().int().min(1).max(50).default(10)
+}).strict();
 
-export const ShopifyProductsInputSchema = z
-  .object({
-    query: z.string().trim().min(2).max(300).optional(),
-    handle: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u).max(200).optional(),
-    limit: z.number().int().min(1).max(3).default(3),
-    selectionMode: z.enum(["LOWEST_PRICE", "MERCHANT_DIVERSE"])
-  })
-  .strict()
-  .refine((input) => (input.query === undefined) !== (input.handle === undefined), {
+export const BestBuyProductsInputSchema = BestBuyProductsToolInputSchema.refine(
+  (input) => (input.query === undefined) !== (input.sku === undefined), {
+    message: "Provide exactly one of query or sku"
+  }
+);
+
+const ShopifyProductsToolInputSchema = z.object({
+  query: z.string().trim().min(2).max(300).optional(),
+  handle: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u).max(200).optional(),
+  limit: z.number().int().min(1).max(3).default(3),
+  selectionMode: z.enum(["LOWEST_PRICE", "MERCHANT_DIVERSE"])
+}).strict();
+
+export const ShopifyProductsInputSchema = ShopifyProductsToolInputSchema.refine(
+  (input) => (input.query === undefined) !== (input.handle === undefined), {
     message: "Provide exactly one of query or handle"
-  });
+  }
+);
 
 export interface ComparePort {
   compare(input: CompareProductsInput): Promise<ComparisonResult>;
@@ -374,7 +376,7 @@ export function createShoppingServer(
     {
       title: "Search Best Buy products (Beta)",
       description: "Search the official Best Buy Products API by product query or numeric SKU. Returns item price only, not delivered price.",
-      inputSchema: BestBuyProductsInputSchema,
+      inputSchema: BestBuyProductsToolInputSchema,
       outputSchema: BestBuyProductsOutputShape,
       annotations: {
         readOnlyHint: true,
@@ -384,8 +386,9 @@ export function createShoppingServer(
       }
     },
     async (input) => {
+      const validatedInput = BestBuyProductsInputSchema.parse(input);
       try {
-        const result = await bestBuyPort.search(input);
+        const result = await bestBuyPort.search(validatedInput);
         return bestBuyResult(result.products);
       } catch {
         return bestBuyUnavailableResult();
@@ -398,7 +401,7 @@ export function createShoppingServer(
     {
       title: "Search Shopify products (Beta)",
       description: "Search a bounded audited Shopify Storefront registry by product query or handle. Requires Top 3 ranking intent: literal lowest price or merchant-diverse recommendations. Returns coverage diagnostics; exact matches rank before labeled similar products and irrelevant products are excluded.",
-      inputSchema: ShopifyProductsInputSchema,
+      inputSchema: ShopifyProductsToolInputSchema,
       outputSchema: ShopifyProductsOutputShape,
       annotations: {
         readOnlyHint: true,
@@ -408,11 +411,12 @@ export function createShoppingServer(
       }
     },
     async (input) => {
+      const validatedInput = ShopifyProductsInputSchema.parse(input);
       try {
-        const result = await shopifyPort.search(input);
+        const result = await shopifyPort.search(validatedInput);
         return shopifyResult(result);
       } catch {
-        return shopifyUnavailableResult(input.selectionMode);
+        return shopifyUnavailableResult(validatedInput.selectionMode);
       }
     }
   );

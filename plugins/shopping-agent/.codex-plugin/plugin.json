@@ -1,6 +1,6 @@
 {
   "name": "shopping-agent",
-  "version": "0.2.2+codex.20260818064046",
+  "version": "0.2.2+codex.20260818065253",
   "description": "Search a bounded audited Shopify registry with coverage diagnostics, then use Chrome only after complete zero-result coverage.",
   "author": {
     "name": "yyq8548"

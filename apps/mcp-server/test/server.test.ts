@@ -148,6 +148,18 @@ describe("shopping MCP server", () => {
       "query",
       "zipCode"
     ]);
+    expect(Object.keys(tools.tools[1]?.inputSchema.properties ?? {}).sort()).toEqual([
+      "limit",
+      "query",
+      "sku"
+    ]);
+    expect(Object.keys(tools.tools[2]?.inputSchema.properties ?? {}).sort()).toEqual([
+      "handle",
+      "limit",
+      "query",
+      "selectionMode"
+    ]);
+    expect(tools.tools[2]?.inputSchema.required).toContain("selectionMode");
     expect(tools.tools[0]?.annotations).toMatchObject({
       readOnlyHint: true,
       destructiveHint: false
