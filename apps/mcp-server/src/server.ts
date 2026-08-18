@@ -62,6 +62,10 @@ const ShopifyProductsToolInputSchema = z.object({
   limit: z.number().int().min(1).max(3).default(3),
   maxItemPriceCents: z.number().int().min(1).max(100_000_000).optional()
     .describe("Inclusive public item-price ceiling in integer USD cents. Keep price words and currency symbols out of query."),
+  zipCode: z.string().regex(/^\d{5}(?:-\d{4})?$/u).optional()
+    .describe("Optional US delivery ZIP. Public Shopify results still return item price only unless contextual charges are verified."),
+  membershipIds: MembershipIdsSchema.optional()
+    .describe("Optional memberships. Member price remains unavailable unless the merchant source verifies it."),
   comparisonMode: z.enum(["DISCOVERY", "SAME_PRODUCT"])
     .describe("Use SAME_PRODUCT only for an explicit like-for-like comparison request; use DISCOVERY otherwise."),
   selectionMode: z.enum(["LOWEST_PRICE", "MERCHANT_DIVERSE"])
@@ -165,7 +169,21 @@ const ShopifyProductOutputSchema = z.object({
   itemPrice: MoneyOutputSchema.optional(),
   availability: z.enum(["IN_STOCK", "OUT_OF_STOCK", "UNKNOWN"]),
   merchantUrl: z.string().url(),
-  checkedAt: z.string()
+  checkedAt: z.string(),
+  pricing: z.object({
+    scope: z.literal("ITEM_PRICE_ONLY"),
+    regularItemPrice: z.object({
+      status: z.enum(["VERIFIED", "UNAVAILABLE"]),
+      amount: MoneyOutputSchema.optional(),
+      reason: z.string().optional()
+    }),
+    memberPrice: z.object({ status: z.literal("UNAVAILABLE"), reason: z.string() }),
+    shipping: z.object({ status: z.literal("UNAVAILABLE"), reason: z.string() }),
+    tax: z.object({ status: z.literal("UNAVAILABLE"), reason: z.string() }),
+    mandatoryFees: z.object({ status: z.literal("UNAVAILABLE"), reason: z.string() }),
+    deliveredPrice: z.object({ status: z.literal("UNAVAILABLE"), reason: z.string() })
+  }),
+  freshness: z.object({ status: z.literal("OBSERVED_AT_QUERY"), checkedAt: z.string() })
 });
 
 const ShopifyProductsOutputShape = {
@@ -173,6 +191,10 @@ const ShopifyProductsOutputShape = {
   message: z.string(),
   source: z.literal("SHOPIFY_STOREFRONT_API"),
   priceScope: z.literal("ITEM_PRICE_ONLY"),
+  pricingContext: z.object({
+    zipCode: z.string().optional(),
+    membershipIds: z.array(z.string())
+  }),
   coverage: z.enum(["COMPLETE", "PARTIAL", "NOT_QUERIED", "UNAVAILABLE"]),
   merchantsQueried: z.number().int(),
   merchantsSucceeded: z.number().int(),
@@ -304,7 +326,10 @@ function bestBuyUnavailableResult() {
   };
 }
 
-function shopifyResult(result: ShopifySearchResult) {
+function shopifyResult(
+  result: ShopifySearchResult,
+  context: { zipCode?: string | undefined; membershipIds?: string[] | undefined }
+) {
   const exactCount = result.products.filter((product) => product.matchStatus === "EXACT").length;
   const similarCount = result.products.length - exactCount;
   const priceLimit = result.maxItemPriceCents === undefined
@@ -313,7 +338,7 @@ function shopifyResult(result: ShopifySearchResult) {
   const comparison = result.comparison.status === "SAME_PRODUCT"
     ? ` Same-product comparison verified across ${result.comparison.merchantCount} merchants using ${result.comparison.evidence.join("; ")}.`
     : " No cross-merchant same-product identity was independently verified; results are discovery options, not like-for-like offers.";
-  const summary = `Comparison status: ${result.comparison.status}. The audited Shopify registry returned ${result.products.length} product(s): ${exactCount} exact and ${similarCount} similar, from ${result.merchantsSucceeded}/${result.merchantsQueried} stores.${priceLimit}${comparison} Prices are public item prices only; shipping, tax, coupons, and member pricing are not included.`;
+  const summary = `Comparison status: ${result.comparison.status}. The audited Shopify registry returned ${result.products.length} product(s): ${exactCount} exact and ${similarCount} similar, from ${result.merchantsSucceeded}/${result.merchantsQueried} stores.${priceLimit}${comparison} Prices are public item prices only; shipping, tax, mandatory fees, member price, and delivered price unavailable without verified merchant evidence.`;
   const products = result.products.map((product, index) => {
     const price = product.itemPrice === undefined
       ? "price unavailable"
@@ -324,7 +349,8 @@ function shopifyResult(result: ShopifySearchResult) {
     return [
       `${index + 1}. [${product.matchStatus}] ${product.title}`,
       `merchant: ${product.merchant} (${product.sourceHost})`,
-      `price: ${price}`,
+      `regular item price: ${price}`,
+      "shipping: unavailable | tax: unavailable | mandatory fees: unavailable | member price: unavailable | delivered price unavailable",
       `availability: ${product.availability}`,
       `condition: ${product.condition}`,
       `match evidence: ${product.matchEvidence.join("; ")}`,
@@ -344,6 +370,10 @@ function shopifyResult(result: ShopifySearchResult) {
       message,
       source: "SHOPIFY_STOREFRONT_API" as const,
       priceScope: "ITEM_PRICE_ONLY" as const,
+      pricingContext: {
+        ...(context.zipCode === undefined ? {} : { zipCode: context.zipCode }),
+        membershipIds: context.membershipIds ?? []
+      },
       coverage: result.coverage,
       merchantsQueried: result.merchantsQueried,
       merchantsSucceeded: result.merchantsSucceeded,
@@ -351,12 +381,29 @@ function shopifyResult(result: ShopifySearchResult) {
       comparison: result.comparison,
       diagnostics: result.diagnostics,
       questions: result.questions,
-      products: result.products
+      products: result.products.map((product) => ({
+        ...product,
+        pricing: {
+          scope: "ITEM_PRICE_ONLY" as const,
+          regularItemPrice: product.itemPrice === undefined
+            ? { status: "UNAVAILABLE" as const, reason: "public item price was not returned" }
+            : { status: "VERIFIED" as const, amount: product.itemPrice },
+          memberPrice: { status: "UNAVAILABLE" as const, reason: "membership-specific price was not verified" },
+          shipping: { status: "UNAVAILABLE" as const, reason: "ZIP-specific shipping was not verified" },
+          tax: { status: "UNAVAILABLE" as const, reason: "ZIP-specific tax was not verified" },
+          mandatoryFees: { status: "UNAVAILABLE" as const, reason: "mandatory fees were not verified" },
+          deliveredPrice: { status: "UNAVAILABLE" as const, reason: "not all delivered-price components were verified" }
+        },
+        freshness: { status: "OBSERVED_AT_QUERY" as const, checkedAt: product.checkedAt }
+      }))
     }
   };
 }
 
-function shopifyClarificationResult(selectionMode: "LOWEST_PRICE" | "MERCHANT_DIVERSE") {
+function shopifyClarificationResult(
+  selectionMode: "LOWEST_PRICE" | "MERCHANT_DIVERSE",
+  context: { zipCode?: string | undefined; membershipIds?: string[] | undefined }
+) {
   const question = "Provide a brand and exact model/MPN/GTIN, or a direct product URL, before requesting same-product comparison.";
   const message = `Comparison status: NEEDS_CLARIFICATION. ${question} No merchant API was queried and Chrome is not eligible.`;
   return {
@@ -366,6 +413,10 @@ function shopifyClarificationResult(selectionMode: "LOWEST_PRICE" | "MERCHANT_DI
       message,
       source: "SHOPIFY_STOREFRONT_API" as const,
       priceScope: "ITEM_PRICE_ONLY" as const,
+      pricingContext: {
+        ...(context.zipCode === undefined ? {} : { zipCode: context.zipCode }),
+        membershipIds: context.membershipIds ?? []
+      },
       coverage: "NOT_QUERIED" as const,
       merchantsQueried: 0,
       merchantsSucceeded: 0,
@@ -398,7 +449,10 @@ function shopifyClarificationResult(selectionMode: "LOWEST_PRICE" | "MERCHANT_DI
   };
 }
 
-function shopifyUnavailableResult(selectionMode: "LOWEST_PRICE" | "MERCHANT_DIVERSE") {
+function shopifyUnavailableResult(
+  selectionMode: "LOWEST_PRICE" | "MERCHANT_DIVERSE",
+  context: { zipCode?: string | undefined; membershipIds?: string[] | undefined }
+) {
   return {
     content: [{ type: "text" as const, text: shopifyUnavailableMessage }],
     structuredContent: {
@@ -406,6 +460,10 @@ function shopifyUnavailableResult(selectionMode: "LOWEST_PRICE" | "MERCHANT_DIVE
       message: shopifyUnavailableMessage,
       source: "SHOPIFY_STOREFRONT_API" as const,
       priceScope: "ITEM_PRICE_ONLY" as const,
+      pricingContext: {
+        ...(context.zipCode === undefined ? {} : { zipCode: context.zipCode }),
+        membershipIds: context.membershipIds ?? []
+      },
       coverage: "UNAVAILABLE" as const,
       merchantsQueried: 0,
       merchantsSucceeded: 0,
@@ -443,7 +501,7 @@ export function createShoppingServer(
   bestBuyPort: BestBuyPort = createUnavailableBestBuyPort(),
   shopifyPort: ShopifyPort = createUnavailableShopifyPort()
 ): McpServer {
-  const server = new McpServer({ name: "findcheap-agent", version: "0.2.3" });
+  const server = new McpServer({ name: "findcheap-agent", version: "0.3.1" });
 
   server.registerTool(
     "compare_products",
@@ -515,13 +573,16 @@ export function createShoppingServer(
         validatedInput.query !== undefined &&
         !hasSpecificProductIdentity(validatedInput.query)
       ) {
-        return shopifyClarificationResult(validatedInput.selectionMode);
+        return shopifyClarificationResult(validatedInput.selectionMode, validatedInput);
       }
       try {
         const result = await shopifyPort.search(validatedInput);
-        return shopifyResult(result);
+        return shopifyResult(result, {
+          ...(validatedInput.zipCode === undefined ? {} : { zipCode: validatedInput.zipCode }),
+          membershipIds: validatedInput.membershipIds ?? []
+        });
       } catch {
-        return shopifyUnavailableResult(validatedInput.selectionMode);
+        return shopifyUnavailableResult(validatedInput.selectionMode, validatedInput);
       }
     }
   );

@@ -64,8 +64,10 @@ describe("installed plugin stdio", () => {
         "handle",
         "limit",
         "maxItemPriceCents",
+        "membershipIds",
         "query",
-        "selectionMode"
+        "selectionMode",
+        "zipCode"
       ]);
       expect(shopifyTool?.inputSchema.required).toContain("selectionMode");
       expect(shopifyTool?.inputSchema.required).toContain("comparisonMode");

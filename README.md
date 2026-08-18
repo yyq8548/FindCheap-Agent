@@ -4,7 +4,7 @@ Product form: **Codex Plugin Agent**.
 
 The shipped Codex plugin lives at `plugins/shopping-agent/`. Codex orchestrates two bounded paths:
 
-- an authorized Chrome skill for a read-only, web-wide v0.3.0 fallback search;
+- an authorized Chrome skill for a read-only, web-wide fallback search;
 - a local stdio MCP server for audited Commerce data, the credential-gated Best Buy pilot, and a
   bounded configuration-driven Shopify Storefront Beta registry with one-call deduplication,
   exact-first intent-aware Top 3 selection (literal lowest price or merchant-diverse recommendations), labeled similar alternatives, variant evidence,
@@ -20,7 +20,7 @@ Current merchant status: **0 merchants are enabled**. Commerce API and Codex MCP
 served only from fresh, exact, audit-promoted Commerce records. Staging records, similar-item
 matches, expired prices, and quotes for another ZIP or membership context are never presented as
 exact comparisons. With no approved merchant configuration, MCP data access fails closed while the
-user-authorized Chrome v0.3.0 fallback path remains available.
+user-authorized Chrome fallback path remains available.
 
 See `docs/product/commerce-api-runbook.md` for deployment configuration.
 
@@ -45,4 +45,9 @@ The v3 registry contains forty-five technically verified pilots and accepts at m
 entries. Its release audit requires 45/45 non-empty schema-valid probes, at most two attempts per
 store, a three-second attempt budget, and p95 latency at or below 2.5 seconds. Per-store failures and timeouts are isolated and
 reported through coverage diagnostics. Technical verification is not merchant, legal, or affiliate approval.
+
+v0.3.1 accepts an optional US ZIP and membership identifiers. It exposes a structured pricing and
+freshness contract: the public regular item price is verified at query time; ZIP shipping, tax,
+mandatory fees, member price, and delivered price are explicitly unavailable unless independently
+verified. Missing charges are never estimated or replaced with zero.
 
