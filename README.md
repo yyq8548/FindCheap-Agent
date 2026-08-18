@@ -65,3 +65,7 @@ v0.3.4 removes pre-search narration and separates retrieval from presentation: o
 returns a short-lived `renderId`, then `render_product_cards` renders the immutable result through the
 MCP Apps UI resource. Search remains independently usable by clients without UI support.
 
+v0.3.5 rotates the MCP Apps UI resource URI to invalidate stale host caches, reads both standard tool
+result notifications and ChatGPT compatibility metadata, and replaces silent blank cards with a
+visible fallback while preserving the complete text response.
+

@@ -1,6 +1,6 @@
 import { SHOPIFY_REGISTRY } from "./shopify-registry.js";
 
-export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v1.html";
+export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v2.html";
 
 export const PRODUCT_CARD_RESOURCE_DOMAINS = [
   "https://cdn.shopify.com",
@@ -35,12 +35,14 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     a { display: inline-flex; justify-content: center; border-radius: 10px; padding: 9px 12px; color: #fff; background: #177245; font-size: 13px; font-weight: 700; text-decoration: none; }
     a:focus-visible { outline: 3px solid #6ee7b7; outline-offset: 2px; }
     .empty { border: 1px dashed light-dark(#cbd5cc, #415046); border-radius: 14px; padding: 18px; text-align: center; }
+    .error { color: light-dark(#991b1b, #fecaca); }
   </style>
 </head>
 <body>
   <main id="app" aria-live="polite"><div class="empty">Waiting for verified product results…</div></main>
   <script>
     const app = document.getElementById("app");
+    let hasResult = false;
     const make = (tag, className, text) => {
       const node = document.createElement(tag);
       if (className) node.className = className;
@@ -55,6 +57,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       catch { return null; }
     };
     function render(output) {
+      hasResult = true;
       app.replaceChildren();
       const products = Array.isArray(output?.products) ? output.products.slice(0, 3) : [];
       if (products.length === 0) {
@@ -107,7 +110,16 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       if (!message || message.jsonrpc !== "2.0") return;
       if (message.method === "ui/notifications/tool-result") render(message.params?.structuredContent);
     }, { passive: true });
-    if (window.openai?.toolOutput) render(window.openai.toolOutput);
+    const responseMetadata = window.openai?.toolResponseMetadata;
+    const initialOutput = window.openai?.toolOutput
+      || responseMetadata?.mcp_tool_result?.structuredContent
+      || responseMetadata?.call_tool_result?.structuredContent;
+    if (initialOutput) render(initialOutput);
+    window.setTimeout(() => {
+      if (!hasResult) {
+        app.replaceChildren(make("div", "empty error", "Product-card data did not arrive. Text results remain available."));
+      }
+    }, 4000);
   </script>
 </body>
 </html>`;

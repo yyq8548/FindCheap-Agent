@@ -1,9 +1,9 @@
 ---
 name: compare-products
-description: Search a bounded audited Shopify Storefront registry first, verify same-product identity, and render MCP UI product cards, Coupon status, and safe purchase links before authorized Chrome fallback. Checkout and payment remain out of scope in v0.3.4.
+description: Search a bounded audited Shopify Storefront registry first, verify same-product identity, and render MCP UI product cards, Coupon status, and safe purchase links before authorized Chrome fallback. Checkout and payment remain out of scope in v0.3.5.
 ---
 
-# FindCheap-Agent v0.3.4 fast MCP UI product cards
+# FindCheap-Agent v0.3.5 reliable MCP UI product cards
 
 Risk tier: `R0`. Perform one read-only public-product lookup. Do not persist browser data.
 
