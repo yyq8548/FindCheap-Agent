@@ -1,15 +1,17 @@
 ---
 name: compare-products
-description: Search a bounded audited Shopify Storefront registry first, verify same-product identity, and render evidence-bounded product cards, Coupon status, and safe purchase links before authorized Chrome fallback. Checkout and payment remain out of scope in v0.3.2.
+description: Search a bounded audited Shopify Storefront registry first, verify same-product identity, and render MCP UI product cards, Coupon status, and safe purchase links before authorized Chrome fallback. Checkout and payment remain out of scope in v0.3.3.
 ---
 
-# FindCheap-Agent v0.3.2 verified product cards
+# FindCheap-Agent v0.3.3 MCP UI product cards
 
 Risk tier: `R0`. Perform one read-only public-product lookup. Do not persist browser data.
 
 ## Source routing
 
 Apply this routing before any browser action:
+
+The plugin MCP server is auto-loaded. Call `search_shopify_products` directly. Never inspect the plugin cache, locate `mcp-server.js`, or launch the MCP server manually.
 
 1. **Shopify-first default.** For an ordinary product search, call `search_shopify_products` before any Chrome search. Call `search_shopify_products` exactly once per user lookup. Always pass `limit: 3`. When the user explicitly requests same-product, like-for-like, or 同款 comparison, pass `comparisonMode: SAME_PRODUCT`; otherwise pass `comparisonMode: DISCOVERY`. Pass `selectionMode: LOWEST_PRICE` when the user explicitly asks for cheapest, lowest price, or the lowest-priced products. Otherwise pass `selectionMode: MERCHANT_DIVERSE` for recommended options from different merchants. If the user gives a maximum item price, pass `maxItemPriceCents` as exact integer cents. Pass a supplied US ZIP as `zipCode` and supplied membership program identifiers as `membershipIds`; never infer them. Do not include price words or currency symbols in `query`; use it only for product, model, category, variant, and condition identity. Do not repeat a successful call to verify, rerank, or reformat its result. The checked-in v3 registry contains 45 technically verified stores spanning apparel, footwear, beauty, food, drink, home, cookware, jewelry, eyewear, grooming, toys, and reusable goods. Configuration is bounded to 50 stores; never claim all Shopify stores or whole-web coverage, and never describe public discovery or technical verification as merchant, legal, or affiliate approval.
 2. For `NEEDS_CLARIFICATION`, ask the returned question and stop; do not search merchants again and do not call Chrome. A category, color, or theme alone is not enough for same-product comparison.

@@ -11,6 +11,10 @@ type StdioServerConfig = {
   command: string;
   args: string[];
   cwd: string;
+  enabled: boolean;
+  env_vars: string[];
+  startup_timeout_sec: number;
+  tool_timeout_sec: number;
   env: Record<string, string>;
 };
 
@@ -28,6 +32,10 @@ describe("installed plugin stdio", () => {
       command: "node",
       args: ["./dist/mcp-server.js"],
       cwd: ".",
+      enabled: true,
+      env_vars: ["PATH"],
+      startup_timeout_sec: 10,
+      tool_timeout_sec: 30,
       env: {
         SHOPIFY_STOREFRONT_MODE: "audited-registry",
         SHOPIFY_SEARCH_TIMEOUT_MS: "3000"
@@ -48,6 +56,10 @@ describe("installed plugin stdio", () => {
     try {
       await client.connect(transport);
       const tools = await client.listTools();
+      const resources = await client.listResources();
+      const productCards = await client.readResource({
+        uri: "ui://findcheap/product-cards/v1.html"
+      });
       const comparison = await client.callTool({
         name: "compare_products",
         arguments: { query: "OLED65C4PUA", zipCode: "33433" }
@@ -59,6 +71,20 @@ describe("installed plugin stdio", () => {
         "search_shopify_products"
       ]);
       const shopifyTool = tools.tools.find((tool) => tool.name === "search_shopify_products");
+      expect(shopifyTool?._meta).toMatchObject({
+        ui: { resourceUri: "ui://findcheap/product-cards/v1.html" },
+        "openai/outputTemplate": "ui://findcheap/product-cards/v1.html"
+      });
+      expect(resources.resources).toEqual([expect.objectContaining({
+        name: "findcheap-product-cards",
+        uri: "ui://findcheap/product-cards/v1.html",
+        mimeType: "text/html;profile=mcp-app"
+      })]);
+      expect(productCards.contents).toEqual([expect.objectContaining({
+        uri: "ui://findcheap/product-cards/v1.html",
+        mimeType: "text/html;profile=mcp-app",
+        text: expect.stringContaining("ui/notifications/tool-result")
+      })]);
       expect(Object.keys(shopifyTool?.inputSchema.properties ?? {}).sort()).toEqual([
         "comparisonMode",
         "handle",

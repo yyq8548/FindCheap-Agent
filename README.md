@@ -56,3 +56,8 @@ links, and a compact quality summary. The public Shopify registry currently has 
 or affiliate relationship, so it returns no codes and preserves each canonical merchant URL. Tagged
 affiliate links are emitted only by an independently approved source.
 
+v0.3.3 makes the plugin MCP server explicitly auto-start with inherited `PATH`, removing cache and
+bundle-location work from normal searches. Shopify results now attach a versioned MCP Apps UI
+resource that renders up to three verified product cards while preserving the complete text and
+structured result for clients without UI support.
+

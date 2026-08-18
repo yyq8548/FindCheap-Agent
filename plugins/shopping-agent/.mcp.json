@@ -5,6 +5,10 @@
       "command": "node",
       "args": ["./dist/mcp-server.js"],
       "cwd": ".",
+      "enabled": true,
+      "env_vars": ["PATH"],
+      "startup_timeout_sec": 10,
+      "tool_timeout_sec": 30,
       "env": {
         "SHOPIFY_STOREFRONT_MODE": "audited-registry",
         "SHOPIFY_SEARCH_TIMEOUT_MS": "3000"
