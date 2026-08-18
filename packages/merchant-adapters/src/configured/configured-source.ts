@@ -20,6 +20,7 @@ import {
 import { createFeedReader } from "./feed-reader.js";
 import { createHttpReader } from "./http-reader.js";
 import { createJsonLdReader } from "./jsonld-reader.js";
+import { createShopifyStorefrontReader } from "./shopify-storefront-reader.js";
 import {
   parseMerchantSourceConfig,
   type MerchantSourceConfig,
@@ -63,10 +64,15 @@ export function createConfiguredSource(
 ): ConfiguredSource {
   const config = parseMerchantSourceConfig(configInput, catalogCandidate);
   const apiReader = config.source.type === "api"
-    ? createBestBuyProductsReader(config.allowedHosts, {
-        ...dependencies,
-        apiKey: requireCredential(config.source.credentialEnv, dependencies.environment)
-      })
+    ? config.source.provider === "bestbuy-products"
+      ? createBestBuyProductsReader(config.allowedHosts, {
+          ...dependencies,
+          apiKey: requireCredential(config.source.credentialEnv, dependencies.environment)
+        })
+      : createShopifyStorefrontReader(config.allowedHosts, {
+          host: config.source.host,
+          apiVersion: config.source.apiVersion
+        }, dependencies)
     : undefined;
   const mappedReader = config.source.type === "api"
     ? undefined

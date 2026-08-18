@@ -112,11 +112,24 @@ const BestBuyProductsSourceSchema = z
   })
   .strict();
 
+const ShopifyStorefrontSourceSchema = z
+  .object({
+    type: z.literal("api"),
+    provider: z.literal("shopify-storefront"),
+    host: MerchantHostSchema,
+    apiVersion: z.literal("2026-07")
+  })
+  .strict();
+
 export const MerchantSourceConfigSchema = z
   .object({
     merchantId: MerchantIdSchema,
     allowedHosts: z.array(MerchantHostSchema).min(1).max(50),
-    source: z.discriminatedUnion("type", [MappedSourceSchema, BestBuyProductsSourceSchema]),
+    source: z.union([
+      MappedSourceSchema,
+      BestBuyProductsSourceSchema,
+      ShopifyStorefrontSourceSchema
+    ]),
     quoteEndpoint: QuoteEndpointSchema.optional(),
     couponEndpoint: CouponEndpointSchema.optional(),
     ttlSeconds: z
@@ -139,6 +152,7 @@ export const MerchantSourceConfigSchema = z
   .superRefine((config, context) => {
     if (
       config.source.type === "api" &&
+      config.source.provider === "bestbuy-products" &&
       (config.merchantId !== "best-buy" || config.seller.name !== "Best Buy" || config.seller.condition !== "NEW")
     ) {
       context.addIssue({

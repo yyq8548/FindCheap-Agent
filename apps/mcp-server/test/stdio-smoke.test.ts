@@ -11,6 +11,7 @@ type StdioServerConfig = {
   command: string;
   args: string[];
   cwd: string;
+  env: Record<string, string>;
 };
 
 const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
@@ -26,7 +27,8 @@ describe("installed plugin stdio", () => {
       type: "stdio",
       command: "node",
       args: ["./dist/mcp-server.js"],
-      cwd: "."
+      cwd: ".",
+      env: { SHOPIFY_STOREFRONT_MODE: "fixed-ten" }
     });
 
     const transportErrors: Error[] = [];
@@ -34,6 +36,7 @@ describe("installed plugin stdio", () => {
       command: config.command,
       args: config.args,
       cwd: path.resolve(pluginRoot, config.cwd),
+      env: { ...definedEnvironment(), ...config.env },
       stderr: "pipe"
     });
     transport.onerror = (error) => transportErrors.push(error);
@@ -49,7 +52,8 @@ describe("installed plugin stdio", () => {
 
       expect(tools.tools.map((tool) => tool.name)).toEqual([
         "compare_products",
-        "search_bestbuy_products"
+        "search_bestbuy_products",
+        "search_shopify_products"
       ]);
       expect(comparison.structuredContent).toEqual({
         status: "DATA_SOURCE_UNAVAILABLE",

@@ -1,4 +1,4 @@
 interface:
-  display_name: "FindCheap-Agent v0.1"
-  short_description: "Search public merchant sites with authorized Chrome"
-  default_prompt: "Use $compare-products to find the best three verified options through my authorized Chrome."
+  display_name: "FindCheap-Agent v0.2.1"
+  short_description: "Exact-first matching across ten Shopify stores"
+  default_prompt: "Use $compare-products to search ten Shopify stores once. Always request Top 3: use LOWEST_PRICE for explicit cheapest requests and MERCHANT_DIVERSE otherwise; preserve returned order. Return exact matches before labeled similar products, ask for missing model or variant details, and use Chrome only after complete zero-result coverage."

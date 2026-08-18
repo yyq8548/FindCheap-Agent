@@ -1,11 +1,32 @@
 ---
 name: compare-products
-description: Search public merchant sites through the user's authorized Chrome session and return bounded, source-linked product cards. Use for FindCheap-Agent v0.1 web-wide shopping search, current public item price, availability, or exact-model requests. Membership, delivered-price, coupon, checkout, and payment requests are out of scope in v0.1.
+description: Search ten fixed Shopify Storefront APIs first for ordinary FindCheap-Agent product requests, classify exact and similar products using identity and variant evidence, then use the user's authorized Chrome session only after complete API coverage returns zero products. Membership, delivered-price, coupon, checkout, and payment requests are out of scope in v0.2.1.
 ---
 
-# FindCheap-Agent v0.1 browser search
+# FindCheap-Agent v0.2.1 product search
 
 Risk tier: `R0`. Perform one read-only public-product lookup. Do not persist browser data.
+
+## Source routing
+
+Apply this routing before any browser action:
+
+1. **Shopify-first default.** For an ordinary product search, call `search_shopify_products` before any Chrome search. Call `search_shopify_products` exactly once per user lookup. Always pass `limit: 3`. Pass `selectionMode: LOWEST_PRICE` when the user explicitly asks for cheapest, lowest price, or the lowest-priced products. Otherwise pass `selectionMode: MERCHANT_DIVERSE` for recommended options from different merchants. Do not repeat a successful call to verify, rerank, or reformat its result. This API covers only the fixed ten-store registry—Death Wish Coffee, Kith, Allbirds, Brooklinen, Fashion Nova, Tentree, ColourPop, Liquid Death, Pura Vida, and Steve Madden—not all Shopify stores or the whole web.
+2. If Shopify returns `status: OK` and one or more products, return those API results. Do not open Chrome when Shopify returns one or more products.
+   - Present `EXACT` products first. Never describe `SIMILAR` as exact.
+   - Keep `IRRELEVANT` products excluded; the tool rejects unrelated products first and does not return them.
+   - If `questions` is non-empty, ask that question after showing any labeled similar alternatives.
+   - Cite `matchEvidence` and requested `variantDimensions` when explaining a match.
+   - Preserve returned order. Do not re-sort the returned products. `LOWEST_PRICE` means literal price order after exact/similar and availability gates; `MERCHANT_DIVERSE` means one result per merchant before price-based fill.
+3. Use the Chrome workflow only when Shopify returns `status: OK`, `coverage: COMPLETE`, and `products.length === 0`. This is a single bounded fallback for the current lookup; never run Shopify and Chrome in parallel.
+4. Do not use Chrome for `coverage: PARTIAL`, an API error, `DATA_SOURCE_UNAVAILABLE`, malformed response, or timeout. Return available API products when partial coverage produced results; otherwise report the API failure.
+5. If the user explicitly requests no Chrome, return the empty Shopify result without fallback. If the user explicitly names another tool or source, follow that explicit request instead of the ordinary Shopify-first default.
+
+For an API result, preserve the tool's source label and pricing scope. Do not relabel it `BROWSER_OBSERVED`, claim that it covers the web, or add tax, shipping, coupon, membership, or delivered-price claims.
+
+For every response report `API duration`, Shopify coverage, selected ranking mode, and Chrome fallback: `NOT_USED` or `USED`. Render the fallback value as `NOT_USED` when API products are returned or fallback is ineligible. Use `USED` only after Chrome was actually opened. Preserve the API's returned order. Never restore a rejected product to reach three results.
+
+The remaining instructions apply only after the successful zero-result Shopify response selects the Chrome fallback.
 
 ## Contract
 
@@ -31,28 +52,28 @@ Risk tier: `R0`. Perform one read-only public-product lookup. Do not persist bro
 ## Performance path
 
 1. Discovery must produce up to eight direct product-detail URLs on distinct merchant domains. Do not open merchant category, search, or listing pages as verification candidates. Skip a discovery result when no direct product-detail URL is available.
-2. Do not stop after the first discovery page when it yields fewer than eight direct product pages or fewer than three likely offers in the requested condition. Perform one conditional refinement search using exact identity tokens, the requested condition, exclusions such as `-used -refurbished -renewed -open-box`, and no fixed merchant allowlist. Deduplicate both discovery reads by exact hostname. Never perform a third search.
+2. Do not stop after the first discovery page when it yields fewer than eight direct product pages or fewer than three likely condition-eligible offers. Perform one conditional refinement search using exact identity tokens, the requested condition, exclusions such as `-used -refurbished -renewed -open-box`, and no fixed merchant allowlist. Deduplicate both discovery reads by exact hostname. Never perform a third search.
 3. In the same browser tool call, verify the first five candidates. Create only those five tabs and navigate with at most three concurrent navigations: three, then at most two. Keep the total eight-domain and retry budgets unchanged; if an origin permission prompt appears, pause that candidate instead of bypassing or automating the prompt.
 4. Run one unified extractor per merchant page. Each extractor returns one compact JSON payload of at most 12,000 characters containing only final URL, title, visible identity, current-offer price, seller, condition, availability, and canonical-link evidence. Bind price, seller, and condition from the same visible offer container; page-wide mentions of another condition are not evidence for the current price.
 5. Run all page extractors with `Promise.all`; never use a serial `for...await` loop or await each page inside a loop. Finish both navigation batches and compact extraction before another reasoning step.
 6. Do not call `domSnapshot()` on every merchant page and do not return full page text or HTML. One discovery-page snapshot is allowed only when both compact discovery reads cannot identify direct candidate links.
 7. If the compact read lacks one required field, make one targeted locator read for that candidate only. Do not reread every page or open a merchant listing page to seek another offer.
-8. Classify the first batch before opening reserve tabs. Stop as soon as three requested-condition `EXACT` offers pass. Do not open reserve candidates when the first batch already produced three.
-9. If fewer than three pass, verify up to three reserve candidates from the remaining distinct merchant domains in one concurrent navigation-and-extraction call. Never relax identity or condition evidence to fill the result; return fewer only after the reserve batch is exhausted.
+8. Classify the first batch before opening reserve tabs. Stop as soon as three condition-eligible `EXACT` offers pass. Do not open reserve candidates when the first batch already produced three. For the default or a request for new products, both verified `NEW` and unlabeled `UNKNOWN` conditions are eligible; an explicit used, refurbished, renewed, or open-box label is not.
+9. If fewer than three pass, verify up to three reserve candidates from the remaining distinct merchant domains in one concurrent navigation-and-extraction call. Never relax identity, variant, price-binding, or explicit condition-conflict evidence to fill the result; return fewer only after the reserve batch is exhausted.
 10. Classify, filter, deduplicate, and rank all compact records locally in one deterministic pass, then close candidate tabs. Do not use another browser call to rank or format results.
 
 ## Ranking and selection
 
 1. Rank only candidates with independently visible `EXACT` identity evidence and the requested variant. Keep `SIMILAR` and `UNCONFIRMED` candidates outside the main ranking.
-2. Deduplicate by merchant or clearly identified seller. Keep `NEW`, `USED`, and `REFURBISHED` offers in separate groups. Unless the user requests another condition, rank `NEW` offers in the main list; keep other conditions outside the main ranking and never let a cheaper used item outrank a new item.
-3. Within one condition group: Prefer direct merchant offers over third-party marketplace offers, then prefer visible in-stock status, then lower visible item price. Use merchant name and canonical URL only as deterministic tie-breakers.
+2. Deduplicate by merchant or clearly identified seller. Treat an absent condition label as `UNKNOWN`, not as evidence of used or refurbished condition. Keep exact `UNKNOWN`-condition offers eligible in the default or new-product main ranking, but rank them after verified `NEW` offers and label them `CONDITION_UNCONFIRMED`. Do not describe an `UNKNOWN` offer as new. Keep explicitly labeled `USED`, `REFURBISHED`, `RENEWED`, and `OPEN_BOX` offers outside that ranking unless the user requests that condition.
+3. Within one condition group: Prefer direct merchant offers over third-party marketplace offers, then prefer visible in-stock status, then lower visible item price. Use merchant name and canonical URL only as deterministic tie-breakers. The condition order for the default or new-product request is verified `NEW`, then `UNKNOWN`.
 4. Do not treat an add-to-cart button as proof of delivered availability. Report only the availability language visibly shown on the page.
-5. Return the best three among verified candidates. Return fewer than three when fewer exact, source-linked candidates in the requested condition pass verification; never fill the main ranking with weaker matches or another condition.
+5. Return the best three among verified candidates. Return fewer than three only when fewer exact, source-linked, condition-eligible candidates pass verification; never fill the main ranking with weaker identity matches or an explicitly conflicting condition.
 6. Never claim these are the best offers on the entire internet. Say they are the best three among the candidates inspected during this bounded search.
 
 ## Hard boundaries
 
-- Membership pricing is out of scope for v0.1. Do not ask for, inspect, or report membership or account-specific pricing.
+- Membership pricing is out of scope for v0.2.1. Do not ask for, inspect, or report membership or account-specific pricing.
 - Do not sign in, inspect cookies or storage, open account pages, or read personal information.
 - Do not add anything to a cart, begin checkout, reserve inventory, submit forms, place an order, or make a payment.
 - After entering a merchant product domain, stop on an unexpected cross-domain redirect. Returning to the search-results page to inspect another selected merchant is allowed within the eight-domain budget.
@@ -70,12 +91,13 @@ For each result provide:
 - source type: `BROWSER_OBSERVED`
 - match: `EXACT`, `SIMILAR`, or `UNCONFIRMED`
 - product title and identity evidence
+- condition: the visible condition, or `CONDITION_UNCONFIRMED` when the merchant page has no condition label
 - item price and regular price only when visibly present
 - visible availability
 - canonical HTTPS merchant URL
 - `observedAt` timestamp
 - limitation: `Item price only; tax, shipping, coupons, delivered price, and membership price not verified.`
 
-When any inspected candidate is rejected, append `## Excluded candidates`. Give one short exclusion reason for every inspected candidate not returned. Use one precise code: `IDENTITY_MISMATCH`, `CONDITION_NOT_VERIFIED`, `PRICE_NOT_BOUND_TO_OFFER`, `OUT_OF_STOCK`, `ACCESS_BLOCKED`, or `UNSAFE_SOURCE`. Do not emit full cards for rejected candidates.
+When any inspected candidate is rejected, append `## Excluded candidates`. Give one short exclusion reason for every inspected candidate not returned. Use one precise code: `IDENTITY_MISMATCH`, `CONDITION_MISMATCH`, `PRICE_NOT_BOUND_TO_OFFER`, `OUT_OF_STOCK`, `ACCESS_BLOCKED`, or `UNSAFE_SOURCE`. Use `CONDITION_MISMATCH` only for an explicit condition label that conflicts with the request. Missing condition text is a warning on an eligible result, not an exclusion. Do not emit full cards for rejected candidates.
 
 If Chrome permission is denied, Chrome is unavailable, every selected merchant blocks access, or evidence is insufficient, stop safely and report the corresponding reason without inventing results.
