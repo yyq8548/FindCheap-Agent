@@ -55,7 +55,10 @@ export function classifyShopifyCandidate(
 
   const productTypeTokens = new Set(tokenize(candidate.productType ?? ""));
   const candidateTokens = new Set(tokenize(candidateText(candidate)));
-  const candidateCompact = compact(candidateText(candidate));
+  const candidateIdentifiers = [candidate.sku, candidate.handle]
+    .filter((value): value is string => value !== undefined)
+    .map(compact)
+    .filter((value) => value !== "");
   const requestedVariantTerms = extractVariantTerms(queryTokens);
   const variantTokens = new Set(tokenize(Object.values(candidate.variantDimensions ?? {}).join(" ")));
   if (
@@ -90,12 +93,15 @@ export function classifyShopifyCandidate(
   ))];
   const matched = required.filter((token) => requestedVariantTerms.has(token)
     ? variantTokens.has(token)
-    : termMatches(token, candidateTokens, candidateCompact));
+    : termMatches(token, candidateTokens, candidateIdentifiers));
   const missingTerms = required.filter((token) => !matched.includes(token));
   const evidence = [
     ...(category === undefined ? [] : ["product category exact"]),
     ...(requestedVariantTerms.size > 0 && [...requestedVariantTerms].every((term) => variantTokens.has(term))
       ? ["requested variant exact"]
+      : []),
+    ...(required.some((term) => /\d/u.test(term)) && required.filter((term) => /\d/u.test(term)).every((term) => matched.includes(term))
+      ? ["model/MPN exact"]
       : []),
     ...(matched.length === 0 ? [] : [`matched query terms: ${matched.join(", ")}`])
   ];
@@ -130,9 +136,16 @@ function candidateText(candidate: ShopifyMatchCandidate): string {
   ].filter((value): value is string => value !== undefined).join(" ");
 }
 
-function termMatches(term: string, candidateTokens: ReadonlySet<string>, candidateCompact: string): boolean {
+function termMatches(
+  term: string,
+  candidateTokens: ReadonlySet<string>,
+  candidateIdentifiers: readonly string[]
+): boolean {
   if (candidateTokens.has(term)) return true;
-  if (/\d/u.test(term)) return candidateCompact.includes(compact(term));
+  if (/\d/u.test(term)) {
+    const normalized = compact(term);
+    return normalized.length >= 4 && candidateIdentifiers.some((identifier) => identifier.endsWith(normalized));
+  }
   return term.length <= 3 && [...candidateTokens].some((token) => /\d/u.test(token) && token.startsWith(term));
 }
 

@@ -174,6 +174,13 @@ const ShopifyProductsOutputShape = {
   merchantsQueried: z.number().int(),
   merchantsSucceeded: z.number().int(),
   maxItemPriceCents: z.number().int().positive().optional(),
+  comparison: z.object({
+    status: z.enum(["SAME_PRODUCT", "DISCOVERY_ONLY", "UNAVAILABLE"]),
+    identityType: z.enum(["GTIN", "BRAND_MPN"]).optional(),
+    evidence: z.array(z.string()),
+    merchantCount: z.number().int().nonnegative(),
+    offerCount: z.number().int().nonnegative()
+  }),
   diagnostics: z.object({
     apiDurationMs: z.number().int().nonnegative(),
     cacheStatus: z.enum(["MISS", "HIT", "COALESCED"]),
@@ -300,7 +307,10 @@ function shopifyResult(result: ShopifySearchResult) {
   const priceLimit = result.maxItemPriceCents === undefined
     ? ""
     : ` Maximum item price: USD ${(result.maxItemPriceCents / 100).toFixed(2)}.`;
-  const summary = `The audited Shopify registry returned ${result.products.length} product(s): ${exactCount} exact and ${similarCount} similar, from ${result.merchantsSucceeded}/${result.merchantsQueried} stores.${priceLimit} Prices are public item prices only; shipping, tax, coupons, and member pricing are not included.`;
+  const comparison = result.comparison.status === "SAME_PRODUCT"
+    ? ` Same-product comparison verified across ${result.comparison.merchantCount} merchants using ${result.comparison.evidence.join("; ")}.`
+    : " No cross-merchant same-product identity was independently verified; results are discovery options, not like-for-like offers.";
+  const summary = `The audited Shopify registry returned ${result.products.length} product(s): ${exactCount} exact and ${similarCount} similar, from ${result.merchantsSucceeded}/${result.merchantsQueried} stores.${priceLimit}${comparison} Prices are public item prices only; shipping, tax, coupons, and member pricing are not included.`;
   const products = result.products.map((product, index) => {
     const price = product.itemPrice === undefined
       ? "price unavailable"
@@ -335,6 +345,7 @@ function shopifyResult(result: ShopifySearchResult) {
       merchantsQueried: result.merchantsQueried,
       merchantsSucceeded: result.merchantsSucceeded,
       ...(result.maxItemPriceCents === undefined ? {} : { maxItemPriceCents: result.maxItemPriceCents }),
+      comparison: result.comparison,
       diagnostics: result.diagnostics,
       questions: result.questions,
       products: result.products
@@ -353,6 +364,12 @@ function shopifyUnavailableResult(selectionMode: "LOWEST_PRICE" | "MERCHANT_DIVE
       coverage: "UNAVAILABLE" as const,
       merchantsQueried: 0,
       merchantsSucceeded: 0,
+      comparison: {
+        status: "UNAVAILABLE" as const,
+        evidence: [],
+        merchantCount: 0,
+        offerCount: 0
+      },
       diagnostics: {
         apiDurationMs: 0,
         cacheStatus: "MISS" as const,
@@ -436,7 +453,7 @@ export function createShoppingServer(
     "search_shopify_products",
     {
       title: "Search Shopify products (Beta)",
-      description: "Search a bounded audited Shopify Storefront registry by product query or handle. Do not call this tool more than once per user lookup. Pass an explicit budget through maxItemPriceCents as integer USD cents; keep price words and currency symbols out of query. Set selectionMode=LOWEST_PRICE only for explicit cheapest requests; otherwise set selectionMode=MERCHANT_DIVERSE. The first response includes complete Top 3 text and structured details; exact matches rank before labeled similar products and irrelevant or over-budget products are excluded.",
+      description: "Search a bounded audited Shopify Storefront registry by product query or handle. Do not call this tool more than once per user lookup. Pass an explicit budget through maxItemPriceCents as integer USD cents; keep price words and currency symbols out of query. Set selectionMode=LOWEST_PRICE only for explicit cheapest requests; otherwise set selectionMode=MERCHANT_DIVERSE. Cross-merchant offers are grouped only by exact GTIN plus variant or exact brand plus MPN/SKU plus variant; title similarity never proves the same product. The first response includes complete Top 3 text and structured details.",
       inputSchema: ShopifyProductsToolInputSchema,
       outputSchema: ShopifyProductsOutputShape,
       annotations: {

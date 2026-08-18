@@ -124,6 +124,61 @@ describe("Shopify Storefront MCP client", () => {
     expect(result.diagnostics.priceProductsExcluded).toBe(1);
   });
 
+  it("returns only independently verified same-product offers when two merchants share identity", async () => {
+    const safeFetch = vi.fn(async (input: { url: string }) => {
+      const host = new URL(input.url).hostname;
+      if (["deathwishcoffee.com", "www.fashionnova.com"].includes(host)) {
+        return storefrontResponse(input.url, host, host === "deathwishcoffee.com" ? "24.00" : "25.00", "Anime Shirt", "T-Shirts", [], {
+          barcode: "810063341254"
+        });
+      }
+      return host === "kith.com"
+        ? storefrontResponse(input.url, host, "9.00", "Anime Shirt", "T-Shirts", [], {
+            barcode: "810063341255"
+          })
+        : storefrontResponse(input.url, host);
+    });
+    const port = createShopifyPortFromEnvironment(
+      { SHOPIFY_STOREFRONT_MODE: "audited-registry" },
+      { safeFetch, clock: { now: () => new Date(now) } }
+    );
+
+    const result = await port.search({ query: "anime shirt", limit: 3, selectionMode: "LOWEST_PRICE" });
+
+    expect(result.comparison).toEqual({
+      status: "SAME_PRODUCT",
+      identityType: "GTIN",
+      evidence: ["GTIN and variant exact"],
+      merchantCount: 2,
+      offerCount: 2
+    });
+    expect(result.products.map((product) => product.itemPrice?.amountCents)).toEqual([2_400, 2_500]);
+    expect(new Set(result.products.map((product) => product.gtins[0]))).toEqual(new Set(["810063341254"]));
+  });
+
+  it("does not group matching GTINs when variants conflict", async () => {
+    const safeFetch = vi.fn(async (input: { url: string }) => {
+      const host = new URL(input.url).hostname;
+      if (!["deathwishcoffee.com", "www.fashionnova.com"].includes(host)) {
+        return storefrontResponse(input.url, host);
+      }
+      const selectedOptions = host === "deathwishcoffee.com"
+        ? [{ name: "Color", value: "Black" }]
+        : [{ name: "Color", value: "White" }];
+      return storefrontResponse(input.url, host, "25.00", "Anime Shirt", "T-Shirts", selectedOptions, {
+        barcode: "810063341254"
+      });
+    });
+    const port = createShopifyPortFromEnvironment(
+      { SHOPIFY_STOREFRONT_MODE: "audited-registry" },
+      { safeFetch, clock: { now: () => new Date(now) } }
+    );
+
+    const result = await port.search({ query: "anime shirt", limit: 3, selectionMode: "MERCHANT_DIVERSE" });
+
+    expect(result.comparison.status).toBe("DISCOVERY_ONLY");
+  });
+
   it("rejects unrelated low-price products before merchant diversity and price ranking", async () => {
     const safeFetch = vi.fn(async (input: { url: string }) => {
       const host = new URL(input.url).hostname;
@@ -481,17 +536,17 @@ function storefrontResponse(
   title?: string | string[],
   productType?: string | string[],
   selectedOptions: Array<{ name: string; value: string }> = [],
-  metadata: { handle?: string; sku?: string; tags?: string[] } = {}
+  metadata: { handle?: string; sku?: string; tags?: string[]; barcode?: string; vendor?: string } = {}
 ) {
   const prices = price === undefined ? [] : Array.isArray(price) ? price : [price];
   const titles = title === undefined ? [] : Array.isArray(title) ? title : [title];
   const productTypes = productType === undefined ? [] : Array.isArray(productType) ? productType : [productType];
   const nodes = prices.map((amount, index) => ({
-    title: titles[index] ?? `Sample Shirt ${index + 1}`, handle: metadata.handle ?? `sample-${index + 1}`, vendor: host,
+    title: titles[index] ?? `Sample Shirt ${index + 1}`, handle: metadata.handle ?? `sample-${index + 1}`, vendor: metadata.vendor ?? host,
     productType: productTypes[index] ?? "", tags: metadata.tags ?? [],
     onlineStoreUrl: `https://${host}/products/${metadata.handle ?? `sample-${index + 1}`}`, featuredImage: null,
     selectedOrFirstAvailableVariant: {
-      title: "Default Title", sku: metadata.sku ?? `${host}-sku`, barcode: null,
+      title: "Default Title", sku: metadata.sku ?? `${host}-sku`, barcode: metadata.barcode ?? null,
       availableForSale: true, price: { amount, currencyCode: "USD" }, image: null,
       selectedOptions
     }

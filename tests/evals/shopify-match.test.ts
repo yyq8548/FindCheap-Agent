@@ -46,6 +46,24 @@ describe("FindCheap v0.2.2 Shopify product matching gate", () => {
     expect(candidate).toEqual(before);
   });
 
+  it("does not accept a longer model that only contains the requested model as a prefix", () => {
+    expect(classifyShopifyCandidate("Sony WH-1000XM5", {
+      title: "Sony WH-1000XM50 Headphones",
+      brand: "Sony",
+      sku: "WH1000XM50",
+      productType: "Headphones"
+    })).toMatchObject({ status: "SIMILAR", missingTerms: ["1000xm5"] });
+  });
+
+  it("accepts normalized exact MPN evidence", () => {
+    expect(classifyShopifyCandidate("Sony WH-1000XM5", {
+      title: "Sony Wireless Headphones",
+      brand: "Sony",
+      sku: "WH1000XM5",
+      productType: "Headphones"
+    })).toMatchObject({ status: "EXACT", evidence: expect.arrayContaining(["model/MPN exact"]) });
+  });
+
   it("does not mistake an SKU fragment for requested size evidence", () => {
     expect(classifyShopifyCandidate("Pride Tee size 10", {
       title: "Pride Tee",

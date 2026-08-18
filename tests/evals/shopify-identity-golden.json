@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "tasks": [
+    { "id": "same-gtin", "left": { "merchantId": "a", "merchantUrl": "https://a.test/p/1", "gtins": ["810063341254"], "variantDimensions": {} }, "right": { "merchantId": "b", "merchantUrl": "https://b.test/p/1", "gtins": ["810063341254"], "variantDimensions": {} }, "expected": "GTIN" },
+    { "id": "normalized-gtin", "left": { "merchantId": "a", "merchantUrl": "https://a.test/p/1", "gtins": ["8100-6334-1254"], "variantDimensions": {} }, "right": { "merchantId": "b", "merchantUrl": "https://b.test/p/1", "gtins": ["810063341254"], "variantDimensions": {} }, "expected": "GTIN" },
+    { "id": "different-gtin", "left": { "merchantId": "a", "merchantUrl": "https://a.test/p/1", "gtins": ["810063341254"], "variantDimensions": {} }, "right": { "merchantId": "b", "merchantUrl": "https://b.test/p/1", "gtins": ["810063341255"], "variantDimensions": {} }, "expected": null },
+    { "id": "gtin-variant-conflict", "left": { "merchantId": "a", "merchantUrl": "https://a.test/p/1", "gtins": ["810063341254"], "variantDimensions": { "Color": "Black" } }, "right": { "merchantId": "b", "merchantUrl": "https://b.test/p/1", "gtins": ["810063341254"], "variantDimensions": { "Color": "White" } }, "expected": null },
+    { "id": "same-brand-mpn", "left": { "merchantId": "a", "merchantUrl": "https://a.test/p/1", "brand": "Sony", "sku": "WH-1000XM5", "gtins": [], "variantDimensions": { "Color": "Black" } }, "right": { "merchantId": "b", "merchantUrl": "https://b.test/p/1", "brand": "SONY", "sku": "WH1000XM5", "gtins": [], "variantDimensions": { "color": "black" } }, "expected": "BRAND_MPN" },
+    { "id": "different-brand", "left": { "merchantId": "a", "merchantUrl": "https://a.test/p/1", "brand": "Sony", "sku": "1000", "gtins": [], "variantDimensions": {} }, "right": { "merchantId": "b", "merchantUrl": "https://b.test/p/1", "brand": "Bose", "sku": "1000", "gtins": [], "variantDimensions": {} }, "expected": null },
+    { "id": "different-mpn", "left": { "merchantId": "a", "merchantUrl": "https://a.test/p/1", "brand": "Sony", "sku": "XM5", "gtins": [], "variantDimensions": {} }, "right": { "merchantId": "b", "merchantUrl": "https://b.test/p/1", "brand": "Sony", "sku": "XM4", "gtins": [], "variantDimensions": {} }, "expected": null },
+    { "id": "missing-brand", "left": { "merchantId": "a", "merchantUrl": "https://a.test/p/1", "sku": "XM5", "gtins": [], "variantDimensions": {} }, "right": { "merchantId": "b", "merchantUrl": "https://b.test/p/1", "sku": "XM5", "gtins": [], "variantDimensions": {} }, "expected": null },
+    { "id": "title-not-identity", "left": { "merchantId": "a", "merchantUrl": "https://a.test/p/1", "gtins": [], "variantDimensions": {} }, "right": { "merchantId": "b", "merchantUrl": "https://b.test/p/1", "gtins": [], "variantDimensions": {} }, "expected": null },
+    { "id": "same-merchant-not-comparison", "left": { "merchantId": "a", "merchantUrl": "https://a.test/p/1", "gtins": ["810063341254"], "variantDimensions": {} }, "right": { "merchantId": "a", "merchantUrl": "https://a.test/p/2", "gtins": ["810063341254"], "variantDimensions": {} }, "expected": null }
+  ]
+}

@@ -35,8 +35,14 @@ const bestBuyPort: BestBuyPort = {
 const shopifyPort: ShopifyPort = {
   search: async () => ({
     coverage: "COMPLETE",
-    merchantsQueried: 10,
-    merchantsSucceeded: 10,
+  merchantsQueried: 10,
+  merchantsSucceeded: 10,
+  comparison: {
+    status: "DISCOVERY_ONLY" as const,
+    evidence: ["no independently verified cross-merchant identity"],
+    merchantCount: 1,
+    offerCount: 1
+  },
     diagnostics: {
       apiDurationMs: 250,
       cacheStatus: "MISS",
@@ -211,6 +217,12 @@ describe("shopping MCP server", () => {
       coverage: "COMPLETE",
       merchantsQueried: 10,
       merchantsSucceeded: 10,
+      comparison: {
+        status: "DISCOVERY_ONLY" as const,
+        evidence: ["no independently verified cross-merchant identity"],
+        merchantCount: 1,
+        offerCount: 1
+      },
       diagnostics: {
         apiDurationMs: 250,
         cacheStatus: "MISS",
@@ -265,6 +277,30 @@ describe("shopping MCP server", () => {
     expect(search).toHaveBeenCalledWith(expect.objectContaining({ maxItemPriceCents: 8_000 }));
     expect(result.structuredContent).toMatchObject({ status: "OK", maxItemPriceCents: 8_000 });
     expect(JSON.stringify(result.content)).toContain("USD 80.00");
+  });
+
+  it("reports independently verified same-product comparison evidence", async () => {
+    const search = vi.fn(async () => ({
+      ...await shopifyPort.search({ query: "Sony WH-1000XM5", limit: 3 }),
+      comparison: {
+        status: "SAME_PRODUCT" as const,
+        identityType: "GTIN" as const,
+        evidence: ["GTIN and variant exact"],
+        merchantCount: 2,
+        offerCount: 2
+      }
+    }));
+    const client = await connect({ compare: async () => comparison }, bestBuyPort, { search });
+
+    const result = await client.callTool({
+      name: "search_shopify_products",
+      arguments: { query: "Sony WH-1000XM5", limit: 3, selectionMode: "LOWEST_PRICE" }
+    });
+
+    expect(result.structuredContent).toMatchObject({
+      comparison: { status: "SAME_PRODUCT", identityType: "GTIN", merchantCount: 2 }
+    });
+    expect(JSON.stringify(result.content)).toContain("Same-product comparison verified across 2 merchants");
   });
 
   it.each([

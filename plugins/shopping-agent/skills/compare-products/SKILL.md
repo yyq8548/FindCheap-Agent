@@ -1,9 +1,9 @@
 ---
 name: compare-products
-description: Search a bounded audited Shopify Storefront registry first for ordinary FindCheap-Agent product requests, classify identity, variant, and condition evidence, then use the user's authorized Chrome session only after complete API coverage returns zero products. Membership, delivered-price, coupon, checkout, and payment requests are out of scope in v0.2.3.
+description: Search a bounded audited Shopify Storefront registry first, verify cross-merchant same-product identity, classify variant and condition evidence, then use the user's authorized Chrome session only after complete API coverage returns zero products. Membership, delivered-price, coupon, checkout, and payment requests are out of scope in v0.3.0.
 ---
 
-# FindCheap-Agent v0.2.3 product search
+# FindCheap-Agent v0.3.0 verified comparison
 
 Risk tier: `R0`. Perform one read-only public-product lookup. Do not persist browser data.
 
@@ -21,6 +21,7 @@ Apply this routing before any browser action:
    - Never describe `UNKNOWN` as new. Never restore a condition-excluded product to fill Top 3.
     - Preserve returned order. Do not re-sort the returned products. `LOWEST_PRICE` means literal price order after exact/similar and availability gates; `MERCHANT_DIVERSE` means one result per merchant before price-based fill.
     - When a price ceiling is present, never restore an over-budget or price-unavailable product. Report `priceProductsExcluded` from diagnostics.
+    - Report `comparison.status`. `SAME_PRODUCT` means every returned offer shares exact `GTIN + variant` or exact `brand + MPN/SKU + variant` evidence. `DISCOVERY_ONLY` means options are relevant products but not proven like-for-like offers. Never describe `DISCOVERY_ONLY` as a price comparison.
 3. Use the Chrome workflow only when Shopify returns `status: OK`, `coverage: COMPLETE`, and `products.length === 0`. This is a single bounded fallback for the current lookup; never run Shopify and Chrome in parallel.
 4. Do not use Chrome for `coverage: PARTIAL`, an API error, `DATA_SOURCE_UNAVAILABLE`, malformed response, or timeout. Return available API products when partial coverage produced results; otherwise report the API failure.
 5. If the user explicitly requests no Chrome, return the empty Shopify result without fallback. If the user explicitly names another tool or source, follow that explicit request instead of the ordinary Shopify-first default.
@@ -76,7 +77,7 @@ The remaining instructions apply only after the successful zero-result Shopify r
 
 ## Hard boundaries
 
-- Membership pricing is out of scope for v0.2.3. Do not ask for, inspect, or report membership or account-specific pricing.
+- Membership pricing is out of scope for v0.3.0. Do not ask for, inspect, or report membership or account-specific pricing.
 - Do not sign in, inspect cookies or storage, open account pages, or read personal information.
 - Do not add anything to a cart, begin checkout, reserve inventory, submit forms, place an order, or make a payment.
 - After entering a merchant product domain, stop on an unexpected cross-domain redirect. Returning to the search-results page to inspect another selected merchant is allowed within the eight-domain budget.

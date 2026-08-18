@@ -11,6 +11,7 @@ import {
   type ShopifyPilot,
   type ShopifyRegistry
 } from "./shopify-registry.js";
+import { selectSameProductGroup } from "./shopify-identity.js";
 
 export type { ShopifyPilot } from "./shopify-registry.js";
 export const SHOPIFY_PILOTS = SHOPIFY_REGISTRY.merchants.filter((merchant) => merchant.searchEnabled);
@@ -61,6 +62,13 @@ export type ShopifySearchResult = {
   merchantsQueried: number;
   merchantsSucceeded: number;
   maxItemPriceCents?: number;
+  comparison: {
+    status: "SAME_PRODUCT" | "DISCOVERY_ONLY";
+    identityType?: "GTIN" | "BRAND_MPN";
+    evidence: string[];
+    merchantCount: number;
+    offerCount: number;
+  };
   diagnostics: {
     apiDurationMs: number;
     cacheStatus: "MISS" | "HIT" | "COALESCED";
@@ -222,14 +230,32 @@ export function createShopifyPortFromEnvironment(
           conditionMatches(product.condition, conditionIntent)
         );
         const ranked = rankAndDeduplicate(conditionEligible);
+        const sameProductGroup = selectSameProductGroup(
+          ranked.filter((product) => product.matchStatus === "EXACT")
+        );
+        const selectionPool = sameProductGroup?.offers ?? ranked;
         const selected = selectionMode === "LOWEST_PRICE"
-          ? ranked.slice(0, input.limit)
-          : selectDiverseThenFill(ranked, input.limit);
+          ? selectionPool.slice(0, input.limit)
+          : selectDiverseThenFill(selectionPool, input.limit);
         return {
           coverage: successful.length === sources.length ? "COMPLETE" : "PARTIAL",
           merchantsQueried: sources.length,
           merchantsSucceeded: successful.length,
           ...(maxItemPriceCents === undefined ? {} : { maxItemPriceCents }),
+          comparison: sameProductGroup === undefined
+            ? {
+                status: "DISCOVERY_ONLY",
+                evidence: ["no independently verified cross-merchant identity"],
+                merchantCount: new Set(selected.map((product) => product.merchantId)).size,
+                offerCount: selected.length
+              }
+            : {
+                status: "SAME_PRODUCT",
+                identityType: sameProductGroup.identityType,
+                evidence: sameProductGroup.evidence,
+                merchantCount: sameProductGroup.offers.length,
+                offerCount: sameProductGroup.offers.length
+              },
           questions: selected.length > 0 && selected.every((product) => product.matchStatus === "SIMILAR")
             ? ["Only similar products were found. Provide an exact model, SKU, GTIN, color, size, or capacity."]
             : [],
