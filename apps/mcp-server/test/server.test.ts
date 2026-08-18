@@ -258,7 +258,22 @@ describe("shopping MCP server", () => {
           mandatoryFees: { status: "UNAVAILABLE" },
           deliveredPrice: { status: "UNAVAILABLE" }
         },
-        freshness: { status: "OBSERVED_AT_QUERY", checkedAt: "2026-08-18T01:00:00.000Z" }
+        freshness: { status: "OBSERVED_AT_QUERY", checkedAt: "2026-08-18T01:00:00.000Z" },
+        coupons: { status: "UNAVAILABLE", verified: [] },
+        purchaseLink: {
+          kind: "CANONICAL",
+          url: "https://deathwishcoffee.com/products/valhalla-java-single-serve-pods"
+        },
+        card: {
+          title: "Valhalla Java Single-Serve Pods — 10 count",
+          merchant: "Death Wish Coffee",
+          primaryPrice: { amountCents: 1_499 },
+          priceLabel: "Verified item price",
+          matchBadge: "EXACT",
+          conditionBadge: "UNKNOWN",
+          availability: "IN_STOCK",
+          actionLabel: "View at merchant"
+        }
       }]
     });
     expect(JSON.stringify(result.content)).toContain("Valhalla Java Single-Serve Pods");
@@ -266,6 +281,33 @@ describe("shopping MCP server", () => {
     expect(JSON.stringify(result.content)).toContain("Do not call this tool again for this user lookup");
     expect(JSON.stringify(result)).not.toMatch(/rawEvidence/i);
     expect(JSON.stringify(result)).not.toMatch(/deliveredPrice[^}]*amountCents/i);
+    expect(result.structuredContent).toMatchObject({
+      quality: {
+        status: "PASS_WITH_LIMITATIONS",
+        cardsReturned: 1,
+        itemPricesVerified: 1,
+        couponsVerified: 0,
+        affiliateLinksApproved: 0
+      }
+    });
+  });
+
+  it("uses canonical links when no affiliate relationship is approved", async () => {
+    const client = await connect({ compare: async () => comparison });
+    const result = await client.callTool({
+      name: "search_shopify_products",
+      arguments: { query: "Valhalla Java", limit: 3, comparisonMode: "DISCOVERY", selectionMode: "MERCHANT_DIVERSE" }
+    });
+
+    const product = (result.structuredContent as { products: Array<{ purchaseLink: unknown; coupons: unknown }> }).products[0];
+    expect(product).toMatchObject({
+      purchaseLink: {
+        kind: "CANONICAL",
+        url: "https://deathwishcoffee.com/products/valhalla-java-single-serve-pods"
+      },
+      coupons: { status: "UNAVAILABLE", verified: [] }
+    });
+    expect(JSON.stringify(product)).not.toMatch(/utm_|affiliate|couponCode/i);
   });
 
   it("accepts ZIP and memberships but never invents contextual prices", async () => {
