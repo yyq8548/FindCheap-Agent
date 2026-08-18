@@ -3,7 +3,7 @@ name: compare-products
 description: Search five fixed Shopify Storefront APIs first for ordinary FindCheap-Agent product requests, then use the user's authorized Chrome session only after complete API coverage returns zero products. Use for current public item price, availability, or exact-model requests. Membership, delivered-price, coupon, checkout, and payment requests are out of scope in v0.1.
 ---
 
-# FindCheap-Agent v0.1.2 product search
+# FindCheap-Agent v0.1.3 product search
 
 Risk tier: `R0`. Perform one read-only public-product lookup. Do not persist browser data.
 
@@ -19,7 +19,7 @@ Apply this routing before any browser action:
 
 For an API result, preserve the tool's source label and pricing scope. Do not relabel it `BROWSER_OBSERVED`, claim that it covers the web, or add tax, shipping, coupon, membership, or delivered-price claims.
 
-For every response report `API duration`, Shopify coverage, and Chrome fallback: `NOT_USED` or `USED`. Render the fallback value as `NOT_USED` when API products are returned or fallback is ineligible. Use `USED` only after Chrome was actually opened. The API ranks one lowest-priced result per merchant first, then fills remaining slots by price when fewer merchants have results.
+For every response report `API duration`, Shopify coverage, and Chrome fallback: `NOT_USED` or `USED`. Render the fallback value as `NOT_USED` when API products are returned or fallback is ineligible. Use `USED` only after Chrome was actually opened. Preserve the API's returned order. The API rejects unrelated products first, ranks one lowest-priced relevant result per merchant, then fills remaining slots with relevant products by price. Never restore a rejected product to reach three results.
 
 The remaining instructions apply only after the successful zero-result Shopify response selects the Chrome fallback.
 

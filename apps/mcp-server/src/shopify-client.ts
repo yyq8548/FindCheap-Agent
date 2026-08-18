@@ -50,7 +50,7 @@ export type ShopifySearchResult = {
     apiDurationMs: number;
     cacheStatus: "MISS" | "HIT" | "COALESCED";
     chromeFallbackEligible: boolean;
-    selectionPolicy: "DIVERSE_MERCHANTS_THEN_PRICE";
+    selectionPolicy: "RELEVANCE_THEN_DIVERSE_MERCHANTS_THEN_PRICE";
   };
   products: ShopifyProduct[];
 };
@@ -135,7 +135,12 @@ export function createShopifyPortFromEnvironment(
           coverage: successful.length === sources.length ? "COMPLETE" : "PARTIAL",
           merchantsQueried: sources.length,
           merchantsSucceeded: successful.length,
-          products: selectDiverseThenFill(rankAndDeduplicate(products), input.limit)
+          products: selectDiverseThenFill(
+            rankAndDeduplicate(input.query === undefined ? products : products.filter(
+              (product) => isRelevantProduct(product, input.query ?? "")
+            )),
+            input.limit
+          )
         } satisfies Omit<ShopifySearchResult, "diagnostics">;
       })();
       inFlight = { key: cacheKey, promise };
@@ -215,9 +220,44 @@ function withDiagnostics(
       apiDurationMs,
       cacheStatus,
       chromeFallbackEligible: result.coverage === "COMPLETE" && result.products.length === 0,
-      selectionPolicy: "DIVERSE_MERCHANTS_THEN_PRICE"
+      selectionPolicy: "RELEVANCE_THEN_DIVERSE_MERCHANTS_THEN_PRICE"
     }
   };
+}
+
+const QUERY_EQUIVALENTS = [
+  ["shirt", "shirts", "tee", "tees", "tshirt", "tshirts"],
+  ["shoe", "shoes", "sneaker", "sneakers"],
+  ["headphone", "headphones", "headset", "headsets", "earbud", "earbuds"],
+  ["sofa", "sofas", "couch", "couches"],
+  ["tv", "television", "televisions"],
+  ["fridge", "fridges", "refrigerator", "refrigerators"],
+  ["phone", "phones", "smartphone", "smartphones"],
+  ["laptop", "laptops", "notebook", "notebooks"]
+] as const;
+
+function isRelevantProduct(product: ShopifyProduct, query: string): boolean {
+  const queryTokens = tokenize(query);
+  if (queryTokens.length === 0) return false;
+  const productTokens = new Set(tokenize([
+    product.title,
+    product.brand,
+    product.sku,
+    product.handle,
+    ...product.gtins
+  ].filter((value): value is string => value !== undefined).join(" ")));
+  const identityTokens = queryTokens.filter((token) => /\d/u.test(token));
+  if (identityTokens.some((token) => !productTokens.has(token))) return false;
+  for (const group of QUERY_EQUIVALENTS) {
+    if (queryTokens.some((token) => group.some((candidate) => candidate === token))) {
+      return group.some((token) => productTokens.has(token));
+    }
+  }
+  return queryTokens.some((token) => productTokens.has(token));
+}
+
+function tokenize(value: string): string[] {
+  return value.normalize("NFKC").toLocaleLowerCase("en-US").match(/[\p{L}\p{N}]+/gu) ?? [];
 }
 
 function availabilityRank(value: ShopifyProduct["availability"]): number {

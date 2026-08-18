@@ -5,7 +5,7 @@ import { SHOPIFY_PILOTS, createShopifyPortFromEnvironment } from "../src/shopify
 const now = "2026-08-18T01:00:00.000Z";
 
 describe("Shopify Storefront MCP client", () => {
-  it("searches the fixed five-store registry and globally ranks item prices", async () => {
+  it("searches the fixed five-store registry and ranks relevant item prices", async () => {
     const prices = new Map<string, string | string[]>([
       ["deathwishcoffee.com", "19.99"], ["kith.com", "29.99"],
       ["www.allbirds.com", "14.99"], ["www.brooklinen.com", "24.99"],
@@ -34,7 +34,7 @@ describe("Shopify Storefront MCP client", () => {
       diagnostics: {
         cacheStatus: "MISS",
         chromeFallbackEligible: false,
-        selectionPolicy: "DIVERSE_MERCHANTS_THEN_PRICE"
+        selectionPolicy: "RELEVANCE_THEN_DIVERSE_MERCHANTS_THEN_PRICE"
       }
     });
     expect(result.products.map((product) => [product.merchant, product.itemPrice?.amountCents])).toEqual([
@@ -63,6 +63,34 @@ describe("Shopify Storefront MCP client", () => {
 
     expect(result.products.map((product) => product.merchant)).toEqual([
       "Fashion Nova", "Fashion Nova", "Fashion Nova"
+    ]);
+  });
+
+  it("rejects unrelated low-price products before merchant diversity and price ranking", async () => {
+    const safeFetch = vi.fn(async (input: { url: string }) => {
+      const host = new URL(input.url).hostname;
+      if (host === "www.fashionnova.com") {
+        return storefrontResponse(input.url, host, ["9.99", "10.99"], ["Floral Bloom Tee", "Oversized Shirt"]);
+      }
+      if (host === "deathwishcoffee.com") {
+        return storefrontResponse(input.url, host, "15.00", "Signature Shadow Tee");
+      }
+      if (host === "www.brooklinen.com") {
+        return storefrontResponse(input.url, host, "5.00", "Classic Percale Pillowcase Set");
+      }
+      return storefrontResponse(input.url, host);
+    });
+    const port = createShopifyPortFromEnvironment(
+      { SHOPIFY_STOREFRONT_MODE: "fixed-five" },
+      { safeFetch, clock: { now: () => new Date(now) } }
+    );
+
+    const result = await port.search({ query: "shirt", limit: 3 });
+
+    expect(result.products.map((product) => [product.merchant, product.title])).toEqual([
+      ["Fashion Nova", "Floral Bloom Tee"],
+      ["Death Wish Coffee", "Signature Shadow Tee"],
+      ["Fashion Nova", "Oversized Shirt"]
     ]);
   });
 
@@ -99,7 +127,12 @@ describe("Shopify Storefront MCP client", () => {
     const safeFetch = vi.fn(async (input: { url: string }) => {
       const host = new URL(input.url).hostname;
       if (host === "kith.com") throw new Error("upstream failed");
-      return storefrontResponse(input.url, host, host === "www.allbirds.com" ? "20.00" : undefined);
+      return storefrontResponse(
+        input.url,
+        host,
+        host === "www.allbirds.com" ? "20.00" : undefined,
+        "Sample Shoes"
+      );
     });
     const port = createShopifyPortFromEnvironment(
       { SHOPIFY_STOREFRONT_MODE: "fixed-five" },
@@ -149,10 +182,16 @@ describe("Shopify Storefront MCP client", () => {
   });
 });
 
-function storefrontResponse(url: string, host: string, price?: string | string[]) {
+function storefrontResponse(
+  url: string,
+  host: string,
+  price?: string | string[],
+  title?: string | string[]
+) {
   const prices = price === undefined ? [] : Array.isArray(price) ? price : [price];
+  const titles = title === undefined ? [] : Array.isArray(title) ? title : [title];
   const nodes = prices.map((amount, index) => ({
-    title: `Sample Product ${index + 1}`, handle: `sample-${index + 1}`, vendor: host,
+    title: titles[index] ?? `Sample Shirt ${index + 1}`, handle: `sample-${index + 1}`, vendor: host,
     onlineStoreUrl: `https://${host}/products/sample-${index + 1}`, featuredImage: null,
     selectedOrFirstAvailableVariant: {
       title: "Default Title", sku: `${host}-sku`, barcode: null,

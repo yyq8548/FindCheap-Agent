@@ -167,7 +167,7 @@ const ShopifyProductsOutputShape = {
     apiDurationMs: z.number().int().nonnegative(),
     cacheStatus: z.enum(["MISS", "HIT", "COALESCED"]),
     chromeFallbackEligible: z.boolean(),
-    selectionPolicy: z.literal("DIVERSE_MERCHANTS_THEN_PRICE")
+    selectionPolicy: z.literal("RELEVANCE_THEN_DIVERSE_MERCHANTS_THEN_PRICE")
   }),
   products: z.array(ShopifyProductOutputSchema)
 };
@@ -303,7 +303,7 @@ function shopifyUnavailableResult() {
         apiDurationMs: 0,
         cacheStatus: "MISS" as const,
         chromeFallbackEligible: false,
-        selectionPolicy: "DIVERSE_MERCHANTS_THEN_PRICE" as const
+        selectionPolicy: "RELEVANCE_THEN_DIVERSE_MERCHANTS_THEN_PRICE" as const
       },
       products: []
     }
@@ -369,7 +369,7 @@ export function createShoppingServer(
     "search_shopify_products",
     {
       title: "Search Shopify products (Beta)",
-      description: "Search five fixed tokenless Shopify Storefront pilots by product query or handle. Returns up to 20 globally ranked public item prices.",
+      description: "Search five fixed tokenless Shopify Storefront pilots by product query or handle. Returns relevance-filtered, merchant-diverse public item prices.",
       inputSchema: ShopifyProductsInputSchema,
       outputSchema: ShopifyProductsOutputShape,
       annotations: {

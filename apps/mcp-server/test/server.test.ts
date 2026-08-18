@@ -41,7 +41,7 @@ const shopifyPort: ShopifyPort = {
       apiDurationMs: 250,
       cacheStatus: "MISS",
       chromeFallbackEligible: false,
-      selectionPolicy: "DIVERSE_MERCHANTS_THEN_PRICE"
+      selectionPolicy: "RELEVANCE_THEN_DIVERSE_MERCHANTS_THEN_PRICE"
     },
     products: [{
       merchantId: "death-wish-coffee",
@@ -182,7 +182,7 @@ describe("shopping MCP server", () => {
         apiDurationMs: 250,
         cacheStatus: "MISS",
         chromeFallbackEligible: false,
-        selectionPolicy: "DIVERSE_MERCHANTS_THEN_PRICE"
+        selectionPolicy: "RELEVANCE_THEN_DIVERSE_MERCHANTS_THEN_PRICE"
       },
       products: [{
         merchant: "Death Wish Coffee",

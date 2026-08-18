@@ -37,6 +37,8 @@ describe("FindCheap-Agent v0.1 Chrome contract", () => {
     expect(skill).toContain("explicitly requests no Chrome");
     expect(skill).toContain("API duration");
     expect(skill).toContain("Chrome fallback: `NOT_USED` or `USED`");
+    expect(skill).toContain("rejects unrelated products first");
+    expect(skill).toContain("Never restore a rejected product");
   });
 
   it("defines one bounded, user-authorized web-wide merchant workflow", async () => {
@@ -95,11 +97,11 @@ describe("FindCheap-Agent v0.1 Chrome contract", () => {
       interface: { defaultPrompt: string[]; longDescription: string };
     };
 
-    expect(manifest.version).toMatch(/^0\.1\.2\+codex\./u);
+    expect(manifest.version).toMatch(/^0\.1\.3\+codex\./u);
     expect(manifest.interface.longDescription).toMatch(/Codex Plugin Agent/u);
     expect(manifest.interface.longDescription).toMatch(/authorized Chrome/u);
     expect(manifest.interface.defaultPrompt).toEqual([
-      "Use FindCheap-Agent to call the five-store Shopify search once, return three merchant-diverse lowest prices, and use authorized Chrome only after complete zero-result coverage."
+      "Use FindCheap-Agent to call the five-store Shopify search once, preserve its relevance-first merchant-diverse Top 3, and use authorized Chrome only after complete zero-result coverage."
     ]);
   });
 
