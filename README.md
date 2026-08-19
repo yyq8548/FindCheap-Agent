@@ -69,3 +69,7 @@ v0.3.5 rotates the MCP Apps UI resource URI to invalidate stale host caches, rea
 result notifications and ChatGPT compatibility metadata, and replaces silent blank cards with a
 visible fallback while preserving the complete text response.
 
+v0.3.6 follows the Codex sandbox's real late-data lifecycle: product cards render from the standard
+MCP tool-result notification or the `openai:set_globals` compatibility event. The resource URI is
+rotated again, and CSP image access is reduced to Shopify's CDN only.
+

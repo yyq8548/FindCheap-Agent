@@ -1,13 +1,8 @@
-import { SHOPIFY_REGISTRY } from "./shopify-registry.js";
-
-export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v3.html";
+export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v4.html";
 
 export const PRODUCT_CARD_RESOURCE_DOMAINS = [
-  "https://cdn.shopify.com",
-  ...new Set(SHOPIFY_REGISTRY.merchants.flatMap((merchant) =>
-    merchant.allowedHosts.map((host) => `https://${host}`)
-  ))
-].sort();
+  "https://cdn.shopify.com"
+];
 
 export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
 <html lang="en">
@@ -135,6 +130,10 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       }
       if (message.method === "ui/notifications/tool-result") render(message.params?.structuredContent);
     }, { passive: true });
+    window.addEventListener("openai:set_globals", (event) => {
+      const output = event.detail?.globals?.toolOutput;
+      if (output) render(output);
+    });
     const responseMetadata = window.openai?.toolResponseMetadata;
     const initialOutput = window.openai?.toolOutput
       || responseMetadata?.mcp_tool_result?.structuredContent
@@ -142,7 +141,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     if (initialOutput) render(initialOutput);
     request("ui/initialize", {
       protocolVersion: "2026-01-26",
-      appInfo: { name: "FindCheap product cards", version: "0.3.5" },
+      appInfo: { name: "FindCheap product cards", version: "0.3.6" },
       appCapabilities: { availableDisplayModes: ["inline"] }
     }).then(() => {
       notify("ui/notifications/initialized");

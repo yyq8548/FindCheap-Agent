@@ -24,18 +24,23 @@ function text(node: FakeNode): string {
 }
 
 describe("product-card MCP Apps UI", () => {
-  it("initializes the MCP Apps bridge before rendering host results", async () => {
+  it("renders a late Codex globals update and initializes the MCP Apps bridge", async () => {
     const script = PRODUCT_CARD_HTML.match(/<script>([\s\S]*)<\/script>/u)?.[1];
     expect(script).toBeDefined();
 
     const app = new FakeNode();
-    let onMessage: ((event: { source: object; data: unknown }) => void) | undefined;
+    type TestEvent = {
+      source?: object;
+      data?: unknown;
+      detail?: { globals?: { toolOutput?: unknown } };
+    };
+    const listeners = new Map<string, (event: TestEvent) => void>();
     const messages: unknown[] = [];
     const parent = { postMessage: (message: unknown) => messages.push(message) };
     const window = {
       parent,
       openai: undefined,
-      addEventListener: (_type: string, listener: typeof onMessage) => { onMessage = listener; },
+      addEventListener: (type: string, listener: (event: TestEvent) => void) => { listeners.set(type, listener); },
       setTimeout: () => 1,
       ResizeObserver: undefined
     };
@@ -53,11 +58,11 @@ describe("product-card MCP Apps UI", () => {
       method: "ui/initialize",
       params: {
         protocolVersion: "2026-01-26",
-        appInfo: { name: "FindCheap product cards", version: "0.3.5" },
+        appInfo: { name: "FindCheap product cards", version: "0.3.6" },
         appCapabilities: { availableDisplayModes: ["inline"] }
       }
     });
-    onMessage?.({ source: parent, data: { jsonrpc: "2.0", id: 1, result: {} } });
+    listeners.get("message")?.({ source: parent, data: { jsonrpc: "2.0", id: 1, result: {} } });
     await Promise.resolve();
     expect(messages).toContainEqual({
       jsonrpc: "2.0",
@@ -69,13 +74,10 @@ describe("product-card MCP Apps UI", () => {
       method: "ui/notifications/size-changed",
       params: { width: 700, height: 320 }
     });
-    onMessage?.({
-      source: parent,
-      data: {
-        jsonrpc: "2.0",
-        method: "ui/notifications/tool-result",
-        params: {
-          structuredContent: {
+    listeners.get("openai:set_globals")?.({
+      detail: {
+        globals: {
+          toolOutput: {
             products: [{
               merchant: "Example Coffee",
               title: "Verified Coffee",
@@ -101,5 +103,36 @@ describe("product-card MCP Apps UI", () => {
     expect(text(app)).toContain("Verified Coffee");
     expect(text(app)).toContain("$14.99");
     expect(text(app)).toContain("1 verified product card");
+
+    listeners.get("message")?.({
+      source: parent,
+      data: {
+        jsonrpc: "2.0",
+        method: "ui/notifications/tool-result",
+        params: {
+          structuredContent: {
+            products: [{
+              merchant: "Notification Merchant",
+              title: "Notification Coffee",
+              matchStatus: "EXACT",
+              condition: "UNKNOWN",
+              availability: "IN_STOCK",
+              merchantUrl: "https://example.com/products/notification-coffee",
+              card: {
+                merchant: "Notification Merchant",
+                title: "Notification Coffee",
+                primaryPrice: { amountCents: 1599, currency: "USD" },
+                matchBadge: "EXACT",
+                conditionBadge: "UNKNOWN",
+                availability: "IN_STOCK",
+                actionLabel: "View at merchant"
+              }
+            }]
+          }
+        }
+      }
+    });
+    expect(text(app)).toContain("Notification Coffee");
+    expect(text(app)).toContain("$15.99");
   });
 });
