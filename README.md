@@ -77,3 +77,10 @@ v0.3.7 also handles Codex code-mode calls that preserve the UI resource and tool
 the nested tool's structured result. The card uses `toolInput.renderId` to load its immutable
 snapshot through the standard MCP Apps `tools/call` bridge, while retaining direct-result rendering.
 
+v0.4.0 adds an Affiliate-ready Shopify purchase-link boundary without enabling any relationship by
+default. A checked-in `APPROVED` relationship, exact affiliate origin and template, and a non-empty
+runtime campaign credential are all required before an `APPROVED_AFFILIATE` link can be emitted.
+Otherwise each CTA remains the canonical merchant URL. Affiliate disclosures render beside the CTA,
+no commission amount is inferred, and affiliate state is applied only after product selection so it
+cannot affect ranking.
+
