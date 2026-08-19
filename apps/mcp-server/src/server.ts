@@ -582,7 +582,7 @@ export function createShoppingServer(
   bestBuyPort: BestBuyPort = createUnavailableBestBuyPort(),
   shopifyPort: ShopifyPort = createUnavailableShopifyPort()
 ): McpServer {
-  const server = new McpServer({ name: "findcheap-agent", version: "0.3.6" });
+  const server = new McpServer({ name: "findcheap-agent", version: "0.3.7" });
   const renderSnapshots = new Map<string, {
     expiresAt: number;
     content: ReturnType<typeof shopifyResult>["structuredContent"] & { renderId: string };

@@ -6,7 +6,7 @@ Bundle: `plugins/shopping-agent/dist/mcp-server.js`
 
 Metafile: `plugins/shopping-agent/dist/mcp-server.meta.json`
 
-Bundle SHA-256: `7560dbe110804808632c50939cc1881cbd25755e1fc91aa0509cf9b930acb249`
+Bundle SHA-256: `4ae9dd35902a262e40d18ebd1ca2db3afb6c4d6451cb94f2ce8e045381b88041`
 
 Build command: `pnpm build:mcp`
 

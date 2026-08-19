@@ -73,3 +73,7 @@ v0.3.6 follows the Codex sandbox's real late-data lifecycle: product cards rende
 MCP tool-result notification or the `openai:set_globals` compatibility event. The resource URI is
 rotated again, and CSP image access is reduced to Shopify's CDN only.
 
+v0.3.7 also handles Codex code-mode calls that preserve the UI resource and tool input but consume
+the nested tool's structured result. The card uses `toolInput.renderId` to load its immutable
+snapshot through the standard MCP Apps `tools/call` bridge, while retaining direct-result rendering.
+

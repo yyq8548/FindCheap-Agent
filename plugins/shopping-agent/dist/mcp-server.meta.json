@@ -3998,7 +3998,7 @@
   },
   "outputs": {
     "../../plugins/shopping-agent/dist/mcp-server.js": {
-      "bytes": 407579,
+      "bytes": 408884,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
@@ -4560,7 +4560,7 @@
           "bytesInOutput": 2484
         },
         "src/product-card-ui.ts": {
-          "bytesInOutput": 8328
+          "bytesInOutput": 9633
         },
         "src/server.ts": {
           "bytesInOutput": 17819
