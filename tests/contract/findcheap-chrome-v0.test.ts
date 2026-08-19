@@ -128,7 +128,7 @@ describe("FindCheap-Agent v0.4.1 Chrome contract", () => {
       interface: { defaultPrompt: string[]; longDescription: string };
     };
 
-    expect(manifest.version).toMatch(/^0\.5\.0(?:\+codex\.)?/u);
+    expect(manifest.version).toMatch(/^0\.5\.1(?:\+codex\.)?/u);
     expect(manifest.interface.longDescription).toMatch(/Codex Plugin Agent/u);
     expect(manifest.interface.longDescription).toMatch(/authorized Chrome/u);
     expect(manifest.interface.defaultPrompt).toEqual([

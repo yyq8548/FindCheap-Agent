@@ -11,6 +11,7 @@ import {
   type ShoppingServerDependencies
 } from "../src/server.js";
 import type { AffiliateLinkResolver } from "../src/affiliate-links.js";
+import { createMemoryWatchStore } from "../src/watch-store.js";
 
 const closers: Array<() => Promise<void>> = [];
 
@@ -708,10 +709,72 @@ describe("Coupon and Watch tools", () => {
     expect(result.structuredContent).toMatchObject({ status: "DATA_SOURCE_UNAVAILABLE", deals: [] });
   });
 
+  it("asks for product identity and condition before creating a broad product watch", async () => {
+    const client = await connect({ compare: async () => comparison }, bestBuyPort, shopifyPort, undefined, { now: () => current });
+    const created = await client.callTool({ name: "create_watch", arguments: {
+      query: "Apple AirPods Pro", condition: "PRICE_BELOW", threshold: 17_000
+    } });
+
+    expect(created.structuredContent).toMatchObject({
+      status: "NEEDS_CLARIFICATION",
+      questions: expect.arrayContaining([
+        expect.stringMatching(/generation|model|GTIN/i),
+        expect.stringMatching(/condition/i)
+      ])
+    });
+    expect((await client.callTool({ name: "list_watches", arguments: {} })).structuredContent).toEqual({ watches: [] });
+  });
+
+  it("fails closed before source lookup for a legacy broad product watch", async () => {
+    const watches = createMemoryWatchStore();
+    const legacy = await watches.create({
+      query: "Apple AirPods Pro", condition: "PRICE_BELOW", threshold: 17_000, membershipIds: [], intervalMinutes: 60
+    }, current.toISOString());
+    const search = vi.fn(shopifyPort.search);
+    const client = await connect({ compare: async () => comparison }, bestBuyPort, { search }, undefined, { now: () => current, watches });
+
+    expect((await client.callTool({ name: "check_watch", arguments: { watchId: legacy.watchId } })).structuredContent).toMatchObject({
+      status: "NEEDS_CLARIFICATION"
+    });
+    expect(search).not.toHaveBeenCalled();
+  });
+
+  it("binds product watch lookup to identity and explicit condition", async () => {
+    const search = vi.fn(shopifyPort.search);
+    const client = await connect({ compare: async () => comparison }, bestBuyPort, { search }, undefined, { now: () => current });
+    const created = await client.callTool({ name: "create_watch", arguments: {
+      query: "Valhalla Java pods", condition: "PRICE_BELOW", threshold: 1_700,
+      identity: { modelNumber: "5094SSC", gtin: "810063341254", variantDimensions: { "Pack Size": "10 count" } },
+      conditionPreference: "NEW"
+    } });
+    const watchId = (created.structuredContent as { watchId: string }).watchId;
+
+    expect((await client.callTool({ name: "check_watch", arguments: { watchId } })).structuredContent).toMatchObject({
+      status: "DATA_SOURCE_UNAVAILABLE"
+    });
+    expect(search).toHaveBeenCalledWith(expect.objectContaining({
+      query: "Valhalla Java pods 5094SSC 810063341254 10 count"
+    }));
+  });
+
+  it("rejects an EXACT source result whose returned identity does not match the watch", async () => {
+    const client = await connect({ compare: async () => comparison }, bestBuyPort, shopifyPort, undefined, { now: () => current });
+    const created = await client.callTool({ name: "create_watch", arguments: {
+      query: "Apple AirPods Pro", condition: "IN_STOCK",
+      identity: { modelNumber: "MTJV3AM/A" }, conditionPreference: "ANY"
+    } });
+    const watchId = (created.structuredContent as { watchId: string }).watchId;
+
+    expect((await client.callTool({ name: "check_watch", arguments: { watchId } })).structuredContent).toMatchObject({
+      status: "DATA_SOURCE_UNAVAILABLE"
+    });
+  });
+
   it("persists a price watch, triggers once, and supports pause/delete", async () => {
     const client = await connect({ compare: async () => comparison }, bestBuyPort, shopifyPort, undefined, { now: () => current });
     const created = await client.callTool({ name: "create_watch", arguments: {
-      query: "Valhalla Java pods", condition: "PRICE_BELOW", threshold: 1_700, intervalMinutes: 60
+      query: "Valhalla Java pods", condition: "PRICE_BELOW", threshold: 1_700, intervalMinutes: 60,
+      identity: { modelNumber: "5094SSC", variantDimensions: { "Pack Size": "10 count" } }, conditionPreference: "ANY"
     } });
     const watchId = (created.structuredContent as { watchId: string }).watchId;
     expect(created.structuredContent).toMatchObject({ status: "ACTIVE", intervalMinutes: 60 });
@@ -732,7 +795,8 @@ describe("Coupon and Watch tools", () => {
   it("serializes concurrent checks so one threshold crossing sends one alert", async () => {
     const client = await connect({ compare: async () => comparison }, bestBuyPort, shopifyPort, undefined, { now: () => current });
     const created = await client.callTool({ name: "create_watch", arguments: {
-      query: "Valhalla Java pods", condition: "PRICE_BELOW", threshold: 1_700
+      query: "Valhalla Java pods", condition: "PRICE_BELOW", threshold: 1_700,
+      identity: { modelNumber: "5094SSC" }, conditionPreference: "ANY"
     } });
     const watchId = (created.structuredContent as { watchId: string }).watchId;
     const results = await Promise.all([
@@ -751,7 +815,9 @@ describe("Coupon and Watch tools", () => {
       return { ...result, products: result.products.map((product) => ({ ...product, availability })) };
     } };
     const client = await connect({ compare: async () => comparison }, bestBuyPort, changingPort, undefined, { now: () => current });
-    const created = await client.callTool({ name: "create_watch", arguments: { query: "Valhalla Java pods", condition: "RESTOCKED" } });
+    const created = await client.callTool({ name: "create_watch", arguments: {
+      query: "Valhalla Java pods", condition: "RESTOCKED", identity: { gtin: "810063341254" }, conditionPreference: "ANY"
+    } });
     const watchId = (created.structuredContent as { watchId: string }).watchId;
     expect((await client.callTool({ name: "check_watch", arguments: { watchId } })).structuredContent).toMatchObject({ status: "NOT_TRIGGERED" });
     availability = "IN_STOCK";

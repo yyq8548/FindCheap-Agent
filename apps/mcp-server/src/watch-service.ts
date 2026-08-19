@@ -1,9 +1,9 @@
 import { VerifiedDealsSchema, type DealPort, type VerifiedDeal } from "./deal-client.js";
 import type { ShopifyPort, ShopifyProduct } from "./shopify-client.js";
-import type { WatchRecord, WatchStore } from "./watch-store.js";
+import { productWatchClarificationQuestions, type WatchRecord, type WatchStore } from "./watch-store.js";
 
 export type WatchEvaluation = {
-  status: "TRIGGERED" | "NOT_TRIGGERED" | "PAUSED" | "EXPIRED" | "DATA_SOURCE_UNAVAILABLE";
+  status: "TRIGGERED" | "NOT_TRIGGERED" | "PAUSED" | "EXPIRED" | "NEEDS_CLARIFICATION" | "DATA_SOURCE_UNAVAILABLE";
   message: string;
   watch: WatchRecord;
   observation?: Record<string, unknown>;
@@ -21,6 +21,15 @@ export async function evaluateWatch(
     const expired = { ...watch, status: "EXPIRED" as const, updatedAt: now.toISOString() };
     await store.save(expired);
     return { status: "EXPIRED", message: "Watch has expired.", watch: expired };
+  }
+  const questions = productWatchClarificationQuestions(watch.spec);
+  if (questions.length > 0) {
+    return {
+      status: "NEEDS_CLARIFICATION",
+      message: questions.join(" "),
+      watch,
+      observation: { questions }
+    };
   }
 
   try {
@@ -57,7 +66,7 @@ function isDealCondition(watch: WatchRecord) {
 
 async function observeProducts(watch: WatchRecord, shopify: ShopifyPort, now: Date) {
   const result = await shopify.search({
-    query: watch.spec.query,
+    query: buildProductWatchQuery(watch),
     limit: 3,
     selectionMode: "LOWEST_PRICE",
     comparisonMode: "DISCOVERY",
@@ -66,7 +75,8 @@ async function observeProducts(watch: WatchRecord, shopify: ShopifyPort, now: Da
   });
   const products = result.products.filter((product) => {
     const checkedAt = Date.parse(product.checkedAt);
-    return product.matchStatus === "EXACT" && checkedAt <= now.getTime() + 120_000 && checkedAt >= now.getTime() - 900_000;
+    return product.matchStatus === "EXACT" && identityMatches(product, watch) && conditionMatches(product, watch) &&
+      checkedAt <= now.getTime() + 120_000 && checkedAt >= now.getTime() - 900_000;
   });
   if (products.length === 0) throw new Error("DATA_SOURCE_UNAVAILABLE");
   if (watch.spec.condition === "PRICE_BELOW") {
@@ -94,6 +104,40 @@ async function observeProducts(watch: WatchRecord, shopify: ShopifyPort, now: Da
     statusMessage: inStock ? `${product.title} is in stock; no new transition to alert.` : `${product.title} is not currently in stock.`,
     data: productObservation(product)
   };
+}
+
+function buildProductWatchQuery(watch: WatchRecord): string {
+  const identity = watch.spec.identity;
+  const terms = [
+    watch.spec.query,
+    identity?.generation,
+    identity?.modelNumber,
+    identity?.gtin,
+    ...Object.values(identity?.variantDimensions ?? {})
+  ].filter((term): term is string => term !== undefined && term.length > 0);
+  return [...new Set(terms)].join(" ");
+}
+
+function conditionMatches(product: ShopifyProduct, watch: WatchRecord): boolean {
+  const requested = watch.spec.conditionPreference;
+  return requested === "ANY" || product.condition === requested;
+}
+
+function identityMatches(product: ShopifyProduct, watch: WatchRecord): boolean {
+  const identity = watch.spec.identity;
+  if (identity === undefined) return false;
+  if (identity.gtin !== undefined && !product.gtins.includes(identity.gtin)) return false;
+  if (identity.modelNumber !== undefined && normalizeIdentity(product.sku) !== normalizeIdentity(identity.modelNumber)) return false;
+  if (identity.generation !== undefined && !normalizeIdentity(product.title).includes(normalizeIdentity(identity.generation))) return false;
+  return Object.entries(identity.variantDimensions ?? {}).every(([key, value]) => {
+    const productValue = Object.entries(product.variantDimensions)
+      .find(([productKey]) => normalizeIdentity(productKey) === normalizeIdentity(key))?.[1];
+    return normalizeIdentity(productValue) === normalizeIdentity(value);
+  });
+}
+
+function normalizeIdentity(value: string | undefined): string {
+  return (value ?? "").normalize("NFKC").toLocaleLowerCase("en-US").replace(/[^\p{L}\p{N}]+/gu, "");
 }
 
 async function observeDeals(watch: WatchRecord, deals: DealPort, now: Date) {

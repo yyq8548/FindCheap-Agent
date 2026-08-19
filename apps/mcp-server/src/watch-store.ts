@@ -15,6 +15,25 @@ export const WatchConditionSchema = z.enum([
   "RESTOCKED"
 ]);
 
+export const ProductWatchConditionPreferenceSchema = z.enum([
+  "NEW",
+  "USED",
+  "REFURBISHED",
+  "OPEN_BOX",
+  "ANY"
+]);
+
+export const ProductWatchIdentitySchema = z.object({
+  generation: z.string().trim().min(1).max(80).regex(/[\p{L}\p{N}]/u).optional(),
+  modelNumber: z.string().trim().min(1).max(120).regex(/[\p{L}\p{N}]/u).optional(),
+  gtin: z.string().regex(/^\d{8,14}$/u).optional(),
+  variantDimensions: z.record(z.string().trim().min(1).max(80), z.string().trim().min(1).max(120)).optional()
+}).strict().superRefine((identity, context) => {
+  if (identity.generation === undefined && identity.modelNumber === undefined && identity.gtin === undefined) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "product identity requires generation, modelNumber, or gtin" });
+  }
+});
+
 export const WatchSpecSchema = z.object({
   query: z.string().trim().min(2).max(300),
   merchant: z.string().trim().min(2).max(160).optional(),
@@ -23,6 +42,8 @@ export const WatchSpecSchema = z.object({
     .describe("PRICE_BELOW uses integer USD cents; DISCOUNT_AT_LEAST and CASHBACK_AT_LEAST use percentage points."),
   zipCode: z.string().regex(/^\d{5}(?:-\d{4})?$/u).optional(),
   membershipIds: z.array(z.string().trim().min(1).max(80)).max(20).default([]),
+  identity: ProductWatchIdentitySchema.optional(),
+  conditionPreference: ProductWatchConditionPreferenceSchema.optional(),
   intervalMinutes: z.number().int().min(15).max(1_440).default(60),
   expiresAt: z.string().datetime({ offset: true }).optional()
 }).strict().superRefine((spec, context) => {
@@ -35,6 +56,18 @@ export const WatchSpecSchema = z.object({
 });
 
 export type WatchSpec = z.infer<typeof WatchSpecSchema>;
+
+export function productWatchClarificationQuestions(spec: WatchSpec): string[] {
+  if (!["PRICE_BELOW", "IN_STOCK", "RESTOCKED"].includes(spec.condition)) return [];
+  const questions: string[] = [];
+  if (spec.identity === undefined) {
+    questions.push("Which generation, exact model number, or GTIN should this watch monitor?");
+  }
+  if (spec.conditionPreference === undefined) {
+    questions.push("Which product condition should this watch accept: NEW, USED, REFURBISHED, OPEN_BOX, or ANY?");
+  }
+  return questions;
+}
 
 export const WatchRecordSchema = z.object({
   watchId: z.string().uuid(),
