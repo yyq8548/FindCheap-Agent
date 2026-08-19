@@ -2,21 +2,88 @@
 
 Product form: **Codex Plugin Agent**.
 
-The shipped Codex plugin lives at `plugins/findcheap-agent/`. Codex orchestrates two bounded paths:
+FindCheap Agent is a Codex plugin for finding products, checking whether offers refer to the same item, and comparing verified public prices. It returns up to three options with product images, merchant links, match labels, condition, availability, and the evidence used to rank them.
 
-- an authorized Chrome skill for a read-only, web-wide fallback search;
-- a local stdio MCP server for audited Commerce data, the credential-gated Best Buy pilot, and
-  Shopify Global Catalog search across eligible merchants,
-  exact-first intent-aware Top 3 selection (literal lowest price or merchant-diverse recommendations), labeled similar alternatives, variant evidence,
-  clarification questions, and API diagnostics.
+Codex calls a local stdio MCP server for catalog search, matching, ranking, product cards, deals, and watch rules. An authorized Chrome skill handles the bounded fallback search when the catalog has no usable result.
 
-The Chrome path discovers up to eight merchant product pages, verifies five first, inspects up to
-three reserves only when needed, and returns no more than three exact, source-linked offers. It
-does not order, check out, or submit payment.
+The agent is read only. It does not order, check out, or submit payment.
 
-The approved product specification and implementation plans live under `docs/superpowers/`.
+## What it can do
 
-## Install the GitHub beta
+### Search for products
+
+The agent searches Shopify Global Catalog across eligible merchants. It understands common product details such as brand, model, SKU, GTIN, color, size, and capacity.
+
+Results are classified as `EXACT` or `SIMILAR`. If the request is too broad, the agent asks for the missing model or variant instead of presenting a weak match as the same product.
+
+When the catalog returns no usable result, the agent can use a user authorized Chrome session for a bounded, read only search of public merchant pages. Chrome is a fallback, not the default search path.
+
+### Compare offers
+
+The agent compares offers only when the available identity evidence indicates that they are the same product and variant. Exact matches rank ahead of similar alternatives.
+
+Each result can include:
+
+- merchant and product name
+- verified public item price
+- product image and canonical merchant link
+- stock signal and product condition
+- model, SKU, GTIN, or variant evidence
+- observation time and source status
+
+The default result is the public item price, not a guaranteed delivered price. Shipping, tax, mandatory fees, membership pricing, Coupon savings, and final checkout totals remain unavailable unless a source verifies them for the requested context.
+
+### Show product cards
+
+Codex can render the top results as interactive product cards. Each card shows the image, merchant, price, match quality, condition, availability, and a button that opens the merchant's product page.
+
+The complete text result remains available when a Codex client cannot display the card interface.
+
+### Find verified deals
+
+The plugin has a fail closed Coupon and promotion path. It can return a code, promotion, membership offer, Cashback offer, or offline Coupon only when a configured Deals API provides current evidence.
+
+Without that evidence, the agent reports the deal as unavailable. It does not invent codes, savings, or Cashback rates.
+
+### Create watch reminders
+
+Users can ask Codex to watch a product and notify them when a condition is met. Supported watch conditions include:
+
+- price falls below a target
+- a promotion or verified Coupon appears
+- inventory returns
+- a specific size, color, or variant is restocked
+
+Scheduling and notifications use Codex Automation. The plugin stores the watch rule and its last known state so it can report a change instead of repeating the same alert. Codex must remain configured to run the automation for monitoring to continue.
+
+Example requests:
+
+```text
+Watch AirPods Pro and notify me when the verified item price falls below $170.
+```
+
+```text
+Tell me when this jacket is back in stock in black, size M.
+```
+
+## Affiliate status
+
+Affiliate tracking is not connected yet.
+
+Product cards currently use ordinary canonical merchant links. FindCheap Agent does not claim an affiliate relationship, add tracking parameters, report commission, or promise Cashback. The repository includes a guarded Affiliate ready boundary, but it stays disabled until a merchant or network approves the relationship and supplies the required credentials.
+
+Affiliate status does not influence search or ranking.
+
+## Current limits
+
+- Search coverage depends on Shopify Global Catalog and the public pages available to the authorized Chrome fallback.
+- A product marked `SIMILAR` is an alternative, not the same item.
+- `UNKNOWN` condition does not mean new.
+- Stock signals and item prices can change after the observation time.
+- Shipping, tax, fees, membership prices, Coupon savings, and delivered prices are not estimated.
+- The agent cannot check out, purchase, reserve inventory, or pay.
+
+## Install
 
 Requirements: Codex desktop or CLI and Node.js 22.
 
@@ -25,85 +92,20 @@ codex plugin marketplace add yyq8548/FindCheap-Agent --ref main
 codex plugin add findcheap-agent@findcheap-agent
 ```
 
-Restart Codex, start a new task, then try: `FindCheap Agent 搜索 DÔEN dress，显示三个商品卡片`.
-See [sharing and installation](docs/product/findcheap-agent-share-package.md) for verification,
-updates, and current limitations.
+Restart Codex, open a new task, and try:
 
-Current merchant status: **0 merchants are enabled**. Commerce API and Codex MCP results are
-served only from fresh, exact, audit-promoted Commerce records. Staging records, similar-item
-matches, expired prices, and quotes for another ZIP or membership context are never presented as
-exact comparisons. With no approved merchant configuration, MCP data access fails closed while the
-user-authorized Chrome fallback path remains available.
+```text
+FindCheap Agent 搜索 DÔEN dress，显示三个商品卡片
+```
 
-See `docs/product/commerce-api-runbook.md` for deployment configuration.
+See [sharing and installation](docs/product/findcheap-agent-share-package.md) for testing and update instructions.
 
-Best Buy official Products API pilot setup lives in
-`docs/product/best-buy-products-api-runbook.md`. It remains disabled until real audit approval.
+## Project structure
 
-The legacy Shopify Storefront PoC lives in `docs/product/shopify-storefront-poc.md`. v0.4.1 uses
-Shopify Global Catalog as the plugin's production discovery path. It does not claim whole-web,
-shipping, tax, Coupon, membership, delivered-price, legal, or affiliate approval coverage.
-Deployment and validation rules live in `docs/product/shopify-global-catalog-runbook.md`.
+- `plugins/findcheap-agent/` contains the distributable Codex plugin.
+- `apps/mcp-server/` contains the local MCP server and product card resource.
+- `apps/commerce-api/` contains the audited comparison API.
+- `apps/ingestion-worker/` contains merchant ingestion and watch state processing.
+- `docs/product/` contains deployment, data source, Coupon, Watch, and Affiliate runbooks.
 
-v0.3.0 classifies Shopify candidates as `EXACT`, `SIMILAR`, or internal `IRRELEVANT`. It groups
-offers across merchants only when exact GTIN and variant or exact brand, MPN/SKU, and variant
-evidence agrees. Otherwise results remain explicitly `DISCOVERY_ONLY`. Irrelevant
-products never enter Top 3. Exact matches rank before cheaper similar products. When only similar
-products remain, the tool requests an exact model, SKU, GTIN, color, size, or capacity.
-Shopify results also expose `NEW`, `USED`, `REFURBISHED`, `OPEN_BOX`, or `UNKNOWN` condition.
-Default and explicit-new searches retain `NEW` and clearly labeled `UNKNOWN`; explicit used,
-refurbished/renewed, and open-box inventory is returned only when requested.
-Explicit cheapest requests use literal price order and may include several products from one merchant;
-recommendation requests prefer merchant diversity. Codex must preserve the tool's returned order.
-The legacy v3 registry contains forty-five technically verified pilots and accepts at most fifty checked-in
-entries. Its release audit requires 45/45 non-empty schema-valid probes, at most two attempts per
-store, a three-second attempt budget, and p95 latency at or below 2.5 seconds. Per-store failures and timeouts are isolated and
-reported through coverage diagnostics. Technical verification is not merchant, legal, or affiliate approval.
-
-v0.3.1 accepts an optional US ZIP and membership identifiers. It exposes a structured pricing and
-freshness contract: the public regular item price is verified at query time; ZIP shipping, tax,
-mandatory fees, member price, and delivered price are explicitly unavailable unless independently
-verified. Missing charges are never estimated or replaced with zero.
-
-v0.3.2 adds dynamic product-card data, explicit verified-or-unavailable Coupon status, safe purchase
-links, and a compact quality summary. The public Shopify registry currently has no audited Coupon
-or affiliate relationship, so it returns no codes and preserves each canonical merchant URL. Tagged
-affiliate links are emitted only by an independently approved source.
-
-v0.3.3 makes the plugin MCP server explicitly auto-start with inherited `PATH`, removing cache and
-bundle-location work from normal searches. Shopify results now attach a versioned MCP Apps UI
-resource that renders up to three verified product cards while preserving the complete text and
-structured result for clients without UI support.
-
-v0.3.4 removes pre-search narration and separates retrieval from presentation: one Shopify search
-returns a short-lived `renderId`, then `render_product_cards` renders the immutable result through the
-MCP Apps UI resource. Search remains independently usable by clients without UI support.
-
-v0.3.5 rotates the MCP Apps UI resource URI to invalidate stale host caches, reads both standard tool
-result notifications and ChatGPT compatibility metadata, and replaces silent blank cards with a
-visible fallback while preserving the complete text response.
-
-v0.3.6 follows the Codex sandbox's real late-data lifecycle: product cards render from the standard
-MCP tool-result notification or the `openai:set_globals` compatibility event. The resource URI is
-rotated again, and CSP image access is reduced to Shopify's CDN only.
-
-v0.3.7 also handles Codex code-mode calls that preserve the UI resource and tool input but consume
-the nested tool's structured result. The card uses `toolInput.renderId` to load its immutable
-snapshot through the standard MCP Apps `tools/call` bridge, while retaining direct-result rendering.
-
-v0.4.0 adds an Affiliate-ready Shopify purchase-link boundary without enabling any relationship by
-default. A checked-in `APPROVED` relationship, exact affiliate origin and template, and a non-empty
-runtime campaign credential are all required before an `APPROVED_AFFILIATE` link can be emitted.
-Otherwise each CTA remains the canonical merchant URL. Affiliate disclosures render beside the CTA,
-no commission amount is inferred, and affiliate state is applied only after product selection so it
-cannot affect ranking.
-
-v0.4.1 replaces the plugin's fixed 45-store runtime enumeration with Shopify Global Catalog MCP.
-
-v0.5.0 adds verified Coupon/Cashback discovery and persistent price, promotion, inventory, and restock Watch rules. Coupon evidence requires a configured approved Deals API and fails closed when unavailable. Watch scheduling and notifications use Codex Automation; the plugin retains the rule and transition state. See [Coupon + Watch v0.5.0](docs/product/coupon-watch-v0.5.0.md).
-One live `search_catalog` request searches eligible Shopify merchants and returns current product,
-variant, seller, item-price, availability, image, and canonical-link data. Results are not reused
-across searches and images are not downloaded. The old audited Storefront registry remains available only as an explicit compatibility and
-diagnostic mode. Authorized Chrome remains the bounded fallback after a successful zero-result
-Global Catalog response.
-
+The Commerce API path fails closed when no merchant has passed its audit gate. Shopify Global Catalog remains the primary product discovery source, and user authorized Chrome remains the zero result fallback.
