@@ -35,7 +35,7 @@ const unavailableMessage =
 const bestBuyUnavailableMessage =
   "Best Buy live product data is unavailable because BEST_BUY_API_KEY is not configured or the official API request failed.";
 const shopifyUnavailableMessage =
-  "Shopify Storefront Beta data is unavailable because the audited registry is not configured or its public API coverage is incomplete.";
+  "Shopify Global Catalog data is unavailable because the official Catalog request failed or the Agent Profile is not configured.";
 
 const MembershipIdsSchema = z
   .array(z.string().trim().min(1).max(80))
@@ -226,7 +226,7 @@ const ShopifyProductsOutputShape = {
   renderId: z.string().uuid().optional(),
   status: z.enum(["OK", "NEEDS_CLARIFICATION", "DATA_SOURCE_UNAVAILABLE"]),
   message: z.string(),
-  source: z.literal("SHOPIFY_STOREFRONT_API"),
+  source: z.enum(["SHOPIFY_GLOBAL_CATALOG", "SHOPIFY_STOREFRONT_API"]),
   priceScope: z.literal("ITEM_PRICE_ONLY"),
   pricingContext: z.object({
     zipCode: z.string().optional(),
@@ -246,7 +246,7 @@ const ShopifyProductsOutputShape = {
   maxItemPriceCents: z.number().int().positive().optional(),
   comparison: z.object({
     status: z.enum(["SAME_PRODUCT", "DISCOVERY_ONLY", "NEEDS_CLARIFICATION", "UNAVAILABLE"]),
-    identityType: z.enum(["GTIN", "BRAND_MPN"]).optional(),
+    identityType: z.enum(["GTIN", "BRAND_MPN", "UPID"]).optional(),
     evidence: z.array(z.string()),
     merchantCount: z.number().int().nonnegative(),
     offerCount: z.number().int().nonnegative()
@@ -378,7 +378,11 @@ function shopifyResult(
 ) {
   const linkedProducts = result.products.map((product) => ({
     product,
-    purchaseLink: affiliateLinks.resolve({ merchantId: product.merchantId, merchantUrl: product.merchantUrl })
+    purchaseLink: affiliateLinks.resolve({
+      merchantId: product.merchantId,
+      merchantUrl: product.merchantUrl,
+      sourceHost: product.sourceHost
+    })
   }));
   const affiliateLinksApproved = linkedProducts.filter(({ purchaseLink }) =>
     purchaseLink.kind === "APPROVED_AFFILIATE"
@@ -394,7 +398,9 @@ function shopifyResult(
   const linkSummary = affiliateLinksApproved === 0
     ? "Purchase actions use canonical merchant links because no affiliate relationship is active."
     : `${affiliateLinksApproved} purchase link(s) use an approved affiliate relationship with disclosure; remaining links are canonical merchant links. Commission never affects ranking.`;
-  const summary = `Comparison status: ${result.comparison.status}. The audited Shopify registry returned ${result.products.length} product card(s): ${exactCount} exact and ${similarCount} similar, from ${result.merchantsSucceeded}/${result.merchantsQueried} stores.${priceLimit}${comparison} Prices are public item prices only; shipping, tax, mandatory fees, member price, delivered price, and verified coupons are unavailable without merchant evidence. ${linkSummary}`;
+  const source = result.source ?? "SHOPIFY_STOREFRONT_API";
+  const sourceLabel = source === "SHOPIFY_GLOBAL_CATALOG" ? "Shopify Global Catalog" : "audited Shopify registry";
+  const summary = `Comparison status: ${result.comparison.status}. ${sourceLabel} returned ${result.products.length} product card(s): ${exactCount} exact and ${similarCount} similar, from ${result.merchantsSucceeded}/${result.merchantsQueried} returned merchants.${priceLimit}${comparison} Prices are public item prices only; shipping, tax, mandatory fees, member price, delivered price, and verified coupons are unavailable without merchant evidence. ${linkSummary}`;
   const products = linkedProducts.map(({ product, purchaseLink }, index) => {
     const price = product.itemPrice === undefined
       ? "price unavailable"
@@ -426,7 +432,7 @@ function shopifyResult(
     structuredContent: {
       status: "OK" as const,
       message,
-      source: "SHOPIFY_STOREFRONT_API" as const,
+      source,
       priceScope: "ITEM_PRICE_ONLY" as const,
       pricingContext: {
         ...(context.zipCode === undefined ? {} : { zipCode: context.zipCode }),
@@ -511,7 +517,7 @@ function shopifyClarificationResult(
     structuredContent: {
       status: "NEEDS_CLARIFICATION" as const,
       message,
-      source: "SHOPIFY_STOREFRONT_API" as const,
+      source: "SHOPIFY_GLOBAL_CATALOG" as const,
       priceScope: "ITEM_PRICE_ONLY" as const,
       pricingContext: {
         ...(context.zipCode === undefined ? {} : { zipCode: context.zipCode }),
@@ -559,7 +565,7 @@ function shopifyUnavailableResult(
     structuredContent: {
       status: "DATA_SOURCE_UNAVAILABLE" as const,
       message: shopifyUnavailableMessage,
-      source: "SHOPIFY_STOREFRONT_API" as const,
+      source: "SHOPIFY_GLOBAL_CATALOG" as const,
       priceScope: "ITEM_PRICE_ONLY" as const,
       pricingContext: {
         ...(context.zipCode === undefined ? {} : { zipCode: context.zipCode }),
@@ -604,7 +610,7 @@ export function createShoppingServer(
   shopifyPort: ShopifyPort = createUnavailableShopifyPort(),
   affiliateLinks: AffiliateLinkResolver = createAffiliateLinkResolver()
 ): McpServer {
-  const server = new McpServer({ name: "findcheap-agent", version: "0.4.0" });
+  const server = new McpServer({ name: "findcheap-agent", version: "0.4.1" });
   const renderSnapshots = new Map<string, {
     expiresAt: number;
     content: ReturnType<typeof shopifyResult>["structuredContent"] & { renderId: string };
@@ -701,8 +707,8 @@ export function createShoppingServer(
   server.registerTool(
     "search_shopify_products",
     {
-      title: "Search Shopify products (Beta)",
-      description: "Search audited Shopify stores once per lookup. Use comparisonMode=SAME_PRODUCT only with exact identity; selectionMode=LOWEST_PRICE only when cheapest is explicit, otherwise MERCHANT_DIVERSE. Put budget in maxItemPriceCents. Do not call this tool more than once per user lookup.",
+      title: "Search Shopify Global Catalog (Beta)",
+      description: "Search Shopify Global Catalog across eligible merchants once per lookup. Use comparisonMode=SAME_PRODUCT only with exact identity; selectionMode=LOWEST_PRICE only when cheapest is explicit, otherwise MERCHANT_DIVERSE. Put budget in maxItemPriceCents. Do not call this tool more than once per user lookup.",
       inputSchema: ShopifyProductsToolInputSchema,
       outputSchema: ShopifyProductsOutputShape,
       annotations: {

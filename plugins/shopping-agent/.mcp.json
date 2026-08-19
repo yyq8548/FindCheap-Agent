@@ -10,8 +10,9 @@
       "startup_timeout_sec": 10,
       "tool_timeout_sec": 30,
       "env": {
-        "SHOPIFY_STOREFRONT_MODE": "audited-registry",
-        "SHOPIFY_SEARCH_TIMEOUT_MS": "3000"
+        "SHOPIFY_CATALOG_MODE": "global",
+        "SHOPIFY_AGENT_PROFILE_URL": "https://raw.githubusercontent.com/yyq8548/FindCheap-Agent/main/plugins/shopping-agent/ucp-agent-profile.json",
+        "SHOPIFY_GLOBAL_CATALOG_TIMEOUT_MS": "10000"
       }
     }
   }

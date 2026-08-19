@@ -37,8 +37,9 @@ describe("installed plugin stdio", () => {
       startup_timeout_sec: 10,
       tool_timeout_sec: 30,
       env: {
-        SHOPIFY_STOREFRONT_MODE: "audited-registry",
-        SHOPIFY_SEARCH_TIMEOUT_MS: "3000"
+        SHOPIFY_CATALOG_MODE: "global",
+        SHOPIFY_AGENT_PROFILE_URL: "https://raw.githubusercontent.com/yyq8548/FindCheap-Agent/main/plugins/shopping-agent/ucp-agent-profile.json",
+        SHOPIFY_GLOBAL_CATALOG_TIMEOUT_MS: "10000"
       }
     });
 
@@ -58,7 +59,7 @@ describe("installed plugin stdio", () => {
       const tools = await client.listTools();
       const resources = await client.listResources();
       const productCards = await client.readResource({
-        uri: "ui://findcheap/product-cards/v6.html"
+        uri: "ui://findcheap/product-cards/v7.html"
       });
       const comparison = await client.callTool({
         name: "compare_products",
@@ -75,16 +76,16 @@ describe("installed plugin stdio", () => {
       const renderTool = tools.tools.find((tool) => tool.name === "render_product_cards");
       expect(shopifyTool?._meta).toBeUndefined();
       expect(renderTool?._meta).toMatchObject({
-        ui: { resourceUri: "ui://findcheap/product-cards/v6.html" },
-        "openai/outputTemplate": "ui://findcheap/product-cards/v6.html"
+        ui: { resourceUri: "ui://findcheap/product-cards/v7.html" },
+        "openai/outputTemplate": "ui://findcheap/product-cards/v7.html"
       });
       expect(resources.resources).toEqual([expect.objectContaining({
         name: "findcheap-product-cards",
-        uri: "ui://findcheap/product-cards/v6.html",
+        uri: "ui://findcheap/product-cards/v7.html",
         mimeType: "text/html;profile=mcp-app"
       })]);
       expect(productCards.contents).toEqual([expect.objectContaining({
-        uri: "ui://findcheap/product-cards/v6.html",
+        uri: "ui://findcheap/product-cards/v7.html",
         mimeType: "text/html;profile=mcp-app",
         text: expect.stringContaining("ui/notifications/tool-result")
       })]);

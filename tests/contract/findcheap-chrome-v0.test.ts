@@ -20,8 +20,9 @@ const manifestPath = path.join(
   "plugin.json"
 );
 const readmePath = path.join(root, "README.md");
+const profilePath = path.join(root, "plugins", "shopping-agent", "ucp-agent-profile.json");
 
-describe("FindCheap-Agent v0.4.0 Chrome contract", () => {
+describe("FindCheap-Agent v0.4.1 Chrome contract", () => {
   it("uses Shopify first and Chrome only after a successful zero-result response", async () => {
     const skill = await readFile(skillPath, "utf8");
 
@@ -37,7 +38,8 @@ describe("FindCheap-Agent v0.4.0 Chrome contract", () => {
     expect(skill).toContain("Never describe `UNKNOWN` as new");
     expect(skill).toContain("`status: OK`, `coverage: COMPLETE`, and `products.length === 0`");
     expect(skill).toContain("`coverage: PARTIAL`");
-    expect(skill).toContain("v3 registry contains 45 technically verified stores");
+    expect(skill).toContain("Global Catalog searches products from Shopify merchants eligible for catalog inclusion");
+    expect(skill).toContain("Do not reuse Global Catalog results for another lookup or download its images");
     expect(skill).toContain("Do not open Chrome when Shopify returns one or more products");
     expect(skill).toContain("an API error, `DATA_SOURCE_UNAVAILABLE`, malformed response, or timeout");
     expect(skill).toContain("explicitly requests no Chrome");
@@ -65,10 +67,9 @@ describe("FindCheap-Agent v0.4.0 Chrome contract", () => {
     expect(skill).toContain("`LOWEST_PRICE`");
     expect(skill).toContain("`MERCHANT_DIVERSE`");
     expect(skill).toContain("Do not re-sort the returned products");
-    expect(skill).toContain("Configuration is bounded to 50 stores");
     expect(skill).toContain("coverage percentage");
     expect(skill).toContain("failed/timed-out merchant IDs");
-    expect(skill).toContain("registry version");
+    expect(skill).toContain("catalog version");
   });
 
   it("defines one bounded, user-authorized web-wide merchant workflow", async () => {
@@ -127,7 +128,7 @@ describe("FindCheap-Agent v0.4.0 Chrome contract", () => {
       interface: { defaultPrompt: string[]; longDescription: string };
     };
 
-    expect(manifest.version).toMatch(/^0\.4\.0(?:\+codex\.)?/u);
+    expect(manifest.version).toMatch(/^0\.4\.1(?:\+codex\.)?/u);
     expect(manifest.interface.longDescription).toMatch(/Codex Plugin Agent/u);
     expect(manifest.interface.longDescription).toMatch(/authorized Chrome/u);
     expect(manifest.interface.defaultPrompt).toEqual([
@@ -144,5 +145,18 @@ describe("FindCheap-Agent v0.4.0 Chrome contract", () => {
     expect(readme).toContain("authorized Chrome skill");
     expect(readme).toContain("local stdio MCP server");
     expect(readme).toContain("does not order, check out, or submit payment");
+  });
+
+  it("advertises only read-only Shopify catalog capabilities", async () => {
+    const profile = JSON.parse(await readFile(profilePath, "utf8")) as {
+      ucp: { capabilities: Record<string, unknown>; payment_handlers: Record<string, unknown> };
+    };
+
+    expect(Object.keys(profile.ucp.capabilities).sort()).toEqual([
+      "dev.shopify.catalog.global",
+      "dev.ucp.shopping.catalog.lookup",
+      "dev.ucp.shopping.catalog.search"
+    ]);
+    expect(profile.ucp.payment_handlers).toEqual({});
   });
 });

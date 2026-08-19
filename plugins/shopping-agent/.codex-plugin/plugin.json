@@ -1,7 +1,7 @@
 {
   "name": "shopping-agent",
-  "version": "0.4.0+codex.20260819012000",
-  "description": "Return verified product cards with evidence-bounded pricing and fail-closed affiliate-ready links.",
+  "version": "0.4.1+codex.20260819014256",
+  "description": "Search Shopify Global Catalog and return verified product cards with fail-closed affiliate-ready links.",
   "author": {
     "name": "yyq8548"
   },
@@ -12,7 +12,7 @@
   "interface": {
     "displayName": "FindCheap-Agent",
     "shortDescription": "Verified cards, pricing, coupons, and safe links.",
-    "longDescription": "FindCheap-Agent is a Codex Plugin Agent. v0.4.0 renders verified product cards and supports checked-in approved affiliate relationships with credential-gated deep links and nearby disclosure. With no approved relationship configured, every CTA remains a canonical merchant link. Affiliate state never affects ranking. Shopify remains first; authorized Chrome is used only after complete zero-result API coverage.",
+    "longDescription": "FindCheap-Agent is a Codex Plugin Agent. v0.4.1 searches Shopify Global Catalog across eligible merchants, renders verified product cards, and supports checked-in approved affiliate relationships with credential-gated deep links and nearby disclosure. With no approved relationship configured, every CTA remains a canonical merchant link. Affiliate state never affects ranking. User-authorized Chrome is used only after complete zero-result API coverage.",
     "developerName": "yyq8548",
     "category": "Productivity",
     "capabilities": [
