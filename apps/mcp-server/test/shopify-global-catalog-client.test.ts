@@ -5,7 +5,7 @@ import {
   createShopifyGlobalCatalogPort
 } from "../src/shopify-global-catalog-client.js";
 
-const profileUrl = "https://raw.githubusercontent.com/yyq8548/FindCheap-Agent/main/plugins/shopping-agent/ucp-agent-profile.json";
+const profileUrl = "https://cdn.jsdelivr.net/gh/yyq8548/FindCheap-Agent@d8fe576b659191de62081f67f16f3ffe1c68e98c/plugins/shopping-agent/ucp-agent-profile.json";
 const now = "2026-08-18T12:00:00.000Z";
 
 describe("Shopify Global Catalog client", () => {
