@@ -147,26 +147,29 @@ const comparison: ComparisonResult = {
 };
 
 describe("shopping MCP server", () => {
-  it("publishes a safe MCP Apps resource bound only to explicit card rendering", async () => {
+  it("binds product cards directly to Shopify search and keeps explicit rendering as fallback", async () => {
     const client = await connect({ compare: async () => comparison });
 
     const tools = await client.listTools();
     const searchTool = tools.tools.find((candidate) => candidate.name === "search_shopify_products");
     const renderTool = tools.tools.find((candidate) => candidate.name === "render_product_cards");
-    expect(searchTool?._meta).toBeUndefined();
+    expect(searchTool?._meta).toMatchObject({
+      ui: { resourceUri: "ui://findcheap/product-cards/v8.html" },
+      "openai/outputTemplate": "ui://findcheap/product-cards/v8.html"
+    });
     expect(renderTool?._meta).toMatchObject({
-      ui: { resourceUri: "ui://findcheap/product-cards/v7.html" },
-      "openai/outputTemplate": "ui://findcheap/product-cards/v7.html"
+      ui: { resourceUri: "ui://findcheap/product-cards/v8.html" },
+      "openai/outputTemplate": "ui://findcheap/product-cards/v8.html"
     });
 
     const resources = await client.listResources();
     expect(resources.resources).toEqual([expect.objectContaining({
       name: "findcheap-product-cards",
-      uri: "ui://findcheap/product-cards/v7.html",
+      uri: "ui://findcheap/product-cards/v8.html",
       mimeType: "text/html;profile=mcp-app"
     })]);
 
-    const resource = await client.readResource({ uri: "ui://findcheap/product-cards/v7.html" });
+    const resource = await client.readResource({ uri: "ui://findcheap/product-cards/v8.html" });
     const content = resource.contents[0];
     const html = content !== undefined && "text" in content ? content.text : "";
     expect(html).toContain("ui/notifications/tool-result");
