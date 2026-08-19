@@ -7,7 +7,8 @@ import {
   createUnavailableComparePort,
   type BestBuyPort,
   type ComparePort,
-  type ShopifyPort
+  type ShopifyPort,
+  type ShoppingServerDependencies
 } from "../src/server.js";
 import type { AffiliateLinkResolver } from "../src/affiliate-links.js";
 
@@ -76,7 +77,7 @@ const shopifyPort: ShopifyPort = {
       itemPrice: { amountCents: 1_499, currency: "USD" },
       availability: "IN_STOCK",
       merchantUrl: "https://deathwishcoffee.com/products/valhalla-java-single-serve-pods",
-      checkedAt: "2026-08-18T01:00:00.000Z"
+      checkedAt: "2026-08-18T11:59:00.000Z"
     }]
   })
 };
@@ -85,9 +86,10 @@ async function connect(
   port: ComparePort,
   products: BestBuyPort = bestBuyPort,
   shopify: ShopifyPort = shopifyPort,
-  affiliateLinks?: AffiliateLinkResolver
+  affiliateLinks?: AffiliateLinkResolver,
+  dependencies?: ShoppingServerDependencies
 ) {
-  const server = createShoppingServer(port, products, shopify, affiliateLinks);
+  const server = createShoppingServer(port, products, shopify, affiliateLinks, dependencies);
   const client = new Client({ name: "shopping-agent-test", version: "0.0.0" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
@@ -198,6 +200,12 @@ describe("shopping MCP server", () => {
       "compare_products",
       "search_bestbuy_products",
       "search_shopify_products",
+      "find_coupons",
+      "create_watch",
+      "check_watch",
+      "list_watches",
+      "pause_watch",
+      "delete_watch",
       "render_product_cards"
     ]);
     expect(Object.keys(tools.tools[0]?.inputSchema.properties ?? {}).sort()).toEqual([
@@ -228,7 +236,7 @@ describe("shopping MCP server", () => {
     expect(tools.tools[2]?.inputSchema.properties?.selectionMode).toMatchObject({
       description: expect.stringContaining("MERCHANT_DIVERSE")
     });
-    expect(Object.keys(tools.tools[3]?.inputSchema.properties ?? {})).toEqual(["renderId"]);
+    expect(Object.keys(tools.tools[9]?.inputSchema.properties ?? {})).toEqual(["renderId"]);
     expect(tools.tools[0]?.annotations).toMatchObject({
       readOnlyHint: true,
       destructiveHint: false
@@ -307,7 +315,7 @@ describe("shopping MCP server", () => {
           mandatoryFees: { status: "UNAVAILABLE" },
           deliveredPrice: { status: "UNAVAILABLE" }
         },
-        freshness: { status: "OBSERVED_AT_QUERY", checkedAt: "2026-08-18T01:00:00.000Z" },
+        freshness: { status: "OBSERVED_AT_QUERY", checkedAt: "2026-08-18T11:59:00.000Z" },
         coupons: { status: "UNAVAILABLE", verified: [] },
         purchaseLink: {
           kind: "CANONICAL",
@@ -648,5 +656,117 @@ describe("shopping MCP server", () => {
     }]);
     const serialized = JSON.stringify(result);
     expect(serialized).not.toMatch(/internal-|provider-secret/);
+  });
+});
+
+describe("Coupon and Watch tools", () => {
+  const current = new Date("2026-08-18T12:00:00.000Z");
+  const verifiedDeal = {
+    dealId: "deal-1",
+    merchant: "Aritzia",
+    kind: "PROMO_CODE" as const,
+    title: "30% off selected styles",
+    description: "Verified brand promotion",
+    code: "SAVE30",
+    discountPercent: 30,
+    eligibility: ["Selected styles"],
+    channels: ["ONLINE" as const],
+    sourceUrl: "https://www.aritzia.com/promotion",
+    checkedAt: "2026-08-18T11:55:00.000Z",
+    validFrom: "2026-08-18T00:00:00.000Z",
+    validTo: "2026-08-20T00:00:00.000Z",
+    verificationStatus: "VERIFIED" as const
+  };
+
+  it("returns only current verified Coupon evidence", async () => {
+    const client = await connect({ compare: async () => comparison }, bestBuyPort, shopifyPort, undefined, {
+      now: () => current,
+      deals: { search: async () => [verifiedDeal, { ...verifiedDeal, dealId: "expired", validTo: "2026-08-18T11:59:00.000Z" }] }
+    });
+
+    const result = await client.callTool({ name: "find_coupons", arguments: { merchant: "Aritzia", channel: "ANY" } });
+    expect(result.structuredContent).toMatchObject({ status: "OK", deals: [{ dealId: "deal-1", code: "SAVE30", discountPercent: 30 }] });
+    expect(JSON.stringify(result.structuredContent)).not.toContain("expired");
+  });
+
+  it("rejects stale, wrong-merchant, and wrong-channel deal evidence", async () => {
+    const client = await connect({ compare: async () => comparison }, bestBuyPort, shopifyPort, undefined, {
+      now: () => current,
+      deals: { search: async () => [
+        { ...verifiedDeal, dealId: "stale", checkedAt: "2026-08-17T11:59:59.000Z" },
+        { ...verifiedDeal, dealId: "wrong-merchant", merchant: "Other" },
+        { ...verifiedDeal, dealId: "wrong-channel", channels: ["IN_STORE"] }
+      ] }
+    });
+    const result = await client.callTool({ name: "find_coupons", arguments: { merchant: "Aritzia", channel: "ONLINE" } });
+    expect(result.structuredContent).toMatchObject({ status: "NO_VERIFIED_DEALS", deals: [] });
+  });
+
+  it("fails closed when no verified Deals API exists", async () => {
+    const client = await connect({ compare: async () => comparison }, bestBuyPort, shopifyPort, undefined, { now: () => current });
+    const result = await client.callTool({ name: "find_coupons", arguments: { merchant: "Aritzia" } });
+    expect(result.structuredContent).toMatchObject({ status: "DATA_SOURCE_UNAVAILABLE", deals: [] });
+  });
+
+  it("persists a price watch, triggers once, and supports pause/delete", async () => {
+    const client = await connect({ compare: async () => comparison }, bestBuyPort, shopifyPort, undefined, { now: () => current });
+    const created = await client.callTool({ name: "create_watch", arguments: {
+      query: "Valhalla Java pods", condition: "PRICE_BELOW", threshold: 1_700, intervalMinutes: 60
+    } });
+    const watchId = (created.structuredContent as { watchId: string }).watchId;
+    expect(created.structuredContent).toMatchObject({ status: "ACTIVE", intervalMinutes: 60 });
+    expect((created.structuredContent as { automationPrompt: string }).automationPrompt).toContain(watchId);
+
+    const first = await client.callTool({ name: "check_watch", arguments: { watchId } });
+    const second = await client.callTool({ name: "check_watch", arguments: { watchId } });
+    expect(first.structuredContent).toMatchObject({ status: "TRIGGERED", watchId });
+    expect(second.structuredContent).toMatchObject({ status: "NOT_TRIGGERED", watchId });
+
+    expect((await client.callTool({ name: "list_watches", arguments: {} })).structuredContent).toMatchObject({
+      watches: [{ watchId, status: "ACTIVE", condition: "PRICE_BELOW" }]
+    });
+    expect((await client.callTool({ name: "pause_watch", arguments: { watchId, paused: true } })).structuredContent).toMatchObject({ status: "PAUSED" });
+    expect((await client.callTool({ name: "delete_watch", arguments: { watchId } })).structuredContent).toMatchObject({ deleted: true });
+  });
+
+  it("serializes concurrent checks so one threshold crossing sends one alert", async () => {
+    const client = await connect({ compare: async () => comparison }, bestBuyPort, shopifyPort, undefined, { now: () => current });
+    const created = await client.callTool({ name: "create_watch", arguments: {
+      query: "Valhalla Java pods", condition: "PRICE_BELOW", threshold: 1_700
+    } });
+    const watchId = (created.structuredContent as { watchId: string }).watchId;
+    const results = await Promise.all([
+      client.callTool({ name: "check_watch", arguments: { watchId } }),
+      client.callTool({ name: "check_watch", arguments: { watchId } })
+    ]);
+    expect(results.map((result) => (result.structuredContent as { status: string }).status).sort()).toEqual([
+      "NOT_TRIGGERED", "TRIGGERED"
+    ]);
+  });
+
+  it("establishes a restock baseline before notifying", async () => {
+    let availability: "OUT_OF_STOCK" | "IN_STOCK" = "OUT_OF_STOCK";
+    const changingPort: ShopifyPort = { search: async (input) => {
+      const result = await shopifyPort.search(input);
+      return { ...result, products: result.products.map((product) => ({ ...product, availability })) };
+    } };
+    const client = await connect({ compare: async () => comparison }, bestBuyPort, changingPort, undefined, { now: () => current });
+    const created = await client.callTool({ name: "create_watch", arguments: { query: "Valhalla Java pods", condition: "RESTOCKED" } });
+    const watchId = (created.structuredContent as { watchId: string }).watchId;
+    expect((await client.callTool({ name: "check_watch", arguments: { watchId } })).structuredContent).toMatchObject({ status: "NOT_TRIGGERED" });
+    availability = "IN_STOCK";
+    expect((await client.callTool({ name: "check_watch", arguments: { watchId } })).structuredContent).toMatchObject({ status: "TRIGGERED" });
+  });
+
+  it("evaluates verified discount watches through the Deals API", async () => {
+    const client = await connect({ compare: async () => comparison }, bestBuyPort, shopifyPort, undefined, {
+      now: () => current,
+      deals: { search: async () => [verifiedDeal] }
+    });
+    const created = await client.callTool({ name: "create_watch", arguments: {
+      query: "Aritzia sale", merchant: "Aritzia", condition: "DISCOUNT_AT_LEAST", threshold: 30
+    } });
+    const watchId = (created.structuredContent as { watchId: string }).watchId;
+    expect((await client.callTool({ name: "check_watch", arguments: { watchId } })).structuredContent).toMatchObject({ status: "TRIGGERED" });
   });
 });

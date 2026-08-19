@@ -128,11 +128,11 @@ describe("FindCheap-Agent v0.4.1 Chrome contract", () => {
       interface: { defaultPrompt: string[]; longDescription: string };
     };
 
-    expect(manifest.version).toMatch(/^0\.4\.1(?:\+codex\.)?/u);
+    expect(manifest.version).toMatch(/^0\.5\.0(?:\+codex\.)?/u);
     expect(manifest.interface.longDescription).toMatch(/Codex Plugin Agent/u);
     expect(manifest.interface.longDescription).toMatch(/authorized Chrome/u);
     expect(manifest.interface.defaultPrompt).toEqual([
-      "Call search_shopify_products once with no preamble; then call render_product_cards once with renderId. Never launch MCP."
+      "Use search_shopify_products, find_coupons, or create_watch plus Codex Automation. Never launch MCP."
     ]);
     expect(new TextEncoder().encode(manifest.interface.defaultPrompt[0]).length).toBeLessThanOrEqual(128);
   });

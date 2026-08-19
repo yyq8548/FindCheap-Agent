@@ -26,9 +26,23 @@ import {
   PRODUCT_CARD_RESOURCE_DOMAINS,
   PRODUCT_CARD_UI_URI
 } from "./product-card-ui.js";
+import {
+  DealSearchInputSchema,
+  VerifiedDealsSchema,
+  createUnavailableDealPort,
+  type DealPort
+} from "./deal-client.js";
+import {
+  WatchSpecSchema,
+  createMemoryWatchStore,
+  type WatchStore
+} from "./watch-store.js";
+import { evaluateWatch, type WatchEvaluation } from "./watch-service.js";
 
 export type { BestBuyPort } from "./bestbuy-client.js";
 export type { ShopifyPort } from "./shopify-client.js";
+export type { DealPort } from "./deal-client.js";
+export type { WatchStore } from "./watch-store.js";
 
 const unavailableMessage =
   "Live comparison is unavailable because no approved shopping data source is connected.";
@@ -36,6 +50,8 @@ const bestBuyUnavailableMessage =
   "Best Buy live product data is unavailable because BEST_BUY_API_KEY is not configured or the official API request failed.";
 const shopifyUnavailableMessage =
   "Shopify Global Catalog data is unavailable because the official Catalog request failed or the Agent Profile is not configured.";
+const dealUnavailableMessage =
+  "Verified Coupon and Cashback data is unavailable because no approved Deals API is configured or the request failed.";
 
 const MembershipIdsSchema = z
   .array(z.string().trim().min(1).max(80))
@@ -491,6 +507,12 @@ function shopifyResult(
   };
 }
 
+export type ShoppingServerDependencies = {
+  deals?: DealPort;
+  watches?: WatchStore;
+  now?: () => Date;
+};
+
 function emptyShopifyQuality() {
   return {
     status: "PASS_WITH_LIMITATIONS" as const,
@@ -608,9 +630,14 @@ export function createShoppingServer(
   comparePort: ComparePort,
   bestBuyPort: BestBuyPort = createUnavailableBestBuyPort(),
   shopifyPort: ShopifyPort = createUnavailableShopifyPort(),
-  affiliateLinks: AffiliateLinkResolver = createAffiliateLinkResolver()
+  affiliateLinks: AffiliateLinkResolver = createAffiliateLinkResolver(),
+  dependencies: ShoppingServerDependencies = {}
 ): McpServer {
-  const server = new McpServer({ name: "findcheap-agent", version: "0.4.1" });
+  const server = new McpServer({ name: "findcheap-agent", version: "0.5.0" });
+  const dealPort = dependencies.deals ?? createUnavailableDealPort();
+  const watchStore = dependencies.watches ?? createMemoryWatchStore();
+  const now = dependencies.now ?? (() => new Date());
+  const watchChecks = new Map<string, Promise<WatchEvaluation>>();
   const renderSnapshots = new Map<string, {
     expiresAt: number;
     content: ReturnType<typeof shopifyResult>["structuredContent"] & { renderId: string };
@@ -741,6 +768,147 @@ export function createShoppingServer(
       } catch {
         return shopifyUnavailableResult(validatedInput.selectionMode, validatedInput);
       }
+    }
+  );
+
+  server.registerTool(
+    "find_coupons",
+    {
+      title: "Find verified coupons and cashback",
+      description: "Find current verified Coupon, promo code, brand promotion, membership offer, Cashback, or offline barcode evidence. Never guesses codes.",
+      inputSchema: DealSearchInputSchema,
+      outputSchema: {
+        status: z.enum(["OK", "NO_VERIFIED_DEALS", "DATA_SOURCE_UNAVAILABLE"]),
+        message: z.string(),
+        deals: z.array(z.object({
+          dealId: z.string(), merchant: z.string(), kind: z.string(), title: z.string(), description: z.string(),
+          code: z.string().optional(), barcodeUrl: z.string().url().optional(), discountPercent: z.number().optional(),
+          discountAmountCents: z.number().int().optional(), cashbackPercent: z.number().optional(), membershipProgram: z.string().optional(),
+          eligibility: z.array(z.string()), channels: z.array(z.string()), sourceUrl: z.string().url(), checkedAt: z.string(), validTo: z.string()
+        }))
+      },
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true }
+    },
+    async (input) => {
+      const validated = DealSearchInputSchema.parse(input);
+      try {
+        const checkedAt = now().getTime();
+        const requestedMerchant = validated.merchant.toLocaleLowerCase("en-US");
+        const deals = VerifiedDealsSchema.parse(await dealPort.search(validated)).filter((deal) => {
+          const observedAt = Date.parse(deal.checkedAt);
+          const channelMatches = validated.channel === "ANY" || deal.channels.includes(validated.channel);
+          return deal.merchant.toLocaleLowerCase("en-US") === requestedMerchant && channelMatches &&
+            observedAt <= checkedAt + 120_000 && observedAt >= checkedAt - 86_400_000 &&
+            Date.parse(deal.validFrom) <= checkedAt && Date.parse(deal.validTo) > checkedAt;
+        });
+        const message = deals.length === 0 ? "No current verified deals were found." : `Found ${deals.length} current verified deal(s).`;
+        return { content: [{ type: "text" as const, text: message }], structuredContent: {
+          status: deals.length === 0 ? "NO_VERIFIED_DEALS" as const : "OK" as const,
+          message,
+          deals: deals.map(({ verificationStatus: _verificationStatus, validFrom: _validFrom, ...deal }) => deal)
+        } };
+      } catch {
+        return { content: [{ type: "text" as const, text: dealUnavailableMessage }], structuredContent: {
+          status: "DATA_SOURCE_UNAVAILABLE" as const, message: dealUnavailableMessage, deals: []
+        } };
+      }
+    }
+  );
+
+  server.registerTool(
+    "create_watch",
+    {
+      title: "Create a shopping watch",
+      description: "Persist a price, discount, Coupon, Cashback, stock, or restock watch. The host must schedule check_watch separately.",
+      inputSchema: WatchSpecSchema,
+      outputSchema: { status: z.literal("ACTIVE"), watchId: z.string().uuid(), intervalMinutes: z.number().int(), automationPrompt: z.string() },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false }
+    },
+    async (input) => {
+      const createdAt = now();
+      const spec = WatchSpecSchema.parse(input);
+      if (spec.expiresAt !== undefined && Date.parse(spec.expiresAt) <= createdAt.getTime()) {
+        throw new Error("expiresAt must be in the future");
+      }
+      const watch = await watchStore.create(spec, createdAt.toISOString());
+      const automationPrompt = `Use FindCheap-Agent check_watch with watchId ${watch.watchId}. Notify the user only when status is TRIGGERED. Do not purchase, reserve, or submit forms.`;
+      return { content: [{ type: "text" as const, text: `Watch ${watch.watchId} is ready. Schedule it every ${watch.spec.intervalMinutes} minutes.` }], structuredContent: {
+        status: "ACTIVE" as const, watchId: watch.watchId, intervalMinutes: watch.spec.intervalMinutes, automationPrompt
+      } };
+    }
+  );
+
+  server.registerTool(
+    "check_watch",
+    {
+      title: "Check a shopping watch",
+      description: "Evaluate one persisted watch against current verified sources and update deduplication state.",
+      inputSchema: z.object({ watchId: z.string().uuid() }).strict(),
+      outputSchema: { status: z.enum(["TRIGGERED", "NOT_TRIGGERED", "PAUSED", "EXPIRED", "NOT_FOUND", "DATA_SOURCE_UNAVAILABLE"]), message: z.string(), watchId: z.string().uuid() },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }
+    },
+    async ({ watchId }) => {
+      const watch = await watchStore.get(watchId);
+      if (watch === undefined) return { content: [{ type: "text" as const, text: "Watch not found." }], structuredContent: { status: "NOT_FOUND" as const, message: "Watch not found.", watchId } };
+      const previous = watchChecks.get(watchId);
+      const ready = previous === undefined ? Promise.resolve() : previous.then(() => undefined, () => undefined);
+      const check = ready.then(async () => {
+        const latest = await watchStore.get(watchId);
+        if (latest === undefined) throw new Error("Watch not found");
+        return evaluateWatch(latest, watchStore, shopifyPort, dealPort, now());
+      });
+      watchChecks.set(watchId, check);
+      const result = await check.finally(() => {
+        if (watchChecks.get(watchId) === check) watchChecks.delete(watchId);
+      });
+      return { content: [{ type: "text" as const, text: result.message }], structuredContent: { status: result.status, message: result.message, watchId } };
+    }
+  );
+
+  server.registerTool(
+    "list_watches",
+    {
+      title: "List shopping watches",
+      description: "List persisted shopping watches without contacting merchants.",
+      inputSchema: z.object({}).strict(),
+      outputSchema: { watches: z.array(z.object({ watchId: z.string().uuid(), status: z.string(), query: z.string(), condition: z.string(), intervalMinutes: z.number().int() })) },
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
+    },
+    async () => ({ content: [{ type: "text" as const, text: "Shopping watches listed." }], structuredContent: { watches: (await watchStore.list()).map((watch) => ({
+      watchId: watch.watchId, status: watch.status, query: watch.spec.query, condition: watch.spec.condition, intervalMinutes: watch.spec.intervalMinutes
+    })) } })
+  );
+
+  server.registerTool(
+    "pause_watch",
+    {
+      title: "Pause or resume a shopping watch",
+      description: "Pause or resume one persisted shopping watch.",
+      inputSchema: z.object({ watchId: z.string().uuid(), paused: z.boolean() }).strict(),
+      outputSchema: { status: z.enum(["ACTIVE", "PAUSED", "NOT_FOUND"]), watchId: z.string().uuid() },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false }
+    },
+    async ({ watchId, paused }) => {
+      const watch = await watchStore.get(watchId);
+      if (watch === undefined) return { content: [{ type: "text" as const, text: "Watch not found." }], structuredContent: { status: "NOT_FOUND" as const, watchId } };
+      const status = paused ? "PAUSED" as const : "ACTIVE" as const;
+      await watchStore.save({ ...watch, status, updatedAt: now().toISOString() });
+      return { content: [{ type: "text" as const, text: `Watch is ${status.toLowerCase()}.` }], structuredContent: { status, watchId } };
+    }
+  );
+
+  server.registerTool(
+    "delete_watch",
+    {
+      title: "Delete a shopping watch",
+      description: "Permanently delete one local shopping watch. The host must also remove its scheduled automation.",
+      inputSchema: z.object({ watchId: z.string().uuid() }).strict(),
+      outputSchema: { deleted: z.boolean(), watchId: z.string().uuid() },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false }
+    },
+    async ({ watchId }) => {
+      const deleted = await watchStore.delete(watchId);
+      return { content: [{ type: "text" as const, text: deleted ? "Watch deleted." : "Watch not found." }], structuredContent: { deleted, watchId } };
     }
   );
 

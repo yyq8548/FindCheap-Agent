@@ -1,9 +1,9 @@
 ---
 name: compare-products
-description: Search Shopify Global Catalog first, verify product identity, and render MCP UI product cards, Coupon status, and fail-closed affiliate-ready purchase links before authorized Chrome fallback. Checkout and payment remain out of scope in v0.4.1.
+description: Search Shopify Global Catalog first, verify product identity, and render MCP UI product cards with fail-closed affiliate-ready purchase links before authorized Chrome fallback. Use deals-and-watch for Coupon and monitoring requests.
 ---
 
-# FindCheap-Agent v0.4.1 Shopify Global Catalog
+# FindCheap-Agent v0.5.0 Shopify Global Catalog
 
 Risk tier: `R0`. Perform one read-only public-product lookup. Do not persist browser data.
 
