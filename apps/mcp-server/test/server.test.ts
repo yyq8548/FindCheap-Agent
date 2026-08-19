@@ -152,18 +152,18 @@ describe("shopping MCP server", () => {
     const renderTool = tools.tools.find((candidate) => candidate.name === "render_product_cards");
     expect(searchTool?._meta).toBeUndefined();
     expect(renderTool?._meta).toMatchObject({
-      ui: { resourceUri: "ui://findcheap/product-cards/v6.html" },
-      "openai/outputTemplate": "ui://findcheap/product-cards/v6.html"
+      ui: { resourceUri: "ui://findcheap/product-cards/v7.html" },
+      "openai/outputTemplate": "ui://findcheap/product-cards/v7.html"
     });
 
     const resources = await client.listResources();
     expect(resources.resources).toEqual([expect.objectContaining({
       name: "findcheap-product-cards",
-      uri: "ui://findcheap/product-cards/v6.html",
+      uri: "ui://findcheap/product-cards/v7.html",
       mimeType: "text/html;profile=mcp-app"
     })]);
 
-    const resource = await client.readResource({ uri: "ui://findcheap/product-cards/v6.html" });
+    const resource = await client.readResource({ uri: "ui://findcheap/product-cards/v7.html" });
     const content = resource.contents[0];
     const html = content !== undefined && "text" in content ? content.text : "";
     expect(html).toContain("ui/notifications/tool-result");
@@ -403,7 +403,8 @@ describe("shopping MCP server", () => {
     expect(JSON.stringify(result.content)).toContain("Commission never affects ranking");
     expect(resolve).toHaveBeenCalledWith({
       merchantId: "death-wish-coffee",
-      merchantUrl: "https://deathwishcoffee.com/products/valhalla-java-single-serve-pods"
+      merchantUrl: "https://deathwishcoffee.com/products/valhalla-java-single-serve-pods",
+      sourceHost: "deathwishcoffee.com"
     });
   });
 

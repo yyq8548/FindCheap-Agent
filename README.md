@@ -5,8 +5,8 @@ Product form: **Codex Plugin Agent**.
 The shipped Codex plugin lives at `plugins/shopping-agent/`. Codex orchestrates two bounded paths:
 
 - an authorized Chrome skill for a read-only, web-wide fallback search;
-- a local stdio MCP server for audited Commerce data, the credential-gated Best Buy pilot, and a
-  bounded configuration-driven Shopify Storefront Beta registry with one-call deduplication,
+- a local stdio MCP server for audited Commerce data, the credential-gated Best Buy pilot, and
+  Shopify Global Catalog search across eligible merchants,
   exact-first intent-aware Top 3 selection (literal lowest price or merchant-diverse recommendations), labeled similar alternatives, variant evidence,
   clarification questions, and API diagnostics.
 
@@ -27,9 +27,10 @@ See `docs/product/commerce-api-runbook.md` for deployment configuration.
 Best Buy official Products API pilot setup lives in
 `docs/product/best-buy-products-api-runbook.md`. It remains disabled until real audit approval.
 
-The Shopify Storefront PoC lives in `docs/product/shopify-storefront-poc.md`. Its audited registry
-tool is a one-user, read-only technical pilot; it does not enable the merchant in Commerce or claim
-shipping, tax, Coupon, membership, or delivered-price coverage.
+The legacy Shopify Storefront PoC lives in `docs/product/shopify-storefront-poc.md`. v0.4.1 uses
+Shopify Global Catalog as the plugin's production discovery path. It does not claim whole-web,
+shipping, tax, Coupon, membership, delivered-price, legal, or affiliate approval coverage.
+Deployment and validation rules live in `docs/product/shopify-global-catalog-runbook.md`.
 
 v0.3.0 classifies Shopify candidates as `EXACT`, `SIMILAR`, or internal `IRRELEVANT`. It groups
 offers across merchants only when exact GTIN and variant or exact brand, MPN/SKU, and variant
@@ -41,7 +42,7 @@ Default and explicit-new searches retain `NEW` and clearly labeled `UNKNOWN`; ex
 refurbished/renewed, and open-box inventory is returned only when requested.
 Explicit cheapest requests use literal price order and may include several products from one merchant;
 recommendation requests prefer merchant diversity. Codex must preserve the tool's returned order.
-The v3 registry contains forty-five technically verified pilots and accepts at most fifty checked-in
+The legacy v3 registry contains forty-five technically verified pilots and accepts at most fifty checked-in
 entries. Its release audit requires 45/45 non-empty schema-valid probes, at most two attempts per
 store, a three-second attempt budget, and p95 latency at or below 2.5 seconds. Per-store failures and timeouts are isolated and
 reported through coverage diagnostics. Technical verification is not merchant, legal, or affiliate approval.
@@ -83,4 +84,11 @@ runtime campaign credential are all required before an `APPROVED_AFFILIATE` link
 Otherwise each CTA remains the canonical merchant URL. Affiliate disclosures render beside the CTA,
 no commission amount is inferred, and affiliate state is applied only after product selection so it
 cannot affect ranking.
+
+v0.4.1 replaces the plugin's fixed 45-store runtime enumeration with Shopify Global Catalog MCP.
+One live `search_catalog` request searches eligible Shopify merchants and returns current product,
+variant, seller, item-price, availability, image, and canonical-link data. Results are not reused
+across searches and images are not downloaded. The old audited Storefront registry remains available only as an explicit compatibility and
+diagnostic mode. Authorized Chrome remains the bounded fallback after a successful zero-result
+Global Catalog response.
 

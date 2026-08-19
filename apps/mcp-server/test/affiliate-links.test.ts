@@ -17,6 +17,23 @@ const approvedRegistry = {
 } as const;
 
 describe("Shopify affiliate links", () => {
+  it("allows a Global Catalog canonical product URL only on its exact observed host", () => {
+    const resolver = createAffiliateLinkResolver({ version: "v1", relationships: [] }, {});
+    expect(resolver.resolve({
+      merchantId: "shopify-11236098",
+      merchantUrl: "https://skybygramophone.com/products/sony-wh-1000xm5?variant=1#details",
+      sourceHost: "skybygramophone.com"
+    })).toEqual({
+      kind: "CANONICAL",
+      url: "https://skybygramophone.com/products/sony-wh-1000xm5?variant=1"
+    });
+    expect(() => resolver.resolve({
+      merchantId: "shopify-11236098",
+      merchantUrl: "https://evil.example/products/sony-wh-1000xm5",
+      sourceHost: "skybygramophone.com"
+    })).toThrow("merchant URL is not approved");
+  });
+
   it("ships with no approved relationships and keeps canonical merchant links", () => {
     const resolver = createAffiliateLinkResolver();
     expect(resolver.resolve({

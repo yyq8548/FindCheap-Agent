@@ -37,7 +37,7 @@ export type PurchaseLink = {
   disclosure?: string;
 };
 export interface AffiliateLinkResolver {
-  resolve(product: { merchantId: string; merchantUrl: string }): PurchaseLink;
+  resolve(product: { merchantId: string; merchantUrl: string; sourceHost?: string }): PurchaseLink;
 }
 
 export const AFFILIATE_DISCLOSURE =
@@ -67,7 +67,7 @@ export function createAffiliateLinkResolver(
   const relationships = new Map(registry.relationships.map((relationship) => [relationship.merchantId, relationship]));
   return {
     resolve(product) {
-      const canonicalUrl = requireCanonicalProductUrl(product.merchantId, product.merchantUrl);
+      const canonicalUrl = requireCanonicalProductUrl(product.merchantId, product.merchantUrl, product.sourceHost);
       const relationship = relationships.get(product.merchantId);
       if (relationship === undefined) return { kind: "CANONICAL", url: canonicalUrl };
       const campaignId = environment[relationship.campaignIdEnv]?.trim();
@@ -130,14 +130,14 @@ function renderTemplate(
   return url.href;
 }
 
-function requireCanonicalProductUrl(merchantId: string, value: string): string {
+function requireCanonicalProductUrl(merchantId: string, value: string, sourceHost?: string): string {
   const merchant = SHOPIFY_REGISTRY.merchants.find((candidate) => candidate.merchantId === merchantId);
-  if (merchant === undefined) throw new Error("product merchant is not in the Shopify registry");
   if (Buffer.byteLength(value, "utf8") > 4_096) throw new Error("merchant URL is too long");
   const url = new URL(value);
+  const allowedHosts = merchant?.allowedHosts ?? (sourceHost === undefined ? [] : [sourceHost]);
   if (
     url.protocol !== "https:" || url.username !== "" || url.password !== "" ||
-    url.port !== "" || !merchant.allowedHosts.some((host) => host === url.hostname)
+    url.port !== "" || !allowedHosts.some((host) => host === url.hostname)
   ) {
     throw new Error("merchant URL is not approved");
   }

@@ -12,6 +12,7 @@ import {
   type ShopifyRegistry
 } from "./shopify-registry.js";
 import { selectSameProductGroup } from "./shopify-identity.js";
+import { createShopifyGlobalCatalogPort } from "./shopify-global-catalog-client.js";
 
 export type { ShopifyPilot } from "./shopify-registry.js";
 export const SHOPIFY_PILOTS = SHOPIFY_REGISTRY.merchants.filter((merchant) => merchant.searchEnabled);
@@ -61,13 +62,14 @@ type RankedShopifyCandidate = ShopifyCandidate & {
 };
 
 export type ShopifySearchResult = {
+  source?: "SHOPIFY_GLOBAL_CATALOG" | "SHOPIFY_STOREFRONT_API";
   coverage: "COMPLETE" | "PARTIAL";
   merchantsQueried: number;
   merchantsSucceeded: number;
   maxItemPriceCents?: number;
   comparison: {
     status: "SAME_PRODUCT" | "DISCOVERY_ONLY";
-    identityType?: "GTIN" | "BRAND_MPN";
+    identityType?: "GTIN" | "BRAND_MPN" | "UPID";
     evidence: string[];
     merchantCount: number;
     offerCount: number;
@@ -117,6 +119,9 @@ export function createShopifyPortFromEnvironment(
   environment: NodeJS.ProcessEnv | Record<string, string | undefined>,
   dependencies: ShopifyClientDependencies = {}
 ): ShopifyPort {
+  if (environment.SHOPIFY_CATALOG_MODE === "global") {
+    return createShopifyGlobalCatalogPort(environment, dependencies);
+  }
   if (environment.SHOPIFY_STOREFRONT_MODE !== "audited-registry") return unavailablePort();
 
   const registry = dependencies.registry ?? SHOPIFY_REGISTRY;

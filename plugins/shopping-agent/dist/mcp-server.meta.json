@@ -3962,6 +3962,26 @@
           "kind": "import-statement",
           "original": "./shopify-identity.js",
           "path": "src/shopify-identity.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./shopify-global-catalog-client.js",
+          "path": "src/shopify-global-catalog-client.ts"
+        }
+      ]
+    },
+    "src/shopify-global-catalog-client.ts": {
+      "format": "esm",
+      "imports": [
+        {
+          "kind": "import-statement",
+          "original": "zod",
+          "path": "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/index.js"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./shopify-match.js",
+          "path": "src/shopify-match.ts"
         }
       ]
     },
@@ -4027,7 +4047,7 @@
   },
   "outputs": {
     "../../plugins/shopping-agent/dist/mcp-server.js": {
-      "bytes": 413026,
+      "bytes": 422151,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
@@ -4586,7 +4606,7 @@
           "bytesInOutput": 7439
         },
         "src/affiliate-links.ts": {
-          "bytesInOutput": 3241
+          "bytesInOutput": 3201
         },
         "src/bestbuy-client.ts": {
           "bytesInOutput": 964
@@ -4598,10 +4618,13 @@
           "bytesInOutput": 9927
         },
         "src/server.ts": {
-          "bytesInOutput": 18387
+          "bytesInOutput": 18553
         },
         "src/shopify-client.ts": {
-          "bytesInOutput": 6820
+          "bytesInOutput": 6872
+        },
+        "src/shopify-global-catalog-client.ts": {
+          "bytesInOutput": 8947
         },
         "src/shopify-identity.ts": {
           "bytesInOutput": 1158
