@@ -1,4 +1,4 @@
-export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v5.html";
+export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v6.html";
 
 export const PRODUCT_CARD_RESOURCE_DOMAINS = [
   "https://cdn.shopify.com"
@@ -27,6 +27,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     .exact { color: light-dark(#166534, #86efac); }
     .similar { color: light-dark(#92400e, #fcd34d); }
     .limitations { color: light-dark(#66736a, #aab6ad); font-size: 11px; line-height: 1.4; }
+    .disclosure { color: light-dark(#526157, #b7c4ba); font-size: 11px; line-height: 1.4; }
     a { display: inline-flex; justify-content: center; border-radius: 10px; padding: 9px 12px; color: #fff; background: #177245; font-size: 13px; font-weight: 700; text-decoration: none; }
     a:focus-visible { outline: 3px solid #6ee7b7; outline-offset: 2px; }
     .empty { border: 1px dashed light-dark(#cbd5cc, #415046); border-radius: 14px; padding: 18px; text-align: center; }
@@ -108,6 +109,9 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
         body.append(make("div", "limitations", "Verified public item price. Shipping, tax, fees, coupons, membership and delivered price remain unavailable unless separately verified."));
         const purchaseUrl = safeHttps(product?.purchaseLink?.url || product?.merchantUrl);
         if (purchaseUrl) {
+          if (product?.purchaseLink?.kind === "APPROVED_AFFILIATE" && product.purchaseLink.disclosure) {
+            body.append(make("div", "disclosure", product.purchaseLink.disclosure));
+          }
           const link = make("a", "", cardData.actionLabel || "View at merchant");
           link.href = purchaseUrl;
           link.target = "_blank";
@@ -172,7 +176,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     receiveInput(window.openai?.toolInput);
     request("ui/initialize", {
       protocolVersion: "2026-01-26",
-      appInfo: { name: "FindCheap product cards", version: "0.3.7" },
+      appInfo: { name: "FindCheap product cards", version: "0.4.0" },
       appCapabilities: { availableDisplayModes: ["inline"] }
     }).then(() => {
       initialized = true;

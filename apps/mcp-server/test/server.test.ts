@@ -9,6 +9,7 @@ import {
   type ComparePort,
   type ShopifyPort
 } from "../src/server.js";
+import type { AffiliateLinkResolver } from "../src/affiliate-links.js";
 
 const closers: Array<() => Promise<void>> = [];
 
@@ -83,9 +84,10 @@ const shopifyPort: ShopifyPort = {
 async function connect(
   port: ComparePort,
   products: BestBuyPort = bestBuyPort,
-  shopify: ShopifyPort = shopifyPort
+  shopify: ShopifyPort = shopifyPort,
+  affiliateLinks?: AffiliateLinkResolver
 ) {
-  const server = createShoppingServer(port, products, shopify);
+  const server = createShoppingServer(port, products, shopify, affiliateLinks);
   const client = new Client({ name: "shopping-agent-test", version: "0.0.0" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
@@ -150,18 +152,18 @@ describe("shopping MCP server", () => {
     const renderTool = tools.tools.find((candidate) => candidate.name === "render_product_cards");
     expect(searchTool?._meta).toBeUndefined();
     expect(renderTool?._meta).toMatchObject({
-      ui: { resourceUri: "ui://findcheap/product-cards/v5.html" },
-      "openai/outputTemplate": "ui://findcheap/product-cards/v5.html"
+      ui: { resourceUri: "ui://findcheap/product-cards/v6.html" },
+      "openai/outputTemplate": "ui://findcheap/product-cards/v6.html"
     });
 
     const resources = await client.listResources();
     expect(resources.resources).toEqual([expect.objectContaining({
       name: "findcheap-product-cards",
-      uri: "ui://findcheap/product-cards/v5.html",
+      uri: "ui://findcheap/product-cards/v6.html",
       mimeType: "text/html;profile=mcp-app"
     })]);
 
-    const resource = await client.readResource({ uri: "ui://findcheap/product-cards/v5.html" });
+    const resource = await client.readResource({ uri: "ui://findcheap/product-cards/v6.html" });
     const content = resource.contents[0];
     const html = content !== undefined && "text" in content ? content.text : "";
     expect(html).toContain("ui/notifications/tool-result");
@@ -370,6 +372,39 @@ describe("shopping MCP server", () => {
       coupons: { status: "UNAVAILABLE", verified: [] }
     });
     expect(JSON.stringify(product)).not.toMatch(/utm_|affiliate|couponCode/i);
+  });
+
+  it("uses only injected approved affiliate links and exposes disclosure next to the CTA", async () => {
+    const resolve = vi.fn(() => ({
+      kind: "APPROVED_AFFILIATE" as const,
+      url: "https://go.fixture-affiliate.example/click?campaign=approved",
+      providerName: "Fixture Network",
+      disclosure: "We may earn a commission if you buy through this link. This does not raise your price or affect ranking."
+    }));
+    const affiliateLinks: AffiliateLinkResolver = {
+      resolve
+    };
+    const client = await connect({ compare: async () => comparison }, bestBuyPort, shopifyPort, affiliateLinks);
+    const result = await client.callTool({
+      name: "search_shopify_products",
+      arguments: { query: "Valhalla Java", limit: 3, comparisonMode: "DISCOVERY", selectionMode: "MERCHANT_DIVERSE" }
+    });
+
+    expect(result.structuredContent).toMatchObject({
+      quality: { affiliateLinksApproved: 1 },
+      products: [{
+        purchaseLink: {
+          kind: "APPROVED_AFFILIATE",
+          providerName: "Fixture Network",
+          disclosure: expect.stringContaining("does not raise your price or affect ranking")
+        }
+      }]
+    });
+    expect(JSON.stringify(result.content)).toContain("Commission never affects ranking");
+    expect(resolve).toHaveBeenCalledWith({
+      merchantId: "death-wish-coffee",
+      merchantUrl: "https://deathwishcoffee.com/products/valhalla-java-single-serve-pods"
+    });
   });
 
   it("accepts ZIP and memberships but never invents contextual prices", async () => {

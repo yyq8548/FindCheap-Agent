@@ -1,9 +1,9 @@
 ---
 name: compare-products
-description: Search a bounded audited Shopify Storefront registry first, verify same-product identity, and render MCP UI product cards, Coupon status, and safe purchase links before authorized Chrome fallback. Checkout and payment remain out of scope in v0.3.7.
+description: Search a bounded audited Shopify Storefront registry first, verify same-product identity, and render MCP UI product cards, Coupon status, and fail-closed affiliate-ready purchase links before authorized Chrome fallback. Checkout and payment remain out of scope in v0.4.0.
 ---
 
-# FindCheap-Agent v0.3.7 reliable MCP UI product cards
+# FindCheap-Agent v0.4.0 affiliate-ready product cards
 
 Risk tier: `R0`. Perform one read-only public-product lookup. Do not persist browser data.
 
@@ -33,7 +33,7 @@ When the request contains enough product identity or a discovery category, do no
 
 For an API result, preserve `pricing`, `pricingContext`, `freshness`, and the source label. A Shopify Storefront item price may be `VERIFIED`; shipping, tax, mandatory fees, member price, and delivered price remain `UNAVAILABLE` unless the tool explicitly verifies them. Never estimate missing components or sum an incomplete delivered price.
 
-Render the returned `card` fields directly and preserve order. Show only coupons in `coupons.verified` when `coupons.status` is `VERIFIED`; never invent a code or discount. Use `purchaseLink` exactly as returned. `APPROVED_AFFILIATE` means an audited relationship supplied the link; `CANONICAL` is the direct merchant fallback and must not be described as affiliate. Report the returned `quality` status and limitations.
+Render the returned `card` fields directly and preserve order. Show only coupons in `coupons.verified` when `coupons.status` is `VERIFIED`; never invent a code or discount. Use `purchaseLink` exactly as returned. `APPROVED_AFFILIATE` means a checked-in approved relationship plus runtime campaign credential supplied the link; show its returned disclosure next to the CTA. `CANONICAL` is the direct merchant fallback and must not be described as affiliate. Never state or estimate a commission amount. Report the returned `quality` status and limitations.
 
 For every response report `API duration`, Shopify coverage percentage, failed/timed-out merchant IDs, registry version, selected ranking mode, and Chrome fallback: `NOT_USED` or `USED`. Render the fallback value as `NOT_USED` when API products are returned or fallback is ineligible. Use `USED` only after Chrome was actually opened. Preserve the API's returned order. Never restore a rejected product to reach three results.
 

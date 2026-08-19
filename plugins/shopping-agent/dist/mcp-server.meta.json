@@ -1,5 +1,9 @@
 {
   "inputs": {
+    "../../config/shopify/affiliate-registry.ts": {
+      "format": "esm",
+      "imports": []
+    },
     "../../config/shopify/registry.ts": {
       "format": "esm",
       "imports": []
@@ -3832,6 +3836,26 @@
         }
       ]
     },
+    "src/affiliate-links.ts": {
+      "format": "esm",
+      "imports": [
+        {
+          "kind": "import-statement",
+          "original": "zod",
+          "path": "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/index.js"
+        },
+        {
+          "kind": "import-statement",
+          "original": "../../../config/shopify/affiliate-registry.js",
+          "path": "../../config/shopify/affiliate-registry.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./shopify-registry.js",
+          "path": "src/shopify-registry.ts"
+        }
+      ]
+    },
     "src/bestbuy-client.ts": {
       "format": "esm",
       "imports": [
@@ -3903,6 +3927,11 @@
           "kind": "import-statement",
           "original": "./shopify-match.js",
           "path": "src/shopify-match.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./affiliate-links.js",
+          "path": "src/affiliate-links.ts"
         },
         {
           "kind": "import-statement",
@@ -3998,7 +4027,7 @@
   },
   "outputs": {
     "../../plugins/shopping-agent/dist/mcp-server.js": {
-      "bytes": 408884,
+      "bytes": 413026,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
@@ -4049,6 +4078,9 @@
         }
       ],
       "inputs": {
+        "../../config/shopify/affiliate-registry.ts": {
+          "bytesInOutput": 39
+        },
         "../../config/shopify/registry.ts": {
           "bytesInOutput": 2958
         },
@@ -4553,6 +4585,9 @@
         "../ingestion-worker/src/network/safe-fetch.ts": {
           "bytesInOutput": 7439
         },
+        "src/affiliate-links.ts": {
+          "bytesInOutput": 3241
+        },
         "src/bestbuy-client.ts": {
           "bytesInOutput": 964
         },
@@ -4560,10 +4595,10 @@
           "bytesInOutput": 2484
         },
         "src/product-card-ui.ts": {
-          "bytesInOutput": 9633
+          "bytesInOutput": 9927
         },
         "src/server.ts": {
-          "bytesInOutput": 17819
+          "bytesInOutput": 18387
         },
         "src/shopify-client.ts": {
           "bytesInOutput": 6820

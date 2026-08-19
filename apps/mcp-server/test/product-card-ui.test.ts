@@ -58,7 +58,7 @@ describe("product-card MCP Apps UI", () => {
       method: "ui/initialize",
       params: {
         protocolVersion: "2026-01-26",
-        appInfo: { name: "FindCheap product cards", version: "0.3.7" },
+        appInfo: { name: "FindCheap product cards", version: "0.4.0" },
         appCapabilities: { availableDisplayModes: ["inline"] }
       }
     });
@@ -105,6 +105,11 @@ describe("product-card MCP Apps UI", () => {
               condition: "UNKNOWN",
               availability: "IN_STOCK",
               merchantUrl: "https://example.com/products/coffee",
+              purchaseLink: {
+                kind: "APPROVED_AFFILIATE",
+                url: "https://affiliate.example/click",
+                disclosure: "We may earn a commission if you buy through this link. This does not raise your price or affect ranking."
+              },
               card: {
                 merchant: "Example Coffee",
                 title: "Verified Coffee",
@@ -124,6 +129,7 @@ describe("product-card MCP Apps UI", () => {
     expect(text(app)).toContain("Verified Coffee");
     expect(text(app)).toContain("$14.99");
     expect(text(app)).toContain("1 verified product card");
+    expect(text(app)).toContain("We may earn a commission");
 
     listeners.get("openai:set_globals")?.({
       detail: { globals: { toolInput: { renderId: "ignored" }, toolOutput: { products: [] } } }

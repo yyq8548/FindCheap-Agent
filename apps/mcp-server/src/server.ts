@@ -18,6 +18,10 @@ import {
 } from "./shopify-client.js";
 import { hasSpecificProductIdentity } from "./shopify-match.js";
 import {
+  createAffiliateLinkResolver,
+  type AffiliateLinkResolver
+} from "./affiliate-links.js";
+import {
   PRODUCT_CARD_HTML,
   PRODUCT_CARD_RESOURCE_DOMAINS,
   PRODUCT_CARD_UI_URI
@@ -201,7 +205,9 @@ const ShopifyProductOutputSchema = z.object({
   }),
   purchaseLink: z.object({
     kind: z.enum(["APPROVED_AFFILIATE", "CANONICAL"]),
-    url: z.string().url()
+    url: z.string().url(),
+    providerName: z.string().optional(),
+    disclosure: z.string().optional()
   }),
   card: z.object({
     title: z.string(),
@@ -367,8 +373,16 @@ function bestBuyUnavailableResult() {
 
 function shopifyResult(
   result: ShopifySearchResult,
-  context: { zipCode?: string | undefined; membershipIds?: string[] | undefined }
+  context: { zipCode?: string | undefined; membershipIds?: string[] | undefined },
+  affiliateLinks: AffiliateLinkResolver
 ) {
+  const linkedProducts = result.products.map((product) => ({
+    product,
+    purchaseLink: affiliateLinks.resolve({ merchantId: product.merchantId, merchantUrl: product.merchantUrl })
+  }));
+  const affiliateLinksApproved = linkedProducts.filter(({ purchaseLink }) =>
+    purchaseLink.kind === "APPROVED_AFFILIATE"
+  ).length;
   const exactCount = result.products.filter((product) => product.matchStatus === "EXACT").length;
   const similarCount = result.products.length - exactCount;
   const priceLimit = result.maxItemPriceCents === undefined
@@ -377,8 +391,11 @@ function shopifyResult(
   const comparison = result.comparison.status === "SAME_PRODUCT"
     ? ` Same-product comparison verified across ${result.comparison.merchantCount} merchants using ${result.comparison.evidence.join("; ")}.`
     : " No cross-merchant same-product identity was independently verified; results are discovery options, not like-for-like offers.";
-  const summary = `Comparison status: ${result.comparison.status}. The audited Shopify registry returned ${result.products.length} product card(s): ${exactCount} exact and ${similarCount} similar, from ${result.merchantsSucceeded}/${result.merchantsQueried} stores.${priceLimit}${comparison} Prices are public item prices only; shipping, tax, mandatory fees, member price, delivered price, and verified coupons are unavailable without merchant evidence. Purchase actions use canonical merchant links because no affiliate relationship is approved.`;
-  const products = result.products.map((product, index) => {
+  const linkSummary = affiliateLinksApproved === 0
+    ? "Purchase actions use canonical merchant links because no affiliate relationship is active."
+    : `${affiliateLinksApproved} purchase link(s) use an approved affiliate relationship with disclosure; remaining links are canonical merchant links. Commission never affects ranking.`;
+  const summary = `Comparison status: ${result.comparison.status}. The audited Shopify registry returned ${result.products.length} product card(s): ${exactCount} exact and ${similarCount} similar, from ${result.merchantsSucceeded}/${result.merchantsQueried} stores.${priceLimit}${comparison} Prices are public item prices only; shipping, tax, mandatory fees, member price, delivered price, and verified coupons are unavailable without merchant evidence. ${linkSummary}`;
+  const products = linkedProducts.map(({ product, purchaseLink }, index) => {
     const price = product.itemPrice === undefined
       ? "price unavailable"
       : `${product.itemPrice.currency} ${(product.itemPrice.amountCents / 100).toFixed(2)}`;
@@ -394,7 +411,9 @@ function shopifyResult(
       `condition: ${product.condition}`,
       `match evidence: ${product.matchEvidence.join("; ")}`,
       ...(variants === "" ? [] : [`variants: ${variants}`]),
-      `URL: ${product.merchantUrl}`
+      `purchase link kind: ${purchaseLink.kind}`,
+      ...(purchaseLink.disclosure === undefined ? [] : [`affiliate disclosure: ${purchaseLink.disclosure}`]),
+      `URL: ${purchaseLink.url}`
     ].join(" | ");
   });
   const message = [
@@ -418,11 +437,13 @@ function shopifyResult(
         cardsReturned: result.products.length,
         itemPricesVerified: result.products.filter((product) => product.itemPrice !== undefined).length,
         couponsVerified: 0,
-        affiliateLinksApproved: 0,
+        affiliateLinksApproved,
         limitations: [
           "delivered price components are not verified",
           "coupon source is unavailable",
-          "affiliate relationship is not approved"
+          ...(affiliateLinksApproved === result.products.length
+            ? []
+            : ["one or more purchase links remain canonical merchant links"])
         ]
       },
       coverage: result.coverage,
@@ -432,7 +453,7 @@ function shopifyResult(
       comparison: result.comparison,
       diagnostics: result.diagnostics,
       questions: result.questions,
-      products: result.products.map((product) => ({
+      products: linkedProducts.map(({ product, purchaseLink }) => ({
         ...product,
         pricing: {
           scope: "ITEM_PRICE_ONLY" as const,
@@ -447,7 +468,7 @@ function shopifyResult(
         },
         freshness: { status: "OBSERVED_AT_QUERY" as const, checkedAt: product.checkedAt },
         coupons: { status: "UNAVAILABLE" as const, verified: [] },
-        purchaseLink: { kind: "CANONICAL" as const, url: product.merchantUrl },
+        purchaseLink,
         card: {
           title: product.title,
           merchant: product.merchant,
@@ -474,7 +495,7 @@ function emptyShopifyQuality() {
     limitations: [
       "no product cards were returned",
       "coupon source is unavailable",
-      "affiliate relationship is not approved"
+      "no purchase links were returned"
     ]
   };
 }
@@ -580,9 +601,10 @@ function shopifyUnavailableResult(
 export function createShoppingServer(
   comparePort: ComparePort,
   bestBuyPort: BestBuyPort = createUnavailableBestBuyPort(),
-  shopifyPort: ShopifyPort = createUnavailableShopifyPort()
+  shopifyPort: ShopifyPort = createUnavailableShopifyPort(),
+  affiliateLinks: AffiliateLinkResolver = createAffiliateLinkResolver()
 ): McpServer {
-  const server = new McpServer({ name: "findcheap-agent", version: "0.3.7" });
+  const server = new McpServer({ name: "findcheap-agent", version: "0.4.0" });
   const renderSnapshots = new Map<string, {
     expiresAt: number;
     content: ReturnType<typeof shopifyResult>["structuredContent"] & { renderId: string };
@@ -704,7 +726,7 @@ export function createShoppingServer(
         const response = shopifyResult(result, {
           ...(validatedInput.zipCode === undefined ? {} : { zipCode: validatedInput.zipCode }),
           membershipIds: validatedInput.membershipIds ?? []
-        });
+        }, affiliateLinks);
         if (response.structuredContent.products.length === 0) return response;
         return {
           ...response,
