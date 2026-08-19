@@ -10,7 +10,7 @@ The installed plugin sets:
 
 ```text
 SHOPIFY_CATALOG_MODE=global
-SHOPIFY_AGENT_PROFILE_URL=https://raw.githubusercontent.com/yyq8548/FindCheap-Agent/main/plugins/shopping-agent/ucp-agent-profile.json
+SHOPIFY_AGENT_PROFILE_URL=https://cdn.jsdelivr.net/gh/yyq8548/FindCheap-Agent@d8fe576b659191de62081f67f16f3ffe1c68e98c/plugins/shopping-agent/ucp-agent-profile.json
 SHOPIFY_GLOBAL_CATALOG_TIMEOUT_MS=10000
 ```
 
