@@ -2,11 +2,11 @@
 
 Source entry: `apps/mcp-server/src/stdio.ts`
 
-Bundle: `plugins/shopping-agent/dist/mcp-server.js`
+Bundle: `plugins/findcheap-agent/dist/mcp-server.js`
 
-Metafile: `plugins/shopping-agent/dist/mcp-server.meta.json`
+Metafile: `plugins/findcheap-agent/dist/mcp-server.meta.json`
 
-Bundle SHA-256: `edadaab90c9d02d24b468b6676e56effeb15443b6562e8beb603147001a3a41c`
+Bundle SHA-256: `212fb9a159aa79156089f48c39f2ee36973a271116cb6eed9122a59cd449c839`
 
 Build command: `pnpm build:mcp`
 

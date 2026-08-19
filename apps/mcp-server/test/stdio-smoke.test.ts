@@ -19,14 +19,14 @@ type StdioServerConfig = {
 };
 
 const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
-const pluginRoot = path.join(repoRoot, "plugins", "shopping-agent");
+const pluginRoot = path.join(repoRoot, "plugins", "findcheap-agent");
 
 describe("installed plugin stdio", () => {
   it("uses .mcp.json to initialize the committed bundle with protocol-clean stdout", async () => {
     const mcpFile = JSON.parse(
       await readFile(path.join(pluginRoot, ".mcp.json"), "utf8")
-    ) as { mcpServers: { "shopping-agent": StdioServerConfig } };
-    const config = mcpFile.mcpServers["shopping-agent"];
+    ) as { mcpServers: { "findcheap-agent": StdioServerConfig } };
+    const config = mcpFile.mcpServers["findcheap-agent"];
     expect(config).toEqual({
       type: "stdio",
       command: "node",

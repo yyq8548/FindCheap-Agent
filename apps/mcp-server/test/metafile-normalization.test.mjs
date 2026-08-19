@@ -9,7 +9,7 @@ const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
 const metafilePath = path.join(
   repoRoot,
   "plugins",
-  "shopping-agent",
+  "findcheap-agent",
   "dist",
   "mcp-server.meta.json"
 );

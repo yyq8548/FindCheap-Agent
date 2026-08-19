@@ -661,7 +661,7 @@ export function createShoppingServer(
     "findcheap-product-cards",
     PRODUCT_CARD_UI_URI,
     {
-      title: "FindCheap verified product cards",
+      title: "FindCheap Agent verified product cards",
       description: "Interactive cards for the latest verified Shopify product results.",
       mimeType: "text/html;profile=mcp-app"
     },
@@ -846,7 +846,7 @@ export function createShoppingServer(
         throw new Error("expiresAt must be in the future");
       }
       const watch = await watchStore.create(spec, createdAt.toISOString());
-      const automationPrompt = `Use FindCheap-Agent check_watch with watchId ${watch.watchId}. Notify the user only when status is TRIGGERED. Do not purchase, reserve, or submit forms.`;
+      const automationPrompt = `Use FindCheap Agent check_watch with watchId ${watch.watchId}. Notify the user only when status is TRIGGERED. Do not purchase, reserve, or submit forms.`;
       return { content: [{ type: "text" as const, text: `Watch ${watch.watchId} is ready. Schedule it every ${watch.spec.intervalMinutes} minutes.` }], structuredContent: {
         status: "ACTIVE" as const, watchId: watch.watchId, intervalMinutes: watch.spec.intervalMinutes, automationPrompt, questions: []
       } };

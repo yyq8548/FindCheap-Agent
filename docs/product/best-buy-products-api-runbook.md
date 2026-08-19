@@ -6,7 +6,7 @@ Status: Codex MCP Beta implemented; full comparison ingestion remains disabled u
 
 The official Products API supplies SKU, title, manufacturer, model number, UPC, image, current item
 price, online availability, and a Best Buy product link. It does not provide a verified ZIP-specific
-tax total. FindCheap-Agent must not turn the catalog price into a delivered-price quote.
+tax total. FindCheap Agent must not turn the catalog price into a delivered-price quote.
 
 Official references:
 
@@ -35,7 +35,7 @@ tool; the plugin process calls the official Best Buy API with `BEST_BUY_API_KEY`
 proxy arbitrary credentials, and the key is never accepted as a tool argument or returned in output.
 
 Start Codex from a shell that has the key in its process environment, then enable/reload the local
-FindCheap-Agent plugin:
+FindCheap Agent plugin:
 
 ```powershell
 $env:BEST_BUY_API_KEY='<key from developer.bestbuy.com>'
@@ -44,8 +44,8 @@ codex
 
 Example prompts:
 
-- `Use FindCheap-Agent to search Best Buy for Sony WH-1000XM5.`
-- `Use FindCheap-Agent to look up Best Buy SKU 6568600.`
+- `Use FindCheap Agent to search Best Buy for Sony WH-1000XM5.`
+- `Use FindCheap Agent to look up Best Buy SKU 6568600.`
 
 The Beta response contains official product identity, online availability, product URL, observation
 time, and item price when supplied by the API. It never claims shipping, tax, coupon, member price,

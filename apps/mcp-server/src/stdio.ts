@@ -21,6 +21,6 @@ const server = createShoppingServer(comparePort, bestBuyPort, shopifyPort, undef
 try {
   await server.connect(new StdioServerTransport());
 } catch {
-  console.error("FindCheap-Agent MCP server failed to start.");
+  console.error("FindCheap Agent MCP server failed to start.");
   process.exitCode = 1;
 }

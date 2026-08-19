@@ -1,8 +1,8 @@
 node_modules/
 dist/
-!plugins/shopping-agent/dist/
-!plugins/shopping-agent/dist/mcp-server.js
-!plugins/shopping-agent/dist/mcp-server.meta.json
+!plugins/findcheap-agent/dist/
+!plugins/findcheap-agent/dist/mcp-server.js
+!plugins/findcheap-agent/dist/mcp-server.meta.json
 coverage/
 .env
 .env.*

@@ -1,6 +1,6 @@
 # Shopify Global Catalog runbook
 
-FindCheap-Agent v0.4.1 uses Shopify Global Catalog MCP as its default Shopify discovery source.
+FindCheap Agent v0.4.1 uses Shopify Global Catalog MCP as its default Shopify discovery source.
 It searches merchants eligible for Shopify catalog inclusion; it does not represent whole-web,
 legal, Coupon, or affiliate approval coverage.
 
