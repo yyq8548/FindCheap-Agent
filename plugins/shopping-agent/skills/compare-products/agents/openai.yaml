@@ -1,4 +1,4 @@
 interface:
-  display_name: "FindCheap-Agent v0.5.2"
+  display_name: "FindCheap-Agent v0.5.3"
   short_description: "Verified products, deals, and shopping watches"
   default_prompt: "Use search_shopify_products, find_coupons, or create_watch plus Codex Automation. Never launch MCP."

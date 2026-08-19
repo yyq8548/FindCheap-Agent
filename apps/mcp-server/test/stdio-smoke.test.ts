@@ -80,10 +80,7 @@ describe("installed plugin stdio", () => {
       ]);
       const shopifyTool = tools.tools.find((tool) => tool.name === "search_shopify_products");
       const renderTool = tools.tools.find((tool) => tool.name === "render_product_cards");
-      expect(shopifyTool?._meta).toMatchObject({
-        ui: { resourceUri: "ui://findcheap/product-cards/v8.html" },
-        "openai/outputTemplate": "ui://findcheap/product-cards/v8.html"
-      });
+      expect(shopifyTool?._meta).toBeUndefined();
       expect(renderTool?._meta).toMatchObject({
         ui: { resourceUri: "ui://findcheap/product-cards/v8.html" },
         "openai/outputTemplate": "ui://findcheap/product-cards/v8.html"
