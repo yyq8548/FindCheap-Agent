@@ -4132,7 +4132,7 @@
   },
   "outputs": {
     "../../plugins/shopping-agent/dist/mcp-server.js": {
-      "bytes": 440844,
+      "bytes": 440696,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
@@ -4731,13 +4731,13 @@
           "bytesInOutput": 10046
         },
         "src/server.ts": {
-          "bytesInOutput": 24991
+          "bytesInOutput": 24756
         },
         "src/shopify-client.ts": {
           "bytesInOutput": 6872
         },
         "src/shopify-global-catalog-client.ts": {
-          "bytesInOutput": 8947
+          "bytesInOutput": 9034
         },
         "src/shopify-identity.ts": {
           "bytesInOutput": 1158

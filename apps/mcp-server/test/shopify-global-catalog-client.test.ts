@@ -80,7 +80,7 @@ describe("Shopify Global Catalog client", () => {
   });
 
   it("does not cache Global Catalog results", async () => {
-    const fetch = vi.fn(async () => catalogResponse([]));
+    const fetch = vi.fn(async (_input: string, _init: RequestInit) => catalogResponse([]));
     const port = createShopifyGlobalCatalogPort(
       { SHOPIFY_AGENT_PROFILE_URL: profileUrl },
       { fetch, clock: { now: () => new Date(now) } }
@@ -90,6 +90,20 @@ describe("Shopify Global Catalog client", () => {
     await port.search({ query: "coffee", limit: 3 });
 
     expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("normalizes known plural category terms before the single Catalog request", async () => {
+    const fetch = vi.fn(async (_input: string, _init: RequestInit) => catalogResponse([]));
+    const port = createShopifyGlobalCatalogPort(
+      { SHOPIFY_AGENT_PROFILE_URL: profileUrl },
+      { fetch, clock: { now: () => new Date(now) } }
+    );
+
+    await port.search({ query: "DÔEN dresses", limit: 3 });
+
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const request = JSON.parse(String(fetch.mock.calls[0]![1]!.body));
+    expect(request.params.arguments.catalog.query).toBe("DÔEN dress");
   });
 
   it("uses one Shopify Universal Product ID as exact cross-merchant identity", async () => {

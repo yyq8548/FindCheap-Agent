@@ -101,7 +101,7 @@ describe("product-card MCP Apps UI", () => {
       method: "ui/initialize",
       params: {
         protocolVersion: "2026-01-26",
-        appInfo: { name: "FindCheap product cards", version: "0.5.2" },
+        appInfo: { name: "FindCheap product cards", version: "0.5.3" },
         appCapabilities: { availableDisplayModes: ["inline"] }
       }
     });

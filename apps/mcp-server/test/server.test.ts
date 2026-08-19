@@ -147,16 +147,13 @@ const comparison: ComparisonResult = {
 };
 
 describe("shopping MCP server", () => {
-  it("binds product cards directly to Shopify search and keeps explicit rendering as fallback", async () => {
+  it("keeps Shopify search data-only and binds product cards to explicit rendering", async () => {
     const client = await connect({ compare: async () => comparison });
 
     const tools = await client.listTools();
     const searchTool = tools.tools.find((candidate) => candidate.name === "search_shopify_products");
     const renderTool = tools.tools.find((candidate) => candidate.name === "render_product_cards");
-    expect(searchTool?._meta).toMatchObject({
-      ui: { resourceUri: "ui://findcheap/product-cards/v8.html" },
-      "openai/outputTemplate": "ui://findcheap/product-cards/v8.html"
-    });
+    expect(searchTool?._meta).toBeUndefined();
     expect(renderTool?._meta).toMatchObject({
       ui: { resourceUri: "ui://findcheap/product-cards/v8.html" },
       "openai/outputTemplate": "ui://findcheap/product-cards/v8.html"

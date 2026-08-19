@@ -178,7 +178,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     receiveInput(window.openai?.toolInput);
     request("ui/initialize", {
       protocolVersion: "2026-01-26",
-      appInfo: { name: "FindCheap product cards", version: "0.5.2" },
+      appInfo: { name: "FindCheap product cards", version: "0.5.3" },
       appCapabilities: { availableDisplayModes: ["inline"] }
     }).then(() => {
       initialized = true;

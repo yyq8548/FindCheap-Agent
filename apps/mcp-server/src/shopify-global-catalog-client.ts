@@ -112,7 +112,7 @@ export function createShopifyGlobalCatalogPort(
 }
 
 function searchRequest(input: ShopifySearchInput, profileUrl: string) {
-  const query = input.query ?? input.handle?.replaceAll("-", " ") ?? "";
+  const query = normalizeCatalogQuery(input.query ?? input.handle?.replaceAll("-", " ") ?? "");
   return {
     jsonrpc: "2.0",
     method: "tools/call",
@@ -135,6 +135,10 @@ function searchRequest(input: ShopifySearchInput, profileUrl: string) {
       }
     }
   };
+}
+
+function normalizeCatalogQuery(value: string): string {
+  return value.normalize("NFKC").trim().replace(/\bdresses\b/giu, "dress");
 }
 
 function buildResult(
