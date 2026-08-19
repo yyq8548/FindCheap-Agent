@@ -6,7 +6,7 @@ import { URL, fileURLToPath } from "node:url";
 const packageRoot = fileURLToPath(new URL("..", import.meta.url));
 const defaultMetafilePath = path.resolve(
   packageRoot,
-  "../../plugins/shopping-agent/dist/mcp-server.meta.json"
+  "../../plugins/findcheap-agent/dist/mcp-server.meta.json"
 );
 
 function sortedObject(entries) {

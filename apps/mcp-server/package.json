@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "build": "pnpm run build:bundle && pnpm run build:notices",
-    "build:bundle": "esbuild src/stdio.ts --bundle --platform=node --format=esm --minify --legal-comments=none --metafile=../../plugins/shopping-agent/dist/mcp-server.meta.json --outfile=../../plugins/shopping-agent/dist/mcp-server.js && node scripts/normalize-metafile.mjs",
+    "build:bundle": "esbuild src/stdio.ts --bundle --platform=node --format=esm --minify --legal-comments=none --metafile=../../plugins/findcheap-agent/dist/mcp-server.meta.json --outfile=../../plugins/findcheap-agent/dist/mcp-server.js && node scripts/normalize-metafile.mjs",
     "build:notices": "node scripts/generate-third-party-notices.mjs"
   },
   "dependencies": {

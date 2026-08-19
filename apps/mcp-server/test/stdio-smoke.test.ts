@@ -19,14 +19,14 @@ type StdioServerConfig = {
 };
 
 const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
-const pluginRoot = path.join(repoRoot, "plugins", "shopping-agent");
+const pluginRoot = path.join(repoRoot, "plugins", "findcheap-agent");
 
 describe("installed plugin stdio", () => {
   it("uses .mcp.json to initialize the committed bundle with protocol-clean stdout", async () => {
     const mcpFile = JSON.parse(
       await readFile(path.join(pluginRoot, ".mcp.json"), "utf8")
-    ) as { mcpServers: { "shopping-agent": StdioServerConfig } };
-    const config = mcpFile.mcpServers["shopping-agent"];
+    ) as { mcpServers: { "findcheap-agent": StdioServerConfig } };
+    const config = mcpFile.mcpServers["findcheap-agent"];
     expect(config).toEqual({
       type: "stdio",
       command: "node",
@@ -38,7 +38,7 @@ describe("installed plugin stdio", () => {
       tool_timeout_sec: 30,
       env: {
         SHOPIFY_CATALOG_MODE: "global",
-        SHOPIFY_AGENT_PROFILE_URL: "https://cdn.jsdelivr.net/gh/yyq8548/FindCheap-Agent@d8fe576b659191de62081f67f16f3ffe1c68e98c/plugins/shopping-agent/ucp-agent-profile.json",
+        SHOPIFY_AGENT_PROFILE_URL: "https://cdn.jsdelivr.net/gh/yyq8548/FindCheap-Agent@24267014f0433adefb89181e4123d7b785e30285/plugins/findcheap-agent/ucp-agent-profile.json",
         SHOPIFY_GLOBAL_CATALOG_TIMEOUT_MS: "10000"
       }
     });

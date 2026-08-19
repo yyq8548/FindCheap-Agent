@@ -7,7 +7,7 @@ const root = fileURLToPath(new URL("../..", import.meta.url));
 const skillPath = path.join(
   root,
   "plugins",
-  "shopping-agent",
+  "findcheap-agent",
   "skills",
   "compare-products",
   "SKILL.md"
@@ -15,14 +15,15 @@ const skillPath = path.join(
 const manifestPath = path.join(
   root,
   "plugins",
-  "shopping-agent",
+  "findcheap-agent",
   ".codex-plugin",
   "plugin.json"
 );
 const readmePath = path.join(root, "README.md");
-const profilePath = path.join(root, "plugins", "shopping-agent", "ucp-agent-profile.json");
+const profilePath = path.join(root, "plugins", "findcheap-agent", "ucp-agent-profile.json");
+const marketplacePath = path.join(root, ".agents", "plugins", "marketplace.json");
 
-describe("FindCheap-Agent v0.4.1 Chrome contract", () => {
+describe("FindCheap Agent plugin contract", () => {
   it("uses Shopify first and Chrome only after a successful zero-result response", async () => {
     const skill = await readFile(skillPath, "utf8");
 
@@ -124,11 +125,14 @@ describe("FindCheap-Agent v0.4.1 Chrome contract", () => {
 
   it("advertises API-first routing with Chrome as the web-wide fallback", async () => {
     const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as {
+      name: string;
       version: string;
-      interface: { defaultPrompt: string[]; longDescription: string };
+      interface: { defaultPrompt: string[]; displayName: string; longDescription: string };
     };
 
+    expect(manifest.name).toBe("findcheap-agent");
     expect(manifest.version).toMatch(/^0\.5\.3(?:\+codex\.)?/u);
+    expect(manifest.interface.displayName).toBe("FindCheap Agent");
     expect(manifest.interface.longDescription).toMatch(/Codex Plugin Agent/u);
     expect(manifest.interface.longDescription).toMatch(/authorized Chrome/u);
     expect(manifest.interface.defaultPrompt).toEqual([
@@ -141,10 +145,31 @@ describe("FindCheap-Agent v0.4.1 Chrome contract", () => {
     const readme = await readFile(readmePath, "utf8");
 
     expect(readme).toContain("Product form: **Codex Plugin Agent**");
-    expect(readme).toContain("`plugins/shopping-agent/`");
+    expect(readme).toContain("`plugins/findcheap-agent/`");
+    expect(readme).toContain("codex plugin marketplace add yyq8548/FindCheap-Agent --ref main");
+    expect(readme).toContain("codex plugin add findcheap-agent@findcheap-agent");
     expect(readme).toContain("authorized Chrome skill");
     expect(readme).toContain("local stdio MCP server");
     expect(readme).toContain("does not order, check out, or submit payment");
+  });
+
+  it("ships one collision-safe GitHub marketplace identity", async () => {
+    const marketplace = JSON.parse(await readFile(marketplacePath, "utf8")) as {
+      name: string;
+      interface: { displayName: string };
+      plugins: Array<{ name: string; source: { path: string } }>;
+    };
+
+    expect(marketplace).toMatchObject({
+      name: "findcheap-agent",
+      interface: { displayName: "FindCheap Agent" },
+      plugins: [
+        {
+          name: "findcheap-agent",
+          source: { path: "./plugins/findcheap-agent" }
+        }
+      ]
+    });
   });
 
   it("advertises only read-only Shopify catalog capabilities", async () => {

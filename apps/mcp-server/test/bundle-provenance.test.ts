@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
-const pluginRoot = path.join(repoRoot, "plugins", "shopping-agent");
+const pluginRoot = path.join(repoRoot, "plugins", "findcheap-agent");
 const packageRoot = path.join(repoRoot, "apps", "mcp-server");
 
 function packageFromInput(input: string): { name: string; root: string } | undefined {

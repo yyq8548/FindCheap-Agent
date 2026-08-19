@@ -1,8 +1,8 @@
-# FindCheap-Agent
+# FindCheap Agent
 
 Product form: **Codex Plugin Agent**.
 
-The shipped Codex plugin lives at `plugins/shopping-agent/`. Codex orchestrates two bounded paths:
+The shipped Codex plugin lives at `plugins/findcheap-agent/`. Codex orchestrates two bounded paths:
 
 - an authorized Chrome skill for a read-only, web-wide fallback search;
 - a local stdio MCP server for audited Commerce data, the credential-gated Best Buy pilot, and
@@ -15,6 +15,19 @@ three reserves only when needed, and returns no more than three exact, source-li
 does not order, check out, or submit payment.
 
 The approved product specification and implementation plans live under `docs/superpowers/`.
+
+## Install the GitHub beta
+
+Requirements: Codex desktop or CLI and Node.js 22.
+
+```powershell
+codex plugin marketplace add yyq8548/FindCheap-Agent --ref main
+codex plugin add findcheap-agent@findcheap-agent
+```
+
+Restart Codex, start a new task, then try: `FindCheap Agent 搜索 DÔEN dress，显示三个商品卡片`.
+See [sharing and installation](docs/product/findcheap-agent-share-package.md) for verification,
+updates, and current limitations.
 
 Current merchant status: **0 merchants are enabled**. Commerce API and Codex MCP results are
 served only from fresh, exact, audit-promoted Commerce records. Staging records, similar-item

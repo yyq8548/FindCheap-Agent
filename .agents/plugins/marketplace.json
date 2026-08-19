@@ -1,14 +1,14 @@
 {
-  "name": "personal",
+  "name": "findcheap-agent",
   "interface": {
-    "displayName": "Personal"
+    "displayName": "FindCheap Agent"
   },
   "plugins": [
     {
-      "name": "shopping-agent",
+      "name": "findcheap-agent",
       "source": {
         "source": "local",
-        "path": "./plugins/shopping-agent"
+        "path": "./plugins/findcheap-agent"
       },
       "policy": {
         "installation": "AVAILABLE",

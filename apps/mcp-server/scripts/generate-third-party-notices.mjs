@@ -6,7 +6,7 @@ import { URL, fileURLToPath } from "node:url";
 
 const packageRoot = fileURLToPath(new URL("..", import.meta.url));
 const repoRoot = path.resolve(packageRoot, "../..");
-const pluginRoot = path.join(repoRoot, "plugins", "shopping-agent");
+const pluginRoot = path.join(repoRoot, "plugins", "findcheap-agent");
 const bundlePath = path.join(pluginRoot, "dist", "mcp-server.js");
 const metafilePath = path.join(pluginRoot, "dist", "mcp-server.meta.json");
 
@@ -116,9 +116,9 @@ export async function renderNotices(metafile) {
     "",
     "Source entry: `apps/mcp-server/src/stdio.ts`",
     "",
-    "Bundle: `plugins/shopping-agent/dist/mcp-server.js`",
+    "Bundle: `plugins/findcheap-agent/dist/mcp-server.js`",
     "",
-    "Metafile: `plugins/shopping-agent/dist/mcp-server.meta.json`",
+    "Metafile: `plugins/findcheap-agent/dist/mcp-server.meta.json`",
     "",
     `Bundle SHA-256: \`${bundleHash}\``,
     "",

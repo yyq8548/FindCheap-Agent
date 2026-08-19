@@ -1,6 +1,6 @@
 # Affiliate-ready purchase links
 
-FindCheap-Agent v0.4.0 ships with zero approved affiliate relationships. Every product card therefore
+FindCheap Agent v0.4.0 ships with zero approved affiliate relationships. Every product card therefore
 uses its validated canonical merchant URL until approval is recorded and a runtime campaign credential
 is available.
 
@@ -38,7 +38,7 @@ pnpm test
 pnpm typecheck
 pnpm lint
 pnpm build:mcp
-git diff --exit-code -- plugins/shopping-agent/dist/mcp-server.js plugins/shopping-agent/dist/mcp-server.meta.json plugins/shopping-agent/THIRD_PARTY_NOTICES.md
+git diff --exit-code -- plugins/findcheap-agent/dist/mcp-server.js plugins/findcheap-agent/dist/mcp-server.meta.json plugins/findcheap-agent/THIRD_PARTY_NOTICES.md
 ```
 
 Before activating a real relationship, also verify the provider's current terms, disclosure wording,

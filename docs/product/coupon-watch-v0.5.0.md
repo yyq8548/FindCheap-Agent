@@ -1,4 +1,4 @@
-# FindCheap-Agent v0.5.0 — Coupon + Watch
+# FindCheap Agent v0.5.0 — Coupon + Watch
 
 ## Delivered
 
