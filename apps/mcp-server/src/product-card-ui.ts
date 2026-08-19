@@ -1,13 +1,8 @@
-import { SHOPIFY_REGISTRY } from "./shopify-registry.js";
-
-export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v2.html";
+export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v5.html";
 
 export const PRODUCT_CARD_RESOURCE_DOMAINS = [
-  "https://cdn.shopify.com",
-  ...new Set(SHOPIFY_REGISTRY.merchants.flatMap((merchant) =>
-    merchant.allowedHosts.map((host) => `https://${host}`)
-  ))
-].sort();
+  "https://cdn.shopify.com"
+];
 
 export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
 <html lang="en">
@@ -43,6 +38,26 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
   <script>
     const app = document.getElementById("app");
     let hasResult = false;
+    let initialized = false;
+    let latestToolInput;
+    let hydrationRenderId;
+    let nextRequestId = 1;
+    const pendingRequests = new Map();
+    const notify = (method, params = {}) => {
+      window.parent.postMessage({ jsonrpc: "2.0", method, params }, "*");
+    };
+    const request = (method, params) => {
+      const id = nextRequestId++;
+      window.parent.postMessage({ jsonrpc: "2.0", id, method, params }, "*");
+      return new Promise((resolve, reject) => pendingRequests.set(id, { resolve, reject }));
+    };
+    const reportSize = () => {
+      const root = document.documentElement;
+      const body = document.body;
+      const width = Math.ceil(Math.max(root?.scrollWidth || 0, body?.scrollWidth || 0));
+      const height = Math.ceil(Math.max(root?.scrollHeight || 0, body?.scrollHeight || 0));
+      if (width > 0 && height > 0) notify("ui/notifications/size-changed", { width, height });
+    };
     const make = (tag, className, text) => {
       const node = document.createElement(tag);
       if (className) node.className = className;
@@ -103,18 +118,73 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
         cards.append(card);
       }
       app.append(summary, cards);
+      window.setTimeout(reportSize, 0);
     }
+    const hydrateFromInput = async (input) => {
+      const renderId = typeof input?.renderId === "string" ? input.renderId : undefined;
+      if (hasResult || !initialized || !renderId || hydrationRenderId === renderId) return;
+      hydrationRenderId = renderId;
+      try {
+        const result = await request("tools/call", {
+          name: "render_product_cards",
+          arguments: { renderId }
+        });
+        if (!result?.structuredContent) throw new Error("snapshot missing");
+        render(result.structuredContent);
+      } catch {
+        if (!hasResult) {
+          app.replaceChildren(make("div", "empty error", "Product-card snapshot could not be loaded. Text results remain available."));
+        }
+      }
+    };
+    const receiveInput = (input) => {
+      latestToolInput = input;
+      void hydrateFromInput(input);
+    };
     window.addEventListener("message", (event) => {
       if (event.source !== window.parent) return;
       const message = event.data;
       if (!message || message.jsonrpc !== "2.0") return;
-      if (message.method === "ui/notifications/tool-result") render(message.params?.structuredContent);
+      if (message.id !== undefined && pendingRequests.has(message.id)) {
+        const pending = pendingRequests.get(message.id);
+        pendingRequests.delete(message.id);
+        if (message.error) pending.reject(message.error);
+        else pending.resolve(message.result);
+        return;
+      }
+      if (message.method === "ui/notifications/tool-input") receiveInput(message.params);
+      if (message.method === "ui/notifications/tool-result") {
+        const output = message.params?.structuredContent;
+        if (output) render(output);
+        else void hydrateFromInput(latestToolInput);
+      }
     }, { passive: true });
+    window.addEventListener("openai:set_globals", (event) => {
+      const output = event.detail?.globals?.toolOutput;
+      if (output) render(output);
+      receiveInput(event.detail?.globals?.toolInput);
+    });
     const responseMetadata = window.openai?.toolResponseMetadata;
     const initialOutput = window.openai?.toolOutput
       || responseMetadata?.mcp_tool_result?.structuredContent
       || responseMetadata?.call_tool_result?.structuredContent;
     if (initialOutput) render(initialOutput);
+    receiveInput(window.openai?.toolInput);
+    request("ui/initialize", {
+      protocolVersion: "2026-01-26",
+      appInfo: { name: "FindCheap product cards", version: "0.3.7" },
+      appCapabilities: { availableDisplayModes: ["inline"] }
+    }).then(() => {
+      initialized = true;
+      notify("ui/notifications/initialized");
+      void hydrateFromInput(latestToolInput);
+      reportSize();
+      if (typeof window.ResizeObserver === "function") {
+        new window.ResizeObserver(reportSize).observe(document.documentElement);
+      }
+    }).catch(() => {
+      app.replaceChildren(make("div", "empty error", "Product-card UI could not connect. Text results remain available."));
+    });
     window.setTimeout(() => {
       if (!hasResult) {
         app.replaceChildren(make("div", "empty error", "Product-card data did not arrive. Text results remain available."));

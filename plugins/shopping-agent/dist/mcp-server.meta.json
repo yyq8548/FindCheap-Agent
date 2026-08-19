@@ -3864,13 +3864,7 @@
     },
     "src/product-card-ui.ts": {
       "format": "esm",
-      "imports": [
-        {
-          "kind": "import-statement",
-          "original": "./shopify-registry.js",
-          "path": "src/shopify-registry.ts"
-        }
-      ]
+      "imports": []
     },
     "src/server.ts": {
       "format": "esm",
@@ -4004,7 +3998,7 @@
   },
   "outputs": {
     "../../plugins/shopping-agent/dist/mcp-server.js": {
-      "bytes": 405734,
+      "bytes": 408884,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
@@ -4566,7 +4560,7 @@
           "bytesInOutput": 2484
         },
         "src/product-card-ui.ts": {
-          "bytesInOutput": 6483
+          "bytesInOutput": 9633
         },
         "src/server.ts": {
           "bytesInOutput": 17819

@@ -150,25 +150,39 @@ describe("shopping MCP server", () => {
     const renderTool = tools.tools.find((candidate) => candidate.name === "render_product_cards");
     expect(searchTool?._meta).toBeUndefined();
     expect(renderTool?._meta).toMatchObject({
-      ui: { resourceUri: "ui://findcheap/product-cards/v2.html" },
-      "openai/outputTemplate": "ui://findcheap/product-cards/v2.html"
+      ui: { resourceUri: "ui://findcheap/product-cards/v5.html" },
+      "openai/outputTemplate": "ui://findcheap/product-cards/v5.html"
     });
 
     const resources = await client.listResources();
     expect(resources.resources).toEqual([expect.objectContaining({
       name: "findcheap-product-cards",
-      uri: "ui://findcheap/product-cards/v2.html",
+      uri: "ui://findcheap/product-cards/v5.html",
       mimeType: "text/html;profile=mcp-app"
     })]);
 
-    const resource = await client.readResource({ uri: "ui://findcheap/product-cards/v2.html" });
+    const resource = await client.readResource({ uri: "ui://findcheap/product-cards/v5.html" });
     const content = resource.contents[0];
     const html = content !== undefined && "text" in content ? content.text : "";
     expect(html).toContain("ui/notifications/tool-result");
+    expect(html).toContain("ui/notifications/tool-input");
+    expect(html).toContain("tools/call");
+    expect(html).toContain("ui/initialize");
+    expect(html).toContain("ui/notifications/initialized");
+    expect(html).toContain("ui/notifications/size-changed");
+    expect(html).toContain("openai:set_globals");
     expect(html).toContain("window.openai?.toolOutput");
     expect(html).toContain("Product-card data did not arrive");
     expect(html).toContain("toolResponseMetadata");
-    expect(html).not.toContain("product-cards/v1.html");
+    expect(html).not.toContain("product-cards/v2.html");
+    expect(content?._meta).toMatchObject({
+      ui: {
+        csp: {
+          connectDomains: [],
+          resourceDomains: ["https://cdn.shopify.com"]
+        }
+      }
+    });
     expect(html).toContain("textContent");
     expect(html).not.toContain("innerHTML");
   });

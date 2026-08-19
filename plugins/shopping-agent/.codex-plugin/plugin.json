@@ -1,6 +1,6 @@
 {
   "name": "shopping-agent",
-  "version": "0.3.5+codex.20260818232939",
+  "version": "0.3.7+codex.20260819002734",
   "description": "Return verified product cards with evidence-bounded pricing, coupon, and purchase-link status.",
   "author": {
     "name": "yyq8548"
@@ -12,7 +12,7 @@
   "interface": {
     "displayName": "FindCheap-Agent",
     "shortDescription": "Verified cards, pricing, coupons, and safe links.",
-    "longDescription": "FindCheap-Agent is a Codex Plugin Agent. v0.3.5 refreshes the MCP UI cache key, renders verified product-card snapshots through the standard bridge, and shows a visible fallback when card data does not arrive. It searches a 45-store technically audited Shopify Storefront registry once and uses authorized Chrome only after complete zero-result API coverage.",
+    "longDescription": "FindCheap-Agent is a Codex Plugin Agent. v0.3.7 renders verified product-card snapshots by consuming injected results or loading the immutable snapshot through the standard MCP Apps tools/call bridge when Codex forwards only tool input. It keeps a text fallback, searches a 45-store technically audited Shopify Storefront registry once, and uses authorized Chrome only after complete zero-result API coverage.",
     "developerName": "yyq8548",
     "category": "Productivity",
     "capabilities": [

@@ -21,7 +21,7 @@ const manifestPath = path.join(
 );
 const readmePath = path.join(root, "README.md");
 
-describe("FindCheap-Agent v0.3.5 Chrome contract", () => {
+describe("FindCheap-Agent v0.3.7 Chrome contract", () => {
   it("uses Shopify first and Chrome only after a successful zero-result response", async () => {
     const skill = await readFile(skillPath, "utf8");
 
@@ -127,7 +127,7 @@ describe("FindCheap-Agent v0.3.5 Chrome contract", () => {
       interface: { defaultPrompt: string[]; longDescription: string };
     };
 
-    expect(manifest.version).toMatch(/^0\.3\.5(?:\+codex\.)?/u);
+    expect(manifest.version).toMatch(/^0\.3\.7(?:\+codex\.)?/u);
     expect(manifest.interface.longDescription).toMatch(/Codex Plugin Agent/u);
     expect(manifest.interface.longDescription).toMatch(/authorized Chrome/u);
     expect(manifest.interface.defaultPrompt).toEqual([
