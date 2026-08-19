@@ -634,7 +634,7 @@ export function createShoppingServer(
   affiliateLinks: AffiliateLinkResolver = createAffiliateLinkResolver(),
   dependencies: ShoppingServerDependencies = {}
 ): McpServer {
-  const server = new McpServer({ name: "findcheap-agent", version: "0.5.1" });
+  const server = new McpServer({ name: "findcheap-agent", version: "0.5.2" });
   const dealPort = dependencies.deals ?? createUnavailableDealPort();
   const watchStore = dependencies.watches ?? createMemoryWatchStore();
   const now = dependencies.now ?? (() => new Date());
@@ -736,7 +736,7 @@ export function createShoppingServer(
     "search_shopify_products",
     {
       title: "Search Shopify Global Catalog (Beta)",
-      description: "Search Shopify Global Catalog across eligible merchants once per lookup. Use comparisonMode=SAME_PRODUCT only with exact identity; selectionMode=LOWEST_PRICE only when cheapest is explicit, otherwise MERCHANT_DIVERSE. Put budget in maxItemPriceCents. Do not call this tool more than once per user lookup.",
+      description: "Search Shopify Global Catalog across eligible merchants once per lookup and render product cards directly. Use comparisonMode=SAME_PRODUCT only with exact identity; selectionMode=LOWEST_PRICE only when cheapest is explicit, otherwise MERCHANT_DIVERSE. Put budget in maxItemPriceCents. Do not call this tool more than once per user lookup. Do not call render_product_cards after a successful lookup.",
       inputSchema: ShopifyProductsToolInputSchema,
       outputSchema: ShopifyProductsOutputShape,
       annotations: {
@@ -744,6 +744,12 @@ export function createShoppingServer(
         destructiveHint: false,
         idempotentHint: true,
         openWorldHint: true
+      },
+      _meta: {
+        ui: { resourceUri: PRODUCT_CARD_UI_URI },
+        "openai/outputTemplate": PRODUCT_CARD_UI_URI,
+        "openai/toolInvocation/invoking": "Searching verified products…",
+        "openai/toolInvocation/invoked": "Verified product cards ready."
       }
     },
     async (input) => {
@@ -931,7 +937,7 @@ export function createShoppingServer(
     "render_product_cards",
     {
       title: "Render verified product cards",
-      description: "Render the immutable snapshot identified by renderId from search_shopify_products.",
+      description: "Compatibility fallback: render an immutable search snapshot only when the host did not receive direct search output.",
       inputSchema: z.object({ renderId: z.string().uuid() }).strict(),
       outputSchema: ShopifyProductsOutputShape,
       annotations: {

@@ -30,7 +30,8 @@ describe("FindCheap-Agent v0.4.1 Chrome contract", () => {
     expect(skill).toContain("The plugin MCP server is auto-loaded");
     expect(skill).toContain("Never inspect the plugin cache");
     expect(skill).toContain("do not announce, explain, or summarize the plan before the tool call");
-    expect(skill).toContain("call `render_product_cards` exactly once with the returned `renderId`");
+    expect(skill).toContain("Call `search_shopify_products` exactly once; its result renders product cards directly");
+    expect(skill).toContain("Do not call `render_product_cards` after a successful search");
     expect(skill).toContain("`search_shopify_products`");
     expect(skill).toContain("Call `search_shopify_products` exactly once per user lookup");
     expect(skill).toContain("Do not repeat a successful call");
@@ -128,7 +129,7 @@ describe("FindCheap-Agent v0.4.1 Chrome contract", () => {
       interface: { defaultPrompt: string[]; longDescription: string };
     };
 
-    expect(manifest.version).toMatch(/^0\.5\.1(?:\+codex\.)?/u);
+    expect(manifest.version).toMatch(/^0\.5\.2(?:\+codex\.)?/u);
     expect(manifest.interface.longDescription).toMatch(/Codex Plugin Agent/u);
     expect(manifest.interface.longDescription).toMatch(/authorized Chrome/u);
     expect(manifest.interface.defaultPrompt).toEqual([

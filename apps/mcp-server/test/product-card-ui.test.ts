@@ -24,6 +24,49 @@ function text(node: FakeNode): string {
 }
 
 describe("product-card MCP Apps UI", () => {
+  it("renders search tool output immediately without a fallback tool call", () => {
+    const script = PRODUCT_CARD_HTML.match(/<script>([\s\S]*)<\/script>/u)?.[1];
+    const app = new FakeNode();
+    const messages: Array<{ method?: string }> = [];
+    const parent = { postMessage: (message: { method?: string }) => messages.push(message) };
+    const window = {
+      parent,
+      openai: { toolOutput: { products: [{
+        merchant: "Direct Merchant",
+        title: "Direct Product",
+        matchStatus: "EXACT",
+        condition: "NEW",
+        availability: "IN_STOCK",
+        merchantUrl: "https://example.com/products/direct",
+        card: {
+          merchant: "Direct Merchant",
+          title: "Direct Product",
+          primaryPrice: { amountCents: 1299, currency: "USD" },
+          matchBadge: "EXACT",
+          conditionBadge: "NEW",
+          availability: "IN_STOCK"
+        }
+      }] } },
+      addEventListener: () => undefined,
+      setTimeout: () => 1,
+      ResizeObserver: undefined
+    };
+    const document = {
+      getElementById: () => app,
+      createElement: () => new FakeNode(),
+      documentElement: { scrollWidth: 700, scrollHeight: 320 },
+      body: { scrollWidth: 700, scrollHeight: 320 }
+    };
+
+    vm.runInNewContext(script!, { window, document, URL, Intl, Number, String, Array, Object, Promise, Map, Math });
+
+    expect(text(app)).toContain("Direct Product");
+    expect(text(app)).toContain("$12.99");
+    expect(messages.some((message) => message.method === "tools/call")).toBe(false);
+    expect(PRODUCT_CARD_HTML).toContain('image.loading = "eager"');
+    expect(PRODUCT_CARD_HTML).toContain('image.fetchPriority = index === 0 ? "high" : "auto"');
+  });
+
   it("loads the immutable snapshot when Codex forwards tool input without tool output", async () => {
     const script = PRODUCT_CARD_HTML.match(/<script>([\s\S]*)<\/script>/u)?.[1];
     expect(script).toBeDefined();
@@ -58,7 +101,7 @@ describe("product-card MCP Apps UI", () => {
       method: "ui/initialize",
       params: {
         protocolVersion: "2026-01-26",
-        appInfo: { name: "FindCheap product cards", version: "0.4.1" },
+        appInfo: { name: "FindCheap product cards", version: "0.5.2" },
         appCapabilities: { availableDisplayModes: ["inline"] }
       }
     });

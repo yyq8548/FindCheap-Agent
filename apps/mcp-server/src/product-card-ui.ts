@@ -1,4 +1,4 @@
-export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v7.html";
+export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v8.html";
 
 export const PRODUCT_CARD_RESOURCE_DOMAINS = [
   "https://cdn.shopify.com"
@@ -82,7 +82,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       }
       const summary = make("div", "summary", products.length + " verified product card" + (products.length === 1 ? "" : "s") + " · item price only");
       const cards = make("section", "cards");
-      for (const product of products) {
+      for (const [index, product] of products.entries()) {
         const cardData = product && typeof product.card === "object" ? product.card : {};
         const card = make("article", "card");
         const imageUrl = safeHttps(cardData.imageUrl);
@@ -90,7 +90,9 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
           const image = make("img", "image");
           image.src = imageUrl;
           image.alt = "";
-          image.loading = "lazy";
+          image.loading = "eager";
+          image.decoding = "async";
+          image.fetchPriority = index === 0 ? "high" : "auto";
           image.addEventListener("error", () => image.remove(), { once: true });
           card.append(image);
         }
@@ -176,7 +178,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     receiveInput(window.openai?.toolInput);
     request("ui/initialize", {
       protocolVersion: "2026-01-26",
-      appInfo: { name: "FindCheap product cards", version: "0.4.1" },
+      appInfo: { name: "FindCheap product cards", version: "0.5.2" },
       appCapabilities: { availableDisplayModes: ["inline"] }
     }).then(() => {
       initialized = true;
