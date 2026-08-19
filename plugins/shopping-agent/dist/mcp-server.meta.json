@@ -3886,6 +3886,16 @@
         }
       ]
     },
+    "src/deal-client.ts": {
+      "format": "esm",
+      "imports": [
+        {
+          "kind": "import-statement",
+          "original": "zod",
+          "path": "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/index.js"
+        }
+      ]
+    },
     "src/product-card-ui.ts": {
       "format": "esm",
       "imports": []
@@ -3937,6 +3947,21 @@
           "kind": "import-statement",
           "original": "./product-card-ui.js",
           "path": "src/product-card-ui.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./deal-client.js",
+          "path": "src/deal-client.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./watch-store.js",
+          "path": "src/watch-store.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./watch-service.js",
+          "path": "src/watch-service.ts"
         }
       ]
     },
@@ -4018,6 +4043,16 @@
       "format": "esm",
       "imports": [
         {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:path"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:os"
+        },
+        {
           "kind": "import-statement",
           "original": "@modelcontextprotocol/sdk/server/stdio.js",
           "path": "../../node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/server/stdio.js"
@@ -4041,16 +4076,71 @@
           "kind": "import-statement",
           "original": "./shopify-client.js",
           "path": "src/shopify-client.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./deal-client.js",
+          "path": "src/deal-client.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./watch-store.js",
+          "path": "src/watch-store.ts"
+        }
+      ]
+    },
+    "src/watch-service.ts": {
+      "format": "esm",
+      "imports": [
+        {
+          "kind": "import-statement",
+          "original": "./deal-client.js",
+          "path": "src/deal-client.ts"
+        }
+      ]
+    },
+    "src/watch-store.ts": {
+      "format": "esm",
+      "imports": [
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:crypto"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:fs/promises"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:path"
+        },
+        {
+          "kind": "import-statement",
+          "original": "zod",
+          "path": "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/index.js"
         }
       ]
     }
   },
   "outputs": {
     "../../plugins/shopping-agent/dist/mcp-server.js": {
-      "bytes": 422151,
+      "bytes": 438194,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:path"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:os"
+        },
         {
           "external": true,
           "kind": "import-statement",
@@ -4095,6 +4185,21 @@
           "external": true,
           "kind": "import-statement",
           "path": "node:crypto"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:crypto"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:fs/promises"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:path"
         }
       ],
       "inputs": {
@@ -4614,11 +4719,14 @@
         "src/commerce-client.ts": {
           "bytesInOutput": 2484
         },
+        "src/deal-client.ts": {
+          "bytesInOutput": 3331
+        },
         "src/product-card-ui.ts": {
           "bytesInOutput": 9927
         },
         "src/server.ts": {
-          "bytesInOutput": 18553
+          "bytesInOutput": 24353
         },
         "src/shopify-client.ts": {
           "bytesInOutput": 6872
@@ -4636,7 +4744,13 @@
           "bytesInOutput": 1264
         },
         "src/stdio.ts": {
-          "bytesInOutput": 195
+          "bytesInOutput": 393
+        },
+        "src/watch-service.ts": {
+          "bytesInOutput": 3449
+        },
+        "src/watch-store.ts": {
+          "bytesInOutput": 3265
         }
       }
     }

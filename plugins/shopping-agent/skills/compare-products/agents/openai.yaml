@@ -1,4 +1,4 @@
 interface:
-  display_name: "FindCheap-Agent v0.4.0"
-  short_description: "Verified product cards and safe purchase links"
-  default_prompt: "Call search_shopify_products once with no preamble; then call render_product_cards once with renderId. Never launch MCP."
+  display_name: "FindCheap-Agent v0.5.0"
+  short_description: "Verified products, deals, and shopping watches"
+  default_prompt: "Use search_shopify_products, find_coupons, or create_watch plus Codex Automation. Never launch MCP."

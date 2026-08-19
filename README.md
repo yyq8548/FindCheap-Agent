@@ -86,6 +86,8 @@ no commission amount is inferred, and affiliate state is applied only after prod
 cannot affect ranking.
 
 v0.4.1 replaces the plugin's fixed 45-store runtime enumeration with Shopify Global Catalog MCP.
+
+v0.5.0 adds verified Coupon/Cashback discovery and persistent price, promotion, inventory, and restock Watch rules. Coupon evidence requires a configured approved Deals API and fails closed when unavailable. Watch scheduling and notifications use Codex Automation; the plugin retains the rule and transition state. See [Coupon + Watch v0.5.0](docs/product/coupon-watch-v0.5.0.md).
 One live `search_catalog` request searches eligible Shopify merchants and returns current product,
 variant, seller, item-price, availability, image, and canonical-link data. Results are not reused
 across searches and images are not downloaded. The old audited Storefront registry remains available only as an explicit compatibility and

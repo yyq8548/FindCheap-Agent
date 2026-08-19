@@ -33,7 +33,7 @@ describe("installed plugin stdio", () => {
       args: ["./dist/mcp-server.js"],
       cwd: ".",
       enabled: true,
-      env_vars: ["PATH"],
+      env_vars: ["PATH", "FINDCHEAP_DEALS_API_URL", "FINDCHEAP_DEALS_API_TOKEN", "FINDCHEAP_STATE_DIR"],
       startup_timeout_sec: 10,
       tool_timeout_sec: 30,
       env: {
@@ -70,6 +70,12 @@ describe("installed plugin stdio", () => {
         "compare_products",
         "search_bestbuy_products",
         "search_shopify_products",
+        "find_coupons",
+        "create_watch",
+        "check_watch",
+        "list_watches",
+        "pause_watch",
+        "delete_watch",
         "render_product_cards"
       ]);
       const shopifyTool = tools.tools.find((tool) => tool.name === "search_shopify_products");
