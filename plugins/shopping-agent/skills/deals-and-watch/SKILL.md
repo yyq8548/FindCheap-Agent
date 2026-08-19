@@ -3,7 +3,7 @@ name: deals-and-watch
 description: Find verified Coupon, promotion, membership, Cashback, and offline-barcode evidence, or create and manage persistent shopping watches with Codex Automation.
 ---
 
-# FindCheap-Agent v0.5.0 Deals and Watch
+# FindCheap-Agent v0.5.1 Deals and Watch
 
 Use this workflow when the user asks for a Coupon before paying or asks to monitor a future purchase.
 
@@ -23,9 +23,10 @@ Risk tier: creating a recurring notification is `R2`. The user's direct request 
    - `DISCOUNT_AT_LEAST` or `CASHBACK_AT_LEAST`: threshold is percentage points and merchant is required.
    - `COUPON_AVAILABLE`: merchant is required.
    - `IN_STOCK` or `RESTOCKED`.
-2. Call `create_watch`. Never infer ZIP, membership, threshold, or expiration. Ask one concise question when a required value is missing.
-3. After `create_watch` succeeds, create a recurring Codex Automation using exactly the returned `automationPrompt` and `intervalMinutes`. Do not claim monitoring is active until both steps succeed.
-4. Each scheduled run calls `check_watch` once. Notify only for `TRIGGERED`. `NOT_TRIGGERED` is a silent check; `DATA_SOURCE_UNAVAILABLE` is not a deal or stock result.
-5. Use `list_watches`, `pause_watch`, and `delete_watch` for management. When deleting, also remove the matching Codex Automation.
+2. For `PRICE_BELOW`, `IN_STOCK`, or `RESTOCKED`, require a generation, exact model number, or GTIN and an explicit condition preference: `NEW`, `USED`, `REFURBISHED`, `OPEN_BOX`, or `ANY`. Never interpret omission as any generation or any condition. Preserve requested size, color, capacity, and other variant dimensions.
+3. Call `create_watch`. Never infer product identity, condition, ZIP, membership, threshold, or expiration. If it returns `NEEDS_CLARIFICATION`, ask its questions and do not create an Automation.
+4. Only after `create_watch` returns `ACTIVE`, create a recurring Codex Automation using exactly the returned `automationPrompt` and `intervalMinutes`. Do not claim monitoring is active until both steps succeed.
+5. Each scheduled run calls `check_watch` once. Notify only for `TRIGGERED`. `NOT_TRIGGERED` is a silent check. `NEEDS_CLARIFICATION` requires the user to replace the broad legacy watch. `DATA_SOURCE_UNAVAILABLE` is not a deal or stock result.
+6. Use `list_watches`, `pause_watch`, and `delete_watch` for management. When deleting, also remove the matching Codex Automation.
 
 Current live conditions are product price, verified promotion/Coupon/Cashback, stock, and restock. Travel, hotel, ticket, appointment, and automatic-buy execution remain unavailable until dedicated authorized sources and transaction controls exist.

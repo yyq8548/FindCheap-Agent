@@ -4096,6 +4096,11 @@
           "kind": "import-statement",
           "original": "./deal-client.js",
           "path": "src/deal-client.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./watch-store.js",
+          "path": "src/watch-store.ts"
         }
       ]
     },
@@ -4127,7 +4132,7 @@
   },
   "outputs": {
     "../../plugins/shopping-agent/dist/mcp-server.js": {
-      "bytes": 438194,
+      "bytes": 440409,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
@@ -4726,7 +4731,7 @@
           "bytesInOutput": 9927
         },
         "src/server.ts": {
-          "bytesInOutput": 24353
+          "bytesInOutput": 24675
         },
         "src/shopify-client.ts": {
           "bytesInOutput": 6872
@@ -4747,10 +4752,10 @@
           "bytesInOutput": 393
         },
         "src/watch-service.ts": {
-          "bytesInOutput": 3449
+          "bytesInOutput": 4347
         },
         "src/watch-store.ts": {
-          "bytesInOutput": 3265
+          "bytesInOutput": 4260
         }
       }
     }

@@ -34,6 +34,7 @@ import {
 } from "./deal-client.js";
 import {
   WatchSpecSchema,
+  productWatchClarificationQuestions,
   createMemoryWatchStore,
   type WatchStore
 } from "./watch-store.js";
@@ -633,7 +634,7 @@ export function createShoppingServer(
   affiliateLinks: AffiliateLinkResolver = createAffiliateLinkResolver(),
   dependencies: ShoppingServerDependencies = {}
 ): McpServer {
-  const server = new McpServer({ name: "findcheap-agent", version: "0.5.0" });
+  const server = new McpServer({ name: "findcheap-agent", version: "0.5.1" });
   const dealPort = dependencies.deals ?? createUnavailableDealPort();
   const watchStore = dependencies.watches ?? createMemoryWatchStore();
   const now = dependencies.now ?? (() => new Date());
@@ -821,19 +822,33 @@ export function createShoppingServer(
       title: "Create a shopping watch",
       description: "Persist a price, discount, Coupon, Cashback, stock, or restock watch. The host must schedule check_watch separately.",
       inputSchema: WatchSpecSchema,
-      outputSchema: { status: z.literal("ACTIVE"), watchId: z.string().uuid(), intervalMinutes: z.number().int(), automationPrompt: z.string() },
+      outputSchema: {
+        status: z.enum(["ACTIVE", "NEEDS_CLARIFICATION"]),
+        watchId: z.string().uuid().optional(),
+        intervalMinutes: z.number().int().optional(),
+        automationPrompt: z.string().optional(),
+        questions: z.array(z.string())
+      },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false }
     },
     async (input) => {
       const createdAt = now();
       const spec = WatchSpecSchema.parse(input);
+      const questions = productWatchClarificationQuestions(spec);
+      if (questions.length > 0) {
+        const message = `More product detail is required before this watch can be created. ${questions.join(" ")}`;
+        return { content: [{ type: "text" as const, text: message }], structuredContent: {
+          status: "NEEDS_CLARIFICATION" as const,
+          questions
+        } };
+      }
       if (spec.expiresAt !== undefined && Date.parse(spec.expiresAt) <= createdAt.getTime()) {
         throw new Error("expiresAt must be in the future");
       }
       const watch = await watchStore.create(spec, createdAt.toISOString());
       const automationPrompt = `Use FindCheap-Agent check_watch with watchId ${watch.watchId}. Notify the user only when status is TRIGGERED. Do not purchase, reserve, or submit forms.`;
       return { content: [{ type: "text" as const, text: `Watch ${watch.watchId} is ready. Schedule it every ${watch.spec.intervalMinutes} minutes.` }], structuredContent: {
-        status: "ACTIVE" as const, watchId: watch.watchId, intervalMinutes: watch.spec.intervalMinutes, automationPrompt
+        status: "ACTIVE" as const, watchId: watch.watchId, intervalMinutes: watch.spec.intervalMinutes, automationPrompt, questions: []
       } };
     }
   );
@@ -844,7 +859,7 @@ export function createShoppingServer(
       title: "Check a shopping watch",
       description: "Evaluate one persisted watch against current verified sources and update deduplication state.",
       inputSchema: z.object({ watchId: z.string().uuid() }).strict(),
-      outputSchema: { status: z.enum(["TRIGGERED", "NOT_TRIGGERED", "PAUSED", "EXPIRED", "NOT_FOUND", "DATA_SOURCE_UNAVAILABLE"]), message: z.string(), watchId: z.string().uuid() },
+      outputSchema: { status: z.enum(["TRIGGERED", "NOT_TRIGGERED", "PAUSED", "EXPIRED", "NEEDS_CLARIFICATION", "NOT_FOUND", "DATA_SOURCE_UNAVAILABLE"]), message: z.string(), watchId: z.string().uuid() },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }
     },
     async ({ watchId }) => {
