@@ -64,7 +64,7 @@ const ProductCardStagesSchema = z.object({
 
 const ProductCardTelemetryInputSchema = z.object({
   renderId: z.string().uuid(),
-  version: z.literal("0.6.9"),
+  version: z.literal("0.6.10"),
   terminalStage: z.enum([
     "DOM_RENDERED",
     "FIRST_IMAGE_SETTLED",
@@ -771,7 +771,7 @@ export function createShoppingServer(
   affiliateLinks: AffiliateLinkResolver = createAffiliateLinkResolver(),
   dependencies: ShoppingServerDependencies = {}
 ): McpServer {
-  const server = new McpServer({ name: "findcheap-agent", version: "0.6.9" });
+  const server = new McpServer({ name: "findcheap-agent", version: "0.6.10" });
   const dealPort = dependencies.deals ?? createUnavailableDealPort();
   const toolAvailability = dependencies.toolAvailability ?? {
     commerceCompare: true,
@@ -820,7 +820,7 @@ export function createShoppingServer(
         text: PRODUCT_CARD_HTML,
         _meta: {
           ui: {
-            prefersBorder: true,
+            prefersBorder: false,
             csp: {
               connectDomains: [],
               resourceDomains: PRODUCT_CARD_RESOURCE_DOMAINS
@@ -859,7 +859,7 @@ export function createShoppingServer(
     "search_shopify_products",
     {
       title: "Search Shopify Global Catalog (Beta)",
-      description: "Search Shopify Global Catalog across eligible merchants once per lookup. Use comparisonMode=SAME_PRODUCT only with exact identity; selectionMode=LOWEST_PRICE only when cheapest is explicit, otherwise MERCHANT_DIVERSE. Put budget in maxItemPriceCents. Do not call this tool more than once per user lookup. When products and renderId are returned, call render_product_cards exactly once.",
+      description: "Search Shopify Global Catalog across eligible merchants once per lookup and render the returned cards directly. Use comparisonMode=SAME_PRODUCT only with exact identity; selectionMode=LOWEST_PRICE only when cheapest is explicit, otherwise MERCHANT_DIVERSE. Put budget in maxItemPriceCents. Do not call this tool more than once per user lookup.",
       inputSchema: ShopifyProductsToolInputSchema,
       outputSchema: ShopifyProductsOutputShape,
       annotations: {
@@ -867,6 +867,12 @@ export function createShoppingServer(
         destructiveHint: false,
         idempotentHint: false,
         openWorldHint: true
+      },
+      _meta: {
+        ui: { resourceUri: PRODUCT_CARD_UI_URI },
+        "openai/outputTemplate": PRODUCT_CARD_UI_URI,
+        "openai/toolInvocation/invoking": "Searching verified Shopify products…",
+        "openai/toolInvocation/invoked": "Product cards ready."
       }
     },
     async (input) => {
@@ -1226,7 +1232,7 @@ export function createShoppingServer(
         openWorldHint: false
       },
       _meta: {
-        ui: { resourceUri: PRODUCT_CARD_UI_URI },
+        ui: { resourceUri: PRODUCT_CARD_UI_URI, visibility: ["app"] },
         "openai/outputTemplate": PRODUCT_CARD_UI_URI,
         "openai/toolInvocation/invoking": "Rendering product cards…",
         "openai/toolInvocation/invoked": "Product cards ready."

@@ -1,4 +1,4 @@
-export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v15.html";
+export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v16.html";
 
 export const PRODUCT_CARD_RESOURCE_DOMAINS = [
   "https://cdn.shopify.com"
@@ -34,27 +34,35 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       -webkit-font-smoothing: antialiased;
       text-rendering: optimizeLegibility;
     }
-    #app { display: grid; gap: 14px; padding: 2px; }
-    .summary { color: var(--fc-muted); font-size: 12px; line-height: 1.45; }
-    .group { display: grid; gap: 9px; }
-    .group h2 { margin: 0; color: var(--fc-text); font-size: 13px; font-weight: 600; line-height: 1.4; }
-    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; }
+    #app { display: grid; gap: 12px; padding: 0; }
+    .summary { padding: 0 2px; color: var(--fc-muted); font-size: 12px; line-height: 1.45; }
+    .group {
+      display: grid;
+      gap: 11px;
+      border: 1px solid var(--fc-border-strong);
+      border-radius: 16px;
+      padding: 12px;
+      background: var(--fc-surface);
+    }
+    .group h2 { margin: 0; color: var(--fc-text); font-size: 14px; font-weight: 650; line-height: 1.4; }
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 10px; }
     .card {
       display: flex;
       min-width: 0;
       flex-direction: column;
       overflow: hidden;
       border: 1px solid var(--fc-border);
-      border-radius: 14px;
+      border-radius: 12px;
       background: var(--fc-surface);
-      box-shadow: 0 1px 2px rgb(0 0 0 / .05);
-      transition: border-color 120ms ease, box-shadow 120ms ease;
+      box-shadow: none;
+      transition: border-color 120ms ease;
     }
-    .card:hover { border-color: var(--fc-border-strong); box-shadow: 0 2px 8px rgb(0 0 0 / .07); }
+    .card:hover { border-color: var(--fc-border-strong); }
     .image {
       display: block;
       width: 100%;
       aspect-ratio: 4 / 3;
+      max-height: 230px;
       object-fit: contain;
       border-bottom: 1px solid var(--fc-border);
       background: var(--fc-surface-muted);
@@ -129,7 +137,8 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     }
     .error { color: var(--fc-danger); }
     @media (max-width: 640px) {
-      #app { gap: 12px; }
+      #app { gap: 10px; }
+      .group { border-radius: 14px; padding: 10px; }
       .cards { grid-template-columns: 1fr; }
       .card { display: grid; grid-template-columns: minmax(104px, 34%) 1fr; }
       .image { height: 100%; min-height: 180px; aspect-ratio: auto; border-right: 1px solid var(--fc-border); border-bottom: 0; }
@@ -151,7 +160,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     const uiStartedAt = typeof performance === "object" && typeof performance.now === "function"
       ? performance.now()
       : Date.now();
-    const cardMetrics = { version: "0.6.9", stages: {} };
+    const cardMetrics = { version: "0.6.10", stages: {} };
     window.__findcheapCardMetrics = cardMetrics;
     const notify = (method, params = {}) => {
       window.parent.postMessage({ jsonrpc: "2.0", method, params }, "*");
@@ -482,7 +491,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     warmCompatibilityBridge();
     const initializeParams = {
       protocolVersion: "2026-01-26",
-      appInfo: { name: "FindCheap Agent product cards", version: "0.6.9" },
+      appInfo: { name: "FindCheap Agent product cards", version: "0.6.10" },
       appCapabilities: { availableDisplayModes: ["inline"] }
     };
     const finishInitialization = () => {
