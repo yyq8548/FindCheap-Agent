@@ -38,26 +38,40 @@ function nodes(node: FakeNode): FakeNode[] {
 }
 
 describe("product-card MCP Apps UI", () => {
-  it("completes the handshake before host notifications and deduplicates size reports", async () => {
+  it("reports size only after rendered DOM, without ResizeObserver, and persists app-only metrics", async () => {
     const script = PRODUCT_CARD_HTML.match(/<script>([\s\S]*)<\/script>/u)?.[1];
     const app = new FakeNode();
     type TestEvent = { source?: object; data?: unknown };
     const listeners = new Map<string, (event: TestEvent) => void>();
     const messages: Array<{ id?: number; method?: string; params?: Record<string, unknown> }> = [];
     const timers: Array<() => void> = [];
-    let resize: (() => void) | undefined;
     const parent = { postMessage: (message: (typeof messages)[number]) => messages.push(message) };
     const window = {
       parent,
-      openai: { toolOutput: { products: [] } },
+      openai: { toolOutput: {
+        renderId: "11111111-1111-4111-8111-111111111111",
+        products: [{
+          merchant: "Fixture Merchant",
+          title: "Fixture Product",
+          matchStatus: "EXACT",
+          condition: "UNKNOWN",
+          availability: "IN_STOCK",
+          merchantUrl: "https://example.com/products/fixture",
+          card: {
+            merchant: "Fixture Merchant",
+            title: "Fixture Product",
+            imageUrl: "https://cdn.shopify.com/fixture.jpg",
+            matchBadge: "EXACT",
+            conditionBadge: "UNKNOWN",
+            availability: "IN_STOCK"
+          }
+        }]
+      } },
       addEventListener: (type: string, listener: (event: TestEvent) => void) => { listeners.set(type, listener); },
       setTimeout: (callback: () => void) => { timers.push(callback); return timers.length; },
       clearTimeout: () => undefined,
       requestAnimationFrame: (callback: () => void) => { callback(); return 1; },
-      ResizeObserver: class {
-        constructor(callback: () => void) { resize = callback; }
-        observe() {}
-      }
+      ResizeObserver: class { constructor() { throw new Error("ResizeObserver must not be used"); } }
     };
     const document = {
       getElementById: () => app,
@@ -72,27 +86,29 @@ describe("product-card MCP Apps UI", () => {
 
     listeners.get("message")?.({ source: parent, data: { jsonrpc: "2.0", id: 1, result: {} } });
     await Promise.resolve();
-    resize?.();
-    resize?.();
 
     const methods = messages.map((message) => message.method).filter(Boolean);
     expect(methods.indexOf("ui/notifications/initialized"))
       .toBeLessThan(methods.indexOf("ui/notifications/size-changed"));
     expect(messages.filter((message) => message.method === "ui/notifications/size-changed")).toHaveLength(1);
-    expect(messages.some((message) =>
-      message.method === "notifications/message"
-      && message.params?.logger === "findcheap-product-cards"
-    )).toBe(true);
-    const loggedStages = messages
-      .filter((message) => message.method === "notifications/message")
-      .map((message) => (message.params?.data as { stage?: string } | undefined)?.stage);
-    expect(loggedStages).toEqual(expect.arrayContaining([
-      "IFRAME_LOADED",
-      "INITIALIZE_SENT",
-      "INITIALIZE_ACK",
-      "TOOL_OUTPUT_RECEIVED",
-      "DOM_RENDERED"
-    ]));
+    document.documentElement.scrollHeight = 500;
+    document.body.scrollHeight = 500;
+    nodes(app).find((node) => node.className === "image")?.dispatch("load");
+    await Promise.resolve();
+    expect(messages.filter((message) => message.method === "ui/notifications/size-changed")).toHaveLength(2);
+    expect(PRODUCT_CARD_HTML).not.toContain("ResizeObserver");
+    expect(messages).toContainEqual(expect.objectContaining({
+      method: "tools/call",
+      params: expect.objectContaining({
+        name: "report_product_card_metrics",
+        arguments: expect.objectContaining({
+          version: "0.6.3",
+          terminalStage: "DOM_RENDERED",
+          stages: expect.objectContaining({ DOM_RENDERED: expect.any(Number) })
+        })
+      })
+    }));
+    expect(messages.some((message) => message.method === "notifications/message")).toBe(false);
   });
 
   it("fails a stalled snapshot request instead of waiting forever", async () => {
@@ -138,10 +154,13 @@ describe("product-card MCP Apps UI", () => {
 
     expect(text(app)).toContain("Product-card snapshot could not be loaded");
     expect(messages.some((message) => message.method === "tools/call")).toBe(true);
-    expect(messages.some((message) =>
-      message.method === "notifications/message"
-      && (message as { params?: { data?: { stage?: string } } }).params?.data?.stage === "TOOL_OUTPUT_TIMEOUT"
-    )).toBe(true);
+    expect(messages).toContainEqual(expect.objectContaining({
+      method: "tools/call",
+      params: expect.objectContaining({
+        name: "report_product_card_metrics",
+        arguments: expect.objectContaining({ terminalStage: "TOOL_OUTPUT_TIMEOUT" })
+      })
+    }));
   });
 
   it("renders search tool output immediately without a fallback tool call", () => {
@@ -265,6 +284,7 @@ describe("product-card MCP Apps UI", () => {
       openai: undefined,
       addEventListener: (type: string, listener: (event: TestEvent) => void) => { listeners.set(type, listener); },
       setTimeout: () => 1,
+      requestAnimationFrame: (callback: () => void) => { callback(); return 1; },
       ResizeObserver: undefined
     };
     const document = {
@@ -281,7 +301,7 @@ describe("product-card MCP Apps UI", () => {
       method: "ui/initialize",
       params: {
         protocolVersion: "2026-01-26",
-        appInfo: { name: "FindCheap Agent product cards", version: "0.6.2" },
+        appInfo: { name: "FindCheap Agent product cards", version: "0.6.3" },
         appCapabilities: { availableDisplayModes: ["inline"] }
       }
     });
@@ -292,11 +312,7 @@ describe("product-card MCP Apps UI", () => {
       method: "ui/notifications/initialized",
       params: {}
     });
-    expect(messages).toContainEqual({
-      jsonrpc: "2.0",
-      method: "ui/notifications/size-changed",
-      params: { width: 700, height: 320 }
-    });
+    expect(messages).not.toContainEqual(expect.objectContaining({ method: "ui/notifications/size-changed" }));
     listeners.get("message")?.({
       source: parent,
       data: {
@@ -348,6 +364,12 @@ describe("product-card MCP Apps UI", () => {
       }
     });
     await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(messages).toContainEqual({
+      jsonrpc: "2.0",
+      method: "ui/notifications/size-changed",
+      params: { width: 700, height: 320 }
+    });
 
     expect(text(app)).toContain("Verified Coffee");
     expect(text(app)).toContain("$14.99");

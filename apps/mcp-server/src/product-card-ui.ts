@@ -1,4 +1,4 @@
-export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v11.html";
+export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v12.html";
 
 export const PRODUCT_CARD_RESOURCE_DOMAINS = [
   "https://cdn.shopify.com"
@@ -45,18 +45,11 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     const uiStartedAt = typeof performance === "object" && typeof performance.now === "function"
       ? performance.now()
       : Date.now();
-    const cardMetrics = { version: "0.6.2", stages: {} };
+    const cardMetrics = { version: "0.6.3", stages: {} };
     window.__findcheapCardMetrics = cardMetrics;
-    const stageTelemetry = [];
-    let telemetryReady = false;
     const notify = (method, params = {}) => {
       window.parent.postMessage({ jsonrpc: "2.0", method, params }, "*");
     };
-    const sendStageTelemetry = (name) => notify("notifications/message", {
-      level: "debug",
-      logger: "findcheap-product-cards",
-      data: { stage: name, elapsedMs: cardMetrics.stages[name], version: cardMetrics.version }
-    });
     const markStage = (name) => {
       if (cardMetrics.stages[name] !== undefined) return;
       const now = typeof performance === "object" && typeof performance.now === "function"
@@ -69,8 +62,6 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       if (typeof performance === "object" && typeof performance.mark === "function") {
         performance.mark("findcheap-card:" + name);
       }
-      if (telemetryReady) sendStageTelemetry(name);
-      else stageTelemetry.push(name);
     };
     markStage("IFRAME_LOADED");
     markStage("RESOURCE_EVALUATED");
@@ -78,6 +69,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     let initialized = false;
     let latestToolInput;
     let hydrationRenderId;
+    let currentRenderId;
     let nextRequestId = 1;
     const pendingRequests = new Map();
     const request = (method, params, timeoutMs) => {
@@ -93,29 +85,61 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
         pendingRequests.set(id, { resolve, reject, timeoutId });
       });
     };
-    let lastReportedWidth;
-    let lastReportedHeight;
-    let sizeReportScheduled = false;
+    const pendingSizePhases = new Set();
+    const reportedSizePhases = new Set();
+    let lastReportedSize;
     const reportSize = () => {
       if (!initialized) return;
       const root = document.documentElement;
       const body = document.body;
       const width = Math.ceil(Math.max(root?.scrollWidth || 0, body?.scrollWidth || 0));
       const height = Math.ceil(Math.max(root?.scrollHeight || 0, body?.scrollHeight || 0));
-      if (width <= 0 || height <= 0 || (width === lastReportedWidth && height === lastReportedHeight)) return;
-      lastReportedWidth = width;
-      lastReportedHeight = height;
+      const size = width + "x" + height;
+      if (width <= 0 || height <= 0 || size === lastReportedSize) return;
+      lastReportedSize = size;
       notify("ui/notifications/size-changed", { width, height });
     };
-    const scheduleSizeReport = () => {
-      if (!initialized || sizeReportScheduled) return;
-      sizeReportScheduled = true;
+    const flushSizeReports = () => {
+      if (!initialized) return;
+      const phase = pendingSizePhases.values().next().value;
+      if (!phase) return;
+      pendingSizePhases.delete(phase);
+      reportedSizePhases.add(phase);
       const run = () => {
-        sizeReportScheduled = false;
         reportSize();
+        flushSizeReports();
       };
       if (typeof window.requestAnimationFrame === "function") window.requestAnimationFrame(run);
       else window.setTimeout(run, 0);
+    };
+    const requestSizeReport = (phase) => {
+      if (reportedSizePhases.has(phase) || pendingSizePhases.has(phase)) return;
+      pendingSizePhases.add(phase);
+      flushSizeReports();
+    };
+    const pendingMetricStages = new Set();
+    const reportedMetricStages = new Set();
+    const flushMetrics = () => {
+      if (!initialized || !currentRenderId) return;
+      for (const terminalStage of pendingMetricStages) {
+        pendingMetricStages.delete(terminalStage);
+        if (reportedMetricStages.has(terminalStage)) continue;
+        reportedMetricStages.add(terminalStage);
+        void request("tools/call", {
+          name: "report_product_card_metrics",
+          arguments: {
+            renderId: currentRenderId,
+            version: cardMetrics.version,
+            terminalStage,
+            stages: { ...cardMetrics.stages }
+          }
+        }, 2000).catch(() => undefined);
+      }
+    };
+    const reportMetrics = (terminalStage) => {
+      if (reportedMetricStages.has(terminalStage)) return;
+      pendingMetricStages.add(terminalStage);
+      flushMetrics();
     };
     const make = (tag, className, text) => {
       const node = document.createElement(tag);
@@ -141,12 +165,15 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     ];
     function render(output) {
       hasResult = true;
+      if (typeof output?.renderId === "string") currentRenderId = output.renderId;
       markStage("RENDER_STARTED");
       app.replaceChildren();
       const products = Array.isArray(output?.products) ? output.products.slice(0, 3) : [];
       if (products.length === 0) {
         app.append(make("div", "empty", output?.message || "No verified products returned."));
         markStage("DOM_RENDERED");
+        requestSizeReport("DOM_RENDERED");
+        reportMetrics("DOM_RENDERED");
         return;
       }
       app.append(make("div", "summary", products.length + " product card" + (products.length === 1 ? "" : "s") + " · identity labels and public item prices only"));
@@ -170,6 +197,8 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
               const markPainted = () => {
                 markStage("FIRST_IMAGE_PAINTED");
                 markStage("FIRST_IMAGE_SETTLED");
+                requestSizeReport("FIRST_IMAGE_SETTLED");
+                reportMetrics("FIRST_IMAGE_SETTLED");
               };
               if (typeof window.requestAnimationFrame === "function") window.requestAnimationFrame(markPainted);
               else window.setTimeout(markPainted, 0);
@@ -177,6 +206,8 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
             image.addEventListener("error", () => {
               markStage("FIRST_IMAGE_SETTLED");
               image.remove();
+              requestSizeReport("FIRST_IMAGE_SETTLED");
+              reportMetrics("FIRST_IMAGE_SETTLED");
             }, { once: true });
             image.src = imageUrl;
             card.append(image);
@@ -222,10 +253,12 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
         app.append(group);
       }
       markStage("DOM_RENDERED");
-      scheduleSizeReport();
+      requestSizeReport("DOM_RENDERED");
+      reportMetrics("DOM_RENDERED");
     }
     const hydrateFromInput = async (input) => {
       const renderId = typeof input?.renderId === "string" ? input.renderId : undefined;
+      if (renderId) currentRenderId = renderId;
       if (hasResult || !initialized || !renderId || hydrationRenderId === renderId) return;
       hydrationRenderId = renderId;
       try {
@@ -237,9 +270,11 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
         markStage("TOOL_OUTPUT_RECEIVED");
         render(result.structuredContent);
       } catch (error) {
-        markStage(error instanceof Error && error.message === "tools/call timed out"
+        const terminalStage = error instanceof Error && error.message === "tools/call timed out"
           ? "TOOL_OUTPUT_TIMEOUT"
-          : "TOOL_OUTPUT_FAILED");
+          : "TOOL_OUTPUT_FAILED";
+        markStage(terminalStage);
+        reportMetrics(terminalStage);
         if (!hasResult) {
           app.replaceChildren(make("div", "empty error", "Product-card snapshot could not be loaded. Text results remain available."));
         }
@@ -295,25 +330,22 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     markStage("INITIALIZE_SENT");
     request("ui/initialize", {
       protocolVersion: "2026-01-26",
-      appInfo: { name: "FindCheap Agent product cards", version: "0.6.2" },
+      appInfo: { name: "FindCheap Agent product cards", version: "0.6.3" },
       appCapabilities: { availableDisplayModes: ["inline"] }
     }).then(() => {
       initialized = true;
       markStage("INITIALIZE_ACK");
       notify("ui/notifications/initialized");
-      telemetryReady = true;
-      for (const stage of stageTelemetry.splice(0)) sendStageTelemetry(stage);
       void hydrateFromInput(latestToolInput);
-      reportSize();
-      if (typeof window.ResizeObserver === "function") {
-        new window.ResizeObserver(scheduleSizeReport).observe(document.documentElement);
-      }
+      flushSizeReports();
+      flushMetrics();
     }).catch(() => {
       app.replaceChildren(make("div", "empty error", "Product-card UI could not connect. Text results remain available."));
     });
     window.setTimeout(() => {
       if (!initialized && !hasResult) {
         markStage("INITIALIZE_SLOW");
+        reportMetrics("INITIALIZE_SLOW");
         app.replaceChildren(make("div", "empty error", "Product-card UI is still connecting. Text results remain available."));
       }
     }, 2500);
