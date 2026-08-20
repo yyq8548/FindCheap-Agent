@@ -1,4 +1,4 @@
-export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v9.html";
+export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v11.html";
 
 export const PRODUCT_CARD_RESOURCE_DOMAINS = [
   "https://cdn.shopify.com"
@@ -42,26 +42,80 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
   <main id="app" aria-live="polite"><div class="empty">Waiting for verified product results…</div></main>
   <script>
     const app = document.getElementById("app");
+    const uiStartedAt = typeof performance === "object" && typeof performance.now === "function"
+      ? performance.now()
+      : Date.now();
+    const cardMetrics = { version: "0.6.2", stages: {} };
+    window.__findcheapCardMetrics = cardMetrics;
+    const stageTelemetry = [];
+    let telemetryReady = false;
+    const notify = (method, params = {}) => {
+      window.parent.postMessage({ jsonrpc: "2.0", method, params }, "*");
+    };
+    const sendStageTelemetry = (name) => notify("notifications/message", {
+      level: "debug",
+      logger: "findcheap-product-cards",
+      data: { stage: name, elapsedMs: cardMetrics.stages[name], version: cardMetrics.version }
+    });
+    const markStage = (name) => {
+      if (cardMetrics.stages[name] !== undefined) return;
+      const now = typeof performance === "object" && typeof performance.now === "function"
+        ? performance.now()
+        : Date.now();
+      cardMetrics.stages[name] = Math.max(0, Math.round((now - uiStartedAt) * 10) / 10);
+      if (document.documentElement?.dataset) {
+        document.documentElement.dataset.findcheapCardStage = name;
+      }
+      if (typeof performance === "object" && typeof performance.mark === "function") {
+        performance.mark("findcheap-card:" + name);
+      }
+      if (telemetryReady) sendStageTelemetry(name);
+      else stageTelemetry.push(name);
+    };
+    markStage("IFRAME_LOADED");
+    markStage("RESOURCE_EVALUATED");
     let hasResult = false;
     let initialized = false;
     let latestToolInput;
     let hydrationRenderId;
     let nextRequestId = 1;
     const pendingRequests = new Map();
-    const notify = (method, params = {}) => {
-      window.parent.postMessage({ jsonrpc: "2.0", method, params }, "*");
-    };
-    const request = (method, params) => {
+    const request = (method, params, timeoutMs) => {
       const id = nextRequestId++;
       window.parent.postMessage({ jsonrpc: "2.0", id, method, params }, "*");
-      return new Promise((resolve, reject) => pendingRequests.set(id, { resolve, reject }));
+      return new Promise((resolve, reject) => {
+        const timeoutId = Number.isFinite(timeoutMs) && timeoutMs > 0
+          ? window.setTimeout(() => {
+              pendingRequests.delete(id);
+              reject(new Error(method + " timed out"));
+            }, timeoutMs)
+          : undefined;
+        pendingRequests.set(id, { resolve, reject, timeoutId });
+      });
     };
+    let lastReportedWidth;
+    let lastReportedHeight;
+    let sizeReportScheduled = false;
     const reportSize = () => {
+      if (!initialized) return;
       const root = document.documentElement;
       const body = document.body;
       const width = Math.ceil(Math.max(root?.scrollWidth || 0, body?.scrollWidth || 0));
       const height = Math.ceil(Math.max(root?.scrollHeight || 0, body?.scrollHeight || 0));
-      if (width > 0 && height > 0) notify("ui/notifications/size-changed", { width, height });
+      if (width <= 0 || height <= 0 || (width === lastReportedWidth && height === lastReportedHeight)) return;
+      lastReportedWidth = width;
+      lastReportedHeight = height;
+      notify("ui/notifications/size-changed", { width, height });
+    };
+    const scheduleSizeReport = () => {
+      if (!initialized || sizeReportScheduled) return;
+      sizeReportScheduled = true;
+      const run = () => {
+        sizeReportScheduled = false;
+        reportSize();
+      };
+      if (typeof window.requestAnimationFrame === "function") window.requestAnimationFrame(run);
+      else window.setTimeout(run, 0);
     };
     const make = (tag, className, text) => {
       const node = document.createElement(tag);
@@ -87,14 +141,15 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     ];
     function render(output) {
       hasResult = true;
+      markStage("RENDER_STARTED");
       app.replaceChildren();
       const products = Array.isArray(output?.products) ? output.products.slice(0, 3) : [];
       if (products.length === 0) {
         app.append(make("div", "empty", output?.message || "No verified products returned."));
+        markStage("DOM_RENDERED");
         return;
       }
       app.append(make("div", "summary", products.length + " product card" + (products.length === 1 ? "" : "s") + " · identity labels and public item prices only"));
-      let cardIndex = 0;
       for (const definition of groupDefinitions) {
         const grouped = products.filter((product) => product?.matchStatus === definition.status);
         if (grouped.length === 0) continue;
@@ -107,15 +162,25 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
           const imageUrl = safeHttps(cardData.imageUrl);
           if (imageUrl) {
             const image = make("img", "image");
-            image.src = imageUrl;
             image.alt = "";
-            image.loading = "eager";
+            image.loading = "lazy";
             image.decoding = "async";
-            image.fetchPriority = cardIndex === 0 ? "high" : "auto";
-            image.addEventListener("error", () => image.remove(), { once: true });
+            image.fetchPriority = "low";
+            image.addEventListener("load", () => {
+              const markPainted = () => {
+                markStage("FIRST_IMAGE_PAINTED");
+                markStage("FIRST_IMAGE_SETTLED");
+              };
+              if (typeof window.requestAnimationFrame === "function") window.requestAnimationFrame(markPainted);
+              else window.setTimeout(markPainted, 0);
+            }, { once: true });
+            image.addEventListener("error", () => {
+              markStage("FIRST_IMAGE_SETTLED");
+              image.remove();
+            }, { once: true });
+            image.src = imageUrl;
             card.append(image);
           }
-          cardIndex += 1;
           const body = make("div", "body");
           body.append(make("div", "merchant", cardData.merchant || product.merchant || "Merchant"));
           body.append(make("h3", "", cardData.title || product.title || "Product"));
@@ -156,7 +221,8 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
         group.append(cards);
         app.append(group);
       }
-      window.setTimeout(reportSize, 0);
+      markStage("DOM_RENDERED");
+      scheduleSizeReport();
     }
     const hydrateFromInput = async (input) => {
       const renderId = typeof input?.renderId === "string" ? input.renderId : undefined;
@@ -166,17 +232,23 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
         const result = await request("tools/call", {
           name: "render_product_cards",
           arguments: { renderId }
-        });
+        }, 4000);
         if (!result?.structuredContent) throw new Error("snapshot missing");
+        markStage("TOOL_OUTPUT_RECEIVED");
         render(result.structuredContent);
-      } catch {
+      } catch (error) {
+        markStage(error instanceof Error && error.message === "tools/call timed out"
+          ? "TOOL_OUTPUT_TIMEOUT"
+          : "TOOL_OUTPUT_FAILED");
         if (!hasResult) {
           app.replaceChildren(make("div", "empty error", "Product-card snapshot could not be loaded. Text results remain available."));
         }
       }
     };
     const receiveInput = (input) => {
+      if (!input || typeof input !== "object") return;
       latestToolInput = input;
+      markStage("TOOL_INPUT_RECEIVED");
       void hydrateFromInput(input);
     };
     window.addEventListener("message", (event) => {
@@ -186,6 +258,9 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       if (message.id !== undefined && pendingRequests.has(message.id)) {
         const pending = pendingRequests.get(message.id);
         pendingRequests.delete(message.id);
+        if (pending.timeoutId !== undefined && typeof window.clearTimeout === "function") {
+          window.clearTimeout(pending.timeoutId);
+        }
         if (message.error) pending.reject(message.error);
         else pending.resolve(message.result);
         return;
@@ -193,41 +268,60 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       if (message.method === "ui/notifications/tool-input") receiveInput(message.params);
       if (message.method === "ui/notifications/tool-result") {
         const output = message.params?.structuredContent;
-        if (output) render(output);
+        if (output) {
+          markStage("TOOL_OUTPUT_RECEIVED");
+          render(output);
+        }
         else void hydrateFromInput(latestToolInput);
       }
     }, { passive: true });
     window.addEventListener("openai:set_globals", (event) => {
       const output = event.detail?.globals?.toolOutput;
-      if (output) render(output);
+      if (output) {
+        markStage("TOOL_OUTPUT_RECEIVED");
+        render(output);
+      }
       receiveInput(event.detail?.globals?.toolInput);
     });
     const responseMetadata = window.openai?.toolResponseMetadata;
     const initialOutput = window.openai?.toolOutput
       || responseMetadata?.mcp_tool_result?.structuredContent
       || responseMetadata?.call_tool_result?.structuredContent;
-    if (initialOutput) render(initialOutput);
+    if (initialOutput) {
+      markStage("TOOL_OUTPUT_RECEIVED");
+      render(initialOutput);
+    }
     receiveInput(window.openai?.toolInput);
+    markStage("INITIALIZE_SENT");
     request("ui/initialize", {
       protocolVersion: "2026-01-26",
-      appInfo: { name: "FindCheap Agent product cards", version: "0.6.0" },
+      appInfo: { name: "FindCheap Agent product cards", version: "0.6.2" },
       appCapabilities: { availableDisplayModes: ["inline"] }
     }).then(() => {
       initialized = true;
+      markStage("INITIALIZE_ACK");
       notify("ui/notifications/initialized");
+      telemetryReady = true;
+      for (const stage of stageTelemetry.splice(0)) sendStageTelemetry(stage);
       void hydrateFromInput(latestToolInput);
       reportSize();
       if (typeof window.ResizeObserver === "function") {
-        new window.ResizeObserver(reportSize).observe(document.documentElement);
+        new window.ResizeObserver(scheduleSizeReport).observe(document.documentElement);
       }
     }).catch(() => {
       app.replaceChildren(make("div", "empty error", "Product-card UI could not connect. Text results remain available."));
     });
     window.setTimeout(() => {
+      if (!initialized && !hasResult) {
+        markStage("INITIALIZE_SLOW");
+        app.replaceChildren(make("div", "empty error", "Product-card UI is still connecting. Text results remain available."));
+      }
+    }, 2500);
+    window.setTimeout(() => {
       if (!hasResult) {
         app.replaceChildren(make("div", "empty error", "Product-card data did not arrive. Text results remain available."));
       }
-    }, 4000);
+    }, 5000);
   </script>
 </body>
 </html>`;

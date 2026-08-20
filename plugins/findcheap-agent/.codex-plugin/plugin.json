@@ -1,6 +1,6 @@
 {
   "name": "findcheap-agent",
-  "version": "0.6.0+codex.20260820002659",
+  "version": "0.6.2+codex.20260819214621",
   "description": "Search Shopify Global Catalog, find verified deals, and monitor prices, promotions, and stock.",
   "author": {
     "name": "yyq8548"
@@ -12,7 +12,7 @@
   "interface": {
     "displayName": "FindCheap Agent",
     "shortDescription": "Verified cards, pricing, coupons, and safe links.",
-    "longDescription": "FindCheap Agent is a Codex Plugin Agent. v0.6.0 searches Shopify Global Catalog, reserves EXACT for strong product identity, renders evidence-rich product cards, queries a configured verified Deals API, and binds persistent identity-specific price, promotion, inventory, and restock Watch rules to native Codex Automation. Product Watch creation requires a generation/model/GTIN and explicit condition. Monitoring becomes active only after its Automation ID is durably bound. Without approved data or affiliate relationships it fails closed and uses canonical merchant links. User-authorized Chrome remains a bounded one-time fallback, never an automated Watch source.",
+    "longDescription": "FindCheap Agent is a Codex Plugin Agent. v0.6.2 searches Shopify Global Catalog, reserves EXACT for strong product identity, renders evidence-rich product cards with ordered MCP Apps lifecycle handling, bounded snapshot hydration, deduplicated resize reporting, and host-visible stage timing. It queries a configured verified Deals API and binds persistent identity-specific price, promotion, inventory, and restock Watch rules to native Codex Automation. Product Watch creation requires a generation/model/GTIN and explicit condition. Monitoring becomes active only after its Automation ID is durably bound. Without approved data or affiliate relationships it fails closed and uses canonical merchant links. User-authorized Chrome remains a bounded one-time fallback, never an automated Watch source.",
     "developerName": "yyq8548",
     "category": "Productivity",
     "capabilities": [
