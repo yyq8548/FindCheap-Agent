@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import { describe, expect, it } from "vitest";
-import { PRODUCT_CARD_HTML } from "../src/product-card-ui.js";
+import { PRODUCT_CARD_HTML, PRODUCT_CARD_UI_URI } from "../src/product-card-ui.js";
 
 class FakeNode {
   children: FakeNode[] = [];
@@ -38,6 +38,16 @@ function nodes(node: FakeNode): FakeNode[] {
 }
 
 describe("product-card MCP Apps UI", () => {
+  it("uses a Codex-native neutral visual system with responsive cards", () => {
+    expect(PRODUCT_CARD_UI_URI).toBe("ui://findcheap/product-cards/v15.html");
+    expect(PRODUCT_CARD_HTML).toContain("--fc-surface:");
+    expect(PRODUCT_CARD_HTML).toContain("background: var(--fc-action);");
+    expect(PRODUCT_CARD_HTML).toContain("@media (max-width: 640px)");
+    expect(PRODUCT_CARD_HTML).toContain("@media (prefers-reduced-motion: reduce)");
+    expect(PRODUCT_CARD_HTML).not.toContain("#177245");
+    expect(PRODUCT_CARD_HTML).not.toContain("0 8px 28px");
+  });
+
   it("reports size only after rendered DOM, without ResizeObserver, and persists app-only metrics", async () => {
     const script = PRODUCT_CARD_HTML.match(/<script>([\s\S]*)<\/script>/u)?.[1];
     const app = new FakeNode();
@@ -101,7 +111,7 @@ describe("product-card MCP Apps UI", () => {
       params: expect.objectContaining({
         name: "report_product_card_metrics",
         arguments: expect.objectContaining({
-          version: "0.6.8",
+          version: "0.6.9",
           terminalStage: "DOM_RENDERED",
           stages: expect.objectContaining({ DOM_RENDERED: expect.any(Number) })
         })
@@ -207,10 +217,10 @@ describe("product-card MCP Apps UI", () => {
 
     expect(text(app)).toContain("Direct Product");
     expect(text(app)).toContain("$13.90");
-    expect(text(app)).toContain("Item price: $12.99");
-    expect(text(app)).toContain("Shipping: 免费配送 $0.00");
-    expect(text(app)).toContain("Estimated tax (FL ZIP state average 6.98%): $0.91");
-    expect(text(app)).toContain("Estimated total: $13.90");
+    expect(text(app)).toContain("Item price $12.99");
+    expect(text(app)).toContain("Shipping 免费配送 $0.00");
+    expect(text(app)).toContain("Estimated tax (FL ZIP state average 6.98%) $0.91");
+    expect(text(app)).toContain("Estimated total $13.90");
     expect(text(app)).toContain("Some merchants require a full address or checkout before calculating tax");
     expect(text(app)).toContain("Final checkout total may change");
     expect(messages.some((message) => message.method === "tools/call")).toBe(false);
@@ -371,7 +381,7 @@ describe("product-card MCP Apps UI", () => {
       method: "ui/initialize",
       params: {
         protocolVersion: "2026-01-26",
-        appInfo: { name: "FindCheap Agent product cards", version: "0.6.8" },
+        appInfo: { name: "FindCheap Agent product cards", version: "0.6.9" },
         appCapabilities: { availableDisplayModes: ["inline"] }
       }
     });

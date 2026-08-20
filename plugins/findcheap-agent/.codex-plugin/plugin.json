@@ -1,6 +1,6 @@
 {
   "name": "findcheap-agent",
-  "version": "0.6.8+codex.20260820033000",
+  "version": "0.6.9+codex.20260820150000",
   "description": "Search Shopify Global Catalog, find verified deals, and monitor prices, promotions, and stock.",
   "author": {
     "name": "yyq8548"
@@ -12,7 +12,7 @@
   "interface": {
     "displayName": "FindCheap Agent",
     "shortDescription": "Verified cards, pricing, coupons, and safe links.",
-    "longDescription": "FindCheap Agent is a Codex Plugin Agent. v0.6.8 searches Shopify Global Catalog, reserves EXACT for strong product identity, and renders evidence-rich product cards. With a US ZIP, supported merchants receive a short-lived anonymous Shopify Cart quote with item price, shipping, tax, and estimated total. Shopify totalTaxAmount is used only when explicitly returned; otherwise tax is clearly labeled as a ZIP-inferred 2026 state-average estimate. Unsupported merchants remain item-price-only. Commerce comparison and verified Deals tools appear only when their approved providers are configured, reducing invalid tool calls while preserving future integrations. Watch rules bind to native Codex Automation. Without approved affiliate relationships it fails closed and uses canonical merchant links. User-authorized Chrome remains a bounded zero-result fallback. It never checks out, reserves inventory, purchases, or pays.",
+    "longDescription": "FindCheap Agent is a Codex Plugin Agent. v0.6.9 searches Shopify Global Catalog, reserves EXACT for strong product identity, and renders evidence-rich product cards with a Codex-native responsive visual system. With a US ZIP, supported merchants receive a short-lived anonymous Shopify Cart quote with item price, shipping, tax, and estimated total. Shopify totalTaxAmount is used only when explicitly returned; otherwise tax is clearly labeled as a ZIP-inferred 2026 state-average estimate. Unsupported merchants remain item-price-only. Commerce comparison and verified Deals tools appear only when their approved providers are configured, reducing invalid tool calls while preserving future integrations. Watch rules bind to native Codex Automation. Without approved affiliate relationships it fails closed and uses canonical merchant links. User-authorized Chrome remains a bounded zero-result fallback. It never checks out, reserves inventory, purchases, or pays.",
     "developerName": "yyq8548",
     "category": "Productivity",
     "capabilities": [

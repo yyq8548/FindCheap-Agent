@@ -4058,7 +4058,7 @@
   },
   "outputs": {
     "../../plugins/findcheap-agent/dist/mcp-server.js": {
-      "bytes": 448036,
+      "bytes": 451370,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
@@ -4646,7 +4646,7 @@
           "bytesInOutput": 3502
         },
         "src/product-card-ui.ts": {
-          "bytesInOutput": 20124
+          "bytesInOutput": 23458
         },
         "src/sales-tax-estimator.ts": {
           "bytesInOutput": 1784
