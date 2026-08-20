@@ -153,20 +153,22 @@ describe("shopping MCP server", () => {
     const tools = await client.listTools();
     const searchTool = tools.tools.find((candidate) => candidate.name === "search_shopify_products");
     const renderTool = tools.tools.find((candidate) => candidate.name === "render_product_cards");
+    const metricsTool = tools.tools.find((candidate) => candidate.name === "report_product_card_metrics");
     expect(searchTool?._meta).toBeUndefined();
     expect(renderTool?._meta).toMatchObject({
-      ui: { resourceUri: "ui://findcheap/product-cards/v11.html" },
-      "openai/outputTemplate": "ui://findcheap/product-cards/v11.html"
+      ui: { resourceUri: "ui://findcheap/product-cards/v12.html" },
+      "openai/outputTemplate": "ui://findcheap/product-cards/v12.html"
     });
+    expect(metricsTool?._meta).toMatchObject({ ui: { visibility: ["app"] } });
 
     const resources = await client.listResources();
     expect(resources.resources).toEqual([expect.objectContaining({
       name: "findcheap-product-cards",
-      uri: "ui://findcheap/product-cards/v11.html",
+      uri: "ui://findcheap/product-cards/v12.html",
       mimeType: "text/html;profile=mcp-app"
     })]);
 
-    const resource = await client.readResource({ uri: "ui://findcheap/product-cards/v11.html" });
+    const resource = await client.readResource({ uri: "ui://findcheap/product-cards/v12.html" });
     const content = resource.contents[0];
     const html = content !== undefined && "text" in content ? content.text : "";
     expect(html).toContain("ui/notifications/tool-result");
@@ -208,7 +210,8 @@ describe("shopping MCP server", () => {
       "list_watches",
       "pause_watch",
       "delete_watch",
-      "render_product_cards"
+      "render_product_cards",
+      "report_product_card_metrics"
     ]);
     expect(Object.keys(tools.tools[0]?.inputSchema.properties ?? {}).sort()).toEqual([
       "membershipIds",
@@ -240,6 +243,8 @@ describe("shopping MCP server", () => {
     });
     expect(Object.keys(tools.tools.find((tool) => tool.name === "render_product_cards")?.inputSchema.properties ?? {}))
       .toEqual(["renderId"]);
+    expect(Object.keys(tools.tools.find((tool) => tool.name === "report_product_card_metrics")?.inputSchema.properties ?? {}).sort())
+      .toEqual(["renderId", "stages", "terminalStage", "version"]);
     expect(tools.tools[0]?.annotations).toMatchObject({
       readOnlyHint: true,
       destructiveHint: false
@@ -365,6 +370,70 @@ describe("shopping MCP server", () => {
       type: "text",
       text: "Rendered 1 product card with explicit identity labels."
     }]);
+  });
+
+  it("accepts bounded app-only card metrics only for a live render snapshot", async () => {
+    const record = vi.fn();
+    const client = await connect(
+      { compare: async () => comparison },
+      bestBuyPort,
+      shopifyPort,
+      undefined,
+      { cardTelemetry: { record } }
+    );
+    const search = await client.callTool({
+      name: "search_shopify_products",
+      arguments: { query: "Valhalla Java", limit: 3, comparisonMode: "DISCOVERY", selectionMode: "MERCHANT_DIVERSE" }
+    });
+    const renderId = (search.structuredContent as { renderId: string }).renderId;
+
+    const result = await client.callTool({
+      name: "report_product_card_metrics",
+      arguments: {
+        renderId,
+        version: "0.6.3",
+        terminalStage: "DOM_RENDERED",
+        stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
+      }
+    });
+
+    expect(result.structuredContent).toEqual({ status: "RECORDED" });
+    expect(record).toHaveBeenCalledWith(expect.objectContaining({
+      renderId,
+      version: "0.6.3",
+      terminalStage: "DOM_RENDERED",
+      stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
+    }));
+    expect((await client.callTool({
+      name: "report_product_card_metrics",
+      arguments: {
+        renderId,
+        version: "0.6.3",
+        terminalStage: "DOM_RENDERED",
+        stages: { DOM_RENDERED: 14 }
+      }
+    })).structuredContent).toEqual({ status: "IGNORED" });
+    expect(record).toHaveBeenCalledTimes(1);
+    const oversized = await client.callTool({
+      name: "report_product_card_metrics",
+      arguments: {
+        renderId,
+        version: "0.6.3",
+        terminalStage: "DOM_RENDERED",
+        stages: { DOM_RENDERED: 300_001 }
+      }
+    });
+    expect(oversized.isError).toBe(true);
+    expect(JSON.stringify(oversized.content)).toContain("less than or equal to 300000");
+    expect((await client.callTool({
+      name: "report_product_card_metrics",
+      arguments: {
+        renderId: "22222222-2222-4222-8222-222222222222",
+        version: "0.6.3",
+        terminalStage: "DOM_RENDERED",
+        stages: { DOM_RENDERED: 1 }
+      }
+    })).isError).toBe(true);
   });
 
   it("uses canonical links when no affiliate relationship is approved", async () => {

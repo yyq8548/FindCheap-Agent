@@ -3,7 +3,7 @@ name: compare-products
 description: Search Shopify Global Catalog first, verify product identity, and render MCP UI product cards with fail-closed affiliate-ready purchase links before authorized Chrome fallback. Use deals-and-watch for Coupon and monitoring requests.
 ---
 
-# FindCheap Agent v0.6.2 Shopify Global Catalog
+# FindCheap Agent v0.6.3 Shopify Global Catalog
 
 Risk tier: `R0`. Perform one read-only public-product lookup. Do not persist browser data.
 

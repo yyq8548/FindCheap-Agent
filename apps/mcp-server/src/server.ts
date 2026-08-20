@@ -46,6 +46,44 @@ export type { ShopifyPort } from "./shopify-client.js";
 export type { DealPort } from "./deal-client.js";
 export type { WatchStore } from "./watch-store.js";
 
+const CardStageDurationSchema = z.number().nonnegative().max(300_000);
+const ProductCardStagesSchema = z.object({
+  IFRAME_LOADED: CardStageDurationSchema.optional(),
+  RESOURCE_EVALUATED: CardStageDurationSchema.optional(),
+  INITIALIZE_SENT: CardStageDurationSchema.optional(),
+  INITIALIZE_ACK: CardStageDurationSchema.optional(),
+  TOOL_INPUT_RECEIVED: CardStageDurationSchema.optional(),
+  TOOL_OUTPUT_RECEIVED: CardStageDurationSchema.optional(),
+  RENDER_STARTED: CardStageDurationSchema.optional(),
+  DOM_RENDERED: CardStageDurationSchema.optional(),
+  FIRST_IMAGE_PAINTED: CardStageDurationSchema.optional(),
+  FIRST_IMAGE_SETTLED: CardStageDurationSchema.optional(),
+  TOOL_OUTPUT_TIMEOUT: CardStageDurationSchema.optional(),
+  TOOL_OUTPUT_FAILED: CardStageDurationSchema.optional(),
+  INITIALIZE_SLOW: CardStageDurationSchema.optional()
+}).strict();
+
+const ProductCardTelemetryInputSchema = z.object({
+  renderId: z.string().uuid(),
+  version: z.literal("0.6.3"),
+  terminalStage: z.enum([
+    "DOM_RENDERED",
+    "FIRST_IMAGE_SETTLED",
+    "TOOL_OUTPUT_TIMEOUT",
+    "TOOL_OUTPUT_FAILED",
+    "INITIALIZE_SLOW"
+  ]),
+  stages: ProductCardStagesSchema
+}).strict();
+
+export type ProductCardTelemetry = z.infer<typeof ProductCardTelemetryInputSchema> & {
+  recordedAt: string;
+};
+
+export type ProductCardTelemetrySink = {
+  record(event: ProductCardTelemetry): void | Promise<void>;
+};
+
 const unavailableMessage =
   "Live comparison is unavailable because no approved shopping data source is connected.";
 const bestBuyUnavailableMessage =
@@ -514,6 +552,7 @@ export type ShoppingServerDependencies = {
   deals?: DealPort;
   watches?: WatchStore;
   now?: () => Date;
+  cardTelemetry?: ProductCardTelemetrySink;
 };
 
 function emptyShopifyQuality() {
@@ -636,15 +675,21 @@ export function createShoppingServer(
   affiliateLinks: AffiliateLinkResolver = createAffiliateLinkResolver(),
   dependencies: ShoppingServerDependencies = {}
 ): McpServer {
-  const server = new McpServer({ name: "findcheap-agent", version: "0.6.2" });
+  const server = new McpServer({ name: "findcheap-agent", version: "0.6.3" });
   const dealPort = dependencies.deals ?? createUnavailableDealPort();
   const watchStore = dependencies.watches ?? createMemoryWatchStore();
   const now = dependencies.now ?? (() => new Date());
+  const cardTelemetry = dependencies.cardTelemetry ?? {
+    record: (event: ProductCardTelemetry) => {
+      process.stderr.write(`[findcheap-product-card-metrics] ${JSON.stringify(event)}\n`);
+    }
+  };
   const watchChecks = new Map<string, Promise<WatchEvaluation>>();
   const renderSnapshots = new Map<string, {
     expiresAt: number;
     content: ReturnType<typeof shopifyResult>["structuredContent"] & { renderId: string };
   }>();
+  const recordedCardTelemetry = new Set<string>();
   const rememberSnapshot = (
     content: ReturnType<typeof shopifyResult>["structuredContent"]
   ): ReturnType<typeof shopifyResult>["structuredContent"] & { renderId: string } => {
@@ -1114,6 +1159,53 @@ export function createShoppingServer(
           text: `Rendered ${snapshot.content.products.length} product card${snapshot.content.products.length === 1 ? "" : "s"} with explicit identity labels.`
         }],
         structuredContent: snapshot.content
+      };
+    }
+  );
+
+  server.registerTool(
+    "report_product_card_metrics",
+    {
+      title: "Report product-card performance metrics",
+      description: "Record bounded, non-sensitive product-card lifecycle timings for an active render snapshot.",
+      inputSchema: ProductCardTelemetryInputSchema,
+      outputSchema: { status: z.enum(["RECORDED", "IGNORED"]) },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false
+      },
+      _meta: { ui: { visibility: ["app"] } }
+    },
+    async (input) => {
+      const telemetry = ProductCardTelemetryInputSchema.parse(input);
+      const snapshot = renderSnapshots.get(telemetry.renderId);
+      if (snapshot === undefined || snapshot.expiresAt <= Date.now()) {
+        renderSnapshots.delete(telemetry.renderId);
+        return {
+          isError: true,
+          content: [{ type: "text" as const, text: "Product-card telemetry snapshot is unavailable." }]
+        };
+      }
+      const key = `${telemetry.renderId}:${telemetry.terminalStage}`;
+      if (recordedCardTelemetry.has(key)) {
+        return {
+          content: [{ type: "text" as const, text: "Product-card metrics already recorded." }],
+          structuredContent: { status: "IGNORED" as const }
+        };
+      }
+      const event = { ...telemetry, recordedAt: now().toISOString() };
+      await cardTelemetry.record(event);
+      recordedCardTelemetry.add(key);
+      while (recordedCardTelemetry.size > 96) {
+        const oldest = recordedCardTelemetry.values().next().value as string | undefined;
+        if (oldest === undefined) break;
+        recordedCardTelemetry.delete(oldest);
+      }
+      return {
+        content: [{ type: "text" as const, text: "Product-card metrics recorded." }],
+        structuredContent: { status: "RECORDED" as const }
       };
     }
   );
