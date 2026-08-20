@@ -60,7 +60,7 @@ describe("migration runner", () => {
     expect(ledgerAfter.rows).toEqual(ledgerBefore.rows);
   });
 
-  it("records the ingestion, offer-revision, and quote-snapshot migrations", async () => {
+  it("records the ingestion, offer-revision, quote-snapshot, and source-retirement migrations", async () => {
     await runMigrations(db);
 
     const result = await db.query<{ filename: string }>(
@@ -69,14 +69,16 @@ describe("migration runner", () => {
       [[
         "0002_ingestion_pipeline.sql",
         "0004_offer_promotion_revisions.sql",
-        "0005_promotion_quote_snapshots.sql"
+        "0005_promotion_quote_snapshots.sql",
+        "0006_remove_retired_source_types.sql"
       ]]
     );
 
     expect(result.rows).toEqual([
       { filename: "0002_ingestion_pipeline.sql" },
       { filename: "0004_offer_promotion_revisions.sql" },
-      { filename: "0005_promotion_quote_snapshots.sql" }
+      { filename: "0005_promotion_quote_snapshots.sql" },
+      { filename: "0006_remove_retired_source_types.sql" }
     ]);
   });
 });

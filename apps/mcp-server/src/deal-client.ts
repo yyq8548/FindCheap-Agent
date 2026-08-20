@@ -71,13 +71,9 @@ export function createDealPortFromEnvironment(
   fetcher: typeof fetch = fetch,
   now: () => Date = () => new Date()
 ): DealPort {
-  const rawUrl = environment.FINDCHEAP_DEALS_API_URL;
-  const token = environment.FINDCHEAP_DEALS_API_TOKEN;
-  if (rawUrl === undefined || token === undefined || token.trim() === "") return createUnavailableDealPort();
-  const endpoint = new URL(rawUrl);
-  if (endpoint.protocol !== "https:" || endpoint.username !== "" || endpoint.password !== "" || endpoint.hash !== "") {
-    return createUnavailableDealPort();
-  }
+  const configuration = dealProviderConfiguration(environment);
+  if (configuration === undefined) return createUnavailableDealPort();
+  const { endpoint, token } = configuration;
 
   return {
     async search(input) {
@@ -113,6 +109,29 @@ export function createDealPortFromEnvironment(
       }
     }
   };
+}
+
+export function hasDealProviderConfiguration(
+  environment: Readonly<Record<string, string | undefined>>
+): boolean {
+  return dealProviderConfiguration(environment) !== undefined;
+}
+
+function dealProviderConfiguration(
+  environment: Readonly<Record<string, string | undefined>>
+): { endpoint: URL; token: string } | undefined {
+  const rawUrl = environment.FINDCHEAP_DEALS_API_URL?.trim();
+  const token = environment.FINDCHEAP_DEALS_API_TOKEN?.trim();
+  if (rawUrl === undefined || rawUrl === "" || token === undefined || token === "") return undefined;
+  try {
+    const endpoint = new URL(rawUrl);
+    if (endpoint.protocol !== "https:" || endpoint.username !== "" || endpoint.password !== "" || endpoint.hash !== "") {
+      return undefined;
+    }
+    return { endpoint, token };
+  } catch {
+    return undefined;
+  }
 }
 
 async function readBoundedText(response: Response, maximumBytes: number): Promise<string> {

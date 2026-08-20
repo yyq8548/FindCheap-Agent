@@ -1,7 +1,11 @@
 import http from "node:http";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createCommerceApiComparePort, createComparePortFromEnvironment } from "../src/commerce-client.js";
+import {
+  createCommerceApiComparePort,
+  createComparePortFromEnvironment,
+  hasCommerceApiConfiguration
+} from "../src/commerce-client.js";
 import { createUnavailableComparePort } from "../src/server.js";
 
 const token = "test-commerce-token-that-is-at-least-32-characters";
@@ -129,5 +133,18 @@ describe("Commerce API compare client", () => {
     }, createUnavailableComparePort);
     await expect(absent.compare({ query: "model", zipCode: "10001" })).rejects.toThrow("DATA_SOURCE_UNAVAILABLE");
     await expect(partial.compare({ query: "model", zipCode: "10001" })).rejects.toThrow("DATA_SOURCE_UNAVAILABLE");
+  });
+
+  it("exposes Commerce capability only for a complete safe configuration", () => {
+    expect(hasCommerceApiConfiguration({})).toBe(false);
+    expect(hasCommerceApiConfiguration({ SHOPPING_COMMERCE_API_URL: "https://commerce.example" })).toBe(false);
+    expect(hasCommerceApiConfiguration({
+      SHOPPING_COMMERCE_API_URL: "https://user:secret@commerce.example",
+      SHOPPING_COMMERCE_API_TOKEN: token
+    })).toBe(false);
+    expect(hasCommerceApiConfiguration({
+      SHOPPING_COMMERCE_API_URL: "https://commerce.example",
+      SHOPPING_COMMERCE_API_TOKEN: token
+    })).toBe(true);
   });
 });

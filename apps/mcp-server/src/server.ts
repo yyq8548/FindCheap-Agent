@@ -7,11 +7,6 @@ import {
   type PriceQuote
 } from "../../../packages/contracts/src/index.js";
 import {
-  createUnavailableBestBuyPort,
-  type BestBuyPort,
-  type BestBuyProduct
-} from "./bestbuy-client.js";
-import {
   createUnavailableShopifyPort,
   type ShopifyPort,
   type ShopifySearchResult
@@ -42,7 +37,6 @@ import {
 } from "./watch-store.js";
 import { evaluateWatch, type WatchEvaluation } from "./watch-service.js";
 
-export type { BestBuyPort } from "./bestbuy-client.js";
 export type { ShopifyPort } from "./shopify-client.js";
 export type { DealPort } from "./deal-client.js";
 export type { WatchStore } from "./watch-store.js";
@@ -70,7 +64,7 @@ const ProductCardStagesSchema = z.object({
 
 const ProductCardTelemetryInputSchema = z.object({
   renderId: z.string().uuid(),
-  version: z.literal("0.6.7"),
+  version: z.literal("0.6.8"),
   terminalStage: z.enum([
     "DOM_RENDERED",
     "FIRST_IMAGE_SETTLED",
@@ -91,8 +85,6 @@ export type ProductCardTelemetrySink = {
 
 const unavailableMessage =
   "Live comparison is unavailable because no approved shopping data source is connected.";
-const bestBuyUnavailableMessage =
-  "Best Buy live product data is unavailable because BEST_BUY_API_KEY is not configured or the official API request failed.";
 const shopifyUnavailableMessage =
   "Shopify Global Catalog data is unavailable because the official Catalog request failed or the Agent Profile is not configured.";
 const dealUnavailableMessage =
@@ -114,18 +106,6 @@ export const CompareProductsInputSchema = z
   .strict();
 
 export type CompareProductsInput = z.infer<typeof CompareProductsInputSchema>;
-
-const BestBuyProductsToolInputSchema = z.object({
-  query: z.string().trim().min(2).max(300).optional(),
-  sku: z.string().regex(/^\d{1,20}$/u).optional(),
-  limit: z.number().int().min(1).max(50).default(10)
-}).strict();
-
-export const BestBuyProductsInputSchema = BestBuyProductsToolInputSchema.refine(
-  (input) => (input.query === undefined) !== (input.sku === undefined), {
-    message: "Provide exactly one of query or sku"
-  }
-);
 
 const ShopifyProductsToolInputSchema = z.object({
   query: z.string().trim().min(2).max(300).regex(/^[\p{L}\p{N}\s._+'-]+$/u).optional(),
@@ -200,27 +180,6 @@ const CompareProductsOutputShape = {
   exactOffers: z.array(ExactOfferOutputSchema),
   similarOffers: z.array(SimilarOfferOutputSchema),
   questions: z.array(z.string())
-};
-
-const BestBuyProductOutputSchema = z.object({
-  sku: z.string(),
-  title: z.string(),
-  brand: z.string().optional(),
-  modelNumber: z.string().optional(),
-  gtins: z.array(z.string()),
-  imageUrl: z.string().url().optional(),
-  itemPrice: MoneyOutputSchema.optional(),
-  availability: z.enum(["IN_STOCK", "OUT_OF_STOCK", "UNKNOWN"]),
-  merchantUrl: z.string().url(),
-  checkedAt: z.string()
-});
-
-const BestBuyProductsOutputShape = {
-  status: z.enum(["OK", "DATA_SOURCE_UNAVAILABLE"]),
-  message: z.string(),
-  merchant: z.literal("Best Buy"),
-  priceScope: z.literal("ITEM_PRICE_ONLY"),
-  products: z.array(BestBuyProductOutputSchema)
 };
 
 const ShopifyProductOutputSchema = z.object({
@@ -334,7 +293,7 @@ const ShopifyProductsOutputShape = {
   renderId: z.string().uuid().optional(),
   status: z.enum(["OK", "NEEDS_CLARIFICATION", "DATA_SOURCE_UNAVAILABLE"]),
   message: z.string(),
-  source: z.enum(["SHOPIFY_GLOBAL_CATALOG", "SHOPIFY_STOREFRONT_API"]),
+  source: z.literal("SHOPIFY_GLOBAL_CATALOG"),
   priceScope: z.enum(["ITEM_PRICE_ONLY", "SHOPIFY_CART_ESTIMATE", "MIXED"]),
   cartQuoteCoverage: z.object({
     attempted: z.number().int().nonnegative(),
@@ -456,33 +415,6 @@ export function createUnavailableComparePort(): ComparePort {
   };
 }
 
-function bestBuyResult(products: BestBuyProduct[]) {
-  const message = `Best Buy returned ${products.length} product(s). Prices are item prices only; shipping, tax, coupons, and member pricing are not included.`;
-  return {
-    content: [{ type: "text" as const, text: message }],
-    structuredContent: {
-      status: "OK" as const,
-      message,
-      merchant: "Best Buy" as const,
-      priceScope: "ITEM_PRICE_ONLY" as const,
-      products
-    }
-  };
-}
-
-function bestBuyUnavailableResult() {
-  return {
-    content: [{ type: "text" as const, text: bestBuyUnavailableMessage }],
-    structuredContent: {
-      status: "DATA_SOURCE_UNAVAILABLE" as const,
-      message: bestBuyUnavailableMessage,
-      merchant: "Best Buy" as const,
-      priceScope: "ITEM_PRICE_ONLY" as const,
-      products: []
-    }
-  };
-}
-
 function shopifyResult(
   result: ShopifySearchResult,
   context: { zipCode?: string | undefined; membershipIds?: string[] | undefined },
@@ -512,8 +444,8 @@ function shopifyResult(
   const linkSummary = affiliateLinksApproved === 0
     ? "Purchase actions use canonical merchant links because no affiliate relationship is active."
     : `${affiliateLinksApproved} purchase link(s) use an approved affiliate relationship with disclosure; remaining links are canonical merchant links. Commission never affects ranking.`;
-  const source = result.source ?? "SHOPIFY_STOREFRONT_API";
-  const sourceLabel = source === "SHOPIFY_GLOBAL_CATALOG" ? "Shopify Global Catalog" : "audited Shopify registry";
+  const source = result.source;
+  const sourceLabel = "Shopify Global Catalog";
   const priceScope = cartQuoteCoverage.succeeded === 0
     ? "ITEM_PRICE_ONLY" as const
     : cartQuoteCoverage.succeeded === result.products.length
@@ -683,6 +615,10 @@ export type ShoppingServerDependencies = {
   cartQuotes?: ShopifyCartQuotePort;
   now?: () => Date;
   cardTelemetry?: ProductCardTelemetrySink;
+  toolAvailability?: {
+    commerceCompare: boolean;
+    verifiedDeals: boolean;
+  };
 };
 
 async function enrichShopifyCartQuotes(
@@ -831,13 +767,16 @@ function shopifyUnavailableResult(
 
 export function createShoppingServer(
   comparePort: ComparePort,
-  bestBuyPort: BestBuyPort = createUnavailableBestBuyPort(),
   shopifyPort: ShopifyPort = createUnavailableShopifyPort(),
   affiliateLinks: AffiliateLinkResolver = createAffiliateLinkResolver(),
   dependencies: ShoppingServerDependencies = {}
 ): McpServer {
-  const server = new McpServer({ name: "findcheap-agent", version: "0.6.7" });
+  const server = new McpServer({ name: "findcheap-agent", version: "0.6.8" });
   const dealPort = dependencies.deals ?? createUnavailableDealPort();
+  const toolAvailability = dependencies.toolAvailability ?? {
+    commerceCompare: true,
+    verifiedDeals: true
+  };
   const watchStore = dependencies.watches ?? createMemoryWatchStore();
   const cartQuotes = dependencies.cartQuotes;
   const now = dependencies.now ?? (() => new Date());
@@ -892,7 +831,7 @@ export function createShoppingServer(
     })
   );
 
-  server.registerTool(
+  if (toolAvailability.commerceCompare) server.registerTool(
     "compare_products",
     {
       title: "Compare products",
@@ -912,31 +851,6 @@ export function createShoppingServer(
         return successResult(comparison);
       } catch {
         return unavailableResult();
-      }
-    }
-  );
-
-  server.registerTool(
-    "search_bestbuy_products",
-    {
-      title: "Search Best Buy products (Beta)",
-      description: "Search the official Best Buy Products API by product query or numeric SKU. Returns item price only, not delivered price.",
-      inputSchema: BestBuyProductsToolInputSchema,
-      outputSchema: BestBuyProductsOutputShape,
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: true
-      }
-    },
-    async (input) => {
-      const validatedInput = BestBuyProductsInputSchema.parse(input);
-      try {
-        const result = await bestBuyPort.search(validatedInput);
-        return bestBuyResult(result.products);
-      } catch {
-        return bestBuyUnavailableResult();
       }
     }
   );
@@ -985,7 +899,7 @@ export function createShoppingServer(
     }
   );
 
-  server.registerTool(
+  if (toolAvailability.verifiedDeals) server.registerTool(
     "find_coupons",
     {
       title: "Find verified coupons and cashback",
@@ -1036,7 +950,8 @@ export function createShoppingServer(
       description: "Persist a Watch rule and return the exact Codex Automation handoff. Monitoring is not active until bind_watch_automation succeeds.",
       inputSchema: WatchSpecSchema,
       outputSchema: {
-        status: z.enum(["READY_TO_SCHEDULE", "ACTIVE", "PAUSED", "LEGACY_UNVERIFIED", "NEEDS_CLARIFICATION"]),
+        status: z.enum(["READY_TO_SCHEDULE", "ACTIVE", "PAUSED", "LEGACY_UNVERIFIED", "NEEDS_CLARIFICATION", "DATA_SOURCE_UNAVAILABLE"]),
+        message: z.string().optional(),
         watchId: z.string().uuid().optional(),
         automationId: WatchAutomationIdSchema.optional(),
         intervalMinutes: z.number().int().optional(),
@@ -1048,6 +963,16 @@ export function createShoppingServer(
     async (input) => {
       const createdAt = now();
       const spec = WatchSpecSchema.parse(input);
+      if (
+        !toolAvailability.verifiedDeals &&
+        ["DISCOUNT_AT_LEAST", "COUPON_AVAILABLE", "CASHBACK_AT_LEAST"].includes(spec.condition)
+      ) {
+        return { content: [{ type: "text" as const, text: dealUnavailableMessage }], structuredContent: {
+          status: "DATA_SOURCE_UNAVAILABLE" as const,
+          message: dealUnavailableMessage,
+          questions: []
+        } };
+      }
       const questions = productWatchClarificationQuestions(spec);
       if (questions.length > 0) {
         const message = `More product detail is required before this watch can be created. ${questions.join(" ")}`;

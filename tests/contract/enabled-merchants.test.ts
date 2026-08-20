@@ -221,33 +221,6 @@ describe("enabled merchant quality gate", () => {
     });
   });
 
-  it("accepts only the audited official Best Buy API provider", async () => {
-    const paths = await fixture({
-      candidates: [{
-        ...approvedCandidate("best-buy"),
-        name: "Best Buy",
-        provenSource: "api",
-        allowedHosts: ["api.bestbuy.com"]
-      }],
-      configs: [{
-        file: "best-buy.yaml",
-        value: {
-          ...enabledConfig("best-buy"),
-          allowedHosts: ["api.bestbuy.com"],
-          source: {
-            type: "api",
-            provider: "bestbuy-products",
-            host: "api.bestbuy.com",
-            credentialEnv: "BEST_BUY_API_KEY"
-          },
-          seller: { name: "Best Buy", condition: "NEW" }
-        }
-      }],
-      decisions: [{ file: "best-buy.md", value: decisionMarkdown("Best Buy") }]
-    });
-    expect(await validateEnabledMerchants(paths)).toEqual({ minimum: 1, enabledCount: 1, failures: [] });
-  });
-
   it("accepts an audited Shopify Storefront provider without inline credentials", async () => {
     const paths = await fixture({
       candidates: [{
@@ -273,22 +246,6 @@ describe("enabled merchant quality gate", () => {
       decisions: [{ file: "death-wish-coffee.md", value: decisionMarkdown("Death Wish Coffee") }]
     });
     expect(await validateEnabledMerchants(paths)).toEqual({ minimum: 1, enabledCount: 1, failures: [] });
-  });
-
-  it("reports source types outside configured adapters explicitly", async () => {
-    const paths = await fixture({
-      candidates: [{ ...approvedCandidate(), provenSource: "crawl4ai" }],
-      configs: [{
-        file: "approved-shop.yaml",
-        value: { ...enabledConfig(), source: { type: "crawl4ai", host: "www.approved-shop.example" } }
-      }],
-      decisions: [{ file: "approved-shop.md", value: decisionMarkdown() }]
-    });
-    expect((await validateEnabledMerchants(paths)).failures).toContainEqual({
-      code: "UNSUPPORTED_SOURCE_TYPE",
-      merchantId: "approved-shop",
-      detail: "crawl4ai"
-    });
   });
 
   it("rejects symlinked enabled or decision directories when the platform permits symlinks", async () => {

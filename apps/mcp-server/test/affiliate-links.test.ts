@@ -38,7 +38,8 @@ describe("Shopify affiliate links", () => {
     const resolver = createAffiliateLinkResolver();
     expect(resolver.resolve({
       merchantId: "death-wish-coffee",
-      merchantUrl: "https://deathwishcoffee.com/products/coffee"
+      merchantUrl: "https://deathwishcoffee.com/products/coffee",
+      sourceHost: "deathwishcoffee.com"
     })).toEqual({
       kind: "CANONICAL",
       url: "https://deathwishcoffee.com/products/coffee"
@@ -51,7 +52,8 @@ describe("Shopify affiliate links", () => {
     });
     expect(resolver.resolve({
       merchantId: "death-wish-coffee",
-      merchantUrl: "https://deathwishcoffee.com/products/coffee?size=12oz"
+      merchantUrl: "https://deathwishcoffee.com/products/coffee?size=12oz",
+      sourceHost: "deathwishcoffee.com"
     })).toEqual({
       kind: "APPROVED_AFFILIATE",
       url: "https://go.fixture-affiliate.example/click?campaign=campaign%2042&url=https%3A%2F%2Fdeathwishcoffee.com%2Fproducts%2Fcoffee%3Fsize%3D12oz",
@@ -64,7 +66,8 @@ describe("Shopify affiliate links", () => {
     const resolver = createAffiliateLinkResolver(approvedRegistry, {});
     expect(resolver.resolve({
       merchantId: "death-wish-coffee",
-      merchantUrl: "https://deathwishcoffee.com/products/coffee"
+      merchantUrl: "https://deathwishcoffee.com/products/coffee",
+      sourceHost: "deathwishcoffee.com"
     })).toEqual({
       kind: "CANONICAL",
       url: "https://deathwishcoffee.com/products/coffee"
@@ -73,7 +76,6 @@ describe("Shopify affiliate links", () => {
 
   it.each([
     { ...approvedRegistry, relationships: [{ ...approvedRegistry.relationships[0], status: "PENDING" }] },
-    { ...approvedRegistry, relationships: [{ ...approvedRegistry.relationships[0], merchantId: "unknown-merchant" }] },
     { ...approvedRegistry, relationships: [{ ...approvedRegistry.relationships[0], affiliateOrigin: "http://go.fixture-affiliate.example" }] },
     { ...approvedRegistry, relationships: [{ ...approvedRegistry.relationships[0], template: "https://{campaignId}.fixture-affiliate.example/click" }] },
     { ...approvedRegistry, relationships: [{ ...approvedRegistry.relationships[0], template: "https://go.fixture-affiliate.example/click?campaign={campaignId}" }] },

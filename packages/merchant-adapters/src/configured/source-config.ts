@@ -103,15 +103,6 @@ const MappedSourceSchema = z
   })
   .strict();
 
-const BestBuyProductsSourceSchema = z
-  .object({
-    type: z.literal("api"),
-    provider: z.literal("bestbuy-products"),
-    host: z.literal("api.bestbuy.com"),
-    credentialEnv: z.literal("BEST_BUY_API_KEY")
-  })
-  .strict();
-
 const ShopifyStorefrontSourceSchema = z
   .object({
     type: z.literal("api"),
@@ -127,7 +118,6 @@ export const MerchantSourceConfigSchema = z
     allowedHosts: z.array(MerchantHostSchema).min(1).max(50),
     source: z.union([
       MappedSourceSchema,
-      BestBuyProductsSourceSchema,
       ShopifyStorefrontSourceSchema
     ]),
     quoteEndpoint: QuoteEndpointSchema.optional(),
@@ -150,17 +140,6 @@ export const MerchantSourceConfigSchema = z
   })
   .strict()
   .superRefine((config, context) => {
-    if (
-      config.source.type === "api" &&
-      config.source.provider === "bestbuy-products" &&
-      (config.merchantId !== "best-buy" || config.seller.name !== "Best Buy" || config.seller.condition !== "NEW")
-    ) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["source", "provider"],
-        message: "Best Buy Products API must be bound to the Best Buy merchant and NEW seller"
-      });
-    }
     if (!config.allowedHosts.includes(config.source.host)) {
       context.addIssue({
         code: z.ZodIssueCode.custom,

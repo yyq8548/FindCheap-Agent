@@ -55,6 +55,20 @@ export function createComparePortFromEnvironment(
   }
 }
 
+export function hasCommerceApiConfiguration(
+  input: Readonly<Record<string, string | undefined>>
+): boolean {
+  const url = input.SHOPPING_COMMERCE_API_URL?.trim();
+  const token = input.SHOPPING_COMMERCE_API_TOKEN?.trim();
+  if (url === undefined || url === "" || token === undefined || token === "") return false;
+  try {
+    createCommerceApiComparePort(url, token);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function apiInput(input: CompareProductsInput) {
   return {
     query: input.query,

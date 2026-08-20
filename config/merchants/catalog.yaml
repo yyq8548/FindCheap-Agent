@@ -3,7 +3,6 @@ candidates:
   - { id: amazon, name: Amazon, segment: general, auditState: required }
   - { id: walmart, name: Walmart, segment: general, auditState: required }
   - { id: target, name: Target, segment: general, auditState: required }
-  - { id: best-buy, name: Best Buy, segment: specialist, auditState: required }
   - { id: costco, name: Costco, segment: general, auditState: required }
   - { id: sams-club, name: "Sam's Club", segment: general, auditState: required }
   - { id: home-depot, name: Home Depot, segment: specialist, auditState: required }

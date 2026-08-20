@@ -34,7 +34,7 @@ describe("installed plugin stdio", () => {
       args: ["./dist/mcp-server.js"],
       cwd: ".",
       enabled: true,
-      env_vars: ["PATH", "FINDCHEAP_DEALS_API_URL", "FINDCHEAP_DEALS_API_TOKEN", "FINDCHEAP_STATE_DIR"],
+      env_vars: ["PATH", "FINDCHEAP_DEALS_API_URL", "FINDCHEAP_DEALS_API_TOKEN", "FINDCHEAP_STATE_DIR", "SHOPPING_COMMERCE_API_URL", "SHOPPING_COMMERCE_API_TOKEN"],
       startup_timeout_sec: 10,
       tool_timeout_sec: 30,
       env: {
@@ -51,7 +51,7 @@ describe("installed plugin stdio", () => {
       command: config.command,
       args: config.args,
       cwd: path.resolve(pluginRoot, config.cwd),
-      env: { ...definedEnvironment(), ...config.env },
+      env: { ...unconfiguredEnvironment(), ...config.env },
       stderr: "pipe"
     });
     transport.onerror = (error) => transportErrors.push(error);
@@ -64,16 +64,8 @@ describe("installed plugin stdio", () => {
       const productCards = await client.readResource({
         uri: "ui://findcheap/product-cards/v14.html"
       });
-      const comparison = await client.callTool({
-        name: "compare_products",
-        arguments: { query: "OLED65C4PUA", zipCode: "33433" }
-      });
-
       expect(tools.tools.map((tool) => tool.name)).toEqual([
-        "compare_products",
-        "search_bestbuy_products",
         "search_shopify_products",
-        "find_coupons",
         "create_watch",
         "bind_watch_automation",
         "check_watch",
@@ -112,23 +104,6 @@ describe("installed plugin stdio", () => {
       ]);
       expect(shopifyTool?.inputSchema.required).toContain("selectionMode");
       expect(shopifyTool?.inputSchema.required).toContain("comparisonMode");
-      expect(comparison.structuredContent).toEqual({
-        status: "DATA_SOURCE_UNAVAILABLE",
-        message: "Live comparison is unavailable because no approved shopping data source is connected.",
-        exactOffers: [],
-        similarOffers: [],
-        questions: []
-      });
-      const bestBuy = await client.callTool({
-        name: "search_bestbuy_products",
-        arguments: { query: "Sony WH-1000XM5", limit: 5 }
-      });
-      expect(bestBuy.structuredContent).toMatchObject({
-        status: "DATA_SOURCE_UNAVAILABLE",
-        merchant: "Best Buy",
-        priceScope: "ITEM_PRICE_ONLY",
-        products: []
-      });
     } finally {
       await client.close();
     }
@@ -175,6 +150,7 @@ describe("installed plugin stdio", () => {
     const client = new Client({ name: "configured-stdio-smoke", version: "0.0.0" });
     try {
       await client.connect(transport);
+      expect((await client.listTools()).tools.map((tool) => tool.name)).toContain("compare_products");
       const result = await client.callTool({
         name: "compare_products",
         arguments: { query: "OLED65C4PUA", zipCode: "33433" }
@@ -240,7 +216,7 @@ async function connectBundledClient(extraEnvironment: Record<string, string>): P
     args: ["./dist/mcp-server.js"],
     cwd: pluginRoot,
     stderr: "pipe",
-    env: { ...definedEnvironment(), ...extraEnvironment }
+    env: { ...unconfiguredEnvironment(), ...extraEnvironment }
   });
   const client = new Client({ name: "watch-lifecycle-stdio-smoke", version: "0.0.0" });
   await client.connect(transport);
@@ -269,4 +245,13 @@ function definedEnvironment(): Record<string, string> {
   return Object.fromEntries(
     Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)
   );
+}
+
+function unconfiguredEnvironment(): Record<string, string> {
+  const environment = definedEnvironment();
+  delete environment.FINDCHEAP_DEALS_API_URL;
+  delete environment.FINDCHEAP_DEALS_API_TOKEN;
+  delete environment.SHOPPING_COMMERCE_API_URL;
+  delete environment.SHOPPING_COMMERCE_API_TOKEN;
+  return environment;
 }

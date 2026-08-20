@@ -115,6 +115,6 @@ export interface MerchantAdapter {
 
 export type MerchantHealth = {
   status: "healthy" | "degraded" | "disabled";
-  source: "feed" | "api" | "jsonld" | "http" | "crawl4ai";
+  source: "feed" | "api" | "jsonld" | "http";
   checkedAt: string;
 };

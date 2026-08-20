@@ -46,6 +46,6 @@ Each decision record must contain these exact headings, then end with nonblank `
 - `## Maintenance and failure risks`
 - `## Approval signatures and date`
 
-The configured adapter gate supports audited `feed`, `jsonld`, `http`, Best Buy `api`, and Shopify Storefront `api` sources. `crawl4ai` remains unsupported by the merchant gate. Adapter support does not grant approval: catalog, legal, identity, score, enabled configuration, and signed decision-record checks still apply.
+The configured adapter gate supports audited `feed`, `jsonld`, `http`, and Shopify Storefront `api` sources. Adapter support does not grant approval: catalog, legal, identity, score, enabled configuration, and signed decision-record checks still apply.
 
 The gate rejects inline secrets, unknown configuration fields, path escapes, symlinked files, duplicate merchant configurations, unaudited catalog entries, and missing decision records. It performs no merchant network proof-of-concept; authorization, terms, affiliate status, source evidence, and 100-SKU sampling remain external human audit inputs.

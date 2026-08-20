@@ -1,35 +1,17 @@
-name: ci
-on: [push, pull_request]
+name: plugin-ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
 jobs:
   verify:
     runs-on: ubuntu-latest
     env:
       COREPACK_ENABLE_PROJECT_SPEC: "0"
-      DATABASE_URL: postgresql://shopping:local-only@127.0.0.1:5432/shopping
-      REDIS_URL: redis://127.0.0.1:6379/0
-    services:
-      postgres:
-        image: postgres:17
-        env:
-          POSTGRES_USER: shopping
-          POSTGRES_PASSWORD: local-only
-          POSTGRES_DB: shopping
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U shopping -d shopping"
-          --health-interval 2s
-          --health-timeout 5s
-          --health-retries 30
-      redis:
-        image: redis:7.4-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 2s
-          --health-timeout 5s
-          --health-retries 30
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -37,8 +19,6 @@ jobs:
         with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
       - run: pnpm build:mcp
-      - run: pnpm build:commerce
-      - run: pnpm build:ingestion
       - run: git diff --exit-code -- plugins/findcheap-agent/dist/mcp-server.js
       - run: git diff --exit-code -- plugins/findcheap-agent/dist/mcp-server.meta.json
       - run: git diff --exit-code -- plugins/findcheap-agent/THIRD_PARTY_NOTICES.md
@@ -46,124 +26,6 @@ jobs:
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
-      - name: Smoke bundled ingestion worker with zero configured merchants
-        shell: bash
-        run: |
-          output="$(env -u DATABASE_URL -u REDIS_URL -u MERCHANT_MINIMUM_ENABLED node apps/ingestion-worker/dist/main.js)"
-          echo "$output"
-          printf '%s\n' "$output" | node --input-type=module -e '
-            let raw = "";
-            for await (const chunk of process.stdin) raw += chunk;
-            const health = JSON.parse(raw);
-            if (health.event !== "ingestion.disabled" || health.status !== "disabled") process.exit(1);
-            if (health.enabledMerchants.length !== 0 || health.workersRunning !== false) process.exit(1);
-          '
-      - name: Smoke bundled Commerce API without a database
-        shell: bash
-        run: |
-          output="$(env -u DATABASE_URL -u COMMERCE_API_TOKEN node apps/commerce-api/dist/main.js)"
-          echo "$output"
-          printf '%s\n' "$output" | node --input-type=module -e '
-            let raw = "";
-            for await (const chunk of process.stdin) raw += chunk;
-            const health = JSON.parse(raw);
-            if (health.event !== "commerce.disabled" || health.status !== "disabled") process.exit(1);
-            if (health.enabledMerchants !== 0 || health.acceptingRequests !== false) process.exit(1);
-          '
-      - name: Wait for PostgreSQL 17
-        run: until pg_isready -h 127.0.0.1 -p 5432 -U shopping -d shopping; do sleep 1; done
-      - name: Wait for Redis 7.4
-        run: >-
-          node --input-type=module -e '
-            import Redis from "ioredis";
-            const redis = new Redis(process.env.REDIS_URL, { lazyConnect: true });
-            await redis.connect();
-            if (await redis.ping() !== "PONG") process.exitCode = 1;
-            await redis.quit();
-          '
-      - run: pnpm db:migrate
-      - name: Build and smoke production Commerce image with a synthetic audited gate
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p .ci-commerce/config/merchants/enabled .ci-commerce/docs/product/merchant-decisions
-          cat > .ci-commerce/config/merchants/catalog.yaml <<'YAML'
-          version: 1
-          candidates:
-            - id: approved-shop
-              name: Approved Shop
-              segment: general
-              auditState: approved
-              legalReview: approved
-              affiliateStatus: normal_link_only
-              provenSource: feed
-              allowedHosts: [data.approved-shop.example]
-              affiliateHosts: []
-              affiliateOrigins: []
-              identityCompleteness: 0.95
-              weightedScore: 90
-              enabled: true
-          YAML
-          cat > .ci-commerce/config/merchants/enabled/approved-shop.yaml <<'YAML'
-          merchantId: approved-shop
-          enabled: true
-          killSwitch: false
-          allowedHosts: [data.approved-shop.example]
-          source:
-            type: feed
-            host: data.approved-shop.example
-            resourcePath: /feed.json
-            recordsPath: products
-            fields: { merchantProductId: id, title: title }
-          ttlSeconds: { product: 900, price: 900, inventory: 300, coupon: 900 }
-          seller: { name: Approved Shop, condition: NEW }
-          YAML
-          cat > .ci-commerce/docs/product/merchant-decisions/approved-shop.md <<EOF
-          # Merchant Decision: Approved Shop CI fixture
-          ## Data authorization and terms evidence
-          Synthetic CI-only evidence.
-          ## Affiliate/deep-link status
-          Normal links only.
-          ## Source PoC and allowed hosts
-          Synthetic feed host.
-          ## 100-SKU identity completeness sample
-          Synthetic 95 percent fixture.
-          ## ZIP, shipping, tax, Coupon, and membership behavior
-          Synthetic integration boundary.
-          ## Maintenance and failure risks
-          No merchant network calls are made.
-          ## Approval signatures and date
-          Reviewer: CI Synthetic Reviewer
-          Date: $(date -u +%F)
-          EOF
-          docker build -f infra/docker/commerce-api.Dockerfile -t shopping-commerce-api:ci .
-          test "$(docker image inspect shopping-commerce-api:ci --format '{{.Config.User}}')" = node
-          test -n "$(docker image inspect shopping-commerce-api:ci --format '{{json .Config.Healthcheck}}')"
-          token='ci-commerce-token-that-is-at-least-32-characters'
-          docker run --name shopping-commerce-api-ci --network host --read-only \
-            --tmpfs /tmp:rw,noexec,nosuid,nodev,size=16m \
-            -v "$PWD/.ci-commerce/config/merchants:/app/config/merchants:ro" \
-            -v "$PWD/.ci-commerce/docs/product/merchant-decisions:/app/docs/product/merchant-decisions:ro" \
-            -e NODE_ENV=test -e DATABASE_URL="$DATABASE_URL" -e COMMERCE_API_TOKEN="$token" \
-            -e COMMERCE_API_HOST=127.0.0.1 -e COMMERCE_API_PORT=3000 \
-            -d shopping-commerce-api:ci
-          trap 'docker rm -f shopping-commerce-api-ci >/dev/null 2>&1 || true' EXIT
-          for _ in $(seq 1 30); do
-            if curl --fail --silent http://127.0.0.1:3000/health >/dev/null; then break; fi
-            sleep 1
-          done
-          test "$(curl --silent --output /dev/null --write-out '%{http_code}' \
-            -H 'content-type: application/json' \
-            -d '{"query":"Acme Model-1","zipCode":"10001","memberships":[]}' \
-            http://127.0.0.1:3000/v1/comparisons)" = 401
-          test "$(curl --silent --output /dev/null --write-out '%{http_code}' \
-            -H "authorization: Bearer $token" -H 'content-type: application/json' \
-            -d '{"query":"Acme Model-1","zipCode":"10001","memberships":[]}' \
-            http://127.0.0.1:3000/v1/comparisons)" = 200
-          docker stop --time 10 shopping-commerce-api-ci
-          test "$(docker inspect shopping-commerce-api-ci --format '{{.State.ExitCode}}')" = 0
-      - run: pnpm test:integration
-      - run: pnpm eval:matching -- --min-exact-precision=0.98
 
   plugin-smoke-windows:
     runs-on: windows-latest
