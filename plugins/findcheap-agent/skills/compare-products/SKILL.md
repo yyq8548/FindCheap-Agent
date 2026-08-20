@@ -3,9 +3,9 @@ name: compare-products
 description: Search Shopify Global Catalog first, verify product identity, and render MCP UI product cards with fail-closed affiliate-ready purchase links before authorized Chrome fallback. Use deals-and-watch for Coupon and monitoring requests.
 ---
 
-# FindCheap Agent v0.6.5 Shopify Global Catalog
+# FindCheap Agent v0.6.6 Shopify Global Catalog
 
-Risk tier: `R0`. Perform one read-only public-product lookup. Do not persist browser data.
+Risk tier: `R0` for search and authorized Chrome fallback. ZIP quoting is `R1` because it creates anonymous short-lived Shopify carts. Never checkout, reserve, purchase, or pay. Do not persist a delivery address or browser data.
 
 ## Source routing
 
@@ -25,14 +25,14 @@ When the request contains enough product identity or a discovery category, do no
    - Cite `matchEvidence` and requested `variantDimensions` when explaining a match.
    - Report returned `condition`. Default and explicit-new searches keep `NEW` and unlabeled `UNKNOWN`, with `UNKNOWN` clearly labeled; they exclude explicit `USED`, `REFURBISHED`, and `OPEN_BOX`. An explicit used, refurbished/renewed, or open-box request returns only that condition.
    - Never describe `UNKNOWN` as new. Never restore a condition-excluded product to fill Top 3.
-    - Preserve returned order. Do not re-sort the returned products. `LOWEST_PRICE` means literal price order after exact/similar and availability gates; `MERCHANT_DIVERSE` means one result per merchant before price-based fill.
+    - Preserve returned order. Do not re-sort the returned products. With `LOWEST_PRICE`, the tool uses estimated delivered-price order only when every returned product has a Shopify Cart estimate; otherwise it preserves safe item-price order. `MERCHANT_DIVERSE` keeps merchant diversity.
     - When a price ceiling is present, never restore an over-budget or price-unavailable product. Report `priceProductsExcluded` from diagnostics.
     - Report `comparison.status`. `SAME_PRODUCT` means every returned offer shares a Shopify Universal Product ID, exact `GTIN + variant`, or exact `brand + MPN/SKU + variant` evidence. `DISCOVERY_ONLY` means options are relevant products but not proven like-for-like offers. Never describe `DISCOVERY_ONLY` as a price comparison.
 4. Use the Chrome workflow only when Shopify returns `status: OK`, `coverage: COMPLETE`, and `products.length === 0`. This is a single bounded fallback for the current lookup; never run Shopify and Chrome in parallel.
 5. Do not use Chrome for `coverage: PARTIAL`, an API error, `DATA_SOURCE_UNAVAILABLE`, malformed response, or timeout. Return available API products when partial coverage produced results; otherwise report the API failure.
 6. If the user explicitly requests no Chrome, return the empty Shopify result without fallback. If the user explicitly names another tool or source, follow that explicit request instead of the ordinary Shopify-first default.
 
-For an API result, preserve `pricing`, `pricingContext`, `freshness`, and the source label. A Shopify Global Catalog item price may be `VERIFIED`; shipping, tax, mandatory fees, member price, and delivered price remain `UNAVAILABLE` unless the tool explicitly verifies them. Never estimate missing components or sum an incomplete delivered price. Do not reuse Global Catalog results for another lookup or download its images; the short-lived `renderId` snapshot may serve only the current result.
+For an API result, preserve `pricing`, `pricingContext`, `cartQuoteCoverage`, `freshness`, and source label. Without ZIP, results remain `ITEM_PRICE_ONLY`. With supplied ZIP, the tool may create anonymous tokenless carts for returned variants. `SHOPIFY_CART_ESTIMATE` means Shopify returned selected shipping and an estimated total; it is not final checkout price. Tax and mandatory fees may be included without separate breakdown. `MIXED` means some merchants failed quote enrichment; preserve every per-product status. Never fill missing components, calculate tax, or convert an incomplete result into delivered price. Do not reuse Global Catalog results for another lookup or download its images; short-lived `renderId` snapshot may serve only current result.
 
 Render the returned `card` fields directly and preserve order. Show only coupons in `coupons.verified` when `coupons.status` is `VERIFIED`; never invent a code or discount. Use `purchaseLink` exactly as returned. `APPROVED_AFFILIATE` means a checked-in approved relationship plus runtime campaign credential supplied the link; show its returned disclosure next to the CTA. `CANONICAL` is the direct merchant fallback and must not be described as affiliate. Never state or estimate a commission amount. Report the returned `quality` status and limitations.
 

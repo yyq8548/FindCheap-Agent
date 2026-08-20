@@ -3965,6 +3965,41 @@
         }
       ]
     },
+    "src/shopify-cart-quote.ts": {
+      "format": "esm",
+      "imports": [
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:dns/promises"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:https"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:net"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:url"
+        },
+        {
+          "kind": "import-statement",
+          "original": "zod",
+          "path": "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/index.js"
+        },
+        {
+          "kind": "import-statement",
+          "original": "../../ingestion-worker/src/network/safe-fetch.js",
+          "path": "../ingestion-worker/src/network/safe-fetch.ts"
+        }
+      ]
+    },
     "src/shopify-client.ts": {
       "format": "esm",
       "imports": [
@@ -4086,6 +4121,11 @@
           "kind": "import-statement",
           "original": "./watch-store.js",
           "path": "src/watch-store.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./shopify-cart-quote.js",
+          "path": "src/shopify-cart-quote.ts"
         }
       ]
     },
@@ -4132,7 +4172,7 @@
   },
   "outputs": {
     "../../plugins/findcheap-agent/dist/mcp-server.js": {
-      "bytes": 458563,
+      "bytes": 471635,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
@@ -4205,6 +4245,26 @@
           "external": true,
           "kind": "import-statement",
           "path": "node:path"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:dns/promises"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:https"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:net"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:url"
         }
       ],
       "inputs": {
@@ -4275,7 +4335,7 @@
           "bytesInOutput": 2584
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/compile/codegen/index.js": {
-          "bytesInOutput": 11758
+          "bytesInOutput": 11794
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/compile/codegen/scope.js": {
           "bytesInOutput": 2585
@@ -4323,7 +4383,7 @@
           "bytesInOutput": 1979
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/core.js": {
-          "bytesInOutput": 12304
+          "bytesInOutput": 12300
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/refs/data.json": {
           "bytesInOutput": 358
@@ -4407,7 +4467,7 @@
           "bytesInOutput": 2380
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/discriminator/index.js": {
-          "bytesInOutput": 2292
+          "bytesInOutput": 2289
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/discriminator/types.js": {
           "bytesInOutput": 181
@@ -4416,7 +4476,7 @@
           "bytesInOutput": 235
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/format/format.js": {
-          "bytesInOutput": 1952
+          "bytesInOutput": 1949
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/format/index.js": {
           "bytesInOutput": 121
@@ -4659,7 +4719,7 @@
           "bytesInOutput": 649
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v4/core/schemas.js": {
-          "bytesInOutput": 18935
+          "bytesInOutput": 18932
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v4/core/to-json-schema.js": {
           "bytesInOutput": 11445
@@ -4728,13 +4788,16 @@
           "bytesInOutput": 3331
         },
         "src/product-card-ui.ts": {
-          "bytesInOutput": 18481
+          "bytesInOutput": 19723
         },
         "src/server.ts": {
-          "bytesInOutput": 31793
+          "bytesInOutput": 35147
+        },
+        "src/shopify-cart-quote.ts": {
+          "bytesInOutput": 8430
         },
         "src/shopify-client.ts": {
-          "bytesInOutput": 7123
+          "bytesInOutput": 7120
         },
         "src/shopify-global-catalog-client.ts": {
           "bytesInOutput": 9438
@@ -4743,13 +4806,13 @@
           "bytesInOutput": 1158
         },
         "src/shopify-match.ts": {
-          "bytesInOutput": 4598
+          "bytesInOutput": 4591
         },
         "src/shopify-registry.ts": {
           "bytesInOutput": 1264
         },
         "src/stdio.ts": {
-          "bytesInOutput": 393
+          "bytesInOutput": 426
         },
         "src/watch-service.ts": {
           "bytesInOutput": 4775

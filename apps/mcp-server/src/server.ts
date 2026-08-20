@@ -17,6 +17,7 @@ import {
   type ShopifySearchResult
 } from "./shopify-client.js";
 import { hasSpecificProductIdentity } from "./shopify-match.js";
+import type { ShopifyCartQuotePort } from "./shopify-cart-quote.js";
 import {
   createAffiliateLinkResolver,
   type AffiliateLinkResolver
@@ -69,7 +70,7 @@ const ProductCardStagesSchema = z.object({
 
 const ProductCardTelemetryInputSchema = z.object({
   renderId: z.string().uuid(),
-  version: z.literal("0.6.5"),
+  version: z.literal("0.6.6"),
   terminalStage: z.enum([
     "DOM_RENDERED",
     "FIRST_IMAGE_SETTLED",
@@ -133,7 +134,7 @@ const ShopifyProductsToolInputSchema = z.object({
   maxItemPriceCents: z.number().int().min(1).max(100_000_000).optional()
     .describe("Inclusive public item-price ceiling in integer USD cents. Keep price words and currency symbols out of query."),
   zipCode: z.string().regex(/^\d{5}(?:-\d{4})?$/u).optional()
-    .describe("Optional US delivery ZIP. Public Shopify results still return item price only unless contextual charges are verified."),
+    .describe("Optional US delivery ZIP. Enables a bounded tokenless Shopify Cart estimate when the merchant supports it."),
   membershipIds: MembershipIdsSchema.optional()
     .describe("Optional memberships. Member price remains unavailable unless the merchant source verifies it."),
   comparisonMode: z.enum(["DISCOVERY", "SAME_PRODUCT"])
@@ -240,18 +241,38 @@ const ShopifyProductOutputSchema = z.object({
   availability: z.enum(["IN_STOCK", "OUT_OF_STOCK", "UNKNOWN"]),
   merchantUrl: z.string().url(),
   checkedAt: z.string(),
+  cartQuote: z.object({
+    status: z.literal("ESTIMATED"),
+    subtotal: MoneyOutputSchema,
+    shipping: MoneyOutputSchema.extend({ label: z.string() }),
+    deliveredPrice: MoneyOutputSchema,
+    totalEstimated: z.boolean(),
+    checkedAt: z.string(),
+    expiresAt: z.string()
+  }).optional(),
   pricing: z.object({
-    scope: z.literal("ITEM_PRICE_ONLY"),
+    scope: z.enum(["ITEM_PRICE_ONLY", "SHOPIFY_CART_ESTIMATE"]),
     regularItemPrice: z.object({
       status: z.enum(["VERIFIED", "UNAVAILABLE"]),
       amount: MoneyOutputSchema.optional(),
       reason: z.string().optional()
     }),
     memberPrice: z.object({ status: z.literal("UNAVAILABLE"), reason: z.string() }),
-    shipping: z.object({ status: z.literal("UNAVAILABLE"), reason: z.string() }),
-    tax: z.object({ status: z.literal("UNAVAILABLE"), reason: z.string() }),
-    mandatoryFees: z.object({ status: z.literal("UNAVAILABLE"), reason: z.string() }),
-    deliveredPrice: z.object({ status: z.literal("UNAVAILABLE"), reason: z.string() })
+    shipping: z.object({
+      status: z.enum(["ESTIMATED", "UNAVAILABLE"]),
+      amount: MoneyOutputSchema.optional(),
+      label: z.string().optional(),
+      reason: z.string().optional()
+    }),
+    tax: z.object({ status: z.enum(["INCLUDED_IN_TOTAL", "UNAVAILABLE"]), reason: z.string() }),
+    mandatoryFees: z.object({ status: z.enum(["INCLUDED_IN_TOTAL", "UNAVAILABLE"]), reason: z.string() }),
+    deliveredPrice: z.object({
+      status: z.enum(["ESTIMATED", "UNAVAILABLE"]),
+      amount: MoneyOutputSchema.optional(),
+      reason: z.string(),
+      checkedAt: z.string().optional(),
+      expiresAt: z.string().optional()
+    })
   }),
   freshness: z.object({ status: z.literal("OBSERVED_AT_QUERY"), checkedAt: z.string() }),
   coupons: z.object({
@@ -275,6 +296,8 @@ const ShopifyProductOutputSchema = z.object({
     imageUrl: z.string().url().optional(),
     primaryPrice: MoneyOutputSchema.optional(),
     priceLabel: z.string(),
+    itemPrice: MoneyOutputSchema.optional(),
+    shippingLabel: z.string().optional(),
     matchBadge: z.enum(["EXACT", "DISCOVERY_MATCH", "SIMILAR"]),
     conditionBadge: z.enum(["NEW", "USED", "REFURBISHED", "OPEN_BOX", "UNKNOWN"]),
     availability: z.enum(["IN_STOCK", "OUT_OF_STOCK", "UNKNOWN"]),
@@ -287,7 +310,11 @@ const ShopifyProductsOutputShape = {
   status: z.enum(["OK", "NEEDS_CLARIFICATION", "DATA_SOURCE_UNAVAILABLE"]),
   message: z.string(),
   source: z.enum(["SHOPIFY_GLOBAL_CATALOG", "SHOPIFY_STOREFRONT_API"]),
-  priceScope: z.literal("ITEM_PRICE_ONLY"),
+  priceScope: z.enum(["ITEM_PRICE_ONLY", "SHOPIFY_CART_ESTIMATE", "MIXED"]),
+  cartQuoteCoverage: z.object({
+    attempted: z.number().int().nonnegative(),
+    succeeded: z.number().int().nonnegative()
+  }),
   pricingContext: z.object({
     zipCode: z.string().optional(),
     membershipIds: z.array(z.string())
@@ -434,7 +461,8 @@ function bestBuyUnavailableResult() {
 function shopifyResult(
   result: ShopifySearchResult,
   context: { zipCode?: string | undefined; membershipIds?: string[] | undefined },
-  affiliateLinks: AffiliateLinkResolver
+  affiliateLinks: AffiliateLinkResolver,
+  cartQuoteCoverage: { attempted: number; succeeded: number } = { attempted: 0, succeeded: 0 }
 ) {
   const linkedProducts = result.products.map((product) => ({
     product,
@@ -461,7 +489,15 @@ function shopifyResult(
     : `${affiliateLinksApproved} purchase link(s) use an approved affiliate relationship with disclosure; remaining links are canonical merchant links. Commission never affects ranking.`;
   const source = result.source ?? "SHOPIFY_STOREFRONT_API";
   const sourceLabel = source === "SHOPIFY_GLOBAL_CATALOG" ? "Shopify Global Catalog" : "audited Shopify registry";
-  const summary = `Comparison status: ${result.comparison.status}. ${sourceLabel} returned ${result.products.length} product card(s): ${exactCount} exact, ${discoveryCount} discovery, and ${similarCount} similar, from ${result.merchantsSucceeded}/${result.merchantsQueried} returned merchants.${priceLimit}${comparison} Prices are public item prices only; shipping, tax, mandatory fees, member price, delivered price, and verified coupons are unavailable without merchant evidence. ${linkSummary}`;
+  const priceScope = cartQuoteCoverage.succeeded === 0
+    ? "ITEM_PRICE_ONLY" as const
+    : cartQuoteCoverage.succeeded === result.products.length
+      ? "SHOPIFY_CART_ESTIMATE" as const
+      : "MIXED" as const;
+  const quoteSummary = cartQuoteCoverage.attempted === 0
+    ? "Prices are public item prices only; shipping, tax, mandatory fees, member price, delivered price, and verified coupons are unavailable without merchant evidence."
+    : `${cartQuoteCoverage.succeeded}/${cartQuoteCoverage.attempted} products received a ZIP-specific Shopify Cart estimate. Cart totals are estimates, may include tax or fees without a separate breakdown, and can change at checkout.`;
+  const summary = `Comparison status: ${result.comparison.status}. ${sourceLabel} returned ${result.products.length} product card(s): ${exactCount} exact, ${discoveryCount} discovery, and ${similarCount} similar, from ${result.merchantsSucceeded}/${result.merchantsQueried} returned merchants.${priceLimit}${comparison} ${quoteSummary} ${linkSummary}`;
   const products = linkedProducts.map(({ product, purchaseLink }, index) => {
     const price = product.itemPrice === undefined
       ? "price unavailable"
@@ -469,11 +505,14 @@ function shopifyResult(
     const variants = Object.entries(product.variantDimensions)
       .map(([name, value]) => `${name}: ${value}`)
       .join(", ");
+    const cartQuote = product.cartQuote;
     return [
       `${index + 1}. [${product.matchStatus}] ${product.title}`,
       `merchant: ${product.merchant} (${product.sourceHost})`,
       `regular item price: ${price}`,
-      "shipping: unavailable | tax: unavailable | mandatory fees: unavailable | member price: unavailable | delivered price unavailable",
+      cartQuote === undefined
+        ? "shipping: unavailable | tax: unavailable | mandatory fees: unavailable | member price: unavailable | delivered price unavailable"
+        : `shipping estimate: ${cartQuote.shipping.currency} ${(cartQuote.shipping.amountCents / 100).toFixed(2)} (${cartQuote.shipping.label}) | tax and mandatory fees: included in Shopify estimated total without separate breakdown | estimated delivered price: ${cartQuote.deliveredPrice.currency} ${(cartQuote.deliveredPrice.amountCents / 100).toFixed(2)} | expires: ${cartQuote.expiresAt}`,
       `availability: ${product.availability}`,
       `condition: ${product.condition}`,
       `match evidence: ${product.matchEvidence.join("; ")}`,
@@ -494,7 +533,8 @@ function shopifyResult(
       status: "OK" as const,
       message,
       source,
-      priceScope: "ITEM_PRICE_ONLY" as const,
+      priceScope,
+      cartQuoteCoverage,
       pricingContext: {
         ...(context.zipCode === undefined ? {} : { zipCode: context.zipCode }),
         membershipIds: context.membershipIds ?? []
@@ -506,7 +546,9 @@ function shopifyResult(
         couponsVerified: 0,
         affiliateLinksApproved,
         limitations: [
-          "delivered price components are not verified",
+          ...(cartQuoteCoverage.succeeded === result.products.length && result.products.length > 0
+            ? ["Shopify Cart totals are estimates and tax or mandatory fees are not separately itemized"]
+            : ["one or more delivered prices remain unavailable"]),
           "coupon source is unavailable",
           ...(affiliateLinksApproved === result.products.length
             ? []
@@ -523,15 +565,42 @@ function shopifyResult(
       products: linkedProducts.map(({ product, purchaseLink }) => ({
         ...product,
         pricing: {
-          scope: "ITEM_PRICE_ONLY" as const,
+          scope: product.cartQuote === undefined ? "ITEM_PRICE_ONLY" as const : "SHOPIFY_CART_ESTIMATE" as const,
           regularItemPrice: product.itemPrice === undefined
             ? { status: "UNAVAILABLE" as const, reason: "public item price was not returned" }
             : { status: "VERIFIED" as const, amount: product.itemPrice },
           memberPrice: { status: "UNAVAILABLE" as const, reason: "membership-specific price was not verified" },
-          shipping: { status: "UNAVAILABLE" as const, reason: "ZIP-specific shipping was not verified" },
-          tax: { status: "UNAVAILABLE" as const, reason: "ZIP-specific tax was not verified" },
-          mandatoryFees: { status: "UNAVAILABLE" as const, reason: "mandatory fees were not verified" },
-          deliveredPrice: { status: "UNAVAILABLE" as const, reason: "not all delivered-price components were verified" }
+          shipping: product.cartQuote === undefined
+            ? { status: "UNAVAILABLE" as const, reason: "ZIP-specific shipping was not returned" }
+            : {
+                status: "ESTIMATED" as const,
+                amount: {
+                  amountCents: product.cartQuote.shipping.amountCents,
+                  currency: product.cartQuote.shipping.currency
+                },
+                label: product.cartQuote.shipping.label
+              },
+          tax: product.cartQuote === undefined
+            ? { status: "UNAVAILABLE" as const, reason: "ZIP-specific tax was not returned" }
+            : {
+                status: "INCLUDED_IN_TOTAL" as const,
+                reason: "Shopify Cart total may include estimated tax without a separate supported breakdown"
+              },
+          mandatoryFees: product.cartQuote === undefined
+            ? { status: "UNAVAILABLE" as const, reason: "mandatory fees were not returned" }
+            : {
+                status: "INCLUDED_IN_TOTAL" as const,
+                reason: "Shopify Cart total may include mandatory fees without a separate supported breakdown"
+              },
+          deliveredPrice: product.cartQuote === undefined
+            ? { status: "UNAVAILABLE" as const, reason: "not all delivered-price components were returned" }
+            : {
+                status: "ESTIMATED" as const,
+                amount: product.cartQuote.deliveredPrice,
+                reason: "Shopify Cart estimate; final checkout total may change",
+                checkedAt: product.cartQuote.checkedAt,
+                expiresAt: product.cartQuote.expiresAt
+              }
         },
         freshness: { status: "OBSERVED_AT_QUERY" as const, checkedAt: product.checkedAt },
         coupons: { status: "UNAVAILABLE" as const, verified: [] },
@@ -540,8 +609,18 @@ function shopifyResult(
           title: product.title,
           merchant: product.merchant,
           ...(product.imageUrl === undefined ? {} : { imageUrl: product.imageUrl }),
-          ...(product.itemPrice === undefined ? {} : { primaryPrice: product.itemPrice }),
-          priceLabel: product.itemPrice === undefined ? "Item price unavailable" : "Verified item price",
+          ...(product.cartQuote !== undefined
+            ? { primaryPrice: product.cartQuote.deliveredPrice }
+            : product.itemPrice === undefined ? {} : { primaryPrice: product.itemPrice }),
+          priceLabel: product.cartQuote !== undefined
+            ? "Shopify estimated delivered price"
+            : product.itemPrice === undefined ? "Item price unavailable" : "Verified item price",
+          ...(product.itemPrice === undefined ? {} : { itemPrice: product.itemPrice }),
+          ...(product.cartQuote === undefined
+            ? {}
+            : {
+                shippingLabel: `${product.cartQuote.shipping.label}: ${product.cartQuote.shipping.currency} ${(product.cartQuote.shipping.amountCents / 100).toFixed(2)}`
+              }),
           matchBadge: product.matchStatus,
           conditionBadge: product.condition,
           availability: product.availability,
@@ -555,9 +634,39 @@ function shopifyResult(
 export type ShoppingServerDependencies = {
   deals?: DealPort;
   watches?: WatchStore;
+  cartQuotes?: ShopifyCartQuotePort;
   now?: () => Date;
   cardTelemetry?: ProductCardTelemetrySink;
 };
+
+async function enrichShopifyCartQuotes(
+  result: ShopifySearchResult,
+  zipCode: string | undefined,
+  cartQuotes: ShopifyCartQuotePort | undefined
+): Promise<{ result: ShopifySearchResult; attempted: number; succeeded: number }> {
+  if (zipCode === undefined || cartQuotes === undefined || result.products.length === 0) {
+    return { result, attempted: 0, succeeded: 0 };
+  }
+  const attempts = result.products.map(async (product) => ({
+    ...product,
+    cartQuote: await cartQuotes.quote(product, zipCode)
+  }));
+  const settled = await Promise.allSettled(attempts);
+  const products = settled.map((outcome, index) =>
+    outcome.status === "fulfilled" ? outcome.value : result.products[index]!
+  );
+  const succeeded = settled.filter((outcome) => outcome.status === "fulfilled").length;
+  if (
+    succeeded === products.length &&
+    result.diagnostics.selectionPolicy === "EXACT_THEN_DISCOVERY_THEN_SIMILAR_THEN_PRICE"
+  ) {
+    products.sort((left, right) =>
+      left.cartQuote!.deliveredPrice.amountCents - right.cartQuote!.deliveredPrice.amountCents ||
+      (left.merchantUrl < right.merchantUrl ? -1 : left.merchantUrl > right.merchantUrl ? 1 : 0)
+    );
+  }
+  return { result: { ...result, products }, attempted: attempts.length, succeeded };
+}
 
 function emptyShopifyQuality() {
   return {
@@ -587,6 +696,7 @@ function shopifyClarificationResult(
       message,
       source: "SHOPIFY_GLOBAL_CATALOG" as const,
       priceScope: "ITEM_PRICE_ONLY" as const,
+      cartQuoteCoverage: { attempted: 0, succeeded: 0 },
       pricingContext: {
         ...(context.zipCode === undefined ? {} : { zipCode: context.zipCode }),
         membershipIds: context.membershipIds ?? []
@@ -635,6 +745,7 @@ function shopifyUnavailableResult(
       message: shopifyUnavailableMessage,
       source: "SHOPIFY_GLOBAL_CATALOG" as const,
       priceScope: "ITEM_PRICE_ONLY" as const,
+      cartQuoteCoverage: { attempted: 0, succeeded: 0 },
       pricingContext: {
         ...(context.zipCode === undefined ? {} : { zipCode: context.zipCode }),
         membershipIds: context.membershipIds ?? []
@@ -679,9 +790,10 @@ export function createShoppingServer(
   affiliateLinks: AffiliateLinkResolver = createAffiliateLinkResolver(),
   dependencies: ShoppingServerDependencies = {}
 ): McpServer {
-  const server = new McpServer({ name: "findcheap-agent", version: "0.6.5" });
+  const server = new McpServer({ name: "findcheap-agent", version: "0.6.6" });
   const dealPort = dependencies.deals ?? createUnavailableDealPort();
   const watchStore = dependencies.watches ?? createMemoryWatchStore();
+  const cartQuotes = dependencies.cartQuotes;
   const now = dependencies.now ?? (() => new Date());
   const cardTelemetry = dependencies.cardTelemetry ?? {
     record: (event: ProductCardTelemetry) => {
@@ -791,9 +903,9 @@ export function createShoppingServer(
       inputSchema: ShopifyProductsToolInputSchema,
       outputSchema: ShopifyProductsOutputShape,
       annotations: {
-        readOnlyHint: true,
+        readOnlyHint: false,
         destructiveHint: false,
-        idempotentHint: true,
+        idempotentHint: false,
         openWorldHint: true
       }
     },
@@ -807,11 +919,15 @@ export function createShoppingServer(
         return shopifyClarificationResult(validatedInput.selectionMode, validatedInput);
       }
       try {
-        const result = await shopifyPort.search(validatedInput);
-        const response = shopifyResult(result, {
+        const searched = await shopifyPort.search(validatedInput);
+        const enriched = await enrichShopifyCartQuotes(searched, validatedInput.zipCode, cartQuotes);
+        const response = shopifyResult(enriched.result, {
           ...(validatedInput.zipCode === undefined ? {} : { zipCode: validatedInput.zipCode }),
           membershipIds: validatedInput.membershipIds ?? []
-        }, affiliateLinks);
+        }, affiliateLinks, {
+          attempted: enriched.attempted,
+          succeeded: enriched.succeeded
+        });
         if (response.structuredContent.products.length === 0) return response;
         return {
           ...response,

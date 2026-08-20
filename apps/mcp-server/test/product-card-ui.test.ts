@@ -101,7 +101,7 @@ describe("product-card MCP Apps UI", () => {
       params: expect.objectContaining({
         name: "report_product_card_metrics",
         arguments: expect.objectContaining({
-          version: "0.6.5",
+          version: "0.6.6",
           terminalStage: "DOM_RENDERED",
           stages: expect.objectContaining({ DOM_RENDERED: expect.any(Number) })
         })
@@ -176,10 +176,14 @@ describe("product-card MCP Apps UI", () => {
         condition: "NEW",
         availability: "IN_STOCK",
         merchantUrl: "https://example.com/products/direct",
+        pricing: { scope: "SHOPIFY_CART_ESTIMATE" },
         card: {
           merchant: "Direct Merchant",
           title: "Direct Product",
-          primaryPrice: { amountCents: 1299, currency: "USD" },
+          primaryPrice: { amountCents: 1799, currency: "USD" },
+          itemPrice: { amountCents: 1299, currency: "USD" },
+          shippingLabel: "Standard · $5.00",
+          priceLabel: "Shopify estimated delivered price",
           matchBadge: "EXACT",
           conditionBadge: "NEW",
           availability: "IN_STOCK"
@@ -199,7 +203,10 @@ describe("product-card MCP Apps UI", () => {
     vm.runInNewContext(script!, { window, document, URL, Intl, Number, String, Array, Object, Promise, Map, Math });
 
     expect(text(app)).toContain("Direct Product");
-    expect(text(app)).toContain("$12.99");
+    expect(text(app)).toContain("$17.99");
+    expect(text(app)).toContain("Item price: $12.99");
+    expect(text(app)).toContain("Selected shipping: Standard · $5.00");
+    expect(text(app)).toContain("Final checkout total may change");
     expect(messages.some((message) => message.method === "tools/call")).toBe(false);
     expect(PRODUCT_CARD_HTML).toContain('image.loading = "lazy"');
     expect(PRODUCT_CARD_HTML).toContain('image.fetchPriority = "low"');
@@ -358,7 +365,7 @@ describe("product-card MCP Apps UI", () => {
       method: "ui/initialize",
       params: {
         protocolVersion: "2026-01-26",
-        appInfo: { name: "FindCheap Agent product cards", version: "0.6.5" },
+        appInfo: { name: "FindCheap Agent product cards", version: "0.6.6" },
         appCapabilities: { availableDisplayModes: ["inline"] }
       }
     });

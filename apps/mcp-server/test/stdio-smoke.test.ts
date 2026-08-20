@@ -39,6 +39,8 @@ describe("installed plugin stdio", () => {
       tool_timeout_sec: 30,
       env: {
         SHOPIFY_CATALOG_MODE: "global",
+        SHOPIFY_CART_QUOTE_MODE: "tokenless",
+        SHOPIFY_CART_QUOTE_TIMEOUT_MS: "2500",
         SHOPIFY_AGENT_PROFILE_URL: "https://cdn.jsdelivr.net/gh/yyq8548/FindCheap-Agent@24267014f0433adefb89181e4123d7b785e30285/plugins/findcheap-agent/ucp-agent-profile.json",
         SHOPIFY_GLOBAL_CATALOG_TIMEOUT_MS: "10000"
       }
