@@ -53,6 +53,8 @@ const ProductCardStagesSchema = z.object({
   INITIALIZE_SENT: CardStageDurationSchema.optional(),
   INITIALIZE_RETRY: CardStageDurationSchema.optional(),
   INITIALIZE_ACK: CardStageDurationSchema.optional(),
+  COMPAT_BRIDGE_READY: CardStageDurationSchema.optional(),
+  COMPAT_OUTPUT_RECEIVED: CardStageDurationSchema.optional(),
   TOOL_INPUT_RECEIVED: CardStageDurationSchema.optional(),
   TOOL_OUTPUT_RECEIVED: CardStageDurationSchema.optional(),
   RENDER_STARTED: CardStageDurationSchema.optional(),
@@ -67,7 +69,7 @@ const ProductCardStagesSchema = z.object({
 
 const ProductCardTelemetryInputSchema = z.object({
   renderId: z.string().uuid(),
-  version: z.literal("0.6.4"),
+  version: z.literal("0.6.5"),
   terminalStage: z.enum([
     "DOM_RENDERED",
     "FIRST_IMAGE_SETTLED",
@@ -677,7 +679,7 @@ export function createShoppingServer(
   affiliateLinks: AffiliateLinkResolver = createAffiliateLinkResolver(),
   dependencies: ShoppingServerDependencies = {}
 ): McpServer {
-  const server = new McpServer({ name: "findcheap-agent", version: "0.6.4" });
+  const server = new McpServer({ name: "findcheap-agent", version: "0.6.5" });
   const dealPort = dependencies.deals ?? createUnavailableDealPort();
   const watchStore = dependencies.watches ?? createMemoryWatchStore();
   const now = dependencies.now ?? (() => new Date());
