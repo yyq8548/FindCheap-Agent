@@ -3,7 +3,7 @@ name: compare-products
 description: Search Shopify Global Catalog first, verify product identity, and render MCP UI product cards with fail-closed affiliate-ready purchase links before authorized Chrome fallback. Use deals-and-watch for Coupon and monitoring requests.
 ---
 
-# FindCheap Agent v0.5.3 Shopify Global Catalog
+# FindCheap Agent v0.6.0 Shopify Global Catalog
 
 Risk tier: `R0`. Perform one read-only public-product lookup. Do not persist browser data.
 
@@ -18,9 +18,10 @@ When the request contains enough product identity or a discovery category, do no
 1. **Shopify-first default.** For an ordinary product search, call `search_shopify_products` before any Chrome search. Call `search_shopify_products` exactly once per user lookup. Always pass `limit: 3`. When the user explicitly requests same-product, like-for-like, or 同款 comparison, pass `comparisonMode: SAME_PRODUCT`; otherwise pass `comparisonMode: DISCOVERY`. Pass `selectionMode: LOWEST_PRICE` when the user explicitly asks for cheapest, lowest price, or the lowest-priced products. Otherwise pass `selectionMode: MERCHANT_DIVERSE` for recommended options from different merchants. If the user gives a maximum item price, pass `maxItemPriceCents` as exact integer cents. Pass a supplied US ZIP as `zipCode` and supplied membership program identifiers as `membershipIds`; never infer them. Do not include price words or currency symbols in `query`; use it only for product, model, category, variant, and condition identity. Do not repeat a successful call to verify, rerank, or reformat its result. Global Catalog searches products from Shopify merchants eligible for catalog inclusion; it is not whole-web coverage and does not prove merchant, legal, condition, Coupon, or affiliate approval.
 2. For `NEEDS_CLARIFICATION`, ask the returned question and stop; do not search merchants again and do not call Chrome. A category, color, or theme alone is not enough for same-product comparison.
 3. If Shopify returns `status: OK` and one or more products, return those API results. Do not open Chrome when Shopify returns one or more products.
-   - Present `EXACT` products first. Never describe `SIMILAR` as exact.
+   - Present `EXACT` products first, `DISCOVERY_MATCH` products as relevant discovery, and `SIMILAR` products separately. Never describe `DISCOVERY_MATCH` or `SIMILAR` as exact.
    - Keep `IRRELEVANT` products excluded; the tool rejects unrelated products first and does not return them.
    - If `questions` is non-empty, ask that question after showing any labeled similar alternatives.
+   - `EXACT` requires Shopify UPID, exact GTIN plus variant, or exact brand plus MPN/SKU plus variant evidence. Keyword coverage alone is `DISCOVERY_MATCH`.
    - Cite `matchEvidence` and requested `variantDimensions` when explaining a match.
    - Report returned `condition`. Default and explicit-new searches keep `NEW` and unlabeled `UNKNOWN`, with `UNKNOWN` clearly labeled; they exclude explicit `USED`, `REFURBISHED`, and `OPEN_BOX`. An explicit used, refurbished/renewed, or open-box request returns only that condition.
    - Never describe `UNKNOWN` as new. Never restore a condition-excluded product to fill Top 3.
@@ -100,7 +101,7 @@ For each result provide:
 - rank and concise ranking reasons
 - merchant name and exact source hostname
 - source type: `BROWSER_OBSERVED`
-- match: `EXACT`, `SIMILAR`, or `UNCONFIRMED`
+- match: `EXACT`, `DISCOVERY_MATCH`, `SIMILAR`, or `UNCONFIRMED`
 - product title and identity evidence
 - condition: the visible condition, or `CONDITION_UNCONFIRMED` when the merchant page has no condition label
 - item price and regular price only when visibly present

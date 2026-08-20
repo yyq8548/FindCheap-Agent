@@ -1,4 +1,4 @@
-export type ShopifyMatchStatus = "EXACT" | "SIMILAR" | "IRRELEVANT";
+export type ShopifyMatchStatus = "EXACT" | "DISCOVERY_MATCH" | "SIMILAR" | "IRRELEVANT";
 
 export type ShopifyMatchCandidate = {
   title: string;
@@ -45,6 +45,7 @@ const ACCESSORY_TERMS = new Set([
   "accessories", "accessory", "adapter", "cable", "case", "charger", "charm", "charms", "cover",
   "holder", "keychain", "keychains", "keyring", "protector", "replacement", "stand"
 ]);
+const CONDITION_TERMS = new Set(["box", "open", "preowned", "reconditioned", "refurbished", "renewed", "resale", "used"]);
 const GENERIC_IDENTITY_TERMS = new Set([
   ...IGNORED_QUERY_TERMS,
   ...VARIANT_COLORS,
@@ -56,12 +57,17 @@ const GENERIC_IDENTITY_TERMS = new Set([
 
 export function hasSpecificProductIdentity(query: string): boolean {
   const tokens = tokenize(query);
-  if (tokens.some((token) => /^\d{8,14}$/u.test(token))) return true;
-  if (tokens.some((token) => token.length >= 4 && /\p{L}/u.test(token) && /\d/u.test(token))) return true;
+  if (hasStrongProductIdentifier(query)) return true;
   const identityTerms = new Set(tokens.filter((token) =>
     token.length >= 2 && !GENERIC_IDENTITY_TERMS.has(token)
   ));
   return identityTerms.size >= 2;
+}
+
+export function hasStrongProductIdentifier(query: string): boolean {
+  const tokens = tokenize(query);
+  return tokens.some((token) => /^\d{8,14}$/u.test(token)) ||
+    tokens.some((token) => token.length >= 4 && /\p{L}/u.test(token) && /\d/u.test(token));
 }
 
 export function classifyShopifyCandidate(
@@ -78,7 +84,12 @@ export function classifyShopifyCandidate(
     .map(compact)
     .filter((value) => value !== "");
   const requestedVariantTerms = extractVariantTerms(queryTokens);
-  const variantTokens = new Set(tokenize(Object.values(candidate.variantDimensions ?? {}).join(" ")));
+  const variantValues = Object.values(candidate.variantDimensions ?? {});
+  const variantTokens = new Set([
+    ...tokenize(variantValues.join(" ")),
+    ...variantValues.map(compact).filter((value) => value !== "")
+  ]);
+  const variantsExact = [...requestedVariantTerms].every((term) => variantTokens.has(term));
   if (
     [...ACCESSORY_TERMS].some((term) => candidateTokens.has(term)) &&
     !queryTokens.some((term) => ACCESSORY_TERMS.has(term))
@@ -100,9 +111,11 @@ export function classifyShopifyCandidate(
   const gtinQueries = queryTokens.filter((token) => /^\d{8,14}$/u.test(token));
   if (gtinQueries.length > 0) {
     const gtins = new Set((candidate.gtins ?? []).map(compact));
-    return gtinQueries.every((gtin) => gtins.has(gtin))
-      ? { status: "EXACT", evidence: ["GTIN exact"], missingTerms: [] }
-      : irrelevant("GTIN does not match");
+    if (!gtinQueries.every((gtin) => gtins.has(gtin))) return irrelevant("GTIN does not match");
+    const missingVariants = [...requestedVariantTerms].filter((term) => !variantTokens.has(term));
+    return variantsExact
+      ? { status: "EXACT", evidence: ["GTIN exact", ...(requestedVariantTerms.size === 0 ? [] : ["requested variant exact"])], missingTerms: [] }
+      : { status: "SIMILAR", evidence: ["GTIN exact", `requested variant differs: ${missingVariants.join(", ")}`], missingTerms: missingVariants };
   }
 
   const categoryTerms = new Set<string>(category?.terms ?? []);
@@ -113,21 +126,27 @@ export function classifyShopifyCandidate(
     ? variantTokens.has(token)
     : termMatches(token, candidateTokens, candidateIdentifiers));
   const missingTerms = required.filter((token) => !matched.includes(token));
+  const brandTokens = tokenize(candidate.brand ?? "");
+  const brandExact = brandTokens.length > 0 && brandTokens.every((token) => queryTokens.includes(token));
+  const modelQueryTokens = required
+    .filter((token) => !brandTokens.includes(token) && !requestedVariantTerms.has(token) && !CONDITION_TERMS.has(token));
+  const candidateMpn = compact(candidate.sku ?? "");
+  const brandMpnExact = brandExact && candidateMpn !== "" && containsContiguousIdentity(modelQueryTokens, candidateMpn);
   const evidence = [
     ...(category === undefined ? [] : ["product category exact"]),
-    ...(requestedVariantTerms.size > 0 && [...requestedVariantTerms].every((term) => variantTokens.has(term))
+    ...(requestedVariantTerms.size > 0 && variantsExact
       ? ["requested variant exact"]
       : []),
-    ...(required.some((term) => /\d/u.test(term)) && required.filter((term) => /\d/u.test(term)).every((term) => matched.includes(term))
-      ? ["model/MPN exact"]
+    ...(brandMpnExact && variantsExact
+      ? ["brand and MPN exact"]
       : []),
     ...(matched.length === 0 ? [] : [`matched query terms: ${matched.join(", ")}`])
   ];
 
   if (missingTerms.length === 0) {
     return {
-      status: "EXACT",
-      evidence: evidence.length === 0 ? ["query terms exact"] : evidence,
+      status: brandMpnExact && variantsExact ? "EXACT" : "DISCOVERY_MATCH",
+      evidence: evidence.length === 0 ? ["relevant query terms matched; strong product identity unavailable"] : evidence,
       missingTerms: []
     };
   }
@@ -181,6 +200,18 @@ function extractVariantTerms(queryTokens: readonly string[]): Set<string> {
 
 function irrelevant(reason: string): ShopifyMatchResult {
   return { status: "IRRELEVANT", evidence: [reason], missingTerms: [] };
+}
+
+function containsContiguousIdentity(tokens: readonly string[], identity: string): boolean {
+  for (let start = 0; start < tokens.length; start += 1) {
+    let joined = "";
+    for (let end = start; end < tokens.length; end += 1) {
+      joined += compact(tokens[end]!);
+      if (joined === identity) return true;
+      if (joined.length >= identity.length) break;
+    }
+  }
+  return false;
 }
 
 function tokenize(value: string): string[] {

@@ -41,7 +41,7 @@ describe("Shopify Storefront MCP client", () => {
         timedOutMerchantIds: [],
         registryVersion: "v3",
         searchTimeoutMs: 3_000,
-        selectionPolicy: "EXACT_THEN_SIMILAR_THEN_DIVERSE_MERCHANTS_THEN_PRICE"
+        selectionPolicy: "EXACT_THEN_DISCOVERY_THEN_SIMILAR_THEN_DIVERSE_MERCHANTS_THEN_PRICE"
       }
     });
     expect(result.products.map((product) => [product.merchant, product.itemPrice?.amountCents])).toEqual([
@@ -93,7 +93,7 @@ describe("Shopify Storefront MCP client", () => {
     expect(result.products.map((product) => [product.merchant, product.itemPrice?.amountCents])).toEqual([
       ["Fashion Nova", 999], ["Fashion Nova", 1_099], ["Fashion Nova", 1_199]
     ]);
-    expect(result.diagnostics.selectionPolicy).toBe("EXACT_THEN_SIMILAR_THEN_PRICE");
+    expect(result.diagnostics.selectionPolicy).toBe("EXACT_THEN_DISCOVERY_THEN_SIMILAR_THEN_PRICE");
   });
 
   it("applies an inclusive item-price ceiling before ranking", async () => {
@@ -252,10 +252,14 @@ describe("Shopify Storefront MCP client", () => {
     const safeFetch = vi.fn(async (input: { url: string }) => {
       const host = new URL(input.url).hostname;
       if (host === "kith.com") {
-        return storefrontResponse(input.url, host, "299.00", "Sony WH-1000XM5 Headphones", "Headphones");
+        return storefrontResponse(input.url, host, "299.00", "Sony WH-1000XM5 Headphones", "Headphones", [], {
+          vendor: "Sony", sku: "WH1000XM5"
+        });
       }
       if (host === "www.fashionnova.com") {
-        return storefrontResponse(input.url, host, "99.00", "Sony WH-1000XM4 Headphones", "Headphones");
+        return storefrontResponse(input.url, host, "99.00", "Sony WH-1000XM4 Headphones", "Headphones", [], {
+          vendor: "Sony", sku: "WH1000XM4"
+        });
       }
       if (host === "www.brooklinen.com") {
         return storefrontResponse(input.url, host, "1.00", "Classic Pillowcase", "Bedding");

@@ -34,6 +34,7 @@ import {
 } from "./deal-client.js";
 import {
   WatchSpecSchema,
+  WatchAutomationIdSchema,
   productWatchClarificationQuestions,
   createMemoryWatchStore,
   type WatchStore
@@ -189,7 +190,7 @@ const ShopifyProductOutputSchema = z.object({
   sku: z.string().optional(),
   gtins: z.array(z.string()),
   variantDimensions: z.record(z.string(), z.string()),
-  matchStatus: z.enum(["EXACT", "SIMILAR"]),
+  matchStatus: z.enum(["EXACT", "DISCOVERY_MATCH", "SIMILAR"]),
   matchEvidence: z.array(z.string()),
   condition: z.enum(["NEW", "USED", "REFURBISHED", "OPEN_BOX", "UNKNOWN"]),
   imageUrl: z.string().url().optional(),
@@ -232,7 +233,7 @@ const ShopifyProductOutputSchema = z.object({
     imageUrl: z.string().url().optional(),
     primaryPrice: MoneyOutputSchema.optional(),
     priceLabel: z.string(),
-    matchBadge: z.enum(["EXACT", "SIMILAR"]),
+    matchBadge: z.enum(["EXACT", "DISCOVERY_MATCH", "SIMILAR"]),
     conditionBadge: z.enum(["NEW", "USED", "REFURBISHED", "OPEN_BOX", "UNKNOWN"]),
     availability: z.enum(["IN_STOCK", "OUT_OF_STOCK", "UNKNOWN"]),
     actionLabel: z.literal("View at merchant")
@@ -282,8 +283,8 @@ const ShopifyProductsOutputShape = {
     registryVersion: z.string(),
     searchTimeoutMs: z.number().int().nonnegative(),
     selectionPolicy: z.enum([
-      "EXACT_THEN_SIMILAR_THEN_PRICE",
-      "EXACT_THEN_SIMILAR_THEN_DIVERSE_MERCHANTS_THEN_PRICE"
+      "EXACT_THEN_DISCOVERY_THEN_SIMILAR_THEN_PRICE",
+      "EXACT_THEN_DISCOVERY_THEN_SIMILAR_THEN_DIVERSE_MERCHANTS_THEN_PRICE"
     ])
   }),
   questions: z.array(z.string()),
@@ -405,7 +406,8 @@ function shopifyResult(
     purchaseLink.kind === "APPROVED_AFFILIATE"
   ).length;
   const exactCount = result.products.filter((product) => product.matchStatus === "EXACT").length;
-  const similarCount = result.products.length - exactCount;
+  const discoveryCount = result.products.filter((product) => product.matchStatus === "DISCOVERY_MATCH").length;
+  const similarCount = result.products.filter((product) => product.matchStatus === "SIMILAR").length;
   const priceLimit = result.maxItemPriceCents === undefined
     ? ""
     : ` Maximum item price: USD ${(result.maxItemPriceCents / 100).toFixed(2)}.`;
@@ -417,7 +419,7 @@ function shopifyResult(
     : `${affiliateLinksApproved} purchase link(s) use an approved affiliate relationship with disclosure; remaining links are canonical merchant links. Commission never affects ranking.`;
   const source = result.source ?? "SHOPIFY_STOREFRONT_API";
   const sourceLabel = source === "SHOPIFY_GLOBAL_CATALOG" ? "Shopify Global Catalog" : "audited Shopify registry";
-  const summary = `Comparison status: ${result.comparison.status}. ${sourceLabel} returned ${result.products.length} product card(s): ${exactCount} exact and ${similarCount} similar, from ${result.merchantsSucceeded}/${result.merchantsQueried} returned merchants.${priceLimit}${comparison} Prices are public item prices only; shipping, tax, mandatory fees, member price, delivered price, and verified coupons are unavailable without merchant evidence. ${linkSummary}`;
+  const summary = `Comparison status: ${result.comparison.status}. ${sourceLabel} returned ${result.products.length} product card(s): ${exactCount} exact, ${discoveryCount} discovery, and ${similarCount} similar, from ${result.merchantsSucceeded}/${result.merchantsQueried} returned merchants.${priceLimit}${comparison} Prices are public item prices only; shipping, tax, mandatory fees, member price, delivered price, and verified coupons are unavailable without merchant evidence. ${linkSummary}`;
   const products = linkedProducts.map(({ product, purchaseLink }, index) => {
     const price = product.itemPrice === undefined
       ? "price unavailable"
@@ -570,8 +572,8 @@ function shopifyClarificationResult(
         registryVersion: "NOT_QUERIED",
         searchTimeoutMs: 0,
         selectionPolicy: selectionMode === "LOWEST_PRICE"
-          ? "EXACT_THEN_SIMILAR_THEN_PRICE" as const
-          : "EXACT_THEN_SIMILAR_THEN_DIVERSE_MERCHANTS_THEN_PRICE" as const
+          ? "EXACT_THEN_DISCOVERY_THEN_SIMILAR_THEN_PRICE" as const
+          : "EXACT_THEN_DISCOVERY_THEN_SIMILAR_THEN_DIVERSE_MERCHANTS_THEN_PRICE" as const
       },
       questions: [question],
       products: []
@@ -618,8 +620,8 @@ function shopifyUnavailableResult(
         registryVersion: "UNAVAILABLE",
         searchTimeoutMs: 0,
         selectionPolicy: selectionMode === "LOWEST_PRICE"
-          ? "EXACT_THEN_SIMILAR_THEN_PRICE" as const
-          : "EXACT_THEN_SIMILAR_THEN_DIVERSE_MERCHANTS_THEN_PRICE" as const
+          ? "EXACT_THEN_DISCOVERY_THEN_SIMILAR_THEN_PRICE" as const
+          : "EXACT_THEN_DISCOVERY_THEN_SIMILAR_THEN_DIVERSE_MERCHANTS_THEN_PRICE" as const
       },
       questions: [],
       products: []
@@ -634,7 +636,7 @@ export function createShoppingServer(
   affiliateLinks: AffiliateLinkResolver = createAffiliateLinkResolver(),
   dependencies: ShoppingServerDependencies = {}
 ): McpServer {
-  const server = new McpServer({ name: "findcheap-agent", version: "0.5.3" });
+  const server = new McpServer({ name: "findcheap-agent", version: "0.6.0" });
   const dealPort = dependencies.deals ?? createUnavailableDealPort();
   const watchStore = dependencies.watches ?? createMemoryWatchStore();
   const now = dependencies.now ?? (() => new Date());
@@ -661,8 +663,8 @@ export function createShoppingServer(
     "findcheap-product-cards",
     PRODUCT_CARD_UI_URI,
     {
-      title: "FindCheap Agent verified product cards",
-      description: "Interactive cards for the latest verified Shopify product results.",
+      title: "FindCheap Agent identity-labeled product cards",
+      description: "Interactive cards that separate exact, discovery, and similar Shopify product results.",
       mimeType: "text/html;profile=mcp-app"
     },
     async () => ({
@@ -820,11 +822,12 @@ export function createShoppingServer(
     "create_watch",
     {
       title: "Create a shopping watch",
-      description: "Persist a price, discount, Coupon, Cashback, stock, or restock watch. The host must schedule check_watch separately.",
+      description: "Persist a Watch rule and return the exact Codex Automation handoff. Monitoring is not active until bind_watch_automation succeeds.",
       inputSchema: WatchSpecSchema,
       outputSchema: {
-        status: z.enum(["ACTIVE", "NEEDS_CLARIFICATION"]),
+        status: z.enum(["READY_TO_SCHEDULE", "ACTIVE", "PAUSED", "LEGACY_UNVERIFIED", "NEEDS_CLARIFICATION"]),
         watchId: z.string().uuid().optional(),
+        automationId: WatchAutomationIdSchema.optional(),
         intervalMinutes: z.number().int().optional(),
         automationPrompt: z.string().optional(),
         questions: z.array(z.string())
@@ -846,10 +849,78 @@ export function createShoppingServer(
         throw new Error("expiresAt must be in the future");
       }
       const watch = await watchStore.create(spec, createdAt.toISOString());
-      const automationPrompt = `Use FindCheap Agent check_watch with watchId ${watch.watchId}. Notify the user only when status is TRIGGERED. Do not purchase, reserve, or submit forms.`;
-      return { content: [{ type: "text" as const, text: `Watch ${watch.watchId} is ready. Schedule it every ${watch.spec.intervalMinutes} minutes.` }], structuredContent: {
-        status: "ACTIVE" as const, watchId: watch.watchId, intervalMinutes: watch.spec.intervalMinutes, automationPrompt, questions: []
+      const automationPrompt = `Call FindCheap Agent check_watch exactly once with watchId ${watch.watchId}. Notify the user only when status is TRIGGERED; include the observed value, checkedAt, and direct source or merchant link from observation. Treat NOT_TRIGGERED as a silent check. Do not purchase, reserve, submit forms, or use Chrome.`;
+      const status = watch.status === "PAUSED" ? "PAUSED" as const
+        : watch.schedulingState === undefined ? "LEGACY_UNVERIFIED" as const
+          : watch.automationId === undefined ? "READY_TO_SCHEDULE" as const : "ACTIVE" as const;
+      const message = status === "ACTIVE"
+        ? `Watch ${watch.watchId} is active with Codex Automation ${watch.automationId}.`
+        : status === "PAUSED"
+          ? `Watch ${watch.watchId} already exists and is paused.`
+        : status === "LEGACY_UNVERIFIED"
+          ? `Watch ${watch.watchId} predates Automation binding. Reconcile its existing Codex Automation before changing it.`
+        : `Watch ${watch.watchId} is ready for Codex Automation scheduling every ${watch.spec.intervalMinutes} minutes.`;
+      return { content: [{ type: "text" as const, text: message }], structuredContent: {
+        status,
+        watchId: watch.watchId,
+        ...(watch.automationId === undefined ? {} : { automationId: watch.automationId }),
+        intervalMinutes: watch.spec.intervalMinutes,
+        automationPrompt,
+        questions: []
       } };
+    }
+  );
+
+  server.registerTool(
+    "bind_watch_automation",
+    {
+      title: "Bind a Codex Automation to a shopping watch",
+      description: "Record the Codex Automation created from create_watch. Monitoring becomes active only after this binding succeeds.",
+      inputSchema: z.object({ watchId: z.string().uuid(), automationId: WatchAutomationIdSchema }).strict(),
+      outputSchema: {
+        status: z.enum(["ACTIVE", "PAUSED", "EXPIRED", "NOT_FOUND", "AUTOMATION_ALREADY_BOUND"]),
+        watchId: z.string().uuid(),
+        automationId: WatchAutomationIdSchema
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false }
+    },
+    async ({ watchId, automationId }) => {
+      const watch = await watchStore.get(watchId);
+      if (watch === undefined) {
+        return {
+          content: [{ type: "text" as const, text: "Watch not found." }],
+          structuredContent: { status: "NOT_FOUND" as const, watchId, automationId }
+        };
+      }
+      const boundAt = now();
+      if (watch.spec.expiresAt !== undefined && Date.parse(watch.spec.expiresAt) <= boundAt.getTime()) {
+        await watchStore.save({ ...watch, status: "EXPIRED", updatedAt: boundAt.toISOString() });
+        return {
+          content: [{ type: "text" as const, text: "Watch expired before Automation binding." }],
+          structuredContent: { status: "EXPIRED" as const, watchId, automationId }
+        };
+      }
+      if (watch.automationId !== undefined && watch.automationId !== automationId) {
+        return {
+          content: [{ type: "text" as const, text: "Watch is already bound to a different Codex Automation." }],
+          structuredContent: { status: "AUTOMATION_ALREADY_BOUND" as const, watchId, automationId: watch.automationId }
+        };
+      }
+      const conflict = (await watchStore.list()).find((candidate) =>
+        candidate.watchId !== watchId && candidate.automationId === automationId
+      );
+      if (conflict !== undefined) {
+        return {
+          content: [{ type: "text" as const, text: "Codex Automation is already bound to a different watch." }],
+          structuredContent: { status: "AUTOMATION_ALREADY_BOUND" as const, watchId, automationId }
+        };
+      }
+      const updated = { ...watch, automationId, schedulingState: "BOUND" as const, updatedAt: boundAt.toISOString() };
+      await watchStore.save(updated);
+      return {
+        content: [{ type: "text" as const, text: `Watch monitoring is ${updated.status.toLowerCase()}.` }],
+        structuredContent: { status: updated.status, watchId, automationId }
+      };
     }
   );
 
@@ -859,12 +930,28 @@ export function createShoppingServer(
       title: "Check a shopping watch",
       description: "Evaluate one persisted watch against current verified sources and update deduplication state.",
       inputSchema: z.object({ watchId: z.string().uuid() }).strict(),
-      outputSchema: { status: z.enum(["TRIGGERED", "NOT_TRIGGERED", "PAUSED", "EXPIRED", "NEEDS_CLARIFICATION", "NOT_FOUND", "DATA_SOURCE_UNAVAILABLE"]), message: z.string(), watchId: z.string().uuid() },
+      outputSchema: {
+        status: z.enum(["TRIGGERED", "NOT_TRIGGERED", "PAUSED", "EXPIRED", "NEEDS_CLARIFICATION", "NOT_SCHEDULED", "NOT_FOUND", "DATA_SOURCE_UNAVAILABLE"]),
+        message: z.string(),
+        watchId: z.string().uuid(),
+        observation: z.record(z.string(), z.unknown()).optional()
+      },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }
     },
     async ({ watchId }) => {
       const watch = await watchStore.get(watchId);
       if (watch === undefined) return { content: [{ type: "text" as const, text: "Watch not found." }], structuredContent: { status: "NOT_FOUND" as const, message: "Watch not found.", watchId } };
+      const questions = productWatchClarificationQuestions(watch.spec);
+      const expired = watch.spec.expiresAt !== undefined && Date.parse(watch.spec.expiresAt) <= now().getTime();
+      if (
+        questions.length === 0 && watch.status === "ACTIVE" && !expired &&
+        watch.schedulingState === "PENDING"
+      ) {
+        const message = "Watch rule exists, but no Codex Automation is bound; monitoring is not active.";
+        return { content: [{ type: "text" as const, text: message }], structuredContent: {
+          status: "NOT_SCHEDULED" as const, message, watchId
+        } };
+      }
       const previous = watchChecks.get(watchId);
       const ready = previous === undefined ? Promise.resolve() : previous.then(() => undefined, () => undefined);
       const check = ready.then(async () => {
@@ -876,7 +963,12 @@ export function createShoppingServer(
       const result = await check.finally(() => {
         if (watchChecks.get(watchId) === check) watchChecks.delete(watchId);
       });
-      return { content: [{ type: "text" as const, text: result.message }], structuredContent: { status: result.status, message: result.message, watchId } };
+      return { content: [{ type: "text" as const, text: result.message }], structuredContent: {
+        status: result.status,
+        message: result.message,
+        watchId,
+        ...(result.observation === undefined ? {} : { observation: result.observation })
+      } };
     }
   );
 
@@ -886,11 +978,28 @@ export function createShoppingServer(
       title: "List shopping watches",
       description: "List persisted shopping watches without contacting merchants.",
       inputSchema: z.object({}).strict(),
-      outputSchema: { watches: z.array(z.object({ watchId: z.string().uuid(), status: z.string(), query: z.string(), condition: z.string(), intervalMinutes: z.number().int() })) },
+      outputSchema: { watches: z.array(z.object({
+        watchId: z.string().uuid(),
+        status: z.string(),
+        monitoringStatus: z.enum(["READY_TO_SCHEDULE", "ACTIVE", "PAUSED", "EXPIRED", "LEGACY_UNVERIFIED"]),
+        automationId: WatchAutomationIdSchema.optional(),
+        query: z.string(),
+        condition: z.string(),
+        intervalMinutes: z.number().int()
+      })) },
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
     },
     async () => ({ content: [{ type: "text" as const, text: "Shopping watches listed." }], structuredContent: { watches: (await watchStore.list()).map((watch) => ({
-      watchId: watch.watchId, status: watch.status, query: watch.spec.query, condition: watch.spec.condition, intervalMinutes: watch.spec.intervalMinutes
+      watchId: watch.watchId,
+      status: watch.status,
+      monitoringStatus: watch.status === "EXPIRED" ? "EXPIRED" as const
+        : watch.status === "PAUSED" ? "PAUSED" as const
+          : watch.schedulingState === undefined ? "LEGACY_UNVERIFIED" as const
+            : watch.automationId === undefined ? "READY_TO_SCHEDULE" as const : "ACTIVE" as const,
+      ...(watch.automationId === undefined ? {} : { automationId: watch.automationId }),
+      query: watch.spec.query,
+      condition: watch.spec.condition,
+      intervalMinutes: watch.spec.intervalMinutes
     })) } })
   );
 
@@ -899,16 +1008,30 @@ export function createShoppingServer(
     {
       title: "Pause or resume a shopping watch",
       description: "Pause or resume one persisted shopping watch.",
-      inputSchema: z.object({ watchId: z.string().uuid(), paused: z.boolean() }).strict(),
-      outputSchema: { status: z.enum(["ACTIVE", "PAUSED", "NOT_FOUND"]), watchId: z.string().uuid() },
+      inputSchema: z.object({ watchId: z.string().uuid(), paused: z.boolean(), automationId: WatchAutomationIdSchema.optional() }).strict(),
+      outputSchema: { status: z.enum(["ACTIVE", "PAUSED", "NOT_FOUND", "AUTOMATION_SYNC_REQUIRED"]), watchId: z.string().uuid(), automationId: WatchAutomationIdSchema.optional() },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false }
     },
-    async ({ watchId, paused }) => {
+    async ({ watchId, paused, automationId }) => {
       const watch = await watchStore.get(watchId);
       if (watch === undefined) return { content: [{ type: "text" as const, text: "Watch not found." }], structuredContent: { status: "NOT_FOUND" as const, watchId } };
+      if (watch.schedulingState === undefined) {
+        return {
+          content: [{ type: "text" as const, text: "Bind the legacy Watch to its existing Codex Automation before pausing or resuming it." }],
+          structuredContent: { status: "AUTOMATION_SYNC_REQUIRED" as const, watchId }
+        };
+      }
+      if (watch.automationId !== undefined && watch.automationId !== automationId) {
+        return {
+          content: [{ type: "text" as const, text: "Update the bound Codex Automation first, then retry with its automationId." }],
+          structuredContent: { status: "AUTOMATION_SYNC_REQUIRED" as const, watchId, automationId: watch.automationId }
+        };
+      }
       const status = paused ? "PAUSED" as const : "ACTIVE" as const;
       await watchStore.save({ ...watch, status, updatedAt: now().toISOString() });
-      return { content: [{ type: "text" as const, text: `Watch is ${status.toLowerCase()}.` }], structuredContent: { status, watchId } };
+      return { content: [{ type: "text" as const, text: `Watch is ${status.toLowerCase()}.` }], structuredContent: {
+        status, watchId, ...(watch.automationId === undefined ? {} : { automationId: watch.automationId })
+      } };
     }
   );
 
@@ -917,20 +1040,46 @@ export function createShoppingServer(
     {
       title: "Delete a shopping watch",
       description: "Permanently delete one local shopping watch. The host must also remove its scheduled automation.",
-      inputSchema: z.object({ watchId: z.string().uuid() }).strict(),
-      outputSchema: { deleted: z.boolean(), watchId: z.string().uuid() },
+      inputSchema: z.object({ watchId: z.string().uuid(), automationId: WatchAutomationIdSchema.optional() }).strict(),
+      outputSchema: { status: z.enum(["DELETED", "NOT_FOUND", "AUTOMATION_SYNC_REQUIRED"]), deleted: z.boolean(), watchId: z.string().uuid(), automationId: WatchAutomationIdSchema.optional() },
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false }
     },
-    async ({ watchId }) => {
+    async ({ watchId, automationId }) => {
+      const watch = await watchStore.get(watchId);
+      if (watch === undefined) return { content: [{ type: "text" as const, text: "Watch not found." }], structuredContent: {
+        status: "NOT_FOUND" as const, deleted: false, watchId
+      } };
+      if (watch.schedulingState === undefined) {
+        return {
+          content: [{ type: "text" as const, text: "Bind the legacy Watch to its existing Codex Automation before deleting it." }],
+          structuredContent: { status: "AUTOMATION_SYNC_REQUIRED" as const, deleted: false, watchId }
+        };
+      }
+      if (watch.automationId !== undefined && watch.automationId !== automationId) {
+        return {
+          content: [{ type: "text" as const, text: "Delete the bound Codex Automation first, then retry with its automationId." }],
+          structuredContent: {
+            status: "AUTOMATION_SYNC_REQUIRED" as const,
+            deleted: false,
+            watchId,
+            automationId: watch.automationId
+          }
+        };
+      }
       const deleted = await watchStore.delete(watchId);
-      return { content: [{ type: "text" as const, text: deleted ? "Watch deleted." : "Watch not found." }], structuredContent: { deleted, watchId } };
+      return { content: [{ type: "text" as const, text: deleted ? "Watch deleted." : "Watch not found." }], structuredContent: {
+        status: deleted ? "DELETED" as const : "NOT_FOUND" as const,
+        deleted,
+        watchId,
+        ...(watch.automationId === undefined ? {} : { automationId: watch.automationId })
+      } };
     }
   );
 
   server.registerTool(
     "render_product_cards",
     {
-      title: "Render verified product cards",
+      title: "Render identity-labeled product cards",
       description: "Render the immutable snapshot identified by renderId from search_shopify_products.",
       inputSchema: z.object({ renderId: z.string().uuid() }).strict(),
       outputSchema: ShopifyProductsOutputShape,
@@ -943,8 +1092,8 @@ export function createShoppingServer(
       _meta: {
         ui: { resourceUri: PRODUCT_CARD_UI_URI },
         "openai/outputTemplate": PRODUCT_CARD_UI_URI,
-        "openai/toolInvocation/invoking": "Rendering verified product cards…",
-        "openai/toolInvocation/invoked": "Verified product cards ready."
+        "openai/toolInvocation/invoking": "Rendering product cards…",
+        "openai/toolInvocation/invoked": "Product cards ready."
       }
     },
     async ({ renderId }) => {
@@ -962,7 +1111,7 @@ export function createShoppingServer(
       return {
         content: [{
           type: "text" as const,
-          text: `Rendered ${snapshot.content.products.length} verified product card${snapshot.content.products.length === 1 ? "" : "s"}.`
+          text: `Rendered ${snapshot.content.products.length} product card${snapshot.content.products.length === 1 ? "" : "s"} with explicit identity labels.`
         }],
         structuredContent: snapshot.content
       };

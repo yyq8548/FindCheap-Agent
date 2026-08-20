@@ -1,6 +1,6 @@
 {
   "name": "findcheap-agent",
-  "version": "0.5.3",
+  "version": "0.6.0+codex.20260820002659",
   "description": "Search Shopify Global Catalog, find verified deals, and monitor prices, promotions, and stock.",
   "author": {
     "name": "yyq8548"
@@ -12,14 +12,14 @@
   "interface": {
     "displayName": "FindCheap Agent",
     "shortDescription": "Verified cards, pricing, coupons, and safe links.",
-    "longDescription": "FindCheap Agent is a Codex Plugin Agent. v0.5.3 searches Shopify Global Catalog, renders verified product cards through a reliable immutable snapshot, queries a configured verified Deals API for Coupon and Cashback evidence, and persists identity-bound price, promotion, inventory, and restock Watch rules for Codex Automation. Product Watch creation requires a generation/model/GTIN and explicit condition. Without approved data or affiliate relationships it fails closed and uses canonical merchant links. User-authorized Chrome remains a bounded one-time fallback, never an automated Watch source.",
+    "longDescription": "FindCheap Agent is a Codex Plugin Agent. v0.6.0 searches Shopify Global Catalog, reserves EXACT for strong product identity, renders evidence-rich product cards, queries a configured verified Deals API, and binds persistent identity-specific price, promotion, inventory, and restock Watch rules to native Codex Automation. Product Watch creation requires a generation/model/GTIN and explicit condition. Monitoring becomes active only after its Automation ID is durably bound. Without approved data or affiliate relationships it fails closed and uses canonical merchant links. User-authorized Chrome remains a bounded one-time fallback, never an automated Watch source.",
     "developerName": "yyq8548",
     "category": "Productivity",
     "capabilities": [
       "Interactive"
     ],
     "defaultPrompt": [
-      "Use search_shopify_products, find_coupons, or create_watch plus Codex Automation. Never launch MCP."
+      "Search products, find verified deals, or create and bind a Watch to Codex Automation. Never launch MCP."
     ]
   }
 }

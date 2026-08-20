@@ -70,12 +70,14 @@ async function observeProducts(watch: WatchRecord, shopify: ShopifyPort, now: Da
     limit: 3,
     selectionMode: "LOWEST_PRICE",
     comparisonMode: "DISCOVERY",
+    includeOutOfStock: watch.spec.condition === "IN_STOCK" || watch.spec.condition === "RESTOCKED",
     ...(watch.spec.zipCode === undefined ? {} : { zipCode: watch.spec.zipCode }),
     membershipIds: watch.spec.membershipIds
   });
   const products = result.products.filter((product) => {
     const checkedAt = Date.parse(product.checkedAt);
-    return product.matchStatus === "EXACT" && identityMatches(product, watch) && conditionMatches(product, watch) &&
+    return watchIdentityEvidenceMatches(product, watch) && identityMatches(product, watch) && merchantMatches(product, watch) &&
+      conditionMatches(product, watch) &&
       checkedAt <= now.getTime() + 120_000 && checkedAt >= now.getTime() - 900_000;
   });
   if (products.length === 0) throw new Error("DATA_SOURCE_UNAVAILABLE");
@@ -83,11 +85,11 @@ async function observeProducts(watch: WatchRecord, shopify: ShopifyPort, now: Da
     const product = lowestPriced(products);
     if (product?.itemPrice === undefined) throw new Error("DATA_SOURCE_UNAVAILABLE");
     const threshold = watch.spec.threshold ?? 0;
-    const satisfied = product.itemPrice.amountCents <= threshold;
+    const satisfied = product.itemPrice.amountCents < threshold;
     const price = `$${(product.itemPrice.amountCents / 100).toFixed(2)}`;
     return {
       satisfied,
-      triggerMessage: `${product.title} is ${price}, at or below the watch target.`,
+      triggerMessage: `${product.title} is ${price}, below the watch target.`,
       statusMessage: `${product.title} is ${price}; target not reached.`,
       data: productObservation(product)
     };
@@ -123,11 +125,27 @@ function conditionMatches(product: ShopifyProduct, watch: WatchRecord): boolean 
   return requested === "ANY" || product.condition === requested;
 }
 
+function merchantMatches(product: ShopifyProduct, watch: WatchRecord): boolean {
+  return watch.spec.merchant === undefined || normalizeIdentity(product.merchant) === normalizeIdentity(watch.spec.merchant);
+}
+
+function watchIdentityEvidenceMatches(product: ShopifyProduct, watch: WatchRecord): boolean {
+  if (product.matchStatus === "EXACT") return true;
+  const identity = watch.spec.identity;
+  return product.matchStatus === "DISCOVERY_MATCH" && watch.spec.merchant !== undefined &&
+    identity?.generation !== undefined && identity.modelNumber === undefined && identity.gtin === undefined;
+}
+
 function identityMatches(product: ShopifyProduct, watch: WatchRecord): boolean {
   const identity = watch.spec.identity;
   if (identity === undefined) return false;
   if (identity.gtin !== undefined && !product.gtins.includes(identity.gtin)) return false;
-  if (identity.modelNumber !== undefined && normalizeIdentity(product.sku) !== normalizeIdentity(identity.modelNumber)) return false;
+  if (identity.modelNumber !== undefined) {
+    const requestedModel = normalizeIdentity(identity.modelNumber);
+    const skuMatches = normalizeIdentity(product.sku) === requestedModel;
+    const titleMatches = normalizeIdentity(product.title).includes(requestedModel);
+    if (!skuMatches && !titleMatches) return false;
+  }
   if (identity.generation !== undefined && !normalizeIdentity(product.title).includes(normalizeIdentity(identity.generation))) return false;
   return Object.entries(identity.variantDimensions ?? {}).every(([key, value]) => {
     const productValue = Object.entries(product.variantDimensions)

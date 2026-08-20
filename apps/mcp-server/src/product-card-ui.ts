@@ -1,4 +1,4 @@
-export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v8.html";
+export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v9.html";
 
 export const PRODUCT_CARD_RESOURCE_DOMAINS = [
   "https://cdn.shopify.com"
@@ -14,6 +14,8 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     body { margin: 0; color: light-dark(#182019, #eef5ef); background: transparent; }
     #app { display: grid; gap: 12px; padding: 4px; }
     .summary { color: light-dark(#526157, #aebbb1); font-size: 13px; }
+    .group { display: grid; gap: 8px; }
+    .group h2 { margin: 0; font-size: 14px; }
     .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }
     .card { overflow: hidden; border: 1px solid light-dark(#dbe4dc, #344338); border-radius: 16px; background: light-dark(#fff, #172019); box-shadow: 0 8px 28px rgb(0 0 0 / .07); }
     .image { width: 100%; aspect-ratio: 4 / 3; object-fit: contain; background: light-dark(#f5f7f5, #222d25); }
@@ -25,7 +27,9 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     .badges { display: flex; flex-wrap: wrap; gap: 6px; }
     .badge { border-radius: 999px; padding: 4px 8px; background: light-dark(#edf5ee, #263329); font-size: 11px; font-weight: 650; }
     .exact { color: light-dark(#166534, #86efac); }
+    .discovery { color: light-dark(#1d4ed8, #93c5fd); }
     .similar { color: light-dark(#92400e, #fcd34d); }
+    .details, .evidence { color: light-dark(#526157, #b7c4ba); font-size: 11px; line-height: 1.4; }
     .limitations { color: light-dark(#66736a, #aab6ad); font-size: 11px; line-height: 1.4; }
     .disclosure { color: light-dark(#526157, #b7c4ba); font-size: 11px; line-height: 1.4; }
     a { display: inline-flex; justify-content: center; border-radius: 10px; padding: 9px 12px; color: #fff; background: #177245; font-size: 13px; font-weight: 700; text-decoration: none; }
@@ -72,6 +76,15 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       try { const url = new URL(value); return url.protocol === "https:" ? url.href : null; }
       catch { return null; }
     };
+    const observedAt = (value) => {
+      const date = new Date(value);
+      return Number.isNaN(date.getTime()) ? "Observation time unavailable" : "Observed " + new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" }).format(date);
+    };
+    const groupDefinitions = [
+      { status: "EXACT", title: "Exact matches" },
+      { status: "DISCOVERY_MATCH", title: "Discovery matches" },
+      { status: "SIMILAR", title: "Similar options" }
+    ];
     function render(output) {
       hasResult = true;
       app.replaceChildren();
@@ -80,50 +93,69 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
         app.append(make("div", "empty", output?.message || "No verified products returned."));
         return;
       }
-      const summary = make("div", "summary", products.length + " verified product card" + (products.length === 1 ? "" : "s") + " · item price only");
-      const cards = make("section", "cards");
-      for (const [index, product] of products.entries()) {
-        const cardData = product && typeof product.card === "object" ? product.card : {};
-        const card = make("article", "card");
-        const imageUrl = safeHttps(cardData.imageUrl);
-        if (imageUrl) {
-          const image = make("img", "image");
-          image.src = imageUrl;
-          image.alt = "";
-          image.loading = "eager";
-          image.decoding = "async";
-          image.fetchPriority = index === 0 ? "high" : "auto";
-          image.addEventListener("error", () => image.remove(), { once: true });
-          card.append(image);
-        }
-        const body = make("div", "body");
-        body.append(make("div", "merchant", cardData.merchant || product.merchant || "Merchant"));
-        body.append(make("h3", "", cardData.title || product.title || "Product"));
-        const row = make("div", "row");
-        row.append(make("div", "price", money(cardData.primaryPrice)));
-        const badges = make("div", "badges");
-        const match = String(cardData.matchBadge || product.matchStatus || "UNCONFIRMED");
-        badges.append(make("span", "badge " + (match === "EXACT" ? "exact" : "similar"), match));
-        badges.append(make("span", "badge", String(cardData.conditionBadge || product.condition || "UNKNOWN")));
-        badges.append(make("span", "badge", String(cardData.availability || product.availability || "UNKNOWN")));
-        row.append(badges);
-        body.append(row);
-        body.append(make("div", "limitations", "Verified public item price. Shipping, tax, fees, coupons, membership and delivered price remain unavailable unless separately verified."));
-        const purchaseUrl = safeHttps(product?.purchaseLink?.url || product?.merchantUrl);
-        if (purchaseUrl) {
-          if (product?.purchaseLink?.kind === "APPROVED_AFFILIATE" && product.purchaseLink.disclosure) {
-            body.append(make("div", "disclosure", product.purchaseLink.disclosure));
+      app.append(make("div", "summary", products.length + " product card" + (products.length === 1 ? "" : "s") + " · identity labels and public item prices only"));
+      let cardIndex = 0;
+      for (const definition of groupDefinitions) {
+        const grouped = products.filter((product) => product?.matchStatus === definition.status);
+        if (grouped.length === 0) continue;
+        const group = make("section", "group");
+        group.append(make("h2", "", definition.title));
+        const cards = make("div", "cards");
+        for (const product of grouped) {
+          const cardData = product && typeof product.card === "object" ? product.card : {};
+          const card = make("article", "card");
+          const imageUrl = safeHttps(cardData.imageUrl);
+          if (imageUrl) {
+            const image = make("img", "image");
+            image.src = imageUrl;
+            image.alt = "";
+            image.loading = "eager";
+            image.decoding = "async";
+            image.fetchPriority = cardIndex === 0 ? "high" : "auto";
+            image.addEventListener("error", () => image.remove(), { once: true });
+            card.append(image);
           }
-          const link = make("a", "", cardData.actionLabel || "View at merchant");
-          link.href = purchaseUrl;
-          link.target = "_blank";
-          link.rel = "noopener noreferrer";
-          body.append(link);
+          cardIndex += 1;
+          const body = make("div", "body");
+          body.append(make("div", "merchant", cardData.merchant || product.merchant || "Merchant"));
+          body.append(make("h3", "", cardData.title || product.title || "Product"));
+          const identity = [product.brand, product.sku ? "Model/SKU: " + product.sku : undefined, product.gtins?.[0] ? "GTIN: " + product.gtins[0] : undefined]
+            .filter(Boolean).join(" · ");
+          if (identity) body.append(make("div", "details", identity));
+          const variants = Object.entries(product.variantDimensions || {}).map(([name, value]) => name + ": " + value).join(" · ");
+          if (variants) body.append(make("div", "details", variants));
+          const row = make("div", "row");
+          row.append(make("div", "price", money(cardData.primaryPrice)));
+          const badges = make("div", "badges");
+          const match = String(cardData.matchBadge || product.matchStatus || "UNCONFIRMED");
+          const matchClass = match === "EXACT" ? "exact" : match === "DISCOVERY_MATCH" ? "discovery" : "similar";
+          badges.append(make("span", "badge " + matchClass, match));
+          badges.append(make("span", "badge", String(cardData.conditionBadge || product.condition || "UNKNOWN")));
+          badges.append(make("span", "badge", String(cardData.availability || product.availability || "UNKNOWN")));
+          row.append(badges);
+          body.append(row);
+          if (Array.isArray(product.matchEvidence) && product.matchEvidence.length > 0) {
+            body.append(make("div", "evidence", "Identity evidence: " + product.matchEvidence.join("; ")));
+          }
+          body.append(make("div", "details", observedAt(product.checkedAt)));
+          body.append(make("div", "limitations", "Verified public item price. Shipping, tax, fees, coupons, membership and delivered price remain unavailable unless separately verified."));
+          const purchaseUrl = safeHttps(product?.purchaseLink?.url || product?.merchantUrl);
+          if (purchaseUrl) {
+            if (product?.purchaseLink?.kind === "APPROVED_AFFILIATE" && product.purchaseLink.disclosure) {
+              body.append(make("div", "disclosure", product.purchaseLink.disclosure));
+            }
+            const link = make("a", "", cardData.actionLabel || "View at merchant");
+            link.href = purchaseUrl;
+            link.target = "_blank";
+            link.rel = "noopener noreferrer";
+            body.append(link);
+          }
+          card.append(body);
+          cards.append(card);
         }
-        card.append(body);
-        cards.append(card);
+        group.append(cards);
+        app.append(group);
       }
-      app.append(summary, cards);
       window.setTimeout(reportSize, 0);
     }
     const hydrateFromInput = async (input) => {
@@ -178,7 +210,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     receiveInput(window.openai?.toolInput);
     request("ui/initialize", {
       protocolVersion: "2026-01-26",
-      appInfo: { name: "FindCheap Agent product cards", version: "0.5.3" },
+      appInfo: { name: "FindCheap Agent product cards", version: "0.6.0" },
       appCapabilities: { availableDisplayModes: ["inline"] }
     }).then(() => {
       initialized = true;

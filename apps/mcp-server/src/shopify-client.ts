@@ -26,6 +26,7 @@ export type ShopifySearchInput = {
   selectionMode?: ShopifySelectionMode | undefined;
   zipCode?: string | undefined;
   membershipIds?: string[] | undefined;
+  includeOutOfStock?: boolean | undefined;
 };
 
 export type ShopifySelectionMode = "LOWEST_PRICE" | "MERCHANT_DIVERSE";
@@ -88,8 +89,8 @@ export type ShopifySearchResult = {
     registryVersion: string;
     searchTimeoutMs: number;
     selectionPolicy:
-      | "EXACT_THEN_SIMILAR_THEN_PRICE"
-      | "EXACT_THEN_SIMILAR_THEN_DIVERSE_MERCHANTS_THEN_PRICE";
+      | "EXACT_THEN_DISCOVERY_THEN_SIMILAR_THEN_PRICE"
+      | "EXACT_THEN_DISCOVERY_THEN_SIMILAR_THEN_DIVERSE_MERCHANTS_THEN_PRICE";
   };
   questions: string[];
   products: ShopifyProduct[];
@@ -238,9 +239,17 @@ export function createShopifyPortFromEnvironment(
           conditionMatches(product.condition, conditionIntent)
         );
         const ranked = rankAndDeduplicate(conditionEligible);
-        const sameProductGroup = selectSameProductGroup(
-          ranked.filter((product) => product.matchStatus === "EXACT")
+        const identityGroup = selectSameProductGroup(
+          ranked.filter((product) => product.matchStatus !== "SIMILAR")
         );
+        const sameProductGroup = identityGroup === undefined ? undefined : {
+          ...identityGroup,
+          offers: identityGroup.offers.map((product) => ({
+            ...product,
+            matchStatus: "EXACT" as const,
+            matchEvidence: [...new Set([...product.matchEvidence, ...identityGroup.evidence])]
+          }))
+        };
         const selectionPool = sameProductGroup?.offers ?? ranked;
         const selected = selectionMode === "LOWEST_PRICE"
           ? selectionPool.slice(0, input.limit)
@@ -264,7 +273,10 @@ export function createShopifyPortFromEnvironment(
                 merchantCount: sameProductGroup.offers.length,
                 offerCount: sameProductGroup.offers.length
               },
-          questions: selected.length > 0 && selected.every((product) => product.matchStatus === "SIMILAR")
+          questions: selected.length > 0 && (
+            selected.every((product) => product.matchStatus === "SIMILAR") ||
+            (input.comparisonMode === "SAME_PRODUCT" && sameProductGroup === undefined)
+          )
             ? ["Only similar products were found. Provide an exact model, SKU, GTIN, color, size, or capacity."]
             : [],
           irrelevantProductsExcluded: priceEligible.length - classified.length,
@@ -394,8 +406,8 @@ function withDiagnostics(
       registryVersion,
       searchTimeoutMs,
       selectionPolicy: selectionMode === "LOWEST_PRICE"
-        ? "EXACT_THEN_SIMILAR_THEN_PRICE"
-        : "EXACT_THEN_SIMILAR_THEN_DIVERSE_MERCHANTS_THEN_PRICE"
+        ? "EXACT_THEN_DISCOVERY_THEN_SIMILAR_THEN_PRICE"
+        : "EXACT_THEN_DISCOVERY_THEN_SIMILAR_THEN_DIVERSE_MERCHANTS_THEN_PRICE"
     }
   };
 }
@@ -437,7 +449,7 @@ function availabilityRank(value: ShopifyProduct["availability"]): number {
 }
 
 function matchRank(value: ShopifyProduct["matchStatus"]): number {
-  return value === "EXACT" ? 0 : 1;
+  return value === "EXACT" ? 0 : value === "DISCOVERY_MATCH" ? 1 : 2;
 }
 
 function compareText(left: string, right: string): number {

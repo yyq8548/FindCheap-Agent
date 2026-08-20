@@ -64,7 +64,66 @@ describe("product-card MCP Apps UI", () => {
     expect(text(app)).toContain("$12.99");
     expect(messages.some((message) => message.method === "tools/call")).toBe(false);
     expect(PRODUCT_CARD_HTML).toContain('image.loading = "eager"');
-    expect(PRODUCT_CARD_HTML).toContain('image.fetchPriority = index === 0 ? "high" : "auto"');
+    expect(PRODUCT_CARD_HTML).toContain('image.fetchPriority = cardIndex === 0 ? "high" : "auto"');
+  });
+
+  it("separates exact, discovery, and similar cards with identity evidence", () => {
+    const script = PRODUCT_CARD_HTML.match(/<script>([\s\S]*)<\/script>/u)?.[1];
+    const app = new FakeNode();
+    const parent = { postMessage: () => undefined };
+    const product = (matchStatus: "EXACT" | "DISCOVERY_MATCH" | "SIMILAR", title: string) => ({
+      merchant: "Merchant",
+      title,
+      brand: "Sony",
+      sku: "WH1000XM5",
+      gtins: [],
+      variantDimensions: { Color: "Black" },
+      matchStatus,
+      matchEvidence: [matchStatus === "EXACT" ? "brand and MPN exact" : "matched query terms"],
+      condition: "UNKNOWN",
+      availability: "IN_STOCK",
+      checkedAt: "2026-08-19T12:00:00.000Z",
+      merchantUrl: `https://example.com/products/${matchStatus.toLowerCase()}`,
+      card: {
+        merchant: "Merchant",
+        title,
+        primaryPrice: { amountCents: 1299, currency: "USD" },
+        matchBadge: matchStatus,
+        conditionBadge: "UNKNOWN",
+        availability: "IN_STOCK"
+      }
+    });
+    const window = {
+      parent,
+      openai: { toolOutput: { products: [
+        product("SIMILAR", "Similar Product"),
+        product("DISCOVERY_MATCH", "Discovery Product"),
+        product("EXACT", "Exact Product")
+      ] } },
+      addEventListener: () => undefined,
+      setTimeout: () => 1,
+      ResizeObserver: undefined
+    };
+    const document = {
+      getElementById: () => app,
+      createElement: () => new FakeNode(),
+      documentElement: { scrollWidth: 700, scrollHeight: 320 },
+      body: { scrollWidth: 700, scrollHeight: 320 }
+    };
+
+    vm.runInNewContext(script!, { window, document, URL, Intl, Number, String, Array, Object, Promise, Map, Math, Date });
+
+    const output = text(app);
+    expect(output).toContain("Exact matches");
+    expect(output).toContain("Discovery matches");
+    expect(output).toContain("Similar options");
+    expect(output.indexOf("Exact Product")).toBeLessThan(output.indexOf("Discovery Product"));
+    expect(output.indexOf("Discovery Product")).toBeLessThan(output.indexOf("Similar Product"));
+    expect(output).toContain("Sony");
+    expect(output).toContain("WH1000XM5");
+    expect(output).toContain("Color: Black");
+    expect(output).toContain("brand and MPN exact");
+    expect(output).toContain("Observed Aug 19, 2026");
   });
 
   it("loads the immutable snapshot when Codex forwards tool input without tool output", async () => {
@@ -101,7 +160,7 @@ describe("product-card MCP Apps UI", () => {
       method: "ui/initialize",
       params: {
         protocolVersion: "2026-01-26",
-        appInfo: { name: "FindCheap Agent product cards", version: "0.5.3" },
+        appInfo: { name: "FindCheap Agent product cards", version: "0.6.0" },
         appCapabilities: { availableDisplayModes: ["inline"] }
       }
     });
@@ -171,7 +230,7 @@ describe("product-card MCP Apps UI", () => {
 
     expect(text(app)).toContain("Verified Coffee");
     expect(text(app)).toContain("$14.99");
-    expect(text(app)).toContain("1 verified product card");
+    expect(text(app)).toContain("1 product card");
     expect(text(app)).toContain("We may earn a commission");
 
     listeners.get("openai:set_globals")?.({

@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { z } from "zod";
 
 const WatchIdSchema = z.string().uuid();
+export const WatchAutomationIdSchema = z.string().trim().min(1).max(128)
+  .regex(/^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/u);
 const MAX_WATCHES = 500;
 
 export const WatchConditionSchema = z.enum([
@@ -62,6 +64,13 @@ export function productWatchClarificationQuestions(spec: WatchSpec): string[] {
   const questions: string[] = [];
   if (spec.identity === undefined) {
     questions.push("Which generation, exact model number, or GTIN should this watch monitor?");
+  } else if (
+    spec.identity.generation !== undefined &&
+    spec.identity.modelNumber === undefined &&
+    spec.identity.gtin === undefined &&
+    spec.merchant === undefined
+  ) {
+    questions.push("Which merchant should this generation or named style watch monitor?");
   }
   if (spec.conditionPreference === undefined) {
     questions.push("Which product condition should this watch accept: NEW, USED, REFURBISHED, OPEN_BOX, or ANY?");
@@ -71,6 +80,8 @@ export function productWatchClarificationQuestions(spec: WatchSpec): string[] {
 
 export const WatchRecordSchema = z.object({
   watchId: z.string().uuid(),
+  automationId: WatchAutomationIdSchema.optional(),
+  schedulingState: z.enum(["PENDING", "BOUND"]).optional(),
   spec: WatchSpecSchema,
   status: z.enum(["ACTIVE", "PAUSED", "EXPIRED"]),
   createdAt: z.string().datetime({ offset: true }),
@@ -78,7 +89,14 @@ export const WatchRecordSchema = z.object({
   lastCheckedAt: z.string().datetime({ offset: true }).optional(),
   wasSatisfied: z.boolean().optional(),
   lastObservation: z.record(z.string(), z.unknown()).optional()
-}).strict();
+}).strict().superRefine((record, context) => {
+  if ((record.schedulingState === "BOUND") !== (record.automationId !== undefined)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "BOUND schedulingState and automationId must be set together"
+    });
+  }
+});
 
 export type WatchRecord = z.infer<typeof WatchRecordSchema>;
 
@@ -100,7 +118,14 @@ export function createMemoryWatchStore(): WatchStore {
         createHash("sha256").update(JSON.stringify(record.spec)).digest("hex") === key && record.status !== "EXPIRED");
       if (existing !== undefined) return existing;
       if (records.size >= MAX_WATCHES) throw new Error("watch limit reached");
-      const record = WatchRecordSchema.parse({ watchId: randomUUID(), spec: normalized, status: "ACTIVE", createdAt: now, updatedAt: now });
+      const record = WatchRecordSchema.parse({
+        watchId: randomUUID(),
+        schedulingState: "PENDING",
+        spec: normalized,
+        status: "ACTIVE",
+        createdAt: now,
+        updatedAt: now
+      });
       records.set(record.watchId, record);
       return record;
     },
@@ -136,7 +161,14 @@ export function createJsonWatchStore(directory: string): WatchStore {
         JSON.stringify(record.spec) === JSON.stringify(normalized) && record.status !== "EXPIRED");
       if (existing !== undefined) return existing;
       if (existingRecords.length >= MAX_WATCHES) throw new Error("watch limit reached");
-      const record = WatchRecordSchema.parse({ watchId: randomUUID(), spec: normalized, status: "ACTIVE", createdAt: now, updatedAt: now });
+      const record = WatchRecordSchema.parse({
+        watchId: randomUUID(),
+        schedulingState: "PENDING",
+        spec: normalized,
+        status: "ACTIVE",
+        createdAt: now,
+        updatedAt: now
+      });
       await writeFile(fileFor(record.watchId), `${JSON.stringify(record, null, 2)}\n`, { encoding: "utf8", flag: "wx", mode: 0o600 });
       return record;
     },

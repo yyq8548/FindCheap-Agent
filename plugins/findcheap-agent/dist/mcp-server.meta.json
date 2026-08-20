@@ -4132,7 +4132,7 @@
   },
   "outputs": {
     "../../plugins/findcheap-agent/dist/mcp-server.js": {
-      "bytes": 440708,
+      "bytes": 450215,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
@@ -4281,10 +4281,10 @@
           "bytesInOutput": 2585
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/compile/errors.js": {
-          "bytesInOutput": 3139
+          "bytesInOutput": 3140
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/compile/index.js": {
-          "bytesInOutput": 4688
+          "bytesInOutput": 4689
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/compile/names.js": {
           "bytesInOutput": 629
@@ -4293,13 +4293,13 @@
           "bytesInOutput": 323
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/compile/resolve.js": {
-          "bytesInOutput": 2087
+          "bytesInOutput": 2088
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/compile/rules.js": {
           "bytesInOutput": 570
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/compile/util.js": {
-          "bytesInOutput": 3598
+          "bytesInOutput": 3599
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/compile/validate/applicability.js": {
           "bytesInOutput": 480
@@ -4308,22 +4308,22 @@
           "bytesInOutput": 672
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/compile/validate/dataType.js": {
-          "bytesInOutput": 4111
+          "bytesInOutput": 4112
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/compile/validate/defaults.js": {
-          "bytesInOutput": 680
+          "bytesInOutput": 681
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/compile/validate/index.js": {
-          "bytesInOutput": 10181
+          "bytesInOutput": 10182
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/compile/validate/keyword.js": {
           "bytesInOutput": 2961
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/compile/validate/subschema.js": {
-          "bytesInOutput": 1978
+          "bytesInOutput": 1979
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/core.js": {
-          "bytesInOutput": 12306
+          "bytesInOutput": 12304
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/refs/data.json": {
           "bytesInOutput": 358
@@ -4344,58 +4344,58 @@
           "bytesInOutput": 206
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/additionalItems.js": {
-          "bytesInOutput": 1090
+          "bytesInOutput": 1091
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/additionalProperties.js": {
-          "bytesInOutput": 1741
+          "bytesInOutput": 1742
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/allOf.js": {
-          "bytesInOutput": 407
+          "bytesInOutput": 408
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/anyOf.js": {
           "bytesInOutput": 229
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/contains.js": {
-          "bytesInOutput": 1734
+          "bytesInOutput": 1735
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/dependencies.js": {
-          "bytesInOutput": 1565
+          "bytesInOutput": 1566
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/if.js": {
-          "bytesInOutput": 1105
+          "bytesInOutput": 1106
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/index.js": {
           "bytesInOutput": 462
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/items.js": {
-          "bytesInOutput": 1075
+          "bytesInOutput": 1076
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/items2020.js": {
-          "bytesInOutput": 530
+          "bytesInOutput": 531
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/not.js": {
-          "bytesInOutput": 435
+          "bytesInOutput": 436
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/oneOf.js": {
-          "bytesInOutput": 912
+          "bytesInOutput": 913
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/patternProperties.js": {
-          "bytesInOutput": 1168
+          "bytesInOutput": 1170
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/prefixItems.js": {
           "bytesInOutput": 227
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/properties.js": {
-          "bytesInOutput": 992
+          "bytesInOutput": 993
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/propertyNames.js": {
-          "bytesInOutput": 630
+          "bytesInOutput": 631
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/applicator/thenElse.js": {
-          "bytesInOutput": 278
+          "bytesInOutput": 279
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/code.js": {
-          "bytesInOutput": 3160
+          "bytesInOutput": 3162
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/core/id.js": {
           "bytesInOutput": 195
@@ -4404,10 +4404,10 @@
           "bytesInOutput": 213
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/core/ref.js": {
-          "bytesInOutput": 2379
+          "bytesInOutput": 2380
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/discriminator/index.js": {
-          "bytesInOutput": 2296
+          "bytesInOutput": 2292
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/discriminator/types.js": {
           "bytesInOutput": 181
@@ -4416,7 +4416,7 @@
           "bytesInOutput": 235
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/format/format.js": {
-          "bytesInOutput": 1954
+          "bytesInOutput": 1952
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/format/index.js": {
           "bytesInOutput": 121
@@ -4425,10 +4425,10 @@
           "bytesInOutput": 308
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/const.js": {
-          "bytesInOutput": 439
+          "bytesInOutput": 440
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/enum.js": {
-          "bytesInOutput": 921
+          "bytesInOutput": 922
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/index.js": {
           "bytesInOutput": 381
@@ -4437,7 +4437,7 @@
           "bytesInOutput": 510
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/limitLength.js": {
-          "bytesInOutput": 629
+          "bytesInOutput": 630
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/limitNumber.js": {
           "bytesInOutput": 666
@@ -4449,13 +4449,13 @@
           "bytesInOutput": 551
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/pattern.js": {
-          "bytesInOutput": 706
+          "bytesInOutput": 707
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/required.js": {
-          "bytesInOutput": 1400
+          "bytesInOutput": 1401
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/uniqueItems.js": {
-          "bytesInOutput": 1499
+          "bytesInOutput": 1500
         },
         "../../node_modules/.pnpm/fast-deep-equal@3.1.3/node_modules/fast-deep-equal/index.js": {
           "bytesInOutput": 736
@@ -4659,7 +4659,7 @@
           "bytesInOutput": 649
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v4/core/schemas.js": {
-          "bytesInOutput": 18940
+          "bytesInOutput": 18935
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v4/core/to-json-schema.js": {
           "bytesInOutput": 11445
@@ -4728,22 +4728,22 @@
           "bytesInOutput": 3331
         },
         "src/product-card-ui.ts": {
-          "bytesInOutput": 10052
+          "bytesInOutput": 12087
         },
         "src/server.ts": {
-          "bytesInOutput": 24762
+          "bytesInOutput": 29839
         },
         "src/shopify-client.ts": {
-          "bytesInOutput": 6872
+          "bytesInOutput": 7123
         },
         "src/shopify-global-catalog-client.ts": {
-          "bytesInOutput": 9034
+          "bytesInOutput": 9438
         },
         "src/shopify-identity.ts": {
           "bytesInOutput": 1158
         },
         "src/shopify-match.ts": {
-          "bytesInOutput": 3909
+          "bytesInOutput": 4598
         },
         "src/shopify-registry.ts": {
           "bytesInOutput": 1264
@@ -4752,10 +4752,10 @@
           "bytesInOutput": 393
         },
         "src/watch-service.ts": {
-          "bytesInOutput": 4347
+          "bytesInOutput": 4775
         },
         "src/watch-store.ts": {
-          "bytesInOutput": 4260
+          "bytesInOutput": 4864
         }
       }
     }
