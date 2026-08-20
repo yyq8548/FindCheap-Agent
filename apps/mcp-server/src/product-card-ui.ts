@@ -1,4 +1,4 @@
-export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v10.html";
+export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v11.html";
 
 export const PRODUCT_CARD_RESOURCE_DOMAINS = [
   "https://cdn.shopify.com"
@@ -45,8 +45,18 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     const uiStartedAt = typeof performance === "object" && typeof performance.now === "function"
       ? performance.now()
       : Date.now();
-    const cardMetrics = { version: "0.6.1", stages: {} };
+    const cardMetrics = { version: "0.6.2", stages: {} };
     window.__findcheapCardMetrics = cardMetrics;
+    const stageTelemetry = [];
+    let telemetryReady = false;
+    const notify = (method, params = {}) => {
+      window.parent.postMessage({ jsonrpc: "2.0", method, params }, "*");
+    };
+    const sendStageTelemetry = (name) => notify("notifications/message", {
+      level: "debug",
+      logger: "findcheap-product-cards",
+      data: { stage: name, elapsedMs: cardMetrics.stages[name], version: cardMetrics.version }
+    });
     const markStage = (name) => {
       if (cardMetrics.stages[name] !== undefined) return;
       const now = typeof performance === "object" && typeof performance.now === "function"
@@ -59,7 +69,10 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       if (typeof performance === "object" && typeof performance.mark === "function") {
         performance.mark("findcheap-card:" + name);
       }
+      if (telemetryReady) sendStageTelemetry(name);
+      else stageTelemetry.push(name);
     };
+    markStage("IFRAME_LOADED");
     markStage("RESOURCE_EVALUATED");
     let hasResult = false;
     let initialized = false;
@@ -67,20 +80,42 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     let hydrationRenderId;
     let nextRequestId = 1;
     const pendingRequests = new Map();
-    const notify = (method, params = {}) => {
-      window.parent.postMessage({ jsonrpc: "2.0", method, params }, "*");
-    };
-    const request = (method, params) => {
+    const request = (method, params, timeoutMs) => {
       const id = nextRequestId++;
       window.parent.postMessage({ jsonrpc: "2.0", id, method, params }, "*");
-      return new Promise((resolve, reject) => pendingRequests.set(id, { resolve, reject }));
+      return new Promise((resolve, reject) => {
+        const timeoutId = Number.isFinite(timeoutMs) && timeoutMs > 0
+          ? window.setTimeout(() => {
+              pendingRequests.delete(id);
+              reject(new Error(method + " timed out"));
+            }, timeoutMs)
+          : undefined;
+        pendingRequests.set(id, { resolve, reject, timeoutId });
+      });
     };
+    let lastReportedWidth;
+    let lastReportedHeight;
+    let sizeReportScheduled = false;
     const reportSize = () => {
+      if (!initialized) return;
       const root = document.documentElement;
       const body = document.body;
       const width = Math.ceil(Math.max(root?.scrollWidth || 0, body?.scrollWidth || 0));
       const height = Math.ceil(Math.max(root?.scrollHeight || 0, body?.scrollHeight || 0));
-      if (width > 0 && height > 0) notify("ui/notifications/size-changed", { width, height });
+      if (width <= 0 || height <= 0 || (width === lastReportedWidth && height === lastReportedHeight)) return;
+      lastReportedWidth = width;
+      lastReportedHeight = height;
+      notify("ui/notifications/size-changed", { width, height });
+    };
+    const scheduleSizeReport = () => {
+      if (!initialized || sizeReportScheduled) return;
+      sizeReportScheduled = true;
+      const run = () => {
+        sizeReportScheduled = false;
+        reportSize();
+      };
+      if (typeof window.requestAnimationFrame === "function") window.requestAnimationFrame(run);
+      else window.setTimeout(run, 0);
     };
     const make = (tag, className, text) => {
       const node = document.createElement(tag);
@@ -131,7 +166,14 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
             image.loading = "lazy";
             image.decoding = "async";
             image.fetchPriority = "low";
-            image.addEventListener("load", () => markStage("FIRST_IMAGE_SETTLED"), { once: true });
+            image.addEventListener("load", () => {
+              const markPainted = () => {
+                markStage("FIRST_IMAGE_PAINTED");
+                markStage("FIRST_IMAGE_SETTLED");
+              };
+              if (typeof window.requestAnimationFrame === "function") window.requestAnimationFrame(markPainted);
+              else window.setTimeout(markPainted, 0);
+            }, { once: true });
             image.addEventListener("error", () => {
               markStage("FIRST_IMAGE_SETTLED");
               image.remove();
@@ -180,7 +222,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
         app.append(group);
       }
       markStage("DOM_RENDERED");
-      window.setTimeout(reportSize, 0);
+      scheduleSizeReport();
     }
     const hydrateFromInput = async (input) => {
       const renderId = typeof input?.renderId === "string" ? input.renderId : undefined;
@@ -190,17 +232,21 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
         const result = await request("tools/call", {
           name: "render_product_cards",
           arguments: { renderId }
-        });
+        }, 4000);
         if (!result?.structuredContent) throw new Error("snapshot missing");
         markStage("TOOL_OUTPUT_RECEIVED");
         render(result.structuredContent);
-      } catch {
+      } catch (error) {
+        markStage(error instanceof Error && error.message === "tools/call timed out"
+          ? "TOOL_OUTPUT_TIMEOUT"
+          : "TOOL_OUTPUT_FAILED");
         if (!hasResult) {
           app.replaceChildren(make("div", "empty error", "Product-card snapshot could not be loaded. Text results remain available."));
         }
       }
     };
     const receiveInput = (input) => {
+      if (!input || typeof input !== "object") return;
       latestToolInput = input;
       markStage("TOOL_INPUT_RECEIVED");
       void hydrateFromInput(input);
@@ -212,6 +258,9 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       if (message.id !== undefined && pendingRequests.has(message.id)) {
         const pending = pendingRequests.get(message.id);
         pendingRequests.delete(message.id);
+        if (pending.timeoutId !== undefined && typeof window.clearTimeout === "function") {
+          window.clearTimeout(pending.timeoutId);
+        }
         if (message.error) pending.reject(message.error);
         else pending.resolve(message.result);
         return;
@@ -243,27 +292,36 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       render(initialOutput);
     }
     receiveInput(window.openai?.toolInput);
+    markStage("INITIALIZE_SENT");
     request("ui/initialize", {
       protocolVersion: "2026-01-26",
-      appInfo: { name: "FindCheap Agent product cards", version: "0.6.1" },
+      appInfo: { name: "FindCheap Agent product cards", version: "0.6.2" },
       appCapabilities: { availableDisplayModes: ["inline"] }
     }).then(() => {
       initialized = true;
       markStage("INITIALIZE_ACK");
       notify("ui/notifications/initialized");
+      telemetryReady = true;
+      for (const stage of stageTelemetry.splice(0)) sendStageTelemetry(stage);
       void hydrateFromInput(latestToolInput);
       reportSize();
       if (typeof window.ResizeObserver === "function") {
-        new window.ResizeObserver(reportSize).observe(document.documentElement);
+        new window.ResizeObserver(scheduleSizeReport).observe(document.documentElement);
       }
     }).catch(() => {
       app.replaceChildren(make("div", "empty error", "Product-card UI could not connect. Text results remain available."));
     });
     window.setTimeout(() => {
+      if (!initialized && !hasResult) {
+        markStage("INITIALIZE_SLOW");
+        app.replaceChildren(make("div", "empty error", "Product-card UI is still connecting. Text results remain available."));
+      }
+    }, 2500);
+    window.setTimeout(() => {
       if (!hasResult) {
         app.replaceChildren(make("div", "empty error", "Product-card data did not arrive. Text results remain available."));
       }
-    }, 4000);
+    }, 5000);
   </script>
 </body>
 </html>`;

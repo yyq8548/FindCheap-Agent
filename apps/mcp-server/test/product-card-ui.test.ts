@@ -38,6 +38,112 @@ function nodes(node: FakeNode): FakeNode[] {
 }
 
 describe("product-card MCP Apps UI", () => {
+  it("completes the handshake before host notifications and deduplicates size reports", async () => {
+    const script = PRODUCT_CARD_HTML.match(/<script>([\s\S]*)<\/script>/u)?.[1];
+    const app = new FakeNode();
+    type TestEvent = { source?: object; data?: unknown };
+    const listeners = new Map<string, (event: TestEvent) => void>();
+    const messages: Array<{ id?: number; method?: string; params?: Record<string, unknown> }> = [];
+    const timers: Array<() => void> = [];
+    let resize: (() => void) | undefined;
+    const parent = { postMessage: (message: (typeof messages)[number]) => messages.push(message) };
+    const window = {
+      parent,
+      openai: { toolOutput: { products: [] } },
+      addEventListener: (type: string, listener: (event: TestEvent) => void) => { listeners.set(type, listener); },
+      setTimeout: (callback: () => void) => { timers.push(callback); return timers.length; },
+      clearTimeout: () => undefined,
+      requestAnimationFrame: (callback: () => void) => { callback(); return 1; },
+      ResizeObserver: class {
+        constructor(callback: () => void) { resize = callback; }
+        observe() {}
+      }
+    };
+    const document = {
+      getElementById: () => app,
+      createElement: () => new FakeNode(),
+      documentElement: { dataset: {}, scrollWidth: 700, scrollHeight: 320 },
+      body: { scrollWidth: 700, scrollHeight: 320 }
+    };
+
+    vm.runInNewContext(script!, { window, document, URL, Intl, Number, String, Array, Object, Promise, Map, Math, Date });
+    timers.shift()?.();
+    expect(messages.some((message) => message.method === "ui/notifications/size-changed")).toBe(false);
+
+    listeners.get("message")?.({ source: parent, data: { jsonrpc: "2.0", id: 1, result: {} } });
+    await Promise.resolve();
+    resize?.();
+    resize?.();
+
+    const methods = messages.map((message) => message.method).filter(Boolean);
+    expect(methods.indexOf("ui/notifications/initialized"))
+      .toBeLessThan(methods.indexOf("ui/notifications/size-changed"));
+    expect(messages.filter((message) => message.method === "ui/notifications/size-changed")).toHaveLength(1);
+    expect(messages.some((message) =>
+      message.method === "notifications/message"
+      && message.params?.logger === "findcheap-product-cards"
+    )).toBe(true);
+    const loggedStages = messages
+      .filter((message) => message.method === "notifications/message")
+      .map((message) => (message.params?.data as { stage?: string } | undefined)?.stage);
+    expect(loggedStages).toEqual(expect.arrayContaining([
+      "IFRAME_LOADED",
+      "INITIALIZE_SENT",
+      "INITIALIZE_ACK",
+      "TOOL_OUTPUT_RECEIVED",
+      "DOM_RENDERED"
+    ]));
+  });
+
+  it("fails a stalled snapshot request instead of waiting forever", async () => {
+    const script = PRODUCT_CARD_HTML.match(/<script>([\s\S]*)<\/script>/u)?.[1];
+    const app = new FakeNode();
+    type TestEvent = { source?: object; data?: unknown };
+    const listeners = new Map<string, (event: TestEvent) => void>();
+    const messages: Array<{ id?: number; method?: string }> = [];
+    const timers = new Map<number, () => void>();
+    let nextTimerId = 1;
+    const parent = { postMessage: (message: (typeof messages)[number]) => messages.push(message) };
+    const window = {
+      parent,
+      openai: undefined,
+      addEventListener: (type: string, listener: (event: TestEvent) => void) => { listeners.set(type, listener); },
+      setTimeout: (callback: () => void) => { const id = nextTimerId++; timers.set(id, callback); return id; },
+      clearTimeout: (id: number) => { timers.delete(id); },
+      requestAnimationFrame: (callback: () => void) => { callback(); return 1; },
+      ResizeObserver: undefined
+    };
+    const document = {
+      getElementById: () => app,
+      createElement: () => new FakeNode(),
+      documentElement: { dataset: {}, scrollWidth: 700, scrollHeight: 320 },
+      body: { scrollWidth: 700, scrollHeight: 320 }
+    };
+
+    vm.runInNewContext(script!, { window, document, URL, Intl, Number, String, Array, Object, Promise, Map, Math, Date, Error });
+    listeners.get("message")?.({ source: parent, data: { jsonrpc: "2.0", id: 1, result: {} } });
+    await Promise.resolve();
+    listeners.get("message")?.({
+      source: parent,
+      data: {
+        jsonrpc: "2.0",
+        method: "ui/notifications/tool-input",
+        params: { renderId: "11111111-1111-4111-8111-111111111111" }
+      }
+    });
+    const pendingTimeout = [...timers.values()].at(-1);
+    expect(pendingTimeout).toBeDefined();
+    pendingTimeout?.();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(text(app)).toContain("Product-card snapshot could not be loaded");
+    expect(messages.some((message) => message.method === "tools/call")).toBe(true);
+    expect(messages.some((message) =>
+      message.method === "notifications/message"
+      && (message as { params?: { data?: { stage?: string } } }).params?.data?.stage === "TOOL_OUTPUT_TIMEOUT"
+    )).toBe(true);
+  });
+
   it("renders search tool output immediately without a fallback tool call", () => {
     const script = PRODUCT_CARD_HTML.match(/<script>([\s\S]*)<\/script>/u)?.[1];
     const app = new FakeNode();
@@ -175,7 +281,7 @@ describe("product-card MCP Apps UI", () => {
       method: "ui/initialize",
       params: {
         protocolVersion: "2026-01-26",
-        appInfo: { name: "FindCheap Agent product cards", version: "0.6.1" },
+        appInfo: { name: "FindCheap Agent product cards", version: "0.6.2" },
         appCapabilities: { availableDisplayModes: ["inline"] }
       }
     });
@@ -309,6 +415,7 @@ describe("product-card MCP Apps UI", () => {
         openai: { toolOutput: unknown };
         addEventListener: () => void;
         setTimeout: () => number;
+        requestAnimationFrame: (callback: () => void) => number;
         ResizeObserver: undefined;
         __findcheapCardMetrics?: { stages: Record<string, number> };
       } = {
@@ -333,6 +440,7 @@ describe("product-card MCP Apps UI", () => {
         }] } },
         addEventListener: () => undefined,
         setTimeout: () => 1,
+        requestAnimationFrame: (callback: () => void) => { callback(); return 1; },
         ResizeObserver: undefined
       };
       const document = {
@@ -350,9 +458,9 @@ describe("product-card MCP Apps UI", () => {
       expect(image?.fetchPriority).toBe("low");
       if (image?.loading === "eager") candidateEagerImageBlockers += 1;
       expect(window.__findcheapCardMetrics?.stages.DOM_RENDERED).toBeDefined();
-      expect(window.__findcheapCardMetrics?.stages.FIRST_IMAGE_SETTLED).toBeUndefined();
+      expect(window.__findcheapCardMetrics?.stages.FIRST_IMAGE_PAINTED).toBeUndefined();
       image?.dispatch("load");
-      expect(window.__findcheapCardMetrics!.stages.FIRST_IMAGE_SETTLED)
+      expect(window.__findcheapCardMetrics!.stages.FIRST_IMAGE_PAINTED)
         .toBeGreaterThanOrEqual(window.__findcheapCardMetrics!.stages.DOM_RENDERED!);
     }
 

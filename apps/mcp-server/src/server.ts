@@ -636,7 +636,7 @@ export function createShoppingServer(
   affiliateLinks: AffiliateLinkResolver = createAffiliateLinkResolver(),
   dependencies: ShoppingServerDependencies = {}
 ): McpServer {
-  const server = new McpServer({ name: "findcheap-agent", version: "0.6.1" });
+  const server = new McpServer({ name: "findcheap-agent", version: "0.6.2" });
   const dealPort = dependencies.deals ?? createUnavailableDealPort();
   const watchStore = dependencies.watches ?? createMemoryWatchStore();
   const now = dependencies.now ?? (() => new Date());
