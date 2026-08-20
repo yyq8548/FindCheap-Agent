@@ -1,4 +1,4 @@
-export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v13.html";
+export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v14.html";
 
 export const PRODUCT_CARD_RESOURCE_DOMAINS = [
   "https://cdn.shopify.com"
@@ -45,7 +45,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     const uiStartedAt = typeof performance === "object" && typeof performance.now === "function"
       ? performance.now()
       : Date.now();
-    const cardMetrics = { version: "0.6.4", stages: {} };
+    const cardMetrics = { version: "0.6.5", stages: {} };
     window.__findcheapCardMetrics = cardMetrics;
     const notify = (method, params = {}) => {
       window.parent.postMessage({ jsonrpc: "2.0", method, params }, "*");
@@ -319,18 +319,33 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       }
       receiveInput(event.detail?.globals?.toolInput);
     });
-    const responseMetadata = window.openai?.toolResponseMetadata;
-    const initialOutput = window.openai?.toolOutput
-      || responseMetadata?.mcp_tool_result?.structuredContent
-      || responseMetadata?.call_tool_result?.structuredContent;
-    if (initialOutput) {
-      markStage("TOOL_OUTPUT_RECEIVED");
-      render(initialOutput);
-    }
-    receiveInput(window.openai?.toolInput);
+    const receiveCompatibilityBridge = () => {
+      const bridge = window.openai;
+      if (!bridge) return false;
+      markStage("COMPAT_BRIDGE_READY");
+      receiveInput(bridge.toolInput);
+      const responseMetadata = bridge.toolResponseMetadata;
+      const output = bridge.toolOutput
+        || responseMetadata?.mcp_tool_result?.structuredContent
+        || responseMetadata?.call_tool_result?.structuredContent;
+      if (!hasResult && output) {
+        markStage("COMPAT_OUTPUT_RECEIVED");
+        markStage("TOOL_OUTPUT_RECEIVED");
+        render(output);
+      }
+      return hasResult;
+    };
+    const compatibilityWarmupDelays = [16, 50, 100, 250, 500, 1000, 2000, 4000, 8000];
+    let compatibilityWarmupIndex = 0;
+    const warmCompatibilityBridge = () => {
+      if (receiveCompatibilityBridge()) return;
+      const delay = compatibilityWarmupDelays[compatibilityWarmupIndex++];
+      if (delay !== undefined) window.setTimeout(warmCompatibilityBridge, delay);
+    };
+    warmCompatibilityBridge();
     const initializeParams = {
       protocolVersion: "2026-01-26",
-      appInfo: { name: "FindCheap Agent product cards", version: "0.6.4" },
+      appInfo: { name: "FindCheap Agent product cards", version: "0.6.5" },
       appCapabilities: { availableDisplayModes: ["inline"] }
     };
     const finishInitialization = () => {
@@ -356,7 +371,9 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
           return;
         }
         markStage("INITIALIZE_FAILED");
-        app.replaceChildren(make("div", "empty error", "Product-card UI could not connect. Text results remain available."));
+        if (!hasResult) {
+          app.replaceChildren(make("div", "empty error", "Product-card UI could not connect. Text results remain available."));
+        }
       });
     };
     attemptInitialization();

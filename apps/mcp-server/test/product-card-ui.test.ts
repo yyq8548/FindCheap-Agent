@@ -101,7 +101,7 @@ describe("product-card MCP Apps UI", () => {
       params: expect.objectContaining({
         name: "report_product_card_metrics",
         arguments: expect.objectContaining({
-          version: "0.6.4",
+          version: "0.6.5",
           terminalStage: "DOM_RENDERED",
           stages: expect.objectContaining({ DOM_RENDERED: expect.any(Number) })
         })
@@ -206,6 +206,64 @@ describe("product-card MCP Apps UI", () => {
     expect(PRODUCT_CARD_HTML).not.toContain('image.loading = "eager"');
   });
 
+  it("prewarms the compatibility bridge when window.openai arrives after resource evaluation", () => {
+    const script = PRODUCT_CARD_HTML.match(/<script>([\s\S]*)<\/script>/u)?.[1];
+    const app = new FakeNode();
+    const timers: Array<{ callback: () => void; delay: number }> = [];
+    const window: {
+      parent: { postMessage: () => void };
+      openai?: { toolOutput?: unknown };
+      addEventListener: () => void;
+      setTimeout: (callback: () => void, delay?: number) => number;
+      clearTimeout: () => void;
+      ResizeObserver: undefined;
+      __findcheapCardMetrics?: { stages: Record<string, number> };
+    } = {
+      parent: { postMessage: () => undefined },
+      addEventListener: () => undefined,
+      setTimeout: (callback, delay = 0) => {
+        timers.push({ callback, delay });
+        return timers.length;
+      },
+      clearTimeout: () => undefined,
+      ResizeObserver: undefined
+    };
+    const document = {
+      getElementById: () => app,
+      createElement: () => new FakeNode(),
+      documentElement: { dataset: {}, scrollWidth: 700, scrollHeight: 320 },
+      body: { scrollWidth: 700, scrollHeight: 320 }
+    };
+
+    vm.runInNewContext(script!, { window, document, URL, Intl, Number, String, Array, Object, Promise, Map, Set, Math, Date, Error });
+    window.openai = { toolOutput: { products: [{
+      merchant: "Warm Merchant",
+      title: "Warm Product",
+      matchStatus: "EXACT",
+      condition: "NEW",
+      availability: "IN_STOCK",
+      merchantUrl: "https://example.com/products/warm",
+      card: {
+        merchant: "Warm Merchant",
+        title: "Warm Product",
+        primaryPrice: { amountCents: 2199, currency: "USD" },
+        matchBadge: "EXACT",
+        conditionBadge: "NEW",
+        availability: "IN_STOCK"
+      }
+    }] } };
+    const compatibilityPoll = timers.find((timer) => timer.delay === 16);
+    expect(compatibilityPoll).toBeDefined();
+    const timerCountBeforeOutput = timers.length;
+    compatibilityPoll?.callback();
+
+    expect(text(app)).toContain("Warm Product");
+    expect(text(app)).toContain("$21.99");
+    expect(timers).toHaveLength(timerCountBeforeOutput);
+    expect(window.__findcheapCardMetrics?.stages.COMPAT_BRIDGE_READY).toBeDefined();
+    expect(window.__findcheapCardMetrics?.stages.COMPAT_OUTPUT_RECEIVED).toBeDefined();
+  });
+
   it("separates exact, discovery, and similar cards with identity evidence", () => {
     const script = PRODUCT_CARD_HTML.match(/<script>([\s\S]*)<\/script>/u)?.[1];
     const app = new FakeNode();
@@ -300,7 +358,7 @@ describe("product-card MCP Apps UI", () => {
       method: "ui/initialize",
       params: {
         protocolVersion: "2026-01-26",
-        appInfo: { name: "FindCheap Agent product cards", version: "0.6.4" },
+        appInfo: { name: "FindCheap Agent product cards", version: "0.6.5" },
         appCapabilities: { availableDisplayModes: ["inline"] }
       }
     });

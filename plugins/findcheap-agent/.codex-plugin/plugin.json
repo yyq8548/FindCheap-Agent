@@ -1,6 +1,6 @@
 {
   "name": "findcheap-agent",
-  "version": "0.6.4+codex.20260819224817",
+  "version": "0.6.5+codex.20260819231222",
   "description": "Search Shopify Global Catalog, find verified deals, and monitor prices, promotions, and stock.",
   "author": {
     "name": "yyq8548"
@@ -12,7 +12,7 @@
   "interface": {
     "displayName": "FindCheap Agent",
     "shortDescription": "Verified cards, pricing, coupons, and safe links.",
-    "longDescription": "FindCheap Agent is a Codex Plugin Agent. v0.6.4 searches Shopify Global Catalog, reserves EXACT for strong product identity, and renders evidence-rich product cards with bounded snapshot hydration and bounded MCP App initialization retries. Card sizing is reported only after DOM render and first-image settlement, without ResizeObserver loops, while an app-only MCP tool records bounded lifecycle timings for active render snapshots. It queries a configured verified Deals API and binds persistent identity-specific price, promotion, inventory, and restock Watch rules to native Codex Automation. Product Watch creation requires a generation/model/GTIN and explicit condition. Monitoring becomes active only after its Automation ID is durably bound. Without approved data or affiliate relationships it fails closed and uses canonical merchant links. User-authorized Chrome remains a bounded one-time fallback, never an automated Watch source.",
+    "longDescription": "FindCheap Agent is a Codex Plugin Agent. v0.6.5 searches Shopify Global Catalog, reserves EXACT for strong product identity, and renders evidence-rich product cards with bounded snapshot hydration, MCP App initialization retries, and a bounded compatibility-bridge warm-up for delayed host injection. Card sizing is reported only after DOM render and first-image settlement, without ResizeObserver loops, while an app-only MCP tool records bounded lifecycle timings for active render snapshots. It queries a configured verified Deals API and binds persistent identity-specific price, promotion, inventory, and restock Watch rules to native Codex Automation. Product Watch creation requires a generation/model/GTIN and explicit condition. Monitoring becomes active only after its Automation ID is durably bound. Without approved data or affiliate relationships it fails closed and uses canonical merchant links. User-authorized Chrome remains a bounded one-time fallback, never an automated Watch source.",
     "developerName": "yyq8548",
     "category": "Productivity",
     "capabilities": [
