@@ -31,7 +31,7 @@ Each result can include:
 - model, SKU, GTIN, or variant evidence
 - observation time and source status
 
-Without a ZIP, the result is the public item price. With a US ZIP, v0.6.8 may create a short-lived anonymous Shopify cart for each returned exact variant and separate item price, selected shipping, tax, and estimated total. Free delivery is shown as `$0.00`. Shopify `totalTaxAmount` is used only when explicitly returned; otherwise the card shows a ZIP-inferred 2026 state-plus-average-local tax estimate. Some merchants require a full address or checkout before calculating final tax. Merchants that do not support Cart quoting remain item-price-only.
+Without a ZIP, the result is the public item price. With a US ZIP, v0.6.10 may create a short-lived anonymous Shopify cart for each returned exact variant and separate item price, selected shipping, tax, and estimated total. Free delivery is shown as `$0.00`. Shopify `totalTaxAmount` is used only when explicitly returned; otherwise the card shows a ZIP-inferred 2026 state-plus-average-local tax estimate. Some merchants require a full address or checkout before calculating final tax. Merchants that do not support Cart quoting remain item-price-only. Product cards are bound directly to the Shopify search result instead of requiring a second model-visible render tool call.
 
 The default plugin advertises only working Shopify, card, and product-Watch tools. Commerce comparison and verified Deals tools are added automatically only when their complete provider URL and token are configured. This keeps model tool selection focused without removing future commercial integrations.
 

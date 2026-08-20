@@ -3,7 +3,7 @@ name: compare-products
 description: Search Shopify Global Catalog first, verify product identity, and render MCP UI product cards with fail-closed affiliate-ready purchase links before authorized Chrome fallback. Use deals-and-watch for Coupon and monitoring requests.
 ---
 
-# FindCheap Agent v0.6.8 Shopify Global Catalog
+# FindCheap Agent v0.6.10 Shopify Global Catalog
 
 Risk tier: `R0` for search and authorized Chrome fallback. ZIP quoting is `R1` because it creates anonymous short-lived Shopify carts. Never checkout, reserve, purchase, or pay. Do not persist a delivery address or browser data.
 
@@ -13,7 +13,7 @@ Apply this routing before any browser action:
 
 The plugin MCP server is auto-loaded. Call `search_shopify_products` directly. Never inspect the plugin cache, locate `mcp-server.js`, or launch the MCP server manually.
 
-When the request contains enough product identity or a discovery category, do not announce, explain, or summarize the plan before the tool call. Call `search_shopify_products` immediately. When it returns products and a `renderId`, call `render_product_cards` exactly once with the returned `renderId`, without commentary between calls. Then answer with one compact summary; do not duplicate every card field in prose.
+When the request contains enough product identity or a discovery category, do not announce, explain, or summarize the plan before the tool call. Call `search_shopify_products` immediately. Its result renders product cards directly; do not call `render_product_cards`. Then answer with one compact summary; do not duplicate every card field in prose.
 
 1. **Shopify-first default.** For an ordinary product search, call `search_shopify_products` before any Chrome search. Call `search_shopify_products` exactly once per user lookup. Always pass `limit: 3`. When the user explicitly requests same-product, like-for-like, or 同款 comparison, pass `comparisonMode: SAME_PRODUCT`; otherwise pass `comparisonMode: DISCOVERY`. Pass `selectionMode: LOWEST_PRICE` when the user explicitly asks for cheapest, lowest price, or the lowest-priced products. Otherwise pass `selectionMode: MERCHANT_DIVERSE` for recommended options from different merchants. If the user gives a maximum item price, pass `maxItemPriceCents` as exact integer cents. Pass a supplied US ZIP as `zipCode` and supplied membership program identifiers as `membershipIds`; never infer them. Do not include price words or currency symbols in `query`; use it only for product, model, category, variant, and condition identity. Do not repeat a successful call to verify, rerank, or reformat its result. Global Catalog searches products from Shopify merchants eligible for catalog inclusion; it is not whole-web coverage and does not prove merchant, legal, condition, Coupon, or affiliate approval.
 2. For `NEEDS_CLARIFICATION`, ask the returned question and stop; do not search merchants again and do not call Chrome. A category, color, or theme alone is not enough for same-product comparison.

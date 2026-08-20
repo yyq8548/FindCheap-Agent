@@ -1,4 +1,4 @@
-export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v14.html";
+export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v16.html";
 
 export const PRODUCT_CARD_RESOURCE_DOMAINS = [
   "https://cdn.shopify.com"
@@ -10,32 +10,147 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <style>
-    :root { color-scheme: light dark; font-family: ui-sans-serif, system-ui, sans-serif; }
-    body { margin: 0; color: light-dark(#182019, #eef5ef); background: transparent; }
-    #app { display: grid; gap: 12px; padding: 4px; }
-    .summary { color: light-dark(#526157, #aebbb1); font-size: 13px; }
-    .group { display: grid; gap: 8px; }
-    .group h2 { margin: 0; font-size: 14px; }
-    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }
-    .card { overflow: hidden; border: 1px solid light-dark(#dbe4dc, #344338); border-radius: 16px; background: light-dark(#fff, #172019); box-shadow: 0 8px 28px rgb(0 0 0 / .07); }
-    .image { width: 100%; aspect-ratio: 4 / 3; object-fit: contain; background: light-dark(#f5f7f5, #222d25); }
-    .body { display: grid; gap: 9px; padding: 14px; }
-    .merchant { color: light-dark(#5c6d61, #a8b7ac); font-size: 12px; font-weight: 650; text-transform: uppercase; letter-spacing: .06em; }
-    h3 { margin: 0; font-size: 15px; line-height: 1.35; }
-    .row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
-    .price { font-size: 21px; font-weight: 750; }
-    .badges { display: flex; flex-wrap: wrap; gap: 6px; }
-    .badge { border-radius: 999px; padding: 4px 8px; background: light-dark(#edf5ee, #263329); font-size: 11px; font-weight: 650; }
-    .exact { color: light-dark(#166534, #86efac); }
-    .discovery { color: light-dark(#1d4ed8, #93c5fd); }
-    .similar { color: light-dark(#92400e, #fcd34d); }
-    .details, .evidence { color: light-dark(#526157, #b7c4ba); font-size: 11px; line-height: 1.4; }
-    .limitations { color: light-dark(#66736a, #aab6ad); font-size: 11px; line-height: 1.4; }
-    .disclosure { color: light-dark(#526157, #b7c4ba); font-size: 11px; line-height: 1.4; }
-    a { display: inline-flex; justify-content: center; border-radius: 10px; padding: 9px 12px; color: #fff; background: #177245; font-size: 13px; font-weight: 700; text-decoration: none; }
-    a:focus-visible { outline: 3px solid #6ee7b7; outline-offset: 2px; }
-    .empty { border: 1px dashed light-dark(#cbd5cc, #415046); border-radius: 14px; padding: 18px; text-align: center; }
-    .error { color: light-dark(#991b1b, #fecaca); }
+    :root {
+      color-scheme: light dark;
+      font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --fc-text: light-dark(#1f1f1f, #f2f2f2);
+      --fc-muted: light-dark(#6f6f6f, #a8a8a8);
+      --fc-faint: light-dark(#8b8b8b, #8e8e8e);
+      --fc-surface: light-dark(#ffffff, #1f1f1f);
+      --fc-surface-muted: light-dark(#f7f7f7, #292929);
+      --fc-border: light-dark(#dedede, #454545);
+      --fc-border-strong: light-dark(#bdbdbd, #666666);
+      --fc-action: light-dark(#1f1f1f, #f2f2f2);
+      --fc-action-text: light-dark(#ffffff, #171717);
+      --fc-focus: light-dark(#6b6b6b, #bdbdbd);
+      --fc-danger: light-dark(#a12424, #ffb4b4);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--fc-text);
+      background: transparent;
+      font-size: 14px;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+    }
+    #app { display: grid; gap: 12px; padding: 0; }
+    .summary { padding: 0 2px; color: var(--fc-muted); font-size: 12px; line-height: 1.45; }
+    .group {
+      display: grid;
+      gap: 11px;
+      border: 1px solid var(--fc-border-strong);
+      border-radius: 16px;
+      padding: 12px;
+      background: var(--fc-surface);
+    }
+    .group h2 { margin: 0; color: var(--fc-text); font-size: 14px; font-weight: 650; line-height: 1.4; }
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 10px; }
+    .card {
+      display: flex;
+      min-width: 0;
+      flex-direction: column;
+      overflow: hidden;
+      border: 1px solid var(--fc-border);
+      border-radius: 12px;
+      background: var(--fc-surface);
+      box-shadow: none;
+      transition: border-color 120ms ease;
+    }
+    .card:hover { border-color: var(--fc-border-strong); }
+    .image {
+      display: block;
+      width: 100%;
+      aspect-ratio: 4 / 3;
+      max-height: 230px;
+      object-fit: contain;
+      border-bottom: 1px solid var(--fc-border);
+      background: var(--fc-surface-muted);
+    }
+    .body { display: grid; flex: 1; gap: 10px; padding: 15px; }
+    .merchant { color: var(--fc-muted); font-size: 12px; font-weight: 600; line-height: 1.35; }
+    h3 { margin: -2px 0 0; font-size: 15px; font-weight: 650; line-height: 1.4; }
+    .row { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 9px; }
+    .price { font-size: 22px; font-weight: 680; letter-spacing: -.02em; line-height: 1.1; }
+    .badges { display: flex; flex-wrap: wrap; gap: 5px; }
+    .badge {
+      border: 1px solid var(--fc-border);
+      border-radius: 999px;
+      padding: 3px 7px;
+      color: var(--fc-muted);
+      background: var(--fc-surface-muted);
+      font-size: 10px;
+      font-weight: 600;
+      line-height: 1.3;
+    }
+    .exact { color: light-dark(#24633f, #a8dbb9); }
+    .discovery { color: light-dark(#3f5f8a, #b6caea); }
+    .similar { color: light-dark(#765c2b, #dac594); }
+    .details, .evidence, .limitations, .disclosure, .observed {
+      color: var(--fc-muted);
+      font-size: 11px;
+      line-height: 1.45;
+    }
+    .evidence { color: var(--fc-text); }
+    .observed { color: var(--fc-faint); }
+    .price-breakdown {
+      display: grid;
+      gap: 5px;
+      border-top: 1px solid var(--fc-border);
+      border-bottom: 1px solid var(--fc-border);
+      padding: 9px 0;
+    }
+    .price-line { display: flex; justify-content: space-between; gap: 12px; }
+    .price-label { color: var(--fc-muted); font-size: 11px; }
+    .price-value { color: var(--fc-text); font-size: 11px; font-weight: 550; text-align: right; }
+    .price-line.total .price-label, .price-line.total .price-value { color: var(--fc-text); font-weight: 650; }
+    .notice {
+      border-radius: 9px;
+      padding: 9px 10px;
+      background: var(--fc-surface-muted);
+    }
+    a {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      margin-top: auto;
+      border: 1px solid var(--fc-action);
+      border-radius: 9px;
+      padding: 9px 12px;
+      color: var(--fc-action-text);
+      background: var(--fc-action);
+      font-size: 12px;
+      font-weight: 650;
+      line-height: 1.2;
+      text-decoration: none;
+      transition: opacity 120ms ease;
+    }
+    a:hover { opacity: .86; }
+    a:focus-visible { outline: 2px solid var(--fc-focus); outline-offset: 2px; }
+    .empty {
+      border: 1px solid var(--fc-border);
+      border-radius: 12px;
+      padding: 18px;
+      color: var(--fc-muted);
+      background: var(--fc-surface);
+      text-align: center;
+    }
+    .error { color: var(--fc-danger); }
+    @media (max-width: 640px) {
+      #app { gap: 10px; }
+      .group { border-radius: 14px; padding: 10px; }
+      .cards { grid-template-columns: 1fr; }
+      .card { display: grid; grid-template-columns: minmax(104px, 34%) 1fr; }
+      .image { height: 100%; min-height: 180px; aspect-ratio: auto; border-right: 1px solid var(--fc-border); border-bottom: 0; }
+      .body { padding: 13px; }
+    }
+    @media (max-width: 420px) {
+      .card { display: flex; }
+      .image { height: auto; min-height: 0; aspect-ratio: 16 / 10; border-right: 0; border-bottom: 1px solid var(--fc-border); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .card, a { transition: none; }
+    }
   </style>
 </head>
 <body>
@@ -45,7 +160,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     const uiStartedAt = typeof performance === "object" && typeof performance.now === "function"
       ? performance.now()
       : Date.now();
-    const cardMetrics = { version: "0.6.8", stages: {} };
+    const cardMetrics = { version: "0.6.10", stages: {} };
     window.__findcheapCardMetrics = cardMetrics;
     const notify = (method, params = {}) => {
       window.parent.postMessage({ jsonrpc: "2.0", method, params }, "*");
@@ -159,6 +274,12 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       const date = new Date(value);
       return Number.isNaN(date.getTime()) ? "Observation time unavailable" : "Observed " + new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" }).format(date);
     };
+    const appendPriceLine = (container, label, value, emphasis = false) => {
+      const line = make("div", "price-line" + (emphasis ? " total" : ""));
+      line.append(make("span", "price-label", label));
+      line.append(make("span", "price-value", value));
+      container.append(line);
+    };
     const groupDefinitions = [
       { status: "EXACT", title: "Exact matches" },
       { status: "DISCOVERY_MATCH", title: "Discovery matches" },
@@ -196,7 +317,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
           const imageUrl = safeHttps(cardData.imageUrl);
           if (imageUrl) {
             const image = make("img", "image");
-            image.alt = "";
+            image.alt = cardData.title || product.title || "Product image";
             image.loading = "lazy";
             image.decoding = "async";
             image.fetchPriority = "low";
@@ -240,23 +361,25 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
           badges.append(make("span", "badge", String(cardData.availability || product.availability || "UNKNOWN")));
           row.append(badges);
           body.append(row);
+          const breakdown = make("div", "price-breakdown");
           if (cardData.itemPrice && product?.pricing?.scope === "SHOPIFY_CART_ESTIMATE") {
-            body.append(make("div", "details", "Item price: " + money(cardData.itemPrice)));
+            appendPriceLine(breakdown, "Item price", money(cardData.itemPrice));
           }
           if (cardData.shippingLabel) {
-            body.append(make("div", "details", "Shipping: " + String(cardData.shippingLabel)));
+            appendPriceLine(breakdown, "Shipping", String(cardData.shippingLabel));
           }
           if (cardData.taxPrice && cardData.taxLabel) {
-            body.append(make("div", "details", String(cardData.taxLabel) + ": " + money(cardData.taxPrice)));
+            appendPriceLine(breakdown, String(cardData.taxLabel), money(cardData.taxPrice));
           }
           if (cardData.estimatedTotal) {
-            body.append(make("div", "details", "Estimated total: " + money(cardData.estimatedTotal)));
+            appendPriceLine(breakdown, "Estimated total", money(cardData.estimatedTotal), true);
           }
+          if (breakdown.children.length > 0) body.append(breakdown);
           if (Array.isArray(product.matchEvidence) && product.matchEvidence.length > 0) {
             body.append(make("div", "evidence", "Identity evidence: " + product.matchEvidence.join("; ")));
           }
-          body.append(make("div", "details", observedAt(product.checkedAt)));
-          body.append(make("div", "limitations", product?.pricing?.scope === "SHOPIFY_CART_ESTIMATE"
+          body.append(make("div", "observed", observedAt(product.checkedAt)));
+          body.append(make("div", "limitations notice", product?.pricing?.scope === "SHOPIFY_CART_ESTIMATE"
             ? "Shopify Cart estimate for supplied ZIP. Tax is Shopify-reported or clearly labeled as a ZIP state-average estimate. Some merchants require a full address or checkout before calculating tax. Final checkout total may change. Coupons and membership remain unavailable unless separately verified."
             : "Verified public item price. Shipping, tax, fees, coupons, membership and delivered price remain unavailable unless separately verified."));
           const purchaseUrl = safeHttps(product?.purchaseLink?.url || product?.merchantUrl);
@@ -368,7 +491,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     warmCompatibilityBridge();
     const initializeParams = {
       protocolVersion: "2026-01-26",
-      appInfo: { name: "FindCheap Agent product cards", version: "0.6.8" },
+      appInfo: { name: "FindCheap Agent product cards", version: "0.6.10" },
       appCapabilities: { availableDisplayModes: ["inline"] }
     };
     const finishInitialization = () => {

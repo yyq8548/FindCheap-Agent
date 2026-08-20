@@ -1,4 +1,4 @@
 interface:
-  display_name: "FindCheap Agent v0.6.8"
+  display_name: "FindCheap Agent v0.6.10"
   short_description: "Verified products, deals, and shopping watches"
   default_prompt: "Search products, find verified deals, or create and bind a Watch to Codex Automation. Never launch MCP."
