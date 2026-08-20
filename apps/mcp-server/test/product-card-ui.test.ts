@@ -81,7 +81,6 @@ describe("product-card MCP Apps UI", () => {
     };
 
     vm.runInNewContext(script!, { window, document, URL, Intl, Number, String, Array, Object, Promise, Map, Math, Date });
-    timers.shift()?.();
     expect(messages.some((message) => message.method === "ui/notifications/size-changed")).toBe(false);
 
     listeners.get("message")?.({ source: parent, data: { jsonrpc: "2.0", id: 1, result: {} } });
@@ -102,7 +101,7 @@ describe("product-card MCP Apps UI", () => {
       params: expect.objectContaining({
         name: "report_product_card_metrics",
         arguments: expect.objectContaining({
-          version: "0.6.3",
+          version: "0.6.4",
           terminalStage: "DOM_RENDERED",
           stages: expect.objectContaining({ DOM_RENDERED: expect.any(Number) })
         })
@@ -301,7 +300,7 @@ describe("product-card MCP Apps UI", () => {
       method: "ui/initialize",
       params: {
         protocolVersion: "2026-01-26",
-        appInfo: { name: "FindCheap Agent product cards", version: "0.6.3" },
+        appInfo: { name: "FindCheap Agent product cards", version: "0.6.4" },
         appCapabilities: { availableDisplayModes: ["inline"] }
       }
     });
@@ -410,6 +409,66 @@ describe("product-card MCP Apps UI", () => {
     });
     expect(text(app)).toContain("Notification Coffee");
     expect(text(app)).toContain("$15.99");
+  });
+
+  it("recovers when the host misses the first ui/initialize message", async () => {
+    const script = PRODUCT_CARD_HTML.match(/<script>([\s\S]*)<\/script>/u)?.[1];
+    const app = new FakeNode();
+    type TestEvent = { source?: object; data?: unknown };
+    const listeners = new Map<string, (event: TestEvent) => void>();
+    const messages: Array<{ id?: number; method?: string; params?: Record<string, unknown> }> = [];
+    const timers = new Map<number, { callback: () => void; delay: number }>();
+    let nextTimerId = 1;
+    const parent = { postMessage: (message: (typeof messages)[number]) => messages.push(message) };
+    const window = {
+      parent,
+      openai: undefined,
+      addEventListener: (type: string, listener: (event: TestEvent) => void) => { listeners.set(type, listener); },
+      setTimeout: (callback: () => void, delay = 0) => {
+        const id = nextTimerId++;
+        timers.set(id, { callback, delay });
+        return id;
+      },
+      clearTimeout: (id: number) => { timers.delete(id); },
+      requestAnimationFrame: (callback: () => void) => { callback(); return 1; },
+      ResizeObserver: undefined
+    };
+    const document = {
+      getElementById: () => app,
+      createElement: () => new FakeNode(),
+      documentElement: { dataset: {}, scrollWidth: 700, scrollHeight: 320 },
+      body: { scrollWidth: 700, scrollHeight: 320 }
+    };
+
+    vm.runInNewContext(script!, { window, document, URL, Intl, Number, String, Array, Object, Promise, Map, Set, Math, Date, Error });
+    expect(messages.filter((message) => message.method === "ui/initialize")).toHaveLength(1);
+
+    const firstTimeout = [...timers.values()].find((timer) => timer.delay === 750);
+    expect(firstTimeout).toBeDefined();
+    firstTimeout?.callback();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const firstRetry = [...timers.values()].find((timer) => timer.delay === 50);
+    expect(firstRetry).toBeDefined();
+    firstRetry?.callback();
+    expect(messages.filter((message) => message.method === "ui/initialize")).toHaveLength(2);
+
+    const secondInitialize = messages.findLast((message) => message.method === "ui/initialize");
+    listeners.get("message")?.({
+      source: parent,
+      data: { jsonrpc: "2.0", id: secondInitialize?.id, result: {} }
+    });
+    await Promise.resolve();
+
+    expect(messages).toContainEqual({
+      jsonrpc: "2.0",
+      method: "ui/notifications/initialized",
+      params: {}
+    });
+    expect(messages.filter((message) => message.method === "ui/notifications/initialized")).toHaveLength(1);
+    expect((window as { __findcheapCardMetrics?: { stages: Record<string, number> } })
+      .__findcheapCardMetrics?.stages.INITIALIZE_RETRY).toBeDefined();
   });
 
   it("removes eager-image blockers across 20 golden card tasks and records first-paint stages", () => {
