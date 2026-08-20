@@ -13,6 +13,7 @@ import {
 } from "./shopify-registry.js";
 import { selectSameProductGroup } from "./shopify-identity.js";
 import { createShopifyGlobalCatalogPort } from "./shopify-global-catalog-client.js";
+import type { ShopifyCartEstimate } from "./shopify-cart-quote.js";
 
 export type { ShopifyPilot } from "./shopify-registry.js";
 export const SHOPIFY_PILOTS = SHOPIFY_REGISTRY.merchants.filter((merchant) => merchant.searchEnabled);
@@ -50,6 +51,7 @@ export type ShopifyProduct = {
   availability: "IN_STOCK" | "OUT_OF_STOCK" | "UNKNOWN";
   merchantUrl: string;
   checkedAt: string;
+  cartQuote?: ShopifyCartEstimate;
 };
 
 type ShopifyCandidate = Omit<ShopifyProduct, "matchStatus" | "matchEvidence"> & {

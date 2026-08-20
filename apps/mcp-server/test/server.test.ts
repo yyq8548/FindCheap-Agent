@@ -392,7 +392,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.6.5",
+        version: "0.6.7",
         terminalStage: "DOM_RENDERED",
         stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
       }
@@ -401,7 +401,7 @@ describe("shopping MCP server", () => {
     expect(result.structuredContent).toEqual({ status: "RECORDED" });
     expect(record).toHaveBeenCalledWith(expect.objectContaining({
       renderId,
-      version: "0.6.5",
+      version: "0.6.7",
       terminalStage: "DOM_RENDERED",
       stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
     }));
@@ -409,7 +409,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.6.5",
+        version: "0.6.7",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 14 }
       }
@@ -419,7 +419,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.6.5",
+        version: "0.6.7",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 300_001 }
       }
@@ -430,7 +430,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId: "22222222-2222-4222-8222-222222222222",
-        version: "0.6.5",
+        version: "0.6.7",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 1 }
       }
@@ -511,10 +511,139 @@ describe("shopping MCP server", () => {
     }));
     expect(result.structuredContent).toMatchObject({
       priceScope: "ITEM_PRICE_ONLY",
+      cartQuoteCoverage: { attempted: 0, succeeded: 0 },
       pricingContext: { zipCode: "33433-1234", membershipIds: ["shopify-plus"] },
       products: [{ pricing: { deliveredPrice: { status: "UNAVAILABLE" } } }]
     });
     expect(JSON.stringify(result.content)).toContain("delivered price unavailable");
+  });
+
+  it("enriches returned variants with ZIP-specific Shopify Cart estimates", async () => {
+    const quoteCart = vi.fn(async () => ({
+      status: "ESTIMATED" as const,
+      subtotal: { amountCents: 1_499, currency: "USD" as const },
+      shipping: { amountCents: 500, currency: "USD" as const, label: "Standard" },
+      tax: {
+        status: "ZIP_ESTIMATED" as const,
+        amount: { amountCents: 105, currency: "USD" as const },
+        jurisdiction: "FL",
+        rateBasisPoints: 698,
+        source: "TAX_FOUNDATION_STATE_AVERAGE_2026" as const
+      },
+      deliveredPrice: { amountCents: 2_104, currency: "USD" as const },
+      totalEstimated: true,
+      checkedAt: "2026-08-20T12:00:00.000Z",
+      expiresAt: "2026-08-20T12:10:00.000Z"
+    }));
+    const client = await connect(
+      { compare: async () => comparison },
+      bestBuyPort,
+      shopifyPort,
+      undefined,
+      { cartQuotes: { quote: quoteCart } }
+    );
+
+    const result = await client.callTool({
+      name: "search_shopify_products",
+      arguments: {
+        query: "Valhalla Java",
+        limit: 3,
+        comparisonMode: "DISCOVERY",
+        selectionMode: "LOWEST_PRICE",
+        zipCode: "33433"
+      }
+    });
+
+    expect(quoteCart).toHaveBeenCalledWith(expect.objectContaining({ merchant: "Death Wish Coffee" }), "33433");
+    expect(result.structuredContent).toMatchObject({
+      priceScope: "SHOPIFY_CART_ESTIMATE",
+      cartQuoteCoverage: { attempted: 1, succeeded: 1 },
+      products: [{
+        pricing: {
+          scope: "SHOPIFY_CART_ESTIMATE",
+          shipping: { status: "ESTIMATED", amount: { amountCents: 500 }, label: "Standard" },
+          tax: {
+            status: "ESTIMATED",
+            amount: { amountCents: 105 },
+            source: "ZIP_STATE_AVERAGE_2026",
+            jurisdiction: "FL"
+          },
+          mandatoryFees: { status: "UNAVAILABLE" },
+          deliveredPrice: {
+            status: "ESTIMATED",
+            amount: { amountCents: 2_104 },
+            expiresAt: "2026-08-20T12:10:00.000Z"
+          }
+        },
+        card: {
+          primaryPrice: { amountCents: 2_104 },
+          itemPrice: { amountCents: 1_499 },
+          priceLabel: "Estimated total",
+          shippingLabel: "Standard shipping $5.00",
+          taxPrice: { amountCents: 105 },
+          taxLabel: "Estimated tax (FL ZIP state average 6.98%)",
+          estimatedTotal: { amountCents: 2_104 }
+        }
+      }]
+    });
+    expect(JSON.stringify(result.content)).toContain("estimated total: USD 21.04");
+    expect(JSON.stringify(result.content)).toContain("ZIP state-average estimate");
+    expect(JSON.stringify(result.content)).toContain("full address or checkout");
+  });
+
+  it("keeps item-price output when one merchant Cart quote fails", async () => {
+    const second = {
+      ...(await shopifyPort.search({ query: "coffee", limit: 3 })).products[0]!,
+      merchantId: "shopify-456",
+      merchant: "Other Shop",
+      sourceHost: "other.example",
+      merchantUrl: "https://other.example/products/coffee",
+      handle: "456"
+    };
+    const search = vi.fn(async () => ({
+      ...await shopifyPort.search({ query: "coffee", limit: 3 }),
+      products: [...(await shopifyPort.search({ query: "coffee", limit: 3 })).products, second]
+    }));
+    const quoteCart = vi.fn(async (product: { merchantId: string }) => {
+      if (product.merchantId === "shopify-456") throw new Error("quote unavailable");
+      return {
+        status: "ESTIMATED" as const,
+        subtotal: { amountCents: 1_499, currency: "USD" as const },
+        shipping: { amountCents: 500, currency: "USD" as const, label: "Standard" },
+        tax: {
+          status: "ZIP_ESTIMATED" as const,
+          amount: { amountCents: 105, currency: "USD" as const },
+          jurisdiction: "FL",
+          rateBasisPoints: 698,
+          source: "TAX_FOUNDATION_STATE_AVERAGE_2026" as const
+        },
+        deliveredPrice: { amountCents: 2_104, currency: "USD" as const },
+        totalEstimated: true,
+        checkedAt: "2026-08-20T12:00:00.000Z",
+        expiresAt: "2026-08-20T12:10:00.000Z"
+      };
+    });
+    const client = await connect(
+      { compare: async () => comparison }, bestBuyPort, { search }, undefined,
+      { cartQuotes: { quote: quoteCart } }
+    );
+
+    const result = await client.callTool({
+      name: "search_shopify_products",
+      arguments: {
+        query: "coffee", limit: 3, comparisonMode: "DISCOVERY",
+        selectionMode: "LOWEST_PRICE", zipCode: "33433"
+      }
+    });
+
+    expect(result.structuredContent).toMatchObject({
+      priceScope: "MIXED",
+      cartQuoteCoverage: { attempted: 2, succeeded: 1 },
+      products: [
+        { pricing: { deliveredPrice: { status: "ESTIMATED" } } },
+        { pricing: { deliveredPrice: { status: "UNAVAILABLE" } } }
+      ]
+    });
   });
 
   it("forwards an exact item-price ceiling and reports it in the response", async () => {

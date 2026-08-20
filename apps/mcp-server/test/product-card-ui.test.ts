@@ -101,7 +101,7 @@ describe("product-card MCP Apps UI", () => {
       params: expect.objectContaining({
         name: "report_product_card_metrics",
         arguments: expect.objectContaining({
-          version: "0.6.5",
+          version: "0.6.7",
           terminalStage: "DOM_RENDERED",
           stages: expect.objectContaining({ DOM_RENDERED: expect.any(Number) })
         })
@@ -176,10 +176,17 @@ describe("product-card MCP Apps UI", () => {
         condition: "NEW",
         availability: "IN_STOCK",
         merchantUrl: "https://example.com/products/direct",
+        pricing: { scope: "SHOPIFY_CART_ESTIMATE" },
         card: {
           merchant: "Direct Merchant",
           title: "Direct Product",
-          primaryPrice: { amountCents: 1299, currency: "USD" },
+          primaryPrice: { amountCents: 1390, currency: "USD" },
+          itemPrice: { amountCents: 1299, currency: "USD" },
+          shippingLabel: "免费配送 $0.00",
+          taxPrice: { amountCents: 91, currency: "USD" },
+          taxLabel: "Estimated tax (FL ZIP state average 6.98%)",
+          estimatedTotal: { amountCents: 1390, currency: "USD" },
+          priceLabel: "Estimated total",
           matchBadge: "EXACT",
           conditionBadge: "NEW",
           availability: "IN_STOCK"
@@ -199,7 +206,13 @@ describe("product-card MCP Apps UI", () => {
     vm.runInNewContext(script!, { window, document, URL, Intl, Number, String, Array, Object, Promise, Map, Math });
 
     expect(text(app)).toContain("Direct Product");
-    expect(text(app)).toContain("$12.99");
+    expect(text(app)).toContain("$13.90");
+    expect(text(app)).toContain("Item price: $12.99");
+    expect(text(app)).toContain("Shipping: 免费配送 $0.00");
+    expect(text(app)).toContain("Estimated tax (FL ZIP state average 6.98%): $0.91");
+    expect(text(app)).toContain("Estimated total: $13.90");
+    expect(text(app)).toContain("Some merchants require a full address or checkout before calculating tax");
+    expect(text(app)).toContain("Final checkout total may change");
     expect(messages.some((message) => message.method === "tools/call")).toBe(false);
     expect(PRODUCT_CARD_HTML).toContain('image.loading = "lazy"');
     expect(PRODUCT_CARD_HTML).toContain('image.fetchPriority = "low"');
@@ -358,7 +371,7 @@ describe("product-card MCP Apps UI", () => {
       method: "ui/initialize",
       params: {
         protocolVersion: "2026-01-26",
-        appInfo: { name: "FindCheap Agent product cards", version: "0.6.5" },
+        appInfo: { name: "FindCheap Agent product cards", version: "0.6.7" },
         appCapabilities: { availableDisplayModes: ["inline"] }
       }
     });

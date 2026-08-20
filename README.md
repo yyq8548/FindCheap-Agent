@@ -31,7 +31,7 @@ Each result can include:
 - model, SKU, GTIN, or variant evidence
 - observation time and source status
 
-The default result is the public item price, not a guaranteed delivered price. Shipping, tax, mandatory fees, membership pricing, Coupon savings, and final checkout totals remain unavailable unless a source verifies them for the requested context.
+Without a ZIP, the result is the public item price. With a US ZIP, v0.6.7 may create a short-lived anonymous Shopify cart for each returned exact variant and separate item price, selected shipping, tax, and estimated total. Free delivery is shown as `$0.00`. Shopify `totalTaxAmount` is used only when explicitly returned; otherwise the card shows a ZIP-inferred 2026 state-plus-average-local tax estimate. Some merchants require a full address or checkout before calculating final tax. Merchants that do not support Cart quoting remain item-price-only.
 
 ### Show product cards
 
@@ -83,7 +83,8 @@ Affiliate status does not influence search or ranking.
 - A product marked `SIMILAR` is an alternative, not the same item.
 - `UNKNOWN` condition does not mean new.
 - Stock signals and item prices can change after the observation time.
-- Shipping, tax, fees, membership prices, Coupon savings, and delivered prices are not estimated.
+- ZIP-specific Shopify Cart shipping and total estimates are best effort; unsupported merchants remain item-price-only.
+- Tax and mandatory fees are never independently calculated or invented, and membership prices remain unavailable.
 - The agent cannot check out, purchase, reserve inventory, or pay.
 - Watch runs require Codex Automation and a currently available verified source. Automated checks never use Chrome.
 

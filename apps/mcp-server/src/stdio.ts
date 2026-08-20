@@ -7,14 +7,17 @@ import { createShoppingServer, createUnavailableComparePort } from "./server.js"
 import { createShopifyPortFromEnvironment } from "./shopify-client.js";
 import { createDealPortFromEnvironment } from "./deal-client.js";
 import { createJsonWatchStore } from "./watch-store.js";
+import { createShopifyCartQuotePort } from "./shopify-cart-quote.js";
 
 const comparePort = createComparePortFromEnvironment(process.env, createUnavailableComparePort);
 const bestBuyPort = createBestBuyPortFromEnvironment(process.env);
 const shopifyPort = createShopifyPortFromEnvironment(process.env);
 const dealPort = createDealPortFromEnvironment(process.env);
+const cartQuotePort = createShopifyCartQuotePort(process.env);
 const stateDirectory = process.env.FINDCHEAP_STATE_DIR ?? join(homedir(), ".findcheap-agent", "watches-v1");
 const server = createShoppingServer(comparePort, bestBuyPort, shopifyPort, undefined, {
   deals: dealPort,
+  cartQuotes: cartQuotePort,
   watches: createJsonWatchStore(stateDirectory)
 });
 

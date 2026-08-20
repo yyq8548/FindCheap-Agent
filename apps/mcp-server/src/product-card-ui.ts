@@ -45,7 +45,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     const uiStartedAt = typeof performance === "object" && typeof performance.now === "function"
       ? performance.now()
       : Date.now();
-    const cardMetrics = { version: "0.6.5", stages: {} };
+    const cardMetrics = { version: "0.6.7", stages: {} };
     window.__findcheapCardMetrics = cardMetrics;
     const notify = (method, params = {}) => {
       window.parent.postMessage({ jsonrpc: "2.0", method, params }, "*");
@@ -177,7 +177,13 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
         reportMetrics("DOM_RENDERED");
         return;
       }
-      app.append(make("div", "summary", products.length + " product card" + (products.length === 1 ? "" : "s") + " · identity labels and public item prices only"));
+      const quoteCount = products.filter((product) => product?.pricing?.scope === "SHOPIFY_CART_ESTIMATE").length;
+      const priceSummary = quoteCount === 0
+        ? "public item prices only"
+        : quoteCount === products.length
+          ? "Shopify Cart estimates for supplied ZIP"
+          : quoteCount + " Shopify Cart estimate" + (quoteCount === 1 ? "" : "s") + "; remaining item-price-only";
+      app.append(make("div", "summary", products.length + " product card" + (products.length === 1 ? "" : "s") + " · identity labels · " + priceSummary));
       for (const definition of groupDefinitions) {
         const grouped = products.filter((product) => product?.matchStatus === definition.status);
         if (grouped.length === 0) continue;
@@ -222,7 +228,10 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
           const variants = Object.entries(product.variantDimensions || {}).map(([name, value]) => name + ": " + value).join(" · ");
           if (variants) body.append(make("div", "details", variants));
           const row = make("div", "row");
-          row.append(make("div", "price", money(cardData.primaryPrice)));
+          const priceBlock = make("div", "");
+          priceBlock.append(make("div", "price", money(cardData.primaryPrice)));
+          if (cardData.priceLabel) priceBlock.append(make("div", "details", String(cardData.priceLabel)));
+          row.append(priceBlock);
           const badges = make("div", "badges");
           const match = String(cardData.matchBadge || product.matchStatus || "UNCONFIRMED");
           const matchClass = match === "EXACT" ? "exact" : match === "DISCOVERY_MATCH" ? "discovery" : "similar";
@@ -231,11 +240,25 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
           badges.append(make("span", "badge", String(cardData.availability || product.availability || "UNKNOWN")));
           row.append(badges);
           body.append(row);
+          if (cardData.itemPrice && product?.pricing?.scope === "SHOPIFY_CART_ESTIMATE") {
+            body.append(make("div", "details", "Item price: " + money(cardData.itemPrice)));
+          }
+          if (cardData.shippingLabel) {
+            body.append(make("div", "details", "Shipping: " + String(cardData.shippingLabel)));
+          }
+          if (cardData.taxPrice && cardData.taxLabel) {
+            body.append(make("div", "details", String(cardData.taxLabel) + ": " + money(cardData.taxPrice)));
+          }
+          if (cardData.estimatedTotal) {
+            body.append(make("div", "details", "Estimated total: " + money(cardData.estimatedTotal)));
+          }
           if (Array.isArray(product.matchEvidence) && product.matchEvidence.length > 0) {
             body.append(make("div", "evidence", "Identity evidence: " + product.matchEvidence.join("; ")));
           }
           body.append(make("div", "details", observedAt(product.checkedAt)));
-          body.append(make("div", "limitations", "Verified public item price. Shipping, tax, fees, coupons, membership and delivered price remain unavailable unless separately verified."));
+          body.append(make("div", "limitations", product?.pricing?.scope === "SHOPIFY_CART_ESTIMATE"
+            ? "Shopify Cart estimate for supplied ZIP. Tax is Shopify-reported or clearly labeled as a ZIP state-average estimate. Some merchants require a full address or checkout before calculating tax. Final checkout total may change. Coupons and membership remain unavailable unless separately verified."
+            : "Verified public item price. Shipping, tax, fees, coupons, membership and delivered price remain unavailable unless separately verified."));
           const purchaseUrl = safeHttps(product?.purchaseLink?.url || product?.merchantUrl);
           if (purchaseUrl) {
             if (product?.purchaseLink?.kind === "APPROVED_AFFILIATE" && product.purchaseLink.disclosure) {
@@ -345,7 +368,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     warmCompatibilityBridge();
     const initializeParams = {
       protocolVersion: "2026-01-26",
-      appInfo: { name: "FindCheap Agent product cards", version: "0.6.5" },
+      appInfo: { name: "FindCheap Agent product cards", version: "0.6.7" },
       appCapabilities: { availableDisplayModes: ["inline"] }
     };
     const finishInitialization = () => {
