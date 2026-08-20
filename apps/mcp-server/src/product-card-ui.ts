@@ -1,4 +1,4 @@
-export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v12.html";
+export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v13.html";
 
 export const PRODUCT_CARD_RESOURCE_DOMAINS = [
   "https://cdn.shopify.com"
@@ -45,7 +45,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     const uiStartedAt = typeof performance === "object" && typeof performance.now === "function"
       ? performance.now()
       : Date.now();
-    const cardMetrics = { version: "0.6.3", stages: {} };
+    const cardMetrics = { version: "0.6.4", stages: {} };
     window.__findcheapCardMetrics = cardMetrics;
     const notify = (method, params = {}) => {
       window.parent.postMessage({ jsonrpc: "2.0", method, params }, "*");
@@ -70,6 +70,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     let latestToolInput;
     let hydrationRenderId;
     let currentRenderId;
+    let initializeAttempts = 0;
     let nextRequestId = 1;
     const pendingRequests = new Map();
     const request = (method, params, timeoutMs) => {
@@ -327,21 +328,38 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       render(initialOutput);
     }
     receiveInput(window.openai?.toolInput);
-    markStage("INITIALIZE_SENT");
-    request("ui/initialize", {
+    const initializeParams = {
       protocolVersion: "2026-01-26",
-      appInfo: { name: "FindCheap Agent product cards", version: "0.6.3" },
+      appInfo: { name: "FindCheap Agent product cards", version: "0.6.4" },
       appCapabilities: { availableDisplayModes: ["inline"] }
-    }).then(() => {
+    };
+    const finishInitialization = () => {
+      if (initialized) return;
       initialized = true;
       markStage("INITIALIZE_ACK");
       notify("ui/notifications/initialized");
       void hydrateFromInput(latestToolInput);
       flushSizeReports();
       flushMetrics();
-    }).catch(() => {
-      app.replaceChildren(make("div", "empty error", "Product-card UI could not connect. Text results remain available."));
-    });
+    };
+    const initializeRetryDelays = [50, 150];
+    const attemptInitialization = () => {
+      if (initialized) return;
+      const attemptIndex = initializeAttempts++;
+      if (attemptIndex === 0) markStage("INITIALIZE_SENT");
+      else markStage("INITIALIZE_RETRY");
+      request("ui/initialize", initializeParams, 750).then(finishInitialization).catch(() => {
+        if (initialized) return;
+        const retryDelay = initializeRetryDelays[attemptIndex];
+        if (retryDelay !== undefined) {
+          window.setTimeout(attemptInitialization, retryDelay);
+          return;
+        }
+        markStage("INITIALIZE_FAILED");
+        app.replaceChildren(make("div", "empty error", "Product-card UI could not connect. Text results remain available."));
+      });
+    };
+    attemptInitialization();
     window.setTimeout(() => {
       if (!initialized && !hasResult) {
         markStage("INITIALIZE_SLOW");
