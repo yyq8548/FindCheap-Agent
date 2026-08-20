@@ -36,7 +36,9 @@ function createResponse() {
           cost: {
             subtotalAmount: money("100.00"),
             totalAmount: money("100.00"),
-            totalAmountEstimated: true
+            totalAmountEstimated: true,
+            totalTaxAmount: null,
+            totalTaxAmountEstimated: true
           },
           deliveryGroups: {
             nodes: [{
@@ -56,7 +58,7 @@ function createResponse() {
   };
 }
 
-function updateResponse() {
+function updateResponse(tax: { amount: string; estimated: boolean } | null = null) {
   return {
     data: {
       cartSelectedDeliveryOptionsUpdate: {
@@ -64,8 +66,10 @@ function updateResponse() {
           id: "gid://shopify/Cart/cart-key",
           cost: {
             subtotalAmount: money("100.00"),
-            totalAmount: money("112.25"),
-            totalAmountEstimated: true
+            totalAmount: money(tax === null ? "105.00" : "112.25"),
+            totalAmountEstimated: true,
+            totalTaxAmount: tax === null ? null : money(tax.amount),
+            totalTaxAmountEstimated: tax?.estimated ?? true
           },
           deliveryGroups: {
             nodes: [{
@@ -89,7 +93,7 @@ function updateResponse() {
 }
 
 describe("Shopify tokenless Cart quote", () => {
-  it("creates one exact-variant cart, selects cheapest shipping, and returns bounded estimate", async () => {
+  it("queries Shopify tax, selects cheapest shipping, and falls back to a labeled ZIP estimate", async () => {
     const requests: ShopifyCartRequest[] = [];
     const request = vi.fn(async (input: ShopifyCartRequest) => {
       requests.push(input);
@@ -104,12 +108,21 @@ describe("Shopify tokenless Cart quote", () => {
       status: "ESTIMATED",
       subtotal: { amountCents: 10_000, currency: "USD" },
       shipping: { amountCents: 500, currency: "USD", label: "Standard" },
-      deliveredPrice: { amountCents: 11_225, currency: "USD" },
+      tax: {
+        status: "ZIP_ESTIMATED",
+        amount: { amountCents: 698, currency: "USD" },
+        jurisdiction: "FL",
+        rateBasisPoints: 698,
+        source: "TAX_FOUNDATION_STATE_AVERAGE_2026"
+      },
+      deliveredPrice: { amountCents: 11_198, currency: "USD" },
       totalEstimated: true,
       checkedAt: "2026-08-20T12:01:00.000Z",
       expiresAt: "2026-08-20T12:11:00.000Z"
     });
     expect(requests).toHaveLength(2);
+    expect(requests[0]?.query).toContain("totalTaxAmount");
+    expect(requests[0]?.query).toContain("totalTaxAmountEstimated");
     expect(requests[0]).toMatchObject({
       url: "https://shop.example/api/2026-07/graphql.json",
       timeoutMs: 2500,
@@ -132,6 +145,24 @@ describe("Shopify tokenless Cart quote", () => {
         deliveryGroupId: "gid://shopify/CartDeliveryGroup/group-1",
         deliveryOptionHandle: "standard"
       }]
+    });
+  });
+
+  it("uses an explicitly returned Shopify tax amount instead of estimating from ZIP", async () => {
+    let call = 0;
+    const port = createShopifyCartQuotePort(
+      { SHOPIFY_CART_QUOTE_MODE: "tokenless" },
+      { request: async () => ++call === 1 ? createResponse() : updateResponse({ amount: "7.25", estimated: false }) }
+    );
+
+    await expect(port.quote(product, "33433")).resolves.toMatchObject({
+      tax: {
+        status: "SHOPIFY_REPORTED",
+        amount: { amountCents: 725, currency: "USD" },
+        shopifyEstimated: false,
+        source: "SHOPIFY_CART"
+      },
+      deliveredPrice: { amountCents: 11_225, currency: "USD" }
     });
   });
 

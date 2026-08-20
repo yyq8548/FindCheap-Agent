@@ -31,7 +31,7 @@ Each result can include:
 - model, SKU, GTIN, or variant evidence
 - observation time and source status
 
-Without a ZIP, the result is the public item price. With a US ZIP, v0.6.6 may create a short-lived anonymous Shopify cart for each returned exact variant, select its cheapest offered delivery option, and show Shopify's estimated total. Merchants that do not support this remain item-price-only. Tax and mandatory fees may be included in Shopify's total without a separate breakdown; the estimate is never presented as a guaranteed checkout total.
+Without a ZIP, the result is the public item price. With a US ZIP, v0.6.7 may create a short-lived anonymous Shopify cart for each returned exact variant and separate item price, selected shipping, tax, and estimated total. Free delivery is shown as `$0.00`. Shopify `totalTaxAmount` is used only when explicitly returned; otherwise the card shows a ZIP-inferred 2026 state-plus-average-local tax estimate. Some merchants require a full address or checkout before calculating final tax. Merchants that do not support Cart quoting remain item-price-only.
 
 ### Show product cards
 

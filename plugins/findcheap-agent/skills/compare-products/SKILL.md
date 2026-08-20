@@ -3,7 +3,7 @@ name: compare-products
 description: Search Shopify Global Catalog first, verify product identity, and render MCP UI product cards with fail-closed affiliate-ready purchase links before authorized Chrome fallback. Use deals-and-watch for Coupon and monitoring requests.
 ---
 
-# FindCheap Agent v0.6.6 Shopify Global Catalog
+# FindCheap Agent v0.6.7 Shopify Global Catalog
 
 Risk tier: `R0` for search and authorized Chrome fallback. ZIP quoting is `R1` because it creates anonymous short-lived Shopify carts. Never checkout, reserve, purchase, or pay. Do not persist a delivery address or browser data.
 
@@ -32,7 +32,7 @@ When the request contains enough product identity or a discovery category, do no
 5. Do not use Chrome for `coverage: PARTIAL`, an API error, `DATA_SOURCE_UNAVAILABLE`, malformed response, or timeout. Return available API products when partial coverage produced results; otherwise report the API failure.
 6. If the user explicitly requests no Chrome, return the empty Shopify result without fallback. If the user explicitly names another tool or source, follow that explicit request instead of the ordinary Shopify-first default.
 
-For an API result, preserve `pricing`, `pricingContext`, `cartQuoteCoverage`, `freshness`, and source label. Without ZIP, results remain `ITEM_PRICE_ONLY`. With supplied ZIP, the tool may create anonymous tokenless carts for returned variants. `SHOPIFY_CART_ESTIMATE` means Shopify returned selected shipping and an estimated total; it is not final checkout price. Tax and mandatory fees may be included without separate breakdown. `MIXED` means some merchants failed quote enrichment; preserve every per-product status. Never fill missing components, calculate tax, or convert an incomplete result into delivered price. Do not reuse Global Catalog results for another lookup or download its images; short-lived `renderId` snapshot may serve only current result.
+For an API result, preserve `pricing`, `pricingContext`, `cartQuoteCoverage`, `freshness`, and source label. Without ZIP, results remain `ITEM_PRICE_ONLY`. With supplied ZIP, the tool may create anonymous tokenless carts for returned variants. `SHOPIFY_CART_ESTIMATE` separates item subtotal, selected shipping, tax, and estimated total. Use Shopify `totalTaxAmount` only when the merchant explicitly returns it. Otherwise preserve the labeled `ZIP_STATE_AVERAGE_2026` estimate; never describe it as checkout tax. Some merchants need a full address or checkout before tax is final. `MIXED` means some merchants failed quote enrichment; preserve every per-product status. Never fill any other missing component or convert an incomplete result into delivered price. Do not reuse Global Catalog results for another lookup or download its images; short-lived `renderId` snapshot may serve only current result.
 
 Render the returned `card` fields directly and preserve order. Show only coupons in `coupons.verified` when `coupons.status` is `VERIFIED`; never invent a code or discount. Use `purchaseLink` exactly as returned. `APPROVED_AFFILIATE` means a checked-in approved relationship plus runtime campaign credential supplied the link; show its returned disclosure next to the CTA. `CANONICAL` is the direct merchant fallback and must not be described as affiliate. Never state or estimate a commission amount. Report the returned `quality` status and limitations.
 

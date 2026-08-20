@@ -3900,6 +3900,10 @@
       "format": "esm",
       "imports": []
     },
+    "src/sales-tax-estimator.ts": {
+      "format": "esm",
+      "imports": []
+    },
     "src/server.ts": {
       "format": "esm",
       "imports": [
@@ -3997,6 +4001,11 @@
           "kind": "import-statement",
           "original": "../../ingestion-worker/src/network/safe-fetch.js",
           "path": "../ingestion-worker/src/network/safe-fetch.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./sales-tax-estimator.js",
+          "path": "src/sales-tax-estimator.ts"
         }
       ]
     },
@@ -4172,7 +4181,7 @@
   },
   "outputs": {
     "../../plugins/findcheap-agent/dist/mcp-server.js": {
-      "bytes": 471635,
+      "bytes": 476503,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
@@ -4788,13 +4797,16 @@
           "bytesInOutput": 3331
         },
         "src/product-card-ui.ts": {
-          "bytesInOutput": 19723
+          "bytesInOutput": 20124
+        },
+        "src/sales-tax-estimator.ts": {
+          "bytesInOutput": 1784
         },
         "src/server.ts": {
-          "bytesInOutput": 35147
+          "bytesInOutput": 37040
         },
         "src/shopify-cart-quote.ts": {
-          "bytesInOutput": 8430
+          "bytesInOutput": 9220
         },
         "src/shopify-client.ts": {
           "bytesInOutput": 7120

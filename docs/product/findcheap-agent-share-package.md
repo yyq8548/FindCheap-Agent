@@ -24,7 +24,7 @@ Open the Plugins Directory and confirm:
 - marketplace: `FindCheap Agent`
 - plugin: `FindCheap Agent`
 - plugin ID: `findcheap-agent`
-- version: `0.6.6`
+- version: `0.6.7`
 
 Test prompt:
 
@@ -49,8 +49,8 @@ Restart Codex and test in a new task.
 - Without a ZIP, Shopify results are item-price-only. With a US ZIP, supported merchants may
   return a short-lived Shopify Cart shipping and total estimate; unsupported merchants fail back
   to item-price-only.
-- Tax and mandatory fees are not independently calculated, membership price remains unavailable,
-  and a Cart estimate is not a guaranteed checkout total.
+- Shopify tax is used only when explicitly returned. Otherwise tax is a labeled ZIP-inferred 2026
+  state-average estimate; some merchants need a full address or checkout for final tax.
 - Coupon and Cashback require a configured approved Deals API.
 - Affiliate links remain canonical merchant links until a relationship is approved.
 - The plugin never orders, checks out, submits payment, or auto-buys.

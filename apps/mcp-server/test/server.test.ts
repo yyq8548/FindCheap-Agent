@@ -392,7 +392,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.6.6",
+        version: "0.6.7",
         terminalStage: "DOM_RENDERED",
         stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
       }
@@ -401,7 +401,7 @@ describe("shopping MCP server", () => {
     expect(result.structuredContent).toEqual({ status: "RECORDED" });
     expect(record).toHaveBeenCalledWith(expect.objectContaining({
       renderId,
-      version: "0.6.6",
+      version: "0.6.7",
       terminalStage: "DOM_RENDERED",
       stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
     }));
@@ -409,7 +409,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.6.6",
+        version: "0.6.7",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 14 }
       }
@@ -419,7 +419,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.6.6",
+        version: "0.6.7",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 300_001 }
       }
@@ -430,7 +430,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId: "22222222-2222-4222-8222-222222222222",
-        version: "0.6.6",
+        version: "0.6.7",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 1 }
       }
@@ -523,7 +523,14 @@ describe("shopping MCP server", () => {
       status: "ESTIMATED" as const,
       subtotal: { amountCents: 1_499, currency: "USD" as const },
       shipping: { amountCents: 500, currency: "USD" as const, label: "Standard" },
-      deliveredPrice: { amountCents: 2_142, currency: "USD" as const },
+      tax: {
+        status: "ZIP_ESTIMATED" as const,
+        amount: { amountCents: 105, currency: "USD" as const },
+        jurisdiction: "FL",
+        rateBasisPoints: 698,
+        source: "TAX_FOUNDATION_STATE_AVERAGE_2026" as const
+      },
+      deliveredPrice: { amountCents: 2_104, currency: "USD" as const },
       totalEstimated: true,
       checkedAt: "2026-08-20T12:00:00.000Z",
       expiresAt: "2026-08-20T12:10:00.000Z"
@@ -555,24 +562,33 @@ describe("shopping MCP server", () => {
         pricing: {
           scope: "SHOPIFY_CART_ESTIMATE",
           shipping: { status: "ESTIMATED", amount: { amountCents: 500 }, label: "Standard" },
-          tax: { status: "INCLUDED_IN_TOTAL" },
-          mandatoryFees: { status: "INCLUDED_IN_TOTAL" },
+          tax: {
+            status: "ESTIMATED",
+            amount: { amountCents: 105 },
+            source: "ZIP_STATE_AVERAGE_2026",
+            jurisdiction: "FL"
+          },
+          mandatoryFees: { status: "UNAVAILABLE" },
           deliveredPrice: {
             status: "ESTIMATED",
-            amount: { amountCents: 2_142 },
+            amount: { amountCents: 2_104 },
             expiresAt: "2026-08-20T12:10:00.000Z"
           }
         },
         card: {
-          primaryPrice: { amountCents: 2_142 },
+          primaryPrice: { amountCents: 2_104 },
           itemPrice: { amountCents: 1_499 },
-          priceLabel: "Shopify estimated delivered price",
-          shippingLabel: "Standard: USD 5.00"
+          priceLabel: "Estimated total",
+          shippingLabel: "Standard shipping $5.00",
+          taxPrice: { amountCents: 105 },
+          taxLabel: "Estimated tax (FL ZIP state average 6.98%)",
+          estimatedTotal: { amountCents: 2_104 }
         }
       }]
     });
-    expect(JSON.stringify(result.content)).toContain("estimated delivered price: USD 21.42");
-    expect(JSON.stringify(result.content)).toContain("may include tax or fees without a separate breakdown");
+    expect(JSON.stringify(result.content)).toContain("estimated total: USD 21.04");
+    expect(JSON.stringify(result.content)).toContain("ZIP state-average estimate");
+    expect(JSON.stringify(result.content)).toContain("full address or checkout");
   });
 
   it("keeps item-price output when one merchant Cart quote fails", async () => {
@@ -594,7 +610,14 @@ describe("shopping MCP server", () => {
         status: "ESTIMATED" as const,
         subtotal: { amountCents: 1_499, currency: "USD" as const },
         shipping: { amountCents: 500, currency: "USD" as const, label: "Standard" },
-        deliveredPrice: { amountCents: 2_142, currency: "USD" as const },
+        tax: {
+          status: "ZIP_ESTIMATED" as const,
+          amount: { amountCents: 105, currency: "USD" as const },
+          jurisdiction: "FL",
+          rateBasisPoints: 698,
+          source: "TAX_FOUNDATION_STATE_AVERAGE_2026" as const
+        },
+        deliveredPrice: { amountCents: 2_104, currency: "USD" as const },
         totalEstimated: true,
         checkedAt: "2026-08-20T12:00:00.000Z",
         expiresAt: "2026-08-20T12:10:00.000Z"

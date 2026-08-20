@@ -70,7 +70,7 @@ const ProductCardStagesSchema = z.object({
 
 const ProductCardTelemetryInputSchema = z.object({
   renderId: z.string().uuid(),
-  version: z.literal("0.6.6"),
+  version: z.literal("0.6.7"),
   terminalStage: z.enum([
     "DOM_RENDERED",
     "FIRST_IMAGE_SETTLED",
@@ -245,6 +245,21 @@ const ShopifyProductOutputSchema = z.object({
     status: z.literal("ESTIMATED"),
     subtotal: MoneyOutputSchema,
     shipping: MoneyOutputSchema.extend({ label: z.string() }),
+    tax: z.discriminatedUnion("status", [
+      z.object({
+        status: z.literal("SHOPIFY_REPORTED"),
+        amount: MoneyOutputSchema,
+        shopifyEstimated: z.boolean(),
+        source: z.literal("SHOPIFY_CART")
+      }),
+      z.object({
+        status: z.literal("ZIP_ESTIMATED"),
+        amount: MoneyOutputSchema,
+        jurisdiction: z.string(),
+        rateBasisPoints: z.number().int().nonnegative(),
+        source: z.literal("TAX_FOUNDATION_STATE_AVERAGE_2026")
+      })
+    ]),
     deliveredPrice: MoneyOutputSchema,
     totalEstimated: z.boolean(),
     checkedAt: z.string(),
@@ -264,8 +279,15 @@ const ShopifyProductOutputSchema = z.object({
       label: z.string().optional(),
       reason: z.string().optional()
     }),
-    tax: z.object({ status: z.enum(["INCLUDED_IN_TOTAL", "UNAVAILABLE"]), reason: z.string() }),
-    mandatoryFees: z.object({ status: z.enum(["INCLUDED_IN_TOTAL", "UNAVAILABLE"]), reason: z.string() }),
+    tax: z.object({
+      status: z.enum(["VERIFIED", "ESTIMATED", "UNAVAILABLE"]),
+      amount: MoneyOutputSchema.optional(),
+      source: z.enum(["SHOPIFY_CART", "ZIP_STATE_AVERAGE_2026"]).optional(),
+      jurisdiction: z.string().optional(),
+      rateBasisPoints: z.number().int().nonnegative().optional(),
+      reason: z.string()
+    }),
+    mandatoryFees: z.object({ status: z.literal("UNAVAILABLE"), reason: z.string() }),
     deliveredPrice: z.object({
       status: z.enum(["ESTIMATED", "UNAVAILABLE"]),
       amount: MoneyOutputSchema.optional(),
@@ -298,6 +320,9 @@ const ShopifyProductOutputSchema = z.object({
     priceLabel: z.string(),
     itemPrice: MoneyOutputSchema.optional(),
     shippingLabel: z.string().optional(),
+    taxPrice: MoneyOutputSchema.optional(),
+    taxLabel: z.string().optional(),
+    estimatedTotal: MoneyOutputSchema.optional(),
     matchBadge: z.enum(["EXACT", "DISCOVERY_MATCH", "SIMILAR"]),
     conditionBadge: z.enum(["NEW", "USED", "REFURBISHED", "OPEN_BOX", "UNKNOWN"]),
     availability: z.enum(["IN_STOCK", "OUT_OF_STOCK", "UNKNOWN"]),
@@ -496,7 +521,7 @@ function shopifyResult(
       : "MIXED" as const;
   const quoteSummary = cartQuoteCoverage.attempted === 0
     ? "Prices are public item prices only; shipping, tax, mandatory fees, member price, delivered price, and verified coupons are unavailable without merchant evidence."
-    : `${cartQuoteCoverage.succeeded}/${cartQuoteCoverage.attempted} products received a ZIP-specific Shopify Cart estimate. Cart totals are estimates, may include tax or fees without a separate breakdown, and can change at checkout.`;
+    : `${cartQuoteCoverage.succeeded}/${cartQuoteCoverage.attempted} products received a ZIP-specific Shopify Cart estimate. Tax uses Shopify totalTaxAmount only when explicitly returned; otherwise it is a labeled ZIP state-average estimate. Some merchants require a full address or checkout before calculating tax.`;
   const summary = `Comparison status: ${result.comparison.status}. ${sourceLabel} returned ${result.products.length} product card(s): ${exactCount} exact, ${discoveryCount} discovery, and ${similarCount} similar, from ${result.merchantsSucceeded}/${result.merchantsQueried} returned merchants.${priceLimit}${comparison} ${quoteSummary} ${linkSummary}`;
   const products = linkedProducts.map(({ product, purchaseLink }, index) => {
     const price = product.itemPrice === undefined
@@ -512,7 +537,7 @@ function shopifyResult(
       `regular item price: ${price}`,
       cartQuote === undefined
         ? "shipping: unavailable | tax: unavailable | mandatory fees: unavailable | member price: unavailable | delivered price unavailable"
-        : `shipping estimate: ${cartQuote.shipping.currency} ${(cartQuote.shipping.amountCents / 100).toFixed(2)} (${cartQuote.shipping.label}) | tax and mandatory fees: included in Shopify estimated total without separate breakdown | estimated delivered price: ${cartQuote.deliveredPrice.currency} ${(cartQuote.deliveredPrice.amountCents / 100).toFixed(2)} | expires: ${cartQuote.expiresAt}`,
+        : `shipping: ${cartQuote.shipping.amountCents === 0 ? "free shipping USD 0.00" : `${cartQuote.shipping.currency} ${(cartQuote.shipping.amountCents / 100).toFixed(2)} (${cartQuote.shipping.label})`} | tax: ${cartQuote.tax.status === "ZIP_ESTIMATED" ? `USD ${(cartQuote.tax.amount.amountCents / 100).toFixed(2)} ZIP state-average estimate (${cartQuote.tax.jurisdiction})` : `USD ${(cartQuote.tax.amount.amountCents / 100).toFixed(2)} explicitly returned by Shopify${cartQuote.tax.shopifyEstimated ? " as estimated" : ""}`} | estimated total: ${cartQuote.deliveredPrice.currency} ${(cartQuote.deliveredPrice.amountCents / 100).toFixed(2)} | expires: ${cartQuote.expiresAt}`,
       `availability: ${product.availability}`,
       `condition: ${product.condition}`,
       `match evidence: ${product.matchEvidence.join("; ")}`,
@@ -547,7 +572,7 @@ function shopifyResult(
         affiliateLinksApproved,
         limitations: [
           ...(cartQuoteCoverage.succeeded === result.products.length && result.products.length > 0
-            ? ["Shopify Cart totals are estimates and tax or mandatory fees are not separately itemized"]
+            ? ["tax may be a ZIP state-average estimate; some merchants require a full address or checkout"]
             : ["one or more delivered prices remain unavailable"]),
           "coupon source is unavailable",
           ...(affiliateLinksApproved === result.products.length
@@ -582,22 +607,34 @@ function shopifyResult(
               },
           tax: product.cartQuote === undefined
             ? { status: "UNAVAILABLE" as const, reason: "ZIP-specific tax was not returned" }
-            : {
-                status: "INCLUDED_IN_TOTAL" as const,
-                reason: "Shopify Cart total may include estimated tax without a separate supported breakdown"
-              },
+            : product.cartQuote.tax.status === "ZIP_ESTIMATED"
+              ? {
+                  status: "ESTIMATED" as const,
+                  amount: product.cartQuote.tax.amount,
+                  source: "ZIP_STATE_AVERAGE_2026" as const,
+                  jurisdiction: product.cartQuote.tax.jurisdiction,
+                  rateBasisPoints: product.cartQuote.tax.rateBasisPoints,
+                  reason: "ZIP-inferred state plus 2026 population-weighted average local rate; local and product-specific tax rules may differ"
+                }
+              : {
+                  status: product.cartQuote.tax.shopifyEstimated ? "ESTIMATED" as const : "VERIFIED" as const,
+                  amount: product.cartQuote.tax.amount,
+                  source: "SHOPIFY_CART" as const,
+                  reason: product.cartQuote.tax.shopifyEstimated
+                    ? "Shopify explicitly returned totalTaxAmount and marked it estimated"
+                    : "Shopify explicitly returned totalTaxAmount"
+                },
           mandatoryFees: product.cartQuote === undefined
             ? { status: "UNAVAILABLE" as const, reason: "mandatory fees were not returned" }
-            : {
-                status: "INCLUDED_IN_TOTAL" as const,
-                reason: "Shopify Cart total may include mandatory fees without a separate supported breakdown"
-              },
+            : { status: "UNAVAILABLE" as const, reason: "mandatory fees were not separately returned" },
           deliveredPrice: product.cartQuote === undefined
             ? { status: "UNAVAILABLE" as const, reason: "not all delivered-price components were returned" }
             : {
                 status: "ESTIMATED" as const,
                 amount: product.cartQuote.deliveredPrice,
-                reason: "Shopify Cart estimate; final checkout total may change",
+                reason: product.cartQuote.tax.status === "ZIP_ESTIMATED"
+                  ? "item subtotal plus selected shipping plus ZIP state-average estimated tax; final checkout total may change"
+                  : "Shopify Cart total; final checkout total may change",
                 checkedAt: product.cartQuote.checkedAt,
                 expiresAt: product.cartQuote.expiresAt
               }
@@ -613,13 +650,22 @@ function shopifyResult(
             ? { primaryPrice: product.cartQuote.deliveredPrice }
             : product.itemPrice === undefined ? {} : { primaryPrice: product.itemPrice }),
           priceLabel: product.cartQuote !== undefined
-            ? "Shopify estimated delivered price"
+            ? "Estimated total"
             : product.itemPrice === undefined ? "Item price unavailable" : "Verified item price",
-          ...(product.itemPrice === undefined ? {} : { itemPrice: product.itemPrice }),
+          ...(product.cartQuote !== undefined
+            ? { itemPrice: product.cartQuote.subtotal }
+            : product.itemPrice === undefined ? {} : { itemPrice: product.itemPrice }),
           ...(product.cartQuote === undefined
             ? {}
             : {
-                shippingLabel: `${product.cartQuote.shipping.label}: ${product.cartQuote.shipping.currency} ${(product.cartQuote.shipping.amountCents / 100).toFixed(2)}`
+                shippingLabel: product.cartQuote.shipping.amountCents === 0
+                  ? "免费配送 $0.00"
+                  : `${product.cartQuote.shipping.label} shipping $${(product.cartQuote.shipping.amountCents / 100).toFixed(2)}`,
+                taxPrice: product.cartQuote.tax.amount,
+                taxLabel: product.cartQuote.tax.status === "ZIP_ESTIMATED"
+                  ? `Estimated tax (${product.cartQuote.tax.jurisdiction} ZIP state average ${(product.cartQuote.tax.rateBasisPoints / 100).toFixed(2)}%)`
+                  : product.cartQuote.tax.shopifyEstimated ? "Shopify estimated tax" : "Shopify-reported tax",
+                estimatedTotal: product.cartQuote.deliveredPrice
               }),
           matchBadge: product.matchStatus,
           conditionBadge: product.condition,
@@ -790,7 +836,7 @@ export function createShoppingServer(
   affiliateLinks: AffiliateLinkResolver = createAffiliateLinkResolver(),
   dependencies: ShoppingServerDependencies = {}
 ): McpServer {
-  const server = new McpServer({ name: "findcheap-agent", version: "0.6.6" });
+  const server = new McpServer({ name: "findcheap-agent", version: "0.6.7" });
   const dealPort = dependencies.deals ?? createUnavailableDealPort();
   const watchStore = dependencies.watches ?? createMemoryWatchStore();
   const cartQuotes = dependencies.cartQuotes;

@@ -6,6 +6,7 @@ import { z } from "zod";
 
 import { isForbiddenIp } from "../../ingestion-worker/src/network/safe-fetch.js";
 import type { ShopifyProduct } from "./shopify-client.js";
+import { estimateSalesTax } from "./sales-tax-estimator.js";
 
 const API_VERSION = "2026-07";
 const MAX_RESPONSE_BYTES = 512 * 1024;
@@ -18,7 +19,9 @@ const MoneySchema = z.object({
 const CostSchema = z.object({
   subtotalAmount: MoneySchema,
   totalAmount: MoneySchema,
-  totalAmountEstimated: z.boolean()
+  totalAmountEstimated: z.boolean(),
+  totalTaxAmount: MoneySchema.nullable(),
+  totalTaxAmountEstimated: z.boolean()
 }).strict();
 const DeliveryOptionSchema = z.object({
   handle: z.string().trim().min(1).max(500),
@@ -66,6 +69,8 @@ const CART_FIELDS = `
     subtotalAmount { amount currencyCode }
     totalAmount { amount currencyCode }
     totalAmountEstimated
+    totalTaxAmount { amount currencyCode }
+    totalTaxAmountEstimated
   }
   deliveryGroups(first: 20) {
     nodes {
@@ -115,6 +120,18 @@ export type ShopifyCartEstimate = {
   status: "ESTIMATED";
   subtotal: { amountCents: number; currency: "USD" };
   shipping: { amountCents: number; currency: "USD"; label: string };
+  tax: {
+    status: "SHOPIFY_REPORTED";
+    amount: { amountCents: number; currency: "USD" };
+    shopifyEstimated: boolean;
+    source: "SHOPIFY_CART";
+  } | {
+    status: "ZIP_ESTIMATED";
+    amount: { amountCents: number; currency: "USD" };
+    jurisdiction: string;
+    rateBasisPoints: number;
+    source: "TAX_FOUNDATION_STATE_AVERAGE_2026";
+  };
   deliveredPrice: { amountCents: number; currency: "USD" };
   totalEstimated: boolean;
   checkedAt: string;
@@ -205,15 +222,42 @@ export function createShopifyCartQuotePort(
       const checkedAt = clock.now();
       const shippingCents = selectedOptions.reduce((sum, option) => sum + cents(option.estimatedCost), 0);
       if (!Number.isSafeInteger(shippingCents)) throw new Error("Shopify Cart shipping is outside supported range");
+      const subtotal = money(updated.cost.subtotalAmount);
+      const shopifyTax = updated.cost.totalTaxAmount === null ? undefined : money(updated.cost.totalTaxAmount);
+      const zipTax = shopifyTax === undefined ? estimateSalesTax(zip, subtotal.amountCents) : undefined;
+      if (shopifyTax === undefined && zipTax === undefined) {
+        throw new Error("ZIP tax estimate is unavailable");
+      }
+      const tax = shopifyTax === undefined
+        ? {
+            status: "ZIP_ESTIMATED" as const,
+            amount: { amountCents: zipTax!.amountCents, currency: zipTax!.currency },
+            jurisdiction: zipTax!.jurisdiction,
+            rateBasisPoints: zipTax!.rateBasisPoints,
+            source: zipTax!.source
+          }
+        : {
+            status: "SHOPIFY_REPORTED" as const,
+            amount: shopifyTax,
+            shopifyEstimated: updated.cost.totalTaxAmountEstimated,
+            source: "SHOPIFY_CART" as const
+          };
+      const estimatedTotalCents = shopifyTax === undefined
+        ? subtotal.amountCents + shippingCents + tax.amount.amountCents
+        : cents(updated.cost.totalAmount);
+      if (!Number.isSafeInteger(estimatedTotalCents)) {
+        throw new Error("Shopify Cart total is outside supported range");
+      }
       return {
         status: "ESTIMATED",
-        subtotal: money(updated.cost.subtotalAmount),
+        subtotal,
         shipping: {
           amountCents: shippingCents,
           currency: "USD",
           label: selectedOptions.map((option) => option.title).join(" + ")
         },
-        deliveredPrice: money(updated.cost.totalAmount),
+        tax,
+        deliveredPrice: { amountCents: estimatedTotalCents, currency: "USD" },
         totalEstimated: updated.cost.totalAmountEstimated,
         checkedAt: checkedAt.toISOString(),
         expiresAt: new Date(checkedAt.getTime() + QUOTE_TTL_MS).toISOString()
