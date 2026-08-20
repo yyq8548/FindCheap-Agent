@@ -5,7 +5,6 @@ import type { ComparisonResult } from "../../../packages/contracts/src/index.js"
 import {
   createShoppingServer,
   createUnavailableComparePort,
-  type BestBuyPort,
   type ComparePort,
   type ShopifyPort,
   type ShoppingServerDependencies
@@ -19,24 +18,9 @@ afterEach(async () => {
   await Promise.all(closers.splice(0).map((close) => close()));
 });
 
-const bestBuyPort: BestBuyPort = {
-  search: async () => ({
-    products: [{
-      sku: "6568600",
-      title: "Sony WH-1000XM5 Headphones",
-      brand: "Sony",
-      modelNumber: "WH1000XM5/B",
-      gtins: ["027242923232"],
-      itemPrice: { amountCents: 34_999, currency: "USD" },
-      availability: "IN_STOCK",
-      merchantUrl: "https://api.bestbuy.com/click/example/6568600/pdp",
-      checkedAt: "2026-08-14T12:00:00.000Z"
-    }]
-  })
-};
-
 const shopifyPort: ShopifyPort = {
   search: async () => ({
+    source: "SHOPIFY_GLOBAL_CATALOG",
     coverage: "COMPLETE",
   merchantsQueried: 10,
   merchantsSucceeded: 10,
@@ -85,12 +69,11 @@ const shopifyPort: ShopifyPort = {
 
 async function connect(
   port: ComparePort,
-  products: BestBuyPort = bestBuyPort,
   shopify: ShopifyPort = shopifyPort,
   affiliateLinks?: AffiliateLinkResolver,
   dependencies?: ShoppingServerDependencies
 ) {
-  const server = createShoppingServer(port, products, shopify, affiliateLinks, dependencies);
+  const server = createShoppingServer(port, shopify, affiliateLinks, dependencies);
   const client = new Client({ name: "shopping-agent-test", version: "0.0.0" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
@@ -202,7 +185,6 @@ describe("shopping MCP server", () => {
 
     expect(tools.tools.map((tool) => tool.name)).toEqual([
       "compare_products",
-      "search_bestbuy_products",
       "search_shopify_products",
       "find_coupons",
       "create_watch",
@@ -220,11 +202,6 @@ describe("shopping MCP server", () => {
       "zipCode"
     ]);
     expect(Object.keys(tools.tools[1]?.inputSchema.properties ?? {}).sort()).toEqual([
-      "limit",
-      "query",
-      "sku"
-    ]);
-    expect(Object.keys(tools.tools[2]?.inputSchema.properties ?? {}).sort()).toEqual([
       "comparisonMode",
       "handle",
       "limit",
@@ -234,12 +211,12 @@ describe("shopping MCP server", () => {
       "selectionMode",
       "zipCode"
     ]);
-    expect(tools.tools[2]?.inputSchema.required).toContain("selectionMode");
-    expect(tools.tools[2]?.inputSchema.required).toContain("comparisonMode");
-    expect(tools.tools[2]?.description).toContain("selectionMode=LOWEST_PRICE");
-    expect(tools.tools[2]?.description).toContain("maxItemPriceCents");
-    expect(tools.tools[2]?.description).toContain("Do not call this tool more than once per user lookup");
-    expect(tools.tools[2]?.inputSchema.properties?.selectionMode).toMatchObject({
+    expect(tools.tools[1]?.inputSchema.required).toContain("selectionMode");
+    expect(tools.tools[1]?.inputSchema.required).toContain("comparisonMode");
+    expect(tools.tools[1]?.description).toContain("selectionMode=LOWEST_PRICE");
+    expect(tools.tools[1]?.description).toContain("maxItemPriceCents");
+    expect(tools.tools[1]?.description).toContain("Do not call this tool more than once per user lookup");
+    expect(tools.tools[1]?.inputSchema.properties?.selectionMode).toMatchObject({
       description: expect.stringContaining("MERCHANT_DIVERSE")
     });
     expect(Object.keys(tools.tools.find((tool) => tool.name === "render_product_cards")?.inputSchema.properties ?? {}))
@@ -255,24 +232,7 @@ describe("shopping MCP server", () => {
     ]));
   });
 
-  it("returns official Best Buy item prices without claiming delivered price", async () => {
-    const client = await connect({ compare: async () => comparison });
-
-    const result = await client.callTool({
-      name: "search_bestbuy_products",
-      arguments: { query: "Sony WH-1000XM5", limit: 5 }
-    });
-
-    expect(result.structuredContent).toMatchObject({
-      status: "OK",
-      merchant: "Best Buy",
-      priceScope: "ITEM_PRICE_ONLY",
-      products: [{ sku: "6568600", itemPrice: { amountCents: 34_999 } }]
-    });
-    expect(JSON.stringify(result)).not.toMatch(/deliveredPrice|apiKey/i);
-  });
-
-  it("returns tokenless Shopify Storefront item prices without claiming delivered price", async () => {
+  it("returns Shopify Global Catalog item prices without claiming delivered price", async () => {
     const client = await connect({ compare: async () => comparison });
 
     const result = await client.callTool({
@@ -282,7 +242,7 @@ describe("shopping MCP server", () => {
 
     expect(result.structuredContent).toMatchObject({
       status: "OK",
-      source: "SHOPIFY_STOREFRONT_API",
+      source: "SHOPIFY_GLOBAL_CATALOG",
       priceScope: "ITEM_PRICE_ONLY",
       coverage: "COMPLETE",
       merchantsQueried: 10,
@@ -377,7 +337,6 @@ describe("shopping MCP server", () => {
     const record = vi.fn();
     const client = await connect(
       { compare: async () => comparison },
-      bestBuyPort,
       shopifyPort,
       undefined,
       { cardTelemetry: { record } }
@@ -392,7 +351,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.6.7",
+        version: "0.6.8",
         terminalStage: "DOM_RENDERED",
         stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
       }
@@ -401,7 +360,7 @@ describe("shopping MCP server", () => {
     expect(result.structuredContent).toEqual({ status: "RECORDED" });
     expect(record).toHaveBeenCalledWith(expect.objectContaining({
       renderId,
-      version: "0.6.7",
+      version: "0.6.8",
       terminalStage: "DOM_RENDERED",
       stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
     }));
@@ -409,7 +368,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.6.7",
+        version: "0.6.8",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 14 }
       }
@@ -419,7 +378,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.6.7",
+        version: "0.6.8",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 300_001 }
       }
@@ -430,7 +389,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId: "22222222-2222-4222-8222-222222222222",
-        version: "0.6.7",
+        version: "0.6.8",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 1 }
       }
@@ -465,7 +424,7 @@ describe("shopping MCP server", () => {
     const affiliateLinks: AffiliateLinkResolver = {
       resolve
     };
-    const client = await connect({ compare: async () => comparison }, bestBuyPort, shopifyPort, affiliateLinks);
+    const client = await connect({ compare: async () => comparison }, shopifyPort, affiliateLinks);
     const result = await client.callTool({
       name: "search_shopify_products",
       arguments: { query: "Valhalla Java", limit: 3, comparisonMode: "DISCOVERY", selectionMode: "MERCHANT_DIVERSE" }
@@ -491,7 +450,7 @@ describe("shopping MCP server", () => {
 
   it("accepts ZIP and memberships but never invents contextual prices", async () => {
     const search = vi.fn(shopifyPort.search);
-    const client = await connect({ compare: async () => comparison }, bestBuyPort, { search });
+    const client = await connect({ compare: async () => comparison }, { search });
 
     const result = await client.callTool({
       name: "search_shopify_products",
@@ -518,6 +477,21 @@ describe("shopping MCP server", () => {
     expect(JSON.stringify(result.content)).toContain("delivered price unavailable");
   });
 
+  it("hides unconfigured commercial tools without hiding the working shopping flow", async () => {
+    const client = await connect({ compare: async () => comparison }, shopifyPort, undefined, {
+      toolAvailability: { commerceCompare: false, verifiedDeals: false }
+    });
+
+    const names = (await client.listTools()).tools.map((tool) => tool.name);
+    expect(names).not.toContain("compare_products");
+    expect(names).not.toContain("find_coupons");
+    expect(names).toEqual(expect.arrayContaining([
+      "search_shopify_products",
+      "create_watch",
+      "render_product_cards"
+    ]));
+  });
+
   it("enriches returned variants with ZIP-specific Shopify Cart estimates", async () => {
     const quoteCart = vi.fn(async () => ({
       status: "ESTIMATED" as const,
@@ -537,7 +511,6 @@ describe("shopping MCP server", () => {
     }));
     const client = await connect(
       { compare: async () => comparison },
-      bestBuyPort,
       shopifyPort,
       undefined,
       { cartQuotes: { quote: quoteCart } }
@@ -624,7 +597,7 @@ describe("shopping MCP server", () => {
       };
     });
     const client = await connect(
-      { compare: async () => comparison }, bestBuyPort, { search }, undefined,
+      { compare: async () => comparison }, { search }, undefined,
       { cartQuotes: { quote: quoteCart } }
     );
 
@@ -653,7 +626,6 @@ describe("shopping MCP server", () => {
     }));
     const client = await connect(
       { compare: async () => comparison },
-      bestBuyPort,
       { search }
     );
 
@@ -684,7 +656,7 @@ describe("shopping MCP server", () => {
         offerCount: 2
       }
     }));
-    const client = await connect({ compare: async () => comparison }, bestBuyPort, { search });
+    const client = await connect({ compare: async () => comparison }, { search });
 
     const result = await client.callTool({
       name: "search_shopify_products",
@@ -700,7 +672,7 @@ describe("shopping MCP server", () => {
 
   it("asks for hard identity before a generic same-product comparison without querying merchants", async () => {
     const search = vi.fn(shopifyPort.search);
-    const client = await connect({ compare: async () => comparison }, bestBuyPort, { search });
+    const client = await connect({ compare: async () => comparison }, { search });
 
     const result = await client.callTool({
       name: "search_shopify_products",
@@ -756,28 +728,10 @@ describe("shopping MCP server", () => {
     const search = vi.fn(shopifyPort.search);
     const client = await connect(
       { compare: async () => comparison },
-      bestBuyPort,
       { search }
     );
 
     const result = await client.callTool({ name: "search_shopify_products", arguments: args });
-
-    expect(result.isError).toBe(true);
-    expect(search).not.toHaveBeenCalled();
-  });
-
-  it.each([
-    {},
-    { query: "Sony", sku: "6568600" },
-    { query: " " },
-    { sku: "not-a-sku" },
-    { query: "Sony", limit: 51 },
-    { query: "Sony", arbitraryUrl: "https://evil.example" }
-  ])("rejects invalid Best Buy input %#", async (args) => {
-    const search = vi.fn(bestBuyPort.search);
-    const client = await connect({ compare: async () => comparison }, { search });
-
-    const result = await client.callTool({ name: "search_bestbuy_products", arguments: args });
 
     expect(result.isError).toBe(true);
     expect(search).not.toHaveBeenCalled();
@@ -881,7 +835,7 @@ describe("Coupon and Watch tools", () => {
   };
 
   it("returns only current verified Coupon evidence", async () => {
-    const client = await connect({ compare: async () => comparison }, bestBuyPort, shopifyPort, undefined, {
+    const client = await connect({ compare: async () => comparison }, shopifyPort, undefined, {
       now: () => current,
       deals: { search: async () => [verifiedDeal, { ...verifiedDeal, dealId: "expired", validTo: "2026-08-18T11:59:00.000Z" }] }
     });
@@ -892,7 +846,7 @@ describe("Coupon and Watch tools", () => {
   });
 
   it("rejects stale, wrong-merchant, and wrong-channel deal evidence", async () => {
-    const client = await connect({ compare: async () => comparison }, bestBuyPort, shopifyPort, undefined, {
+    const client = await connect({ compare: async () => comparison }, shopifyPort, undefined, {
       now: () => current,
       deals: { search: async () => [
         { ...verifiedDeal, dealId: "stale", checkedAt: "2026-08-17T11:59:59.000Z" },
@@ -905,13 +859,32 @@ describe("Coupon and Watch tools", () => {
   });
 
   it("fails closed when no verified Deals API exists", async () => {
-    const client = await connect({ compare: async () => comparison }, bestBuyPort, shopifyPort, undefined, { now: () => current });
+    const client = await connect({ compare: async () => comparison }, shopifyPort, undefined, { now: () => current });
     const result = await client.callTool({ name: "find_coupons", arguments: { merchant: "Aritzia" } });
     expect(result.structuredContent).toMatchObject({ status: "DATA_SOURCE_UNAVAILABLE", deals: [] });
   });
 
+  it("does not persist a Deals-backed Watch when no Deals provider is configured", async () => {
+    const watches = createMemoryWatchStore();
+    const client = await connect({ compare: async () => comparison }, shopifyPort, undefined, {
+      now: () => current,
+      watches,
+      toolAvailability: { commerceCompare: false, verifiedDeals: false }
+    });
+    const result = await client.callTool({ name: "create_watch", arguments: {
+      query: "Aritzia",
+      merchant: "Aritzia",
+      condition: "COUPON_AVAILABLE",
+      identity: { generation: "Aritzia" },
+      conditionPreference: "ANY"
+    } });
+
+    expect(result.structuredContent).toMatchObject({ status: "DATA_SOURCE_UNAVAILABLE" });
+    expect(await watches.list()).toEqual([]);
+  });
+
   it("asks for product identity and condition before creating a broad product watch", async () => {
-    const client = await connect({ compare: async () => comparison }, bestBuyPort, shopifyPort, undefined, { now: () => current });
+    const client = await connect({ compare: async () => comparison }, shopifyPort, undefined, { now: () => current });
     const created = await client.callTool({ name: "create_watch", arguments: {
       query: "Apple AirPods Pro", condition: "PRICE_BELOW", threshold: 17_000
     } });
@@ -927,7 +900,7 @@ describe("Coupon and Watch tools", () => {
   });
 
   it("requires a merchant for a generation-only product watch", async () => {
-    const client = await connect({ compare: async () => comparison }, bestBuyPort, shopifyPort, undefined, { now: () => current });
+    const client = await connect({ compare: async () => comparison }, shopifyPort, undefined, { now: () => current });
     const created = await client.callTool({ name: "create_watch", arguments: {
       query: "Rhodia Dress Narcissus Bloom",
       condition: "PRICE_BELOW",
@@ -955,7 +928,7 @@ describe("Coupon and Watch tools", () => {
         }))
       };
     } };
-    const client = await connect({ compare: async () => comparison }, bestBuyPort, discoveryPort, undefined, { now: () => current });
+    const client = await connect({ compare: async () => comparison }, discoveryPort, undefined, { now: () => current });
     const created = await client.callTool({ name: "create_watch", arguments: {
       query: "Valhalla Java pods",
       merchant: "Death Wish Coffee",
@@ -977,7 +950,7 @@ describe("Coupon and Watch tools", () => {
       query: "Apple AirPods Pro", condition: "PRICE_BELOW", threshold: 17_000, membershipIds: [], intervalMinutes: 60
     }, current.toISOString());
     const search = vi.fn(shopifyPort.search);
-    const client = await connect({ compare: async () => comparison }, bestBuyPort, { search }, undefined, { now: () => current, watches });
+    const client = await connect({ compare: async () => comparison }, { search }, undefined, { now: () => current, watches });
 
     expect((await client.callTool({ name: "check_watch", arguments: { watchId: legacy.watchId } })).structuredContent).toMatchObject({
       status: "NEEDS_CLARIFICATION"
@@ -987,7 +960,7 @@ describe("Coupon and Watch tools", () => {
 
   it("binds product watch lookup to identity and explicit condition", async () => {
     const search = vi.fn(shopifyPort.search);
-    const client = await connect({ compare: async () => comparison }, bestBuyPort, { search }, undefined, { now: () => current });
+    const client = await connect({ compare: async () => comparison }, { search }, undefined, { now: () => current });
     const created = await client.callTool({ name: "create_watch", arguments: {
       query: "Valhalla Java pods", condition: "PRICE_BELOW", threshold: 1_700,
       identity: { modelNumber: "5094SSC", gtin: "810063341254", variantDimensions: { "Pack Size": "10 count" } },
@@ -1005,7 +978,7 @@ describe("Coupon and Watch tools", () => {
   });
 
   it("rejects an EXACT source result whose returned identity does not match the watch", async () => {
-    const client = await connect({ compare: async () => comparison }, bestBuyPort, shopifyPort, undefined, { now: () => current });
+    const client = await connect({ compare: async () => comparison }, shopifyPort, undefined, { now: () => current });
     const created = await client.callTool({ name: "create_watch", arguments: {
       query: "Apple AirPods Pro", condition: "IN_STOCK",
       identity: { modelNumber: "MTJV3AM/A" }, conditionPreference: "ANY"
@@ -1035,7 +1008,7 @@ describe("Coupon and Watch tools", () => {
         })
       };
     } };
-    const client = await connect({ compare: async () => comparison }, bestBuyPort, globalPort, undefined, { now: () => current });
+    const client = await connect({ compare: async () => comparison }, globalPort, undefined, { now: () => current });
     const created = await client.callTool({ name: "create_watch", arguments: {
       query: "Sony WH-1000XM5",
       condition: "PRICE_BELOW",
@@ -1051,7 +1024,7 @@ describe("Coupon and Watch tools", () => {
   });
 
   it("activates a price watch only after its Codex Automation is bound", async () => {
-    const client = await connect({ compare: async () => comparison }, bestBuyPort, shopifyPort, undefined, { now: () => current });
+    const client = await connect({ compare: async () => comparison }, shopifyPort, undefined, { now: () => current });
     const created = await client.callTool({ name: "create_watch", arguments: {
       query: "Valhalla Java pods", condition: "PRICE_BELOW", threshold: 1_700, intervalMinutes: 60,
       identity: { modelNumber: "5094SSC", variantDimensions: { "Pack Size": "10 count" } }, conditionPreference: "ANY"
@@ -1107,7 +1080,7 @@ describe("Coupon and Watch tools", () => {
   });
 
   it("serializes concurrent checks so one threshold crossing sends one alert", async () => {
-    const client = await connect({ compare: async () => comparison }, bestBuyPort, shopifyPort, undefined, { now: () => current });
+    const client = await connect({ compare: async () => comparison }, shopifyPort, undefined, { now: () => current });
     const created = await client.callTool({ name: "create_watch", arguments: {
       query: "Valhalla Java pods", condition: "PRICE_BELOW", threshold: 1_700,
       identity: { modelNumber: "5094SSC" }, conditionPreference: "ANY"
@@ -1124,7 +1097,7 @@ describe("Coupon and Watch tools", () => {
   });
 
   it("never binds one Codex Automation to two watches", async () => {
-    const client = await connect({ compare: async () => comparison }, bestBuyPort, shopifyPort, undefined, { now: () => current });
+    const client = await connect({ compare: async () => comparison }, shopifyPort, undefined, { now: () => current });
     const first = await client.callTool({ name: "create_watch", arguments: {
       query: "Valhalla Java pods", condition: "PRICE_BELOW", threshold: 1_700,
       identity: { modelNumber: "5094SSC" }, conditionPreference: "ANY"
@@ -1150,7 +1123,7 @@ describe("Coupon and Watch tools", () => {
 
   it("does not bind an Automation after the Watch expires", async () => {
     let clock = current;
-    const client = await connect({ compare: async () => comparison }, bestBuyPort, shopifyPort, undefined, {
+    const client = await connect({ compare: async () => comparison }, shopifyPort, undefined, {
       now: () => clock
     });
     const created = await client.callTool({ name: "create_watch", arguments: {
@@ -1186,7 +1159,7 @@ describe("Coupon and Watch tools", () => {
     }, current.toISOString());
     const { schedulingState: _schedulingState, ...legacy } = created;
     await watches.save(legacy);
-    const client = await connect({ compare: async () => comparison }, bestBuyPort, shopifyPort, undefined, {
+    const client = await connect({ compare: async () => comparison }, shopifyPort, undefined, {
       now: () => current,
       watches
     });
@@ -1213,7 +1186,7 @@ describe("Coupon and Watch tools", () => {
       return { ...result, products: result.products.map((product) => ({ ...product, availability })) };
     });
     const changingPort: ShopifyPort = { search };
-    const client = await connect({ compare: async () => comparison }, bestBuyPort, changingPort, undefined, { now: () => current });
+    const client = await connect({ compare: async () => comparison }, changingPort, undefined, { now: () => current });
     const created = await client.callTool({ name: "create_watch", arguments: {
       query: "Valhalla Java pods", condition: "RESTOCKED", identity: { gtin: "810063341254" }, conditionPreference: "ANY"
     } });
@@ -1226,7 +1199,7 @@ describe("Coupon and Watch tools", () => {
   });
 
   it("evaluates verified discount watches through the Deals API", async () => {
-    const client = await connect({ compare: async () => comparison }, bestBuyPort, shopifyPort, undefined, {
+    const client = await connect({ compare: async () => comparison }, shopifyPort, undefined, {
       now: () => current,
       deals: { search: async () => [verifiedDeal] }
     });

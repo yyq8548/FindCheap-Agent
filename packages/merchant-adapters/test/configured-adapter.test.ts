@@ -480,10 +480,6 @@ describe("configured merchant adapter", () => {
     const deps = standardDependencies("feed", fixture.configuredSource);
     expect(() => createConfiguredAdapter({
       ...fixtureConfig("feed"),
-      source: { type: "crawl4ai", host: "shop.example", resourcePath: "/products" }
-    } as unknown as MerchantSourceConfigInput, deps)).toThrow();
-    expect(() => createConfiguredAdapter({
-      ...fixtureConfig("feed"),
       source: { type: "feed", host: "shop.example", resourcePath: "https://evil.example/feed" }
     }, deps)).toThrow(/resourcePath/i);
     expect(() => createConfiguredAdapter({

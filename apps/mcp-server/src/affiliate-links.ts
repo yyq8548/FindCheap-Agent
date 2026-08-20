@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { SHOPIFY_AFFILIATE_REGISTRY } from "../../../config/shopify/affiliate-registry.js";
-import { SHOPIFY_REGISTRY } from "./shopify-registry.js";
 
 const EnvironmentNameSchema = z.string().regex(/^[A-Z][A-Z0-9_]{0,79}$/u);
 const AffiliateOriginSchema = z.string().url().transform((value, context) => {
@@ -51,9 +50,6 @@ export function parseAffiliateRegistry(input: unknown): AffiliateRegistry {
       throw new Error("affiliate registry merchantId must be unique");
     }
     merchantIds.add(relationship.merchantId);
-    if (!SHOPIFY_REGISTRY.merchants.some((merchant) => merchant.merchantId === relationship.merchantId)) {
-      throw new Error("affiliate relationship merchant is not in the Shopify registry");
-    }
     validateTemplate(relationship);
   }
   return registry;
@@ -67,7 +63,7 @@ export function createAffiliateLinkResolver(
   const relationships = new Map(registry.relationships.map((relationship) => [relationship.merchantId, relationship]));
   return {
     resolve(product) {
-      const canonicalUrl = requireCanonicalProductUrl(product.merchantId, product.merchantUrl, product.sourceHost);
+      const canonicalUrl = requireCanonicalProductUrl(product.merchantUrl, product.sourceHost);
       const relationship = relationships.get(product.merchantId);
       if (relationship === undefined) return { kind: "CANONICAL", url: canonicalUrl };
       const campaignId = environment[relationship.campaignIdEnv]?.trim();
@@ -130,14 +126,12 @@ function renderTemplate(
   return url.href;
 }
 
-function requireCanonicalProductUrl(merchantId: string, value: string, sourceHost?: string): string {
-  const merchant = SHOPIFY_REGISTRY.merchants.find((candidate) => candidate.merchantId === merchantId);
+function requireCanonicalProductUrl(value: string, sourceHost?: string): string {
   if (Buffer.byteLength(value, "utf8") > 4_096) throw new Error("merchant URL is too long");
   const url = new URL(value);
-  const allowedHosts = merchant?.allowedHosts ?? (sourceHost === undefined ? [] : [sourceHost]);
   if (
     url.protocol !== "https:" || url.username !== "" || url.password !== "" ||
-    url.port !== "" || !allowedHosts.some((host) => host === url.hostname)
+    url.port !== "" || sourceHost === undefined || sourceHost !== url.hostname
   ) {
     throw new Error("merchant URL is not approved");
   }

@@ -47,6 +47,3 @@ pnpm test:mcp-stdio
 For a manual live smoke, override `SHOPIFY_AGENT_PROFILE_URL` with Shopify's documented profile
 fixture before the repository profile is published. After merge, verify the checked-in profile URL
 returns HTTP 200 before installing the release plugin.
-
-The legacy 45-store Storefront registry remains an explicit compatibility and diagnostic mode via
-`SHOPIFY_STOREFRONT_MODE=audited-registry`; the shipped plugin does not use it.

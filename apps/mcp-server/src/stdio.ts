@@ -1,24 +1,26 @@
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { createBestBuyPortFromEnvironment } from "./bestbuy-client.js";
-import { createComparePortFromEnvironment } from "./commerce-client.js";
+import { createComparePortFromEnvironment, hasCommerceApiConfiguration } from "./commerce-client.js";
 import { createShoppingServer, createUnavailableComparePort } from "./server.js";
 import { createShopifyPortFromEnvironment } from "./shopify-client.js";
-import { createDealPortFromEnvironment } from "./deal-client.js";
+import { createDealPortFromEnvironment, hasDealProviderConfiguration } from "./deal-client.js";
 import { createJsonWatchStore } from "./watch-store.js";
 import { createShopifyCartQuotePort } from "./shopify-cart-quote.js";
 
 const comparePort = createComparePortFromEnvironment(process.env, createUnavailableComparePort);
-const bestBuyPort = createBestBuyPortFromEnvironment(process.env);
 const shopifyPort = createShopifyPortFromEnvironment(process.env);
 const dealPort = createDealPortFromEnvironment(process.env);
 const cartQuotePort = createShopifyCartQuotePort(process.env);
 const stateDirectory = process.env.FINDCHEAP_STATE_DIR ?? join(homedir(), ".findcheap-agent", "watches-v1");
-const server = createShoppingServer(comparePort, bestBuyPort, shopifyPort, undefined, {
+const server = createShoppingServer(comparePort, shopifyPort, undefined, {
   deals: dealPort,
   cartQuotes: cartQuotePort,
-  watches: createJsonWatchStore(stateDirectory)
+  watches: createJsonWatchStore(stateDirectory),
+  toolAvailability: {
+    commerceCompare: hasCommerceApiConfiguration(process.env),
+    verifiedDeals: hasDealProviderConfiguration(process.env)
+  }
 });
 
 try {

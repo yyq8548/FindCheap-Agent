@@ -4,7 +4,7 @@ import type { RawMerchantOffer, RawPriceQuote } from "./types.js";
 export const MAX_RAW_EVIDENCE_BYTES = 5_000_000;
 export const MAX_EVIDENCE_REFS = 50;
 export const MAX_METADATA_KEYS = 50;
-export const SOURCE_TYPES = ["feed", "api", "jsonld", "http", "crawl4ai", "unknown"] as const;
+export const SOURCE_TYPES = ["feed", "api", "jsonld", "http", "unknown"] as const;
 
 function bytes(value: string): number {
   return new TextEncoder().encode(value).byteLength;

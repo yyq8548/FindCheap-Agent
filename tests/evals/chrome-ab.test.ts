@@ -63,7 +63,7 @@ describe("FindCheap Chrome DOM/CDP golden evaluation", () => {
   it("classifies an exact SKU redirect from the product detail page", () => {
     expect(classifyGoldenObservation(
       { expectedOutcome: "EXACT", expectedPageType: "DETAIL", expectedTokens: ["sony", "wh-1000xm5"] },
-      { pageType: "DETAIL", products: [{ title: "Sony WH-1000XM5 Headphones", url: "https://www.bestbuy.com/product/x/sku/6505727" }] }
+      { pageType: "DETAIL", products: [{ title: "Sony WH-1000XM5 Headphones", url: "https://www.walmart.com/ip/6505727" }] }
     )).toBe(true);
   });
 
@@ -91,13 +91,13 @@ describe("FindCheap Chrome DOM/CDP golden evaluation", () => {
   it("selects the three strongest direct exact offers from the verified Sony trial", () => {
     const selected = selectBestVerifiedOptions([
       { merchant: "Sony", sellerType: "DIRECT", condition: "NEW", title: "Sony WH-1000XM5 Black", url: "https://electronics.sony.com/p/wh1000xm5-b", match: "EXACT", variantMatch: true, itemPriceCents: 24800, availability: "IN_STOCK" },
-      { merchant: "Best Buy", sellerType: "DIRECT", condition: "NEW", title: "Sony WH1000XM5/B", url: "https://www.bestbuy.com/site/6505727.p", match: "EXACT", variantMatch: true, itemPriceCents: 24999, availability: "IN_STOCK" },
+      { merchant: "Walmart", sellerType: "DIRECT", condition: "NEW", title: "Sony WH1000XM5/B", url: "https://www.walmart.com/ip/6505727", match: "EXACT", variantMatch: true, itemPriceCents: 24999, availability: "IN_STOCK" },
       { merchant: "Target", sellerType: "DIRECT", condition: "NEW", title: "Sony WH-1000XM5", url: "https://www.target.com/p/sony-wh-1000xm5/-/A-1", match: "EXACT", variantMatch: true, itemPriceCents: 24999, availability: "IN_STOCK" },
-      { merchant: "Best Buy Marketplace", sellerType: "MARKETPLACE", condition: "NEW", title: "Sony WH-1000XM5", url: "https://www.bestbuy.com/marketplace/offer/1", match: "EXACT", variantMatch: true, itemPriceCents: 21900, availability: "IN_STOCK" },
+      { merchant: "Walmart Marketplace", sellerType: "MARKETPLACE", condition: "NEW", title: "Sony WH-1000XM5", url: "https://www.walmart.com/ip/marketplace-offer-1", match: "EXACT", variantMatch: true, itemPriceCents: 21900, availability: "IN_STOCK" },
       { merchant: "Example", sellerType: "DIRECT", condition: "USED", title: "Sony WH-1000XM4", url: "https://shop.example.com/xm4", match: "SIMILAR", variantMatch: false, itemPriceCents: 19900, availability: "IN_STOCK" }
     ]);
 
-    expect(selected.map((candidate) => candidate.merchant)).toEqual(["Sony", "Best Buy", "Target"]);
+    expect(selected.map((candidate) => candidate.merchant)).toEqual(["Sony", "Target", "Walmart"]);
   });
 
   it("orders verified options by seller, availability, price, and stable tie-breakers", () => {
@@ -131,7 +131,7 @@ describe("FindCheap Chrome DOM/CDP golden evaluation", () => {
   it("treats unrelated recommendations as no relevant result", () => {
     expect(classifyGoldenObservation(
       { expectedOutcome: "NO_RESULT", expectedPageType: "SEARCH", expectedTokens: [], relevanceTokens: ["acme", "zzz", "99183"] },
-      { pageType: "SEARCH", products: [{ title: "Blueair Air Purifier", url: "https://www.bestbuy.com/product/blueair/sku/1" }] }
+      { pageType: "SEARCH", products: [{ title: "Blueair Air Purifier", url: "https://www.walmart.com/ip/blueair-1" }] }
     )).toBe(true);
   });
 

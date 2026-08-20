@@ -16,7 +16,7 @@ describe("merchant audit catalog", () => {
     const catalog = MerchantCatalogSchema.parse(parse(await readFile(catalogPath, "utf8")));
 
     expect(catalog.candidates.map((merchant) => merchant.id)).toEqual([
-      "amazon", "walmart", "target", "best-buy", "costco", "sams-club", "home-depot", "lowes",
+      "amazon", "walmart", "target", "costco", "sams-club", "home-depot", "lowes",
       "macys", "nordstrom", "sephora", "ulta", "walgreens", "cvs", "chewy", "wayfair", "newegg",
       "bh-photo", "rei", "dicks"
     ]);

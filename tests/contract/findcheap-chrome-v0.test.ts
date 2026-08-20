@@ -89,7 +89,6 @@ describe("FindCheap Agent plugin contract", () => {
     expect(skill).toContain("one primary web search");
     expect(skill).toContain("up to eight merchant domains");
     expect(skill).toContain("HTTPS public product pages");
-    expect(skill).not.toContain("Navigate only to the exact host `https://www.bestbuy.com/`");
     expect(skill).toContain("BROWSER_OBSERVED");
     expect(skill).toContain("maximum of 8 visible results per discovery search");
     expect(skill).toContain("Ask for explicit permission before opening Chrome");
@@ -140,7 +139,7 @@ describe("FindCheap Agent plugin contract", () => {
     };
 
     expect(manifest.name).toBe("findcheap-agent");
-    expect(manifest.version).toMatch(/^0\.6\.7(?:\+codex\.)?/u);
+    expect(manifest.version).toMatch(/^0\.6\.8(?:\+codex\.)?/u);
     expect(manifest.interface.displayName).toBe("FindCheap Agent");
     expect(manifest.interface.longDescription).toMatch(/Codex Plugin Agent/u);
     expect(manifest.interface.longDescription).toMatch(/authorized Chrome/u);

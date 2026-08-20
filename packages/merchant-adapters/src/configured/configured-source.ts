@@ -3,7 +3,6 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 
 import type { RawCoupon } from "../../../merchant-sdk/src/index.js";
-import { createBestBuyProductsReader } from "./bestbuy-products-reader.js";
 import type {
   ConfiguredSource,
   ConfiguredSourceRequest,
@@ -64,15 +63,10 @@ export function createConfiguredSource(
 ): ConfiguredSource {
   const config = parseMerchantSourceConfig(configInput, catalogCandidate);
   const apiReader = config.source.type === "api"
-    ? config.source.provider === "bestbuy-products"
-      ? createBestBuyProductsReader(config.allowedHosts, {
-          ...dependencies,
-          apiKey: requireCredential(config.source.credentialEnv, dependencies.environment)
-        })
-      : createShopifyStorefrontReader(config.allowedHosts, {
-          host: config.source.host,
-          apiVersion: config.source.apiVersion
-        }, dependencies)
+    ? createShopifyStorefrontReader(config.allowedHosts, {
+        host: config.source.host,
+        apiVersion: config.source.apiVersion
+      }, dependencies)
     : undefined;
   const mappedReader = config.source.type === "api"
     ? undefined
@@ -145,17 +139,6 @@ function createPrimaryReader(
   return source.type === "feed"
     ? createFeedReader(mapped, dependencies)
     : createHttpReader(mapped, dependencies);
-}
-
-function requireCredential(
-  name: string,
-  environment: Record<string, string | undefined> | undefined
-): string {
-  const value = (environment ?? process.env)[name]?.trim();
-  if (value === undefined || value.length === 0) {
-    throw new Error(`required merchant credential ${name} is unavailable`);
-  }
-  return value;
 }
 
 async function captureMappedEndpoint(

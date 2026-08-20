@@ -36,7 +36,7 @@ export const MerchantCandidateSchema = z
     affiliateStatus: z
       .enum(["not_applied", "pending", "approved", "normal_link_only"])
       .default("not_applied"),
-    provenSource: z.enum(["feed", "api", "jsonld", "http", "crawl4ai"]).optional(),
+    provenSource: z.enum(["feed", "api", "jsonld", "http"]).optional(),
     allowedHosts: z.array(MerchantHostSchema).max(50).default([]),
     affiliateHosts: z.array(MerchantHostSchema).max(20).default([]),
     affiliateOrigins: z.array(AffiliateOriginSchema).max(20).default([]),

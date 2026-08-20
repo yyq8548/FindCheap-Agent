@@ -276,51 +276,6 @@ describe("production configured source", () => {
     }]);
   });
 
-  it("creates the official Best Buy API source from an environment credential", async () => {
-    const apiKey = "testKey_123456789";
-    const source = createConfiguredSource({
-      merchantId: "best-buy",
-      allowedHosts: ["api.bestbuy.com"],
-      source: {
-        type: "api",
-        provider: "bestbuy-products",
-        host: "api.bestbuy.com",
-        credentialEnv: "BEST_BUY_API_KEY"
-      },
-      ttlSeconds: { product: 900, price: 300, inventory: 300, coupon: 900 },
-      seller: { name: "Best Buy", condition: "NEW" }
-    }, {
-      ...auditedCandidate(),
-      id: "best-buy",
-      name: "Best Buy",
-      provenSource: "api",
-      allowedHosts: ["api.bestbuy.com"]
-    }, {
-      ...dependencies(async (input) => response(JSON.stringify({
-        products: [{
-          sku: 6568600,
-          name: "Sony Headphones",
-          manufacturer: "Sony",
-          modelNumber: "WH1000XM5/B",
-          upc: "027242923232",
-          salePrice: 349.99,
-          onlineAvailability: true,
-          url: "https://api.bestbuy.com/click/example/6568600/pdp"
-        }],
-        canonicalUrl: `/v1/products(search=sony)?apiKey=${apiKey}`
-      }), input.url)),
-      environment: { BEST_BUY_API_KEY: apiKey }
-    });
-
-    await expect(source.capture({ operation: "search", query: "Sony", limit: 10 }))
-      .resolves.toMatchObject({
-        merchantId: "best-buy",
-        sourceType: "api",
-        records: [{ merchantProductId: "6568600", brand: "Sony" }],
-        metadata: { sourceType: "api" }
-      });
-  });
-
   it("creates an audited tokenless Shopify Storefront API source", async () => {
     const source = createConfiguredSource({
       merchantId: "death-wish-coffee",
@@ -374,40 +329,6 @@ describe("production configured source", () => {
           rawOffer: { price: "14.99", availability: "IN_STOCK" }
         }]
       });
-  });
-
-  it("rejects missing Best Buy credentials and invalid API source shapes", () => {
-    const candidate = {
-      ...auditedCandidate(),
-      id: "best-buy",
-      name: "Best Buy",
-      provenSource: "api" as const,
-      allowedHosts: ["api.bestbuy.com"]
-    };
-    const bestBuyConfig: MerchantSourceConfigInput = {
-      merchantId: "best-buy",
-      allowedHosts: ["api.bestbuy.com"],
-      source: {
-        type: "api",
-        provider: "bestbuy-products",
-        host: "api.bestbuy.com",
-        credentialEnv: "BEST_BUY_API_KEY"
-      },
-      ttlSeconds: { product: 900, price: 300, inventory: 300, coupon: 900 },
-      seller: { name: "Best Buy", condition: "NEW" }
-    };
-    expect(() => createConfiguredSource(bestBuyConfig, candidate, {
-      ...dependencies(vi.fn<SafeFetcher>()),
-      environment: {}
-    })).toThrow(/BEST_BUY_API_KEY is unavailable/u);
-
-    expect(() => createConfiguredSource({
-      ...bestBuyConfig,
-      source: { type: "api", provider: "bestbuy-products", host: "evil.example", credentialEnv: "BEST_BUY_API_KEY" }
-    } as unknown as MerchantSourceConfigInput, candidate, {
-      ...dependencies(vi.fn<SafeFetcher>()),
-      environment: { BEST_BUY_API_KEY: "testKey_123456789" }
-    })).toThrow();
   });
 
   it("rejects endpoint hosts outside catalog allowlisting and inline credentials", () => {

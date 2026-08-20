@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createDealPortFromEnvironment } from "../src/deal-client.js";
+import { createDealPortFromEnvironment, hasDealProviderConfiguration } from "../src/deal-client.js";
 
 const deal = {
   dealId: "coupon-1",
@@ -54,5 +54,18 @@ describe("Deals API client", () => {
     const port = createDealPortFromEnvironment({ FINDCHEAP_DEALS_API_URL: "https://deals.example", FINDCHEAP_DEALS_API_TOKEN: "secret" },
       (async () => new Response(oversized, { headers: { "content-type": "application/json" } })) as typeof fetch);
     await expect(port.search({ merchant: "Merchant", membershipIds: [], channel: "ANY" })).rejects.toThrow("DATA_SOURCE_UNAVAILABLE");
+  });
+
+  it("exposes Deals capability only for a complete safe configuration", () => {
+    expect(hasDealProviderConfiguration({})).toBe(false);
+    expect(hasDealProviderConfiguration({ FINDCHEAP_DEALS_API_URL: "https://deals.example" })).toBe(false);
+    expect(hasDealProviderConfiguration({
+      FINDCHEAP_DEALS_API_URL: "http://deals.example",
+      FINDCHEAP_DEALS_API_TOKEN: "secret"
+    })).toBe(false);
+    expect(hasDealProviderConfiguration({
+      FINDCHEAP_DEALS_API_URL: "https://deals.example/v1/search",
+      FINDCHEAP_DEALS_API_TOKEN: "secret"
+    })).toBe(true);
   });
 });
