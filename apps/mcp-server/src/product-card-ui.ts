@@ -1,4 +1,4 @@
-export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v9.html";
+export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v10.html";
 
 export const PRODUCT_CARD_RESOURCE_DOMAINS = [
   "https://cdn.shopify.com"
@@ -42,6 +42,25 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
   <main id="app" aria-live="polite"><div class="empty">Waiting for verified product results…</div></main>
   <script>
     const app = document.getElementById("app");
+    const uiStartedAt = typeof performance === "object" && typeof performance.now === "function"
+      ? performance.now()
+      : Date.now();
+    const cardMetrics = { version: "0.6.1", stages: {} };
+    window.__findcheapCardMetrics = cardMetrics;
+    const markStage = (name) => {
+      if (cardMetrics.stages[name] !== undefined) return;
+      const now = typeof performance === "object" && typeof performance.now === "function"
+        ? performance.now()
+        : Date.now();
+      cardMetrics.stages[name] = Math.max(0, Math.round((now - uiStartedAt) * 10) / 10);
+      if (document.documentElement?.dataset) {
+        document.documentElement.dataset.findcheapCardStage = name;
+      }
+      if (typeof performance === "object" && typeof performance.mark === "function") {
+        performance.mark("findcheap-card:" + name);
+      }
+    };
+    markStage("RESOURCE_EVALUATED");
     let hasResult = false;
     let initialized = false;
     let latestToolInput;
@@ -87,14 +106,15 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     ];
     function render(output) {
       hasResult = true;
+      markStage("RENDER_STARTED");
       app.replaceChildren();
       const products = Array.isArray(output?.products) ? output.products.slice(0, 3) : [];
       if (products.length === 0) {
         app.append(make("div", "empty", output?.message || "No verified products returned."));
+        markStage("DOM_RENDERED");
         return;
       }
       app.append(make("div", "summary", products.length + " product card" + (products.length === 1 ? "" : "s") + " · identity labels and public item prices only"));
-      let cardIndex = 0;
       for (const definition of groupDefinitions) {
         const grouped = products.filter((product) => product?.matchStatus === definition.status);
         if (grouped.length === 0) continue;
@@ -107,15 +127,18 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
           const imageUrl = safeHttps(cardData.imageUrl);
           if (imageUrl) {
             const image = make("img", "image");
-            image.src = imageUrl;
             image.alt = "";
-            image.loading = "eager";
+            image.loading = "lazy";
             image.decoding = "async";
-            image.fetchPriority = cardIndex === 0 ? "high" : "auto";
-            image.addEventListener("error", () => image.remove(), { once: true });
+            image.fetchPriority = "low";
+            image.addEventListener("load", () => markStage("FIRST_IMAGE_SETTLED"), { once: true });
+            image.addEventListener("error", () => {
+              markStage("FIRST_IMAGE_SETTLED");
+              image.remove();
+            }, { once: true });
+            image.src = imageUrl;
             card.append(image);
           }
-          cardIndex += 1;
           const body = make("div", "body");
           body.append(make("div", "merchant", cardData.merchant || product.merchant || "Merchant"));
           body.append(make("h3", "", cardData.title || product.title || "Product"));
@@ -156,6 +179,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
         group.append(cards);
         app.append(group);
       }
+      markStage("DOM_RENDERED");
       window.setTimeout(reportSize, 0);
     }
     const hydrateFromInput = async (input) => {
@@ -168,6 +192,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
           arguments: { renderId }
         });
         if (!result?.structuredContent) throw new Error("snapshot missing");
+        markStage("TOOL_OUTPUT_RECEIVED");
         render(result.structuredContent);
       } catch {
         if (!hasResult) {
@@ -177,6 +202,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     };
     const receiveInput = (input) => {
       latestToolInput = input;
+      markStage("TOOL_INPUT_RECEIVED");
       void hydrateFromInput(input);
     };
     window.addEventListener("message", (event) => {
@@ -193,27 +219,37 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       if (message.method === "ui/notifications/tool-input") receiveInput(message.params);
       if (message.method === "ui/notifications/tool-result") {
         const output = message.params?.structuredContent;
-        if (output) render(output);
+        if (output) {
+          markStage("TOOL_OUTPUT_RECEIVED");
+          render(output);
+        }
         else void hydrateFromInput(latestToolInput);
       }
     }, { passive: true });
     window.addEventListener("openai:set_globals", (event) => {
       const output = event.detail?.globals?.toolOutput;
-      if (output) render(output);
+      if (output) {
+        markStage("TOOL_OUTPUT_RECEIVED");
+        render(output);
+      }
       receiveInput(event.detail?.globals?.toolInput);
     });
     const responseMetadata = window.openai?.toolResponseMetadata;
     const initialOutput = window.openai?.toolOutput
       || responseMetadata?.mcp_tool_result?.structuredContent
       || responseMetadata?.call_tool_result?.structuredContent;
-    if (initialOutput) render(initialOutput);
+    if (initialOutput) {
+      markStage("TOOL_OUTPUT_RECEIVED");
+      render(initialOutput);
+    }
     receiveInput(window.openai?.toolInput);
     request("ui/initialize", {
       protocolVersion: "2026-01-26",
-      appInfo: { name: "FindCheap Agent product cards", version: "0.6.0" },
+      appInfo: { name: "FindCheap Agent product cards", version: "0.6.1" },
       appCapabilities: { availableDisplayModes: ["inline"] }
     }).then(() => {
       initialized = true;
+      markStage("INITIALIZE_ACK");
       notify("ui/notifications/initialized");
       void hydrateFromInput(latestToolInput);
       reportSize();

@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import { describe, expect, it } from "vitest";
 import { PRODUCT_CARD_HTML } from "../src/product-card-ui.js";
@@ -6,6 +7,9 @@ class FakeNode {
   children: FakeNode[] = [];
   className = "";
   textContent = "";
+  loading = "";
+  fetchPriority = "";
+  private readonly listeners = new Map<string, () => void>();
 
   append(...nodes: FakeNode[]) {
     this.children.push(...nodes);
@@ -15,12 +19,22 @@ class FakeNode {
     this.children = nodes;
   }
 
-  addEventListener() {}
+  addEventListener(type: string, listener: () => void) {
+    this.listeners.set(type, listener);
+  }
+
+  dispatch(type: string) {
+    this.listeners.get(type)?.();
+  }
   remove() {}
 }
 
 function text(node: FakeNode): string {
   return [node.textContent, ...node.children.map(text)].join(" ");
+}
+
+function nodes(node: FakeNode): FakeNode[] {
+  return [node, ...node.children.flatMap(nodes)];
 }
 
 describe("product-card MCP Apps UI", () => {
@@ -63,8 +77,9 @@ describe("product-card MCP Apps UI", () => {
     expect(text(app)).toContain("Direct Product");
     expect(text(app)).toContain("$12.99");
     expect(messages.some((message) => message.method === "tools/call")).toBe(false);
-    expect(PRODUCT_CARD_HTML).toContain('image.loading = "eager"');
-    expect(PRODUCT_CARD_HTML).toContain('image.fetchPriority = cardIndex === 0 ? "high" : "auto"');
+    expect(PRODUCT_CARD_HTML).toContain('image.loading = "lazy"');
+    expect(PRODUCT_CARD_HTML).toContain('image.fetchPriority = "low"');
+    expect(PRODUCT_CARD_HTML).not.toContain('image.loading = "eager"');
   });
 
   it("separates exact, discovery, and similar cards with identity evidence", () => {
@@ -160,7 +175,7 @@ describe("product-card MCP Apps UI", () => {
       method: "ui/initialize",
       params: {
         protocolVersion: "2026-01-26",
-        appInfo: { name: "FindCheap Agent product cards", version: "0.6.0" },
+        appInfo: { name: "FindCheap Agent product cards", version: "0.6.1" },
         appCapabilities: { availableDisplayModes: ["inline"] }
       }
     });
@@ -267,5 +282,83 @@ describe("product-card MCP Apps UI", () => {
     });
     expect(text(app)).toContain("Notification Coffee");
     expect(text(app)).toContain("$15.99");
+  });
+
+  it("removes eager-image blockers across 20 golden card tasks and records first-paint stages", () => {
+    const script = PRODUCT_CARD_HTML.match(/<script>([\s\S]*)<\/script>/u)?.[1];
+    expect(script).toBeDefined();
+    const fixture = JSON.parse(readFileSync(
+      new URL("../../../tests/evals/shopify-match-golden.json", import.meta.url),
+      "utf8"
+    )) as { tasks: Array<{ id: string }> };
+    const goldenTasks = fixture.tasks.slice(0, 20);
+    expect(goldenTasks).toHaveLength(20);
+    const baselineEagerImageBlockers = 20;
+    let candidateEagerImageBlockers = 0;
+
+    for (const [index, task] of goldenTasks.entries()) {
+      const app = new FakeNode();
+      let now = 0;
+      const documentElement = {
+        dataset: {} as Record<string, string>,
+        scrollWidth: 700,
+        scrollHeight: 320
+      };
+      const window: {
+        parent: { postMessage: () => void };
+        openai: { toolOutput: unknown };
+        addEventListener: () => void;
+        setTimeout: () => number;
+        ResizeObserver: undefined;
+        __findcheapCardMetrics?: { stages: Record<string, number> };
+      } = {
+        parent: { postMessage: () => undefined },
+        openai: { toolOutput: { products: [{
+          merchant: `Golden Merchant ${index + 1}`,
+          title: task.id,
+          matchStatus: index % 3 === 0 ? "EXACT" : index % 3 === 1 ? "DISCOVERY_MATCH" : "SIMILAR",
+          condition: "UNKNOWN",
+          availability: "IN_STOCK",
+          checkedAt: "2026-08-19T12:00:00.000Z",
+          merchantUrl: `https://example.com/products/golden-${index + 1}`,
+          card: {
+            merchant: `Golden Merchant ${index + 1}`,
+            title: task.id,
+            imageUrl: `https://cdn.shopify.com/golden-${index + 1}.jpg`,
+            primaryPrice: { amountCents: 1000 + index, currency: "USD" },
+            matchBadge: index % 3 === 0 ? "EXACT" : index % 3 === 1 ? "DISCOVERY_MATCH" : "SIMILAR",
+            conditionBadge: "UNKNOWN",
+            availability: "IN_STOCK"
+          }
+        }] } },
+        addEventListener: () => undefined,
+        setTimeout: () => 1,
+        ResizeObserver: undefined
+      };
+      const document = {
+        getElementById: () => app,
+        createElement: () => new FakeNode(),
+        documentElement,
+        body: { scrollWidth: 700, scrollHeight: 320 }
+      };
+      const performance = { now: () => ++now, mark: () => undefined };
+
+      vm.runInNewContext(script!, { window, document, performance, URL, Intl, Number, String, Array, Object, Promise, Map, Math, Date });
+
+      const image = nodes(app).find((node) => node.loading !== "");
+      expect(image?.loading).toBe("lazy");
+      expect(image?.fetchPriority).toBe("low");
+      if (image?.loading === "eager") candidateEagerImageBlockers += 1;
+      expect(window.__findcheapCardMetrics?.stages.DOM_RENDERED).toBeDefined();
+      expect(window.__findcheapCardMetrics?.stages.FIRST_IMAGE_SETTLED).toBeUndefined();
+      image?.dispatch("load");
+      expect(window.__findcheapCardMetrics!.stages.FIRST_IMAGE_SETTLED)
+        .toBeGreaterThanOrEqual(window.__findcheapCardMetrics!.stages.DOM_RENDERED!);
+    }
+
+    expect({ baselineEagerImageBlockers, candidateEagerImageBlockers }).toEqual({
+      baselineEagerImageBlockers: 20,
+      candidateEagerImageBlockers: 0
+    });
   });
 });
