@@ -50,7 +50,7 @@ const shopifyPort: ShopifyPort = {
       merchantId: "death-wish-coffee",
       merchant: "Death Wish Coffee",
       sourceHost: "deathwishcoffee.com",
-      handle: "valhalla-java-single-serve-pods",
+      handle: "42797821853913",
       title: "Valhalla Java Single-Serve Pods — 10 count",
       brand: "Death Wish Coffee",
       sku: "5094SSC",
@@ -192,6 +192,7 @@ describe("shopping MCP server", () => {
     expect(tools.tools.map((tool) => tool.name)).toEqual([
       "compare_products",
       "search_shopify_products",
+      "quote_selected_shopify_product",
       "find_coupons",
       "create_watch",
       "bind_watch_automation",
@@ -209,7 +210,6 @@ describe("shopping MCP server", () => {
     ]);
     expect(Object.keys(tools.tools[1]?.inputSchema.properties ?? {}).sort()).toEqual([
       "comparisonMode",
-      "handle",
       "limit",
       "maxItemPriceCents",
       "membershipIds",
@@ -221,7 +221,8 @@ describe("shopping MCP server", () => {
     expect(tools.tools[1]?.inputSchema.required).toContain("comparisonMode");
     expect(tools.tools[1]?.description).toContain("selectionMode=LOWEST_PRICE");
     expect(tools.tools[1]?.description).toContain("maxItemPriceCents");
-    expect(tools.tools[1]?.description).toContain("Do not call this tool more than once per user lookup");
+    expect(tools.tools[1]?.description).toContain("once per new lookup");
+    expect(tools.tools[1]?.description).toContain("never search its title again");
     expect(tools.tools[1]?.description).not.toContain("call render_product_cards");
     expect(tools.tools[1]?.inputSchema.properties?.selectionMode).toMatchObject({
       description: expect.stringContaining("MERCHANT_DIVERSE")
@@ -278,7 +279,11 @@ describe("shopping MCP server", () => {
       questions: [],
       products: [{
         merchant: "Death Wish Coffee",
-        handle: "valhalla-java-single-serve-pods",
+        handle: "42797821853913",
+        quoteReference: {
+          renderId: expect.any(String),
+          variantId: "42797821853913"
+        },
         matchStatus: "EXACT",
         condition: "UNKNOWN",
         itemPrice: { amountCents: 1_499 },
@@ -358,7 +363,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.6.10",
+        version: "0.6.11",
         terminalStage: "DOM_RENDERED",
         stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
       }
@@ -367,7 +372,7 @@ describe("shopping MCP server", () => {
     expect(result.structuredContent).toEqual({ status: "RECORDED" });
     expect(record).toHaveBeenCalledWith(expect.objectContaining({
       renderId,
-      version: "0.6.10",
+      version: "0.6.11",
       terminalStage: "DOM_RENDERED",
       stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
     }));
@@ -375,7 +380,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.6.10",
+        version: "0.6.11",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 14 }
       }
@@ -385,7 +390,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.6.10",
+        version: "0.6.11",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 300_001 }
       }
@@ -396,7 +401,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId: "22222222-2222-4222-8222-222222222222",
-        version: "0.6.10",
+        version: "0.6.11",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 1 }
       }
@@ -571,6 +576,113 @@ describe("shopping MCP server", () => {
     expect(JSON.stringify(result.content)).toContain("full address or checkout");
   });
 
+  it("quotes a previously returned variant from its stable reference without searching by title", async () => {
+    const search = vi.fn(shopifyPort.search);
+    const quoteCart = vi.fn(async (_product: { handle: string; title: string }, _zipCode: string) => ({
+      status: "ESTIMATED" as const,
+      subtotal: { amountCents: 1_499, currency: "USD" as const },
+      shipping: { amountCents: 500, currency: "USD" as const, label: "Standard" },
+      tax: {
+        status: "ZIP_ESTIMATED" as const,
+        amount: { amountCents: 105, currency: "USD" as const },
+        jurisdiction: "FL",
+        rateBasisPoints: 698,
+        source: "TAX_FOUNDATION_STATE_AVERAGE_2026" as const
+      },
+      deliveredPrice: { amountCents: 2_104, currency: "USD" as const },
+      totalEstimated: true,
+      checkedAt: "2026-08-20T12:00:00.000Z",
+      expiresAt: "2026-08-20T12:10:00.000Z"
+    }));
+    const client = await connect(
+      { compare: async () => comparison },
+      { search },
+      undefined,
+      { cartQuotes: { quote: quoteCart } }
+    );
+
+    const first = await client.callTool({
+      name: "search_shopify_products",
+      arguments: {
+        query: "Valhalla Java",
+        limit: 3,
+        comparisonMode: "DISCOVERY",
+        selectionMode: "MERCHANT_DIVERSE"
+      }
+    });
+    const product = (first.structuredContent as {
+      products: Array<{ quoteReference: { renderId: string; variantId: string } }>;
+    }).products[0]!;
+
+    const quoted = await client.callTool({
+      name: "quote_selected_shopify_product",
+      arguments: { ...product.quoteReference, zipCode: "33433" }
+    });
+
+    expect(search).toHaveBeenCalledTimes(1);
+    expect(quoteCart).toHaveBeenCalledWith(expect.objectContaining({
+      handle: "42797821853913",
+      title: "Valhalla Java Single-Serve Pods — 10 count"
+    }), "33433");
+    expect(quoted.structuredContent).toMatchObject({
+      status: "OK",
+      priceScope: "SHOPIFY_CART_ESTIMATE",
+      cartQuoteCoverage: { attempted: 1, succeeded: 1 },
+      pricingContext: { zipCode: "33433" },
+      products: [{
+        handle: "42797821853913",
+        title: "Valhalla Java Single-Serve Pods — 10 count",
+        pricing: { deliveredPrice: { amount: { amountCents: 2_104 } } },
+        quoteReference: { variantId: "42797821853913" }
+      }]
+    });
+    expect(JSON.stringify(quoted.content)).toContain("stable Shopify variant reference");
+  });
+
+  it("fails closed when a quote reference variant was not returned by that search", async () => {
+    const search = vi.fn(shopifyPort.search);
+    const quoteCart = vi.fn();
+    const client = await connect(
+      { compare: async () => comparison },
+      { search },
+      undefined,
+      { cartQuotes: { quote: quoteCart } }
+    );
+    const first = await client.callTool({
+      name: "search_shopify_products",
+      arguments: {
+        query: "Valhalla Java",
+        limit: 3,
+        comparisonMode: "DISCOVERY",
+        selectionMode: "MERCHANT_DIVERSE"
+      }
+    });
+    const renderId = (first.structuredContent as { renderId: string }).renderId;
+
+    const result = await client.callTool({
+      name: "quote_selected_shopify_product",
+      arguments: { renderId, variantId: "99999999999999", zipCode: "33433" }
+    });
+
+    expect(result.isError).toBe(true);
+    expect(JSON.stringify(result.content)).toContain("does not belong to that search result");
+    expect(search).toHaveBeenCalledTimes(1);
+    expect(quoteCart).not.toHaveBeenCalled();
+
+    const titleRetry = await client.callTool({
+      name: "quote_selected_shopify_product",
+      arguments: {
+        renderId,
+        variantId: "42797821853913",
+        zipCode: "33433",
+        query: "Valhalla Java Single-Serve Pods"
+      }
+    });
+    expect(titleRetry.isError).toBe(true);
+    expect(search).toHaveBeenCalledTimes(1);
+    expect(quoteCart).not.toHaveBeenCalled();
+  });
+
   it("keeps item-price output when one merchant Cart quote fails", async () => {
     const second = {
       ...(await shopifyPort.search({ query: "coffee", limit: 3 })).products[0]!,
@@ -721,7 +833,7 @@ describe("shopping MCP server", () => {
     { query: "coffee" },
     { query: "coffee", handle: "coffee", comparisonMode: "DISCOVERY", selectionMode: "MERCHANT_DIVERSE" },
     { query: " ", comparisonMode: "DISCOVERY", selectionMode: "MERCHANT_DIVERSE" },
-    { handle: "../admin", comparisonMode: "DISCOVERY", selectionMode: "MERCHANT_DIVERSE" },
+    { handle: "42797821853913", comparisonMode: "DISCOVERY", selectionMode: "MERCHANT_DIVERSE" },
     { query: "coffee", limit: 4, comparisonMode: "DISCOVERY", selectionMode: "MERCHANT_DIVERSE" },
     { query: "coffee", comparisonMode: "DISCOVERY", selectionMode: "MERCHANT_DIVERSE", maxItemPriceCents: 0 },
     { query: "coffee", comparisonMode: "DISCOVERY", selectionMode: "MERCHANT_DIVERSE", maxItemPriceCents: 10.5 },

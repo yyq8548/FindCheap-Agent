@@ -64,7 +64,7 @@ const ProductCardStagesSchema = z.object({
 
 const ProductCardTelemetryInputSchema = z.object({
   renderId: z.string().uuid(),
-  version: z.literal("0.6.10"),
+  version: z.literal("0.6.11"),
   terminalStage: z.enum([
     "DOM_RENDERED",
     "FIRST_IMAGE_SETTLED",
@@ -108,8 +108,7 @@ export const CompareProductsInputSchema = z
 export type CompareProductsInput = z.infer<typeof CompareProductsInputSchema>;
 
 const ShopifyProductsToolInputSchema = z.object({
-  query: z.string().trim().min(2).max(300).regex(/^[\p{L}\p{N}\s._+'-]+$/u).optional(),
-  handle: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u).max(200).optional(),
+  query: z.string().trim().min(2).max(300).regex(/^[\p{L}\p{N}\s._+'-]+$/u),
   limit: z.number().int().min(1).max(3).default(3),
   maxItemPriceCents: z.number().int().min(1).max(100_000_000).optional()
     .describe("Inclusive public item-price ceiling in integer USD cents. Keep price words and currency symbols out of query."),
@@ -123,11 +122,13 @@ const ShopifyProductsToolInputSchema = z.object({
     .describe("Use LOWEST_PRICE only for an explicit cheapest request; use MERCHANT_DIVERSE otherwise.")
 }).strict();
 
-export const ShopifyProductsInputSchema = ShopifyProductsToolInputSchema.refine(
-  (input) => (input.query === undefined) !== (input.handle === undefined), {
-    message: "Provide exactly one of query or handle"
-  }
-);
+export const ShopifyProductsInputSchema = ShopifyProductsToolInputSchema;
+
+const ShopifySelectedQuoteInputSchema = z.object({
+  renderId: z.string().uuid(),
+  variantId: z.string().regex(/^\d{1,30}$/u),
+  zipCode: z.string().regex(/^\d{5}(?:-\d{4})?$/u)
+}).strict();
 
 export interface ComparePort {
   compare(input: CompareProductsInput): Promise<ComparisonResult>;
@@ -286,7 +287,11 @@ const ShopifyProductOutputSchema = z.object({
     conditionBadge: z.enum(["NEW", "USED", "REFURBISHED", "OPEN_BOX", "UNKNOWN"]),
     availability: z.enum(["IN_STOCK", "OUT_OF_STOCK", "UNKNOWN"]),
     actionLabel: z.literal("View at merchant")
-  })
+  }),
+  quoteReference: z.object({
+    renderId: z.string().uuid(),
+    variantId: z.string().regex(/^\d{1,30}$/u)
+  }).strict().optional()
 });
 
 const ShopifyProductsOutputShape = {
@@ -771,7 +776,7 @@ export function createShoppingServer(
   affiliateLinks: AffiliateLinkResolver = createAffiliateLinkResolver(),
   dependencies: ShoppingServerDependencies = {}
 ): McpServer {
-  const server = new McpServer({ name: "findcheap-agent", version: "0.6.10" });
+  const server = new McpServer({ name: "findcheap-agent", version: "0.6.11" });
   const dealPort = dependencies.deals ?? createUnavailableDealPort();
   const toolAvailability = dependencies.toolAvailability ?? {
     commerceCompare: true,
@@ -789,14 +794,27 @@ export function createShoppingServer(
   const renderSnapshots = new Map<string, {
     expiresAt: number;
     content: ReturnType<typeof shopifyResult>["structuredContent"] & { renderId: string };
+    sourceResult: ShopifySearchResult;
   }>();
   const recordedCardTelemetry = new Set<string>();
   const rememberSnapshot = (
-    content: ReturnType<typeof shopifyResult>["structuredContent"]
+    content: ReturnType<typeof shopifyResult>["structuredContent"],
+    sourceResult: ShopifySearchResult
   ): ReturnType<typeof shopifyResult>["structuredContent"] & { renderId: string } => {
     const renderId = randomUUID();
-    const snapshot = { ...content, renderId };
-    renderSnapshots.set(renderId, { expiresAt: Date.now() + 5 * 60_000, content: snapshot });
+    const snapshot = {
+      ...content,
+      renderId,
+      products: content.products.map((product) => ({
+        ...product,
+        quoteReference: { renderId, variantId: product.handle }
+      }))
+    };
+    renderSnapshots.set(renderId, {
+      expiresAt: Date.now() + 30 * 60_000,
+      content: snapshot,
+      sourceResult
+    });
     while (renderSnapshots.size > 32) {
       const oldest = renderSnapshots.keys().next().value as string | undefined;
       if (oldest === undefined) break;
@@ -859,7 +877,7 @@ export function createShoppingServer(
     "search_shopify_products",
     {
       title: "Search Shopify Global Catalog (Beta)",
-      description: "Search Shopify Global Catalog across eligible merchants once per lookup and render the returned cards directly. Use comparisonMode=SAME_PRODUCT only with exact identity; selectionMode=LOWEST_PRICE only when cheapest is explicit, otherwise MERCHANT_DIVERSE. Put budget in maxItemPriceCents. Do not call this tool more than once per user lookup.",
+      description: "Search Shopify Global Catalog across eligible merchants once per new lookup and render the returned cards directly. For a later ZIP quote of one returned product, use quote_selected_shopify_product with its quoteReference; never search its title again. Use comparisonMode=SAME_PRODUCT only with exact identity; selectionMode=LOWEST_PRICE only when cheapest is explicit, otherwise MERCHANT_DIVERSE. Put budget in maxItemPriceCents.",
       inputSchema: ShopifyProductsToolInputSchema,
       outputSchema: ShopifyProductsOutputShape,
       annotations: {
@@ -895,12 +913,114 @@ export function createShoppingServer(
           succeeded: enriched.succeeded
         });
         if (response.structuredContent.products.length === 0) return response;
+        const content = rememberSnapshot(response.structuredContent, enriched.result);
         return {
           ...response,
-          structuredContent: rememberSnapshot(response.structuredContent)
+          content: [{
+            type: "text" as const,
+            text: `${response.content[0]!.text}\nFor a follow-up quote of one selected product, call quote_selected_shopify_product with quoteReference.renderId, quoteReference.variantId, and the ZIP; never search its title again.`
+          }],
+          structuredContent: content
         };
       } catch {
         return shopifyUnavailableResult(validatedInput.selectionMode, validatedInput);
+      }
+    }
+  );
+
+  server.registerTool(
+    "quote_selected_shopify_product",
+    {
+      title: "Quote a selected Shopify product",
+      description: "Get shipping, tax, and estimated total for exactly one product returned by search_shopify_products. Copy renderId and variantId from that product's quoteReference. Never substitute a title query or run another catalog search.",
+      inputSchema: ShopifySelectedQuoteInputSchema,
+      outputSchema: ShopifyProductsOutputShape,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true
+      },
+      _meta: {
+        ui: { resourceUri: PRODUCT_CARD_UI_URI },
+        "openai/outputTemplate": PRODUCT_CARD_UI_URI,
+        "openai/toolInvocation/invoking": "Quoting the selected Shopify variant…",
+        "openai/toolInvocation/invoked": "Selected-product quote ready."
+      }
+    },
+    async (input) => {
+      const { renderId, variantId, zipCode } = ShopifySelectedQuoteInputSchema.parse(input);
+      const snapshot = renderSnapshots.get(renderId);
+      if (snapshot === undefined || snapshot.expiresAt <= Date.now()) {
+        renderSnapshots.delete(renderId);
+        return {
+          isError: true,
+          content: [{
+            type: "text" as const,
+            text: "Selected product reference expired. Run one new Shopify search before requesting a quote."
+          }]
+        };
+      }
+      const selected = snapshot.sourceResult.products.find((product) => product.handle === variantId);
+      if (selected === undefined) {
+        return {
+          isError: true,
+          content: [{
+            type: "text" as const,
+            text: "Selected variant does not belong to that search result. No quote was requested."
+          }]
+        };
+      }
+      if (cartQuotes === undefined) {
+        return {
+          isError: true,
+          content: [{ type: "text" as const, text: "Shopify Cart quote provider is unavailable." }]
+        };
+      }
+      try {
+        const cartQuote = await cartQuotes.quote(selected, zipCode);
+        const quotedProduct = {
+          ...selected,
+          itemPrice: cartQuote.subtotal,
+          checkedAt: cartQuote.checkedAt,
+          cartQuote
+        };
+        const quotedResult: ShopifySearchResult = {
+          ...snapshot.sourceResult,
+          merchantsQueried: 1,
+          merchantsSucceeded: 1,
+          comparison: {
+            status: "DISCOVERY_ONLY",
+            evidence: ["selected from immutable prior result by Shopify variant identity"],
+            merchantCount: 1,
+            offerCount: 1
+          },
+          questions: [],
+          products: [quotedProduct]
+        };
+        const response = shopifyResult(
+          quotedResult,
+          { zipCode, membershipIds: [] },
+          affiliateLinks,
+          { attempted: 1, succeeded: 1 }
+        );
+        const content = rememberSnapshot(response.structuredContent, quotedResult);
+        return {
+          ...response,
+          content: [{
+            type: "text" as const,
+            text: `Quoted the exact previously returned product by stable Shopify variant reference ${variantId}; no title or catalog search was used.\n${response.content[0]!.text}`
+          }],
+          structuredContent: content
+        };
+      } catch {
+        return {
+          isError: true,
+          content: [{
+            type: "text" as const,
+            text: "Shopify Cart could not quote the selected variant. No replacement product was searched."
+          }]
+        };
       }
     }
   );

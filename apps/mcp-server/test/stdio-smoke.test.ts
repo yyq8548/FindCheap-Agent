@@ -66,6 +66,7 @@ describe("installed plugin stdio", () => {
       });
       expect(tools.tools.map((tool) => tool.name)).toEqual([
         "search_shopify_products",
+        "quote_selected_shopify_product",
         "create_watch",
         "bind_watch_automation",
         "check_watch",
@@ -76,6 +77,7 @@ describe("installed plugin stdio", () => {
         "report_product_card_metrics"
       ]);
       const shopifyTool = tools.tools.find((tool) => tool.name === "search_shopify_products");
+      const quoteTool = tools.tools.find((tool) => tool.name === "quote_selected_shopify_product");
       const renderTool = tools.tools.find((tool) => tool.name === "render_product_cards");
       expect(shopifyTool?._meta).toMatchObject({
         ui: { resourceUri: "ui://findcheap/product-cards/v16.html" },
@@ -86,6 +88,10 @@ describe("installed plugin stdio", () => {
           resourceUri: "ui://findcheap/product-cards/v16.html",
           visibility: ["app"]
         }
+      });
+      expect(quoteTool?._meta).toMatchObject({
+        ui: { resourceUri: "ui://findcheap/product-cards/v16.html" },
+        "openai/outputTemplate": "ui://findcheap/product-cards/v16.html"
       });
       expect(resources.resources).toEqual([expect.objectContaining({
         name: "findcheap-product-cards",
@@ -99,7 +105,6 @@ describe("installed plugin stdio", () => {
       })]);
       expect(Object.keys(shopifyTool?.inputSchema.properties ?? {}).sort()).toEqual([
         "comparisonMode",
-        "handle",
         "limit",
         "maxItemPriceCents",
         "membershipIds",
@@ -109,6 +114,11 @@ describe("installed plugin stdio", () => {
       ]);
       expect(shopifyTool?.inputSchema.required).toContain("selectionMode");
       expect(shopifyTool?.inputSchema.required).toContain("comparisonMode");
+      expect(Object.keys(quoteTool?.inputSchema.properties ?? {}).sort()).toEqual([
+        "renderId",
+        "variantId",
+        "zipCode"
+      ]);
     } finally {
       await client.close();
     }

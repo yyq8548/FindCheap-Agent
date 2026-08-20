@@ -41,14 +41,16 @@ describe("FindCheap Agent plugin contract", () => {
     expect(skill).toContain("do not announce, explain, or summarize the plan before the tool call");
     expect(skill).toContain("Its result renders product cards directly; do not call `render_product_cards`");
     expect(skill).toContain("`search_shopify_products`");
-    expect(skill).toContain("Call `search_shopify_products` exactly once per user lookup");
+    expect(skill).toContain("Call `search_shopify_products` exactly once per new user lookup");
+    expect(skill).toContain("`quote_selected_shopify_product`");
+    expect(skill).toContain("Never call `search_shopify_products` again by title");
     expect(skill).toContain("Do not repeat a successful call");
     expect(skill).toContain("Default and explicit-new searches keep `NEW` and unlabeled `UNKNOWN`");
     expect(skill).toContain("Never describe `UNKNOWN` as new");
     expect(skill).toContain("`status: OK`, `coverage: COMPLETE`, and `products.length === 0`");
     expect(skill).toContain("`coverage: PARTIAL`");
     expect(skill).toContain("Global Catalog searches products from Shopify merchants eligible for catalog inclusion");
-    expect(skill).toContain("Do not reuse Global Catalog results for another lookup or download its images");
+    expect(skill).toContain("Do not reuse a result for a different product lookup or download its images");
     expect(skill).toContain("Do not open Chrome when Shopify returns one or more products");
     expect(skill).toContain("an API error, `DATA_SOURCE_UNAVAILABLE`, malformed response, or timeout");
     expect(skill).toContain("explicitly requests no Chrome");
@@ -139,7 +141,7 @@ describe("FindCheap Agent plugin contract", () => {
     };
 
     expect(manifest.name).toBe("findcheap-agent");
-    expect(manifest.version).toMatch(/^0\.6\.10(?:\+codex\.)?/u);
+    expect(manifest.version).toMatch(/^0\.6\.11(?:\+codex\.)?/u);
     expect(manifest.interface.displayName).toBe("FindCheap Agent");
     expect(manifest.interface.longDescription).toMatch(/Codex Plugin Agent/u);
     expect(manifest.interface.longDescription).toMatch(/authorized Chrome/u);
