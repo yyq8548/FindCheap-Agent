@@ -12,6 +12,14 @@ const skillPath = path.join(
   "compare-products",
   "SKILL.md"
 );
+const watchSkillPath = path.join(
+  root,
+  "plugins",
+  "findcheap-agent",
+  "skills",
+  "deals-and-watch",
+  "SKILL.md"
+);
 const manifestPath = path.join(
   root,
   "plugins",
@@ -50,7 +58,8 @@ describe("FindCheap Agent plugin contract", () => {
     expect(skill).toContain("Never restore a rejected product");
     expect(skill).toContain("Never restore a condition-excluded product");
     expect(skill).toContain("Present `EXACT` products first");
-    expect(skill).toContain("Never describe `SIMILAR` as exact");
+    expect(skill).toContain("Never describe `DISCOVERY_MATCH` or `SIMILAR` as exact");
+    expect(skill).toContain("Keyword coverage alone is `DISCOVERY_MATCH`");
     expect(skill).toContain("Keep `IRRELEVANT` products excluded");
     expect(skill).toContain("`matchEvidence`");
     expect(skill).toContain("`variantDimensions`");
@@ -131,12 +140,12 @@ describe("FindCheap Agent plugin contract", () => {
     };
 
     expect(manifest.name).toBe("findcheap-agent");
-    expect(manifest.version).toMatch(/^0\.5\.3(?:\+codex\.)?/u);
+    expect(manifest.version).toMatch(/^0\.6\.0(?:\+codex\.)?/u);
     expect(manifest.interface.displayName).toBe("FindCheap Agent");
     expect(manifest.interface.longDescription).toMatch(/Codex Plugin Agent/u);
     expect(manifest.interface.longDescription).toMatch(/authorized Chrome/u);
     expect(manifest.interface.defaultPrompt).toEqual([
-      "Use search_shopify_products, find_coupons, or create_watch plus Codex Automation. Never launch MCP."
+      "Search products, find verified deals, or create and bind a Watch to Codex Automation. Never launch MCP."
     ]);
     expect(new TextEncoder().encode(manifest.interface.defaultPrompt[0]).length).toBeLessThanOrEqual(128);
   });
@@ -151,6 +160,18 @@ describe("FindCheap Agent plugin contract", () => {
     expect(readme).toContain("authorized Chrome skill");
     expect(readme).toContain("local stdio MCP server");
     expect(readme).toContain("does not order, check out, or submit payment");
+  });
+
+  it("requires durable Codex Automation binding before Watch activation", async () => {
+    const skill = await readFile(watchSkillPath, "utf8");
+
+    expect(skill).toContain("`READY_TO_SCHEDULE`");
+    expect(skill).toContain("native `automation_update` tool");
+    expect(skill).toContain("`bind_watch_automation`");
+    expect(skill).toContain("Never claim monitoring is active until binding succeeds");
+    expect(skill).toContain("delete the newly created Automation");
+    expect(skill).toContain("`LEGACY_UNVERIFIED`");
+    expect(skill).toContain("Automated Watch checks never use Chrome");
   });
 
   it("ships one collision-safe GitHub marketplace identity", async () => {

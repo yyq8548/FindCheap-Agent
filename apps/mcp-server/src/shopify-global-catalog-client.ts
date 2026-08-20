@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { classifyShopifyCandidate } from "./shopify-match.js";
+import { classifyShopifyCandidate, hasStrongProductIdentifier } from "./shopify-match.js";
 import type {
   ShopifyCondition,
   ShopifyPort,
@@ -125,7 +125,7 @@ function searchRequest(input: ShopifySearchInput, profileUrl: string) {
           query,
           filters: {
             ships_to: { country: "US" },
-            available: true,
+            ...(input.includeOutOfStock === true ? {} : { available: true }),
             ...(input.maxItemPriceCents === undefined
               ? {}
               : { price: { max: input.maxItemPriceCents } })
@@ -158,10 +158,12 @@ function buildResult(
     const candidate = toCandidate(product, variant, context.checkedAt);
     return candidate === undefined ? [] : [candidate];
   }));
-  const available = raw.filter((candidate) => candidate.availability === "IN_STOCK");
+  const availabilityEligible = input.includeOutOfStock === true
+    ? raw
+    : raw.filter((candidate) => candidate.availability === "IN_STOCK");
   const priceEligible = input.maxItemPriceCents === undefined
-    ? available
-    : available.filter((candidate) =>
+    ? availabilityEligible
+    : availabilityEligible.filter((candidate) =>
         candidate.itemPrice !== undefined && candidate.itemPrice.amountCents <= input.maxItemPriceCents!
       );
   const classified = input.query === undefined
@@ -172,16 +174,24 @@ function buildResult(
       }))
     : priceEligible.flatMap((candidate) => {
         const match = classifyShopifyCandidate(input.query ?? "", candidate);
+        const catalogIdentityExact = match.status === "DISCOVERY_MATCH" && hasStrongProductIdentifier(input.query ?? "");
         return match.status === "IRRELEVANT" ? [] : [{
           ...candidate,
-          matchStatus: match.status,
-          matchEvidence: match.evidence
+          matchStatus: catalogIdentityExact ? "EXACT" as const : match.status,
+          matchEvidence: catalogIdentityExact
+            ? [...match.evidence, "Shopify Universal Product ID exact"]
+            : match.evidence
         }];
       });
   const requested = requestedCondition(input.query);
   const conditionEligible = classified.filter((candidate) => conditionMatches(candidate.condition, requested));
   const ranked = rankAndDeduplicate(conditionEligible);
-  const sameProduct = input.comparisonMode === "SAME_PRODUCT" ? selectUpidGroup(ranked) : undefined;
+  const upidGroup = input.comparisonMode === "SAME_PRODUCT" ? selectUpidGroup(ranked) : undefined;
+  const sameProduct = upidGroup?.map((candidate) => ({
+    ...candidate,
+    matchStatus: "EXACT" as const,
+    matchEvidence: [...new Set([...candidate.matchEvidence, "Shopify Universal Product ID exact"])]
+  }));
   const pool = sameProduct ?? ranked;
   const selectionMode = input.selectionMode ?? "MERCHANT_DIVERSE";
   const selected = selectionMode === "LOWEST_PRICE"
@@ -213,9 +223,9 @@ function buildResult(
       apiDurationMs: context.durationMs,
       cacheStatus: "MISS",
       chromeFallbackEligible: selected.length === 0,
-      irrelevantProductsExcluded: priceEligible.length - classified.length + (raw.length - available.length),
+      irrelevantProductsExcluded: priceEligible.length - classified.length + (raw.length - availabilityEligible.length),
       conditionProductsExcluded: unsupportedConditions + classified.length - conditionEligible.length,
-      priceProductsExcluded: available.length - priceEligible.length,
+      priceProductsExcluded: availabilityEligible.length - priceEligible.length,
       merchantsFailed: 0,
       coveragePercent: 100,
       failedMerchantIds: [],
@@ -223,10 +233,13 @@ function buildResult(
       registryVersion: `shopify-global-${CATALOG_VERSION}`,
       searchTimeoutMs: context.timeoutMs,
       selectionPolicy: selectionMode === "LOWEST_PRICE"
-        ? "EXACT_THEN_SIMILAR_THEN_PRICE"
-        : "EXACT_THEN_SIMILAR_THEN_DIVERSE_MERCHANTS_THEN_PRICE"
+        ? "EXACT_THEN_DISCOVERY_THEN_SIMILAR_THEN_PRICE"
+        : "EXACT_THEN_DISCOVERY_THEN_SIMILAR_THEN_DIVERSE_MERCHANTS_THEN_PRICE"
     },
-    questions: selected.length > 0 && selected.every((candidate) => candidate.matchStatus === "SIMILAR")
+    questions: selected.length > 0 && (
+      selected.every((candidate) => candidate.matchStatus === "SIMILAR") ||
+      (input.comparisonMode === "SAME_PRODUCT" && sameProduct === undefined)
+    )
       ? ["Only similar products were found. Provide an exact model, SKU, GTIN, color, size, or capacity."]
       : [],
     products: selected.map(({ catalogProductId: _catalogProductId, ...candidate }) => candidate)
@@ -323,7 +336,7 @@ function rankAndDeduplicate(products: GlobalCandidate[]): GlobalCandidate[] {
 
 function selectUpidGroup(products: GlobalCandidate[]): GlobalCandidate[] | undefined {
   const groups = new Map<string, GlobalCandidate[]>();
-  for (const product of products.filter((candidate) => candidate.matchStatus === "EXACT")) {
+  for (const product of products.filter((candidate) => candidate.matchStatus !== "SIMILAR")) {
     const group = groups.get(product.catalogProductId) ?? [];
     if (!group.some((candidate) => candidate.merchantId === product.merchantId)) group.push(product);
     groups.set(product.catalogProductId, group);
@@ -403,7 +416,7 @@ function parseTimeout(value: string | undefined): number {
 }
 
 function matchRank(value: ShopifyProduct["matchStatus"]): number {
-  return value === "EXACT" ? 0 : 1;
+  return value === "EXACT" ? 0 : value === "DISCOVERY_MATCH" ? 1 : 2;
 }
 
 function availabilityRank(value: ShopifyProduct["availability"]): number {

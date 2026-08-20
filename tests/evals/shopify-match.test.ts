@@ -10,8 +10,8 @@ import {
 
 const goldenPath = new URL("./shopify-match-golden.json", import.meta.url);
 
-describe("FindCheap v0.2.2 Shopify product matching gate", () => {
-  it("classifies all 20 golden tasks deterministically", async () => {
+describe("FindCheap v0.5.4 Shopify product matching gate", () => {
+  it("classifies all 30 golden tasks deterministically", async () => {
     const golden = JSON.parse(await readFile(goldenPath, "utf8")) as {
       tasks: Array<{
         id: string;
@@ -21,8 +21,8 @@ describe("FindCheap v0.2.2 Shopify product matching gate", () => {
       }>;
     };
 
-    expect(golden.tasks).toHaveLength(20);
-    expect(new Set(golden.tasks.map((task) => task.id)).size).toBe(20);
+    expect(golden.tasks).toHaveLength(30);
+    expect(new Set(golden.tasks.map((task) => task.id)).size).toBe(30);
     for (const task of golden.tasks) {
       expect(classifyShopifyCandidate(task.query, task.candidate).status, task.id).toBe(task.expected);
     }
@@ -62,7 +62,33 @@ describe("FindCheap v0.2.2 Shopify product matching gate", () => {
       brand: "Sony",
       sku: "WH1000XM5",
       productType: "Headphones"
-    })).toMatchObject({ status: "EXACT", evidence: expect.arrayContaining(["model/MPN exact"]) });
+    })).toMatchObject({ status: "EXACT", evidence: expect.arrayContaining(["brand and MPN exact"]) });
+  });
+
+  it("accepts exact brand and MPN inside additional descriptive terms", () => {
+    expect(classifyShopifyCandidate("Sony wireless WH-1000XM5 headphones", {
+      title: "Sony Wireless Headphones",
+      brand: "Sony",
+      sku: "WH1000XM5",
+      productType: "Headphones"
+    })).toMatchObject({ status: "EXACT", evidence: expect.arrayContaining(["brand and MPN exact"]) });
+  });
+
+  it("does not call a keyword-only match exact", () => {
+    expect(classifyShopifyCandidate("blue jeans", {
+      title: "High Rise Blue Jeans",
+      productType: "Jeans",
+      variantDimensions: { Color: "Blue" }
+    })).toMatchObject({ status: "DISCOVERY_MATCH" });
+  });
+
+  it("requires the candidate brand in the query before MPN evidence is exact", () => {
+    expect(classifyShopifyCandidate("WH-1000XM5", {
+      title: "Wireless Headphones",
+      brand: "Sony",
+      sku: "WH1000XM5",
+      productType: "Headphones"
+    })).toMatchObject({ status: "DISCOVERY_MATCH" });
   });
 
   it("does not mistake an SKU fragment for requested size evidence", () => {
@@ -94,7 +120,7 @@ describe("FindCheap v0.2.2 Shopify product matching gate", () => {
     expect(classifyShopifyCandidate("denim key charm", {
       title: "Denim Key Charm",
       productType: "Accessories"
-    })).toMatchObject({ status: "EXACT" });
+    })).toMatchObject({ status: "DISCOVERY_MATCH" });
   });
 
   it.each([

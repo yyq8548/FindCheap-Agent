@@ -1,5 +1,7 @@
 # FindCheap Agent v0.5.0 — Coupon + Watch
 
+Watch scheduling lifecycle is superseded by [v0.6.0 Watch End to End](watch-end-to-end-v0.6.0.md). v0.5.0 rules without a stored Automation ID are treated as legacy records.
+
 ## Delivered
 
 - `find_coupons`: current verified Coupon, Promo Code, brand promotion, membership offer, Cashback, and offline barcode evidence.

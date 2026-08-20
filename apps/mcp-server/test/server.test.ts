@@ -59,7 +59,7 @@ const shopifyPort: ShopifyPort = {
       timedOutMerchantIds: [],
       registryVersion: "v1",
       searchTimeoutMs: 3_000,
-      selectionPolicy: "EXACT_THEN_SIMILAR_THEN_DIVERSE_MERCHANTS_THEN_PRICE"
+      selectionPolicy: "EXACT_THEN_DISCOVERY_THEN_SIMILAR_THEN_DIVERSE_MERCHANTS_THEN_PRICE"
     },
     questions: [],
     products: [{
@@ -155,18 +155,18 @@ describe("shopping MCP server", () => {
     const renderTool = tools.tools.find((candidate) => candidate.name === "render_product_cards");
     expect(searchTool?._meta).toBeUndefined();
     expect(renderTool?._meta).toMatchObject({
-      ui: { resourceUri: "ui://findcheap/product-cards/v8.html" },
-      "openai/outputTemplate": "ui://findcheap/product-cards/v8.html"
+      ui: { resourceUri: "ui://findcheap/product-cards/v9.html" },
+      "openai/outputTemplate": "ui://findcheap/product-cards/v9.html"
     });
 
     const resources = await client.listResources();
     expect(resources.resources).toEqual([expect.objectContaining({
       name: "findcheap-product-cards",
-      uri: "ui://findcheap/product-cards/v8.html",
+      uri: "ui://findcheap/product-cards/v9.html",
       mimeType: "text/html;profile=mcp-app"
     })]);
 
-    const resource = await client.readResource({ uri: "ui://findcheap/product-cards/v8.html" });
+    const resource = await client.readResource({ uri: "ui://findcheap/product-cards/v9.html" });
     const content = resource.contents[0];
     const html = content !== undefined && "text" in content ? content.text : "";
     expect(html).toContain("ui/notifications/tool-result");
@@ -203,6 +203,7 @@ describe("shopping MCP server", () => {
       "search_shopify_products",
       "find_coupons",
       "create_watch",
+      "bind_watch_automation",
       "check_watch",
       "list_watches",
       "pause_watch",
@@ -237,7 +238,8 @@ describe("shopping MCP server", () => {
     expect(tools.tools[2]?.inputSchema.properties?.selectionMode).toMatchObject({
       description: expect.stringContaining("MERCHANT_DIVERSE")
     });
-    expect(Object.keys(tools.tools[9]?.inputSchema.properties ?? {})).toEqual(["renderId"]);
+    expect(Object.keys(tools.tools.find((tool) => tool.name === "render_product_cards")?.inputSchema.properties ?? {}))
+      .toEqual(["renderId"]);
     expect(tools.tools[0]?.annotations).toMatchObject({
       readOnlyHint: true,
       destructiveHint: false
@@ -298,7 +300,7 @@ describe("shopping MCP server", () => {
         timedOutMerchantIds: [],
         registryVersion: "v1",
         searchTimeoutMs: 3_000,
-        selectionPolicy: "EXACT_THEN_SIMILAR_THEN_DIVERSE_MERCHANTS_THEN_PRICE"
+        selectionPolicy: "EXACT_THEN_DISCOVERY_THEN_SIMILAR_THEN_DIVERSE_MERCHANTS_THEN_PRICE"
       },
       questions: [],
       products: [{
@@ -361,7 +363,7 @@ describe("shopping MCP server", () => {
     });
     expect(rendered.content).toEqual([{
       type: "text",
-      text: "Rendered 1 verified product card."
+      text: "Rendered 1 product card with explicit identity labels."
     }]);
   });
 
@@ -725,6 +727,51 @@ describe("Coupon and Watch tools", () => {
     expect((await client.callTool({ name: "list_watches", arguments: {} })).structuredContent).toEqual({ watches: [] });
   });
 
+  it("requires a merchant for a generation-only product watch", async () => {
+    const client = await connect({ compare: async () => comparison }, bestBuyPort, shopifyPort, undefined, { now: () => current });
+    const created = await client.callTool({ name: "create_watch", arguments: {
+      query: "Rhodia Dress Narcissus Bloom",
+      condition: "PRICE_BELOW",
+      threshold: 20_000,
+      identity: { generation: "Rhodia Dress Narcissus Bloom", variantDimensions: { Size: "XXS" } },
+      conditionPreference: "ANY"
+    } });
+
+    expect(created.structuredContent).toMatchObject({
+      status: "NEEDS_CLARIFICATION",
+      questions: [expect.stringMatching(/merchant/i)]
+    });
+  });
+
+  it("allows a merchant-bound named style only when discovery identity and variants match", async () => {
+    const discoveryPort: ShopifyPort = { search: async (input) => {
+      const result = await shopifyPort.search(input);
+      return {
+        ...result,
+        products: result.products.map((product) => ({
+          ...product,
+          matchStatus: "DISCOVERY_MATCH" as const,
+          matchEvidence: ["all query terms matched"],
+          condition: "UNKNOWN" as const
+        }))
+      };
+    } };
+    const client = await connect({ compare: async () => comparison }, bestBuyPort, discoveryPort, undefined, { now: () => current });
+    const created = await client.callTool({ name: "create_watch", arguments: {
+      query: "Valhalla Java pods",
+      merchant: "Death Wish Coffee",
+      condition: "PRICE_BELOW",
+      threshold: 1_700,
+      identity: { generation: "Valhalla Java", variantDimensions: { "Pack Size": "10 count" } },
+      conditionPreference: "ANY"
+    } });
+    const watchId = (created.structuredContent as { watchId: string }).watchId;
+    await client.callTool({ name: "bind_watch_automation", arguments: { watchId, automationId: "watch-named-style" } });
+
+    expect((await client.callTool({ name: "check_watch", arguments: { watchId } })).structuredContent)
+      .toMatchObject({ status: "TRIGGERED" });
+  });
+
   it("fails closed before source lookup for a legacy broad product watch", async () => {
     const watches = createMemoryWatchStore();
     const legacy = await watches.create({
@@ -748,6 +795,7 @@ describe("Coupon and Watch tools", () => {
       conditionPreference: "NEW"
     } });
     const watchId = (created.structuredContent as { watchId: string }).watchId;
+    await client.callTool({ name: "bind_watch_automation", arguments: { watchId, automationId: "watch-identity-bound" } });
 
     expect((await client.callTool({ name: "check_watch", arguments: { watchId } })).structuredContent).toMatchObject({
       status: "DATA_SOURCE_UNAVAILABLE"
@@ -764,32 +812,99 @@ describe("Coupon and Watch tools", () => {
       identity: { modelNumber: "MTJV3AM/A" }, conditionPreference: "ANY"
     } });
     const watchId = (created.structuredContent as { watchId: string }).watchId;
+    await client.callTool({ name: "bind_watch_automation", arguments: { watchId, automationId: "watch-identity-reject" } });
 
     expect((await client.callTool({ name: "check_watch", arguments: { watchId } })).structuredContent).toMatchObject({
       status: "DATA_SOURCE_UNAVAILABLE"
     });
   });
 
-  it("persists a price watch, triggers once, and supports pause/delete", async () => {
+  it("accepts an exact model number embedded in a Global Catalog title when SKU is absent", async () => {
+    const globalPort: ShopifyPort = { search: async (input) => {
+      const result = await shopifyPort.search(input);
+      return {
+        ...result,
+        products: result.products.map((product) => {
+          const { sku: _sku, ...withoutSku } = product;
+          return {
+            ...withoutSku,
+            title: "Sony WH-1000XM5 Wireless Headphones",
+            variantDimensions: {},
+            condition: "NEW" as const,
+            itemPrice: { amountCents: 24_999, currency: "USD" as const }
+          };
+        })
+      };
+    } };
+    const client = await connect({ compare: async () => comparison }, bestBuyPort, globalPort, undefined, { now: () => current });
+    const created = await client.callTool({ name: "create_watch", arguments: {
+      query: "Sony WH-1000XM5",
+      condition: "PRICE_BELOW",
+      threshold: 25_000,
+      identity: { modelNumber: "WH-1000XM5" },
+      conditionPreference: "NEW"
+    } });
+    const watchId = (created.structuredContent as { watchId: string }).watchId;
+    await client.callTool({ name: "bind_watch_automation", arguments: { watchId, automationId: "watch-global-model" } });
+
+    expect((await client.callTool({ name: "check_watch", arguments: { watchId } })).structuredContent)
+      .toMatchObject({ status: "TRIGGERED" });
+  });
+
+  it("activates a price watch only after its Codex Automation is bound", async () => {
     const client = await connect({ compare: async () => comparison }, bestBuyPort, shopifyPort, undefined, { now: () => current });
     const created = await client.callTool({ name: "create_watch", arguments: {
       query: "Valhalla Java pods", condition: "PRICE_BELOW", threshold: 1_700, intervalMinutes: 60,
       identity: { modelNumber: "5094SSC", variantDimensions: { "Pack Size": "10 count" } }, conditionPreference: "ANY"
     } });
     const watchId = (created.structuredContent as { watchId: string }).watchId;
-    expect(created.structuredContent).toMatchObject({ status: "ACTIVE", intervalMinutes: 60 });
+    expect(created.structuredContent).toMatchObject({ status: "READY_TO_SCHEDULE", intervalMinutes: 60 });
     expect((created.structuredContent as { automationPrompt: string }).automationPrompt).toContain(watchId);
+    expect((created.structuredContent as { automationPrompt: string }).automationPrompt).toContain("checkedAt");
+    expect((await client.callTool({ name: "check_watch", arguments: { watchId } })).structuredContent).toMatchObject({
+      status: "NOT_SCHEDULED", watchId
+    });
+
+    expect((await client.callTool({ name: "bind_watch_automation", arguments: {
+      watchId, automationId: "findcheap-valhalla-price"
+    } })).structuredContent).toEqual({
+      status: "ACTIVE", watchId, automationId: "findcheap-valhalla-price"
+    });
 
     const first = await client.callTool({ name: "check_watch", arguments: { watchId } });
     const second = await client.callTool({ name: "check_watch", arguments: { watchId } });
     expect(first.structuredContent).toMatchObject({ status: "TRIGGERED", watchId });
+    expect(first.structuredContent).toMatchObject({
+      observation: {
+        merchant: "Death Wish Coffee",
+        merchantUrl: "https://deathwishcoffee.com/products/valhalla-java-single-serve-pods",
+        itemPrice: { amountCents: 1_499, currency: "USD" },
+        checkedAt: "2026-08-18T11:59:00.000Z"
+      }
+    });
     expect(second.structuredContent).toMatchObject({ status: "NOT_TRIGGERED", watchId });
 
     expect((await client.callTool({ name: "list_watches", arguments: {} })).structuredContent).toMatchObject({
-      watches: [{ watchId, status: "ACTIVE", condition: "PRICE_BELOW" }]
+      watches: [{
+        watchId,
+        status: "ACTIVE",
+        monitoringStatus: "ACTIVE",
+        automationId: "findcheap-valhalla-price",
+        condition: "PRICE_BELOW"
+      }]
     });
-    expect((await client.callTool({ name: "pause_watch", arguments: { watchId, paused: true } })).structuredContent).toMatchObject({ status: "PAUSED" });
-    expect((await client.callTool({ name: "delete_watch", arguments: { watchId } })).structuredContent).toMatchObject({ deleted: true });
+    expect((await client.callTool({ name: "pause_watch", arguments: {
+      watchId, paused: true, automationId: "wrong-automation"
+    } })).structuredContent).toMatchObject({ status: "AUTOMATION_SYNC_REQUIRED" });
+    expect((await client.callTool({ name: "pause_watch", arguments: {
+      watchId, paused: true, automationId: "findcheap-valhalla-price"
+    } })).structuredContent).toMatchObject({ status: "PAUSED" });
+    expect((await client.callTool({ name: "delete_watch", arguments: {
+      watchId, automationId: "wrong-automation"
+    } })).structuredContent).toMatchObject({ status: "AUTOMATION_SYNC_REQUIRED", deleted: false });
+    expect((await client.callTool({ name: "delete_watch", arguments: {
+      watchId, automationId: "findcheap-valhalla-price"
+    } })).structuredContent).toMatchObject({ status: "DELETED", deleted: true });
   });
 
   it("serializes concurrent checks so one threshold crossing sends one alert", async () => {
@@ -799,6 +914,7 @@ describe("Coupon and Watch tools", () => {
       identity: { modelNumber: "5094SSC" }, conditionPreference: "ANY"
     } });
     const watchId = (created.structuredContent as { watchId: string }).watchId;
+    await client.callTool({ name: "bind_watch_automation", arguments: { watchId, automationId: "watch-concurrent" } });
     const results = await Promise.all([
       client.callTool({ name: "check_watch", arguments: { watchId } }),
       client.callTool({ name: "check_watch", arguments: { watchId } })
@@ -808,18 +924,104 @@ describe("Coupon and Watch tools", () => {
     ]);
   });
 
+  it("never binds one Codex Automation to two watches", async () => {
+    const client = await connect({ compare: async () => comparison }, bestBuyPort, shopifyPort, undefined, { now: () => current });
+    const first = await client.callTool({ name: "create_watch", arguments: {
+      query: "Valhalla Java pods", condition: "PRICE_BELOW", threshold: 1_700,
+      identity: { modelNumber: "5094SSC" }, conditionPreference: "ANY"
+    } });
+    const second = await client.callTool({ name: "create_watch", arguments: {
+      query: "Valhalla Java pods", condition: "PRICE_BELOW", threshold: 1_600,
+      identity: { modelNumber: "5094SSC" }, conditionPreference: "ANY"
+    } });
+    const firstWatchId = (first.structuredContent as { watchId: string }).watchId;
+    const secondWatchId = (second.structuredContent as { watchId: string }).watchId;
+    await client.callTool({ name: "bind_watch_automation", arguments: {
+      watchId: firstWatchId, automationId: "one-automation"
+    } });
+
+    expect((await client.callTool({ name: "bind_watch_automation", arguments: {
+      watchId: secondWatchId, automationId: "one-automation"
+    } })).structuredContent).toMatchObject({
+      status: "AUTOMATION_ALREADY_BOUND",
+      watchId: secondWatchId,
+      automationId: "one-automation"
+    });
+  });
+
+  it("does not bind an Automation after the Watch expires", async () => {
+    let clock = current;
+    const client = await connect({ compare: async () => comparison }, bestBuyPort, shopifyPort, undefined, {
+      now: () => clock
+    });
+    const created = await client.callTool({ name: "create_watch", arguments: {
+      query: "Valhalla Java pods",
+      condition: "PRICE_BELOW",
+      threshold: 1_700,
+      identity: { modelNumber: "5094SSC" },
+      conditionPreference: "ANY",
+      expiresAt: "2026-08-18T12:01:00.000Z"
+    } });
+    const watchId = (created.structuredContent as { watchId: string }).watchId;
+    clock = new Date("2026-08-18T12:02:00.000Z");
+
+    expect((await client.callTool({ name: "bind_watch_automation", arguments: {
+      watchId,
+      automationId: "late-automation"
+    } })).structuredContent).toMatchObject({ status: "EXPIRED" });
+    expect((await client.callTool({ name: "list_watches", arguments: {} })).structuredContent).toMatchObject({
+      watches: [{ watchId, monitoringStatus: "EXPIRED" }]
+    });
+  });
+
+  it("keeps legacy checks runnable but requires reconciliation before lifecycle changes", async () => {
+    const watches = createMemoryWatchStore();
+    const created = await watches.create({
+      query: "Valhalla Java pods",
+      condition: "PRICE_BELOW",
+      threshold: 1_700,
+      membershipIds: [],
+      identity: { modelNumber: "5094SSC" },
+      conditionPreference: "ANY",
+      intervalMinutes: 60
+    }, current.toISOString());
+    const { schedulingState: _schedulingState, ...legacy } = created;
+    await watches.save(legacy);
+    const client = await connect({ compare: async () => comparison }, bestBuyPort, shopifyPort, undefined, {
+      now: () => current,
+      watches
+    });
+
+    expect((await client.callTool({ name: "list_watches", arguments: {} })).structuredContent).toMatchObject({
+      watches: [{ watchId: created.watchId, monitoringStatus: "LEGACY_UNVERIFIED" }]
+    });
+    expect((await client.callTool({ name: "check_watch", arguments: { watchId: created.watchId } })).structuredContent)
+      .toMatchObject({ status: "TRIGGERED" });
+    expect((await client.callTool({ name: "pause_watch", arguments: {
+      watchId: created.watchId,
+      paused: true
+    } })).structuredContent).toMatchObject({ status: "AUTOMATION_SYNC_REQUIRED" });
+    expect((await client.callTool({ name: "bind_watch_automation", arguments: {
+      watchId: created.watchId,
+      automationId: "legacy-existing-automation"
+    } })).structuredContent).toMatchObject({ status: "ACTIVE" });
+  });
+
   it("establishes a restock baseline before notifying", async () => {
     let availability: "OUT_OF_STOCK" | "IN_STOCK" = "OUT_OF_STOCK";
-    const changingPort: ShopifyPort = { search: async (input) => {
+    const search = vi.fn(async (input: Parameters<ShopifyPort["search"]>[0]) => {
       const result = await shopifyPort.search(input);
       return { ...result, products: result.products.map((product) => ({ ...product, availability })) };
-    } };
+    });
+    const changingPort: ShopifyPort = { search };
     const client = await connect({ compare: async () => comparison }, bestBuyPort, changingPort, undefined, { now: () => current });
     const created = await client.callTool({ name: "create_watch", arguments: {
       query: "Valhalla Java pods", condition: "RESTOCKED", identity: { gtin: "810063341254" }, conditionPreference: "ANY"
     } });
     const watchId = (created.structuredContent as { watchId: string }).watchId;
+    await client.callTool({ name: "bind_watch_automation", arguments: { watchId, automationId: "watch-restock" } });
     expect((await client.callTool({ name: "check_watch", arguments: { watchId } })).structuredContent).toMatchObject({ status: "NOT_TRIGGERED" });
+    expect(search).toHaveBeenLastCalledWith(expect.objectContaining({ includeOutOfStock: true }));
     availability = "IN_STOCK";
     expect((await client.callTool({ name: "check_watch", arguments: { watchId } })).structuredContent).toMatchObject({ status: "TRIGGERED" });
   });
@@ -833,6 +1035,7 @@ describe("Coupon and Watch tools", () => {
       query: "Aritzia sale", merchant: "Aritzia", condition: "DISCOUNT_AT_LEAST", threshold: 30
     } });
     const watchId = (created.structuredContent as { watchId: string }).watchId;
+    await client.callTool({ name: "bind_watch_automation", arguments: { watchId, automationId: "watch-deal" } });
     expect((await client.callTool({ name: "check_watch", arguments: { watchId } })).structuredContent).toMatchObject({ status: "TRIGGERED" });
   });
 });

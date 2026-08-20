@@ -1,7 +1,8 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import http from "node:http";
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -59,7 +60,7 @@ describe("installed plugin stdio", () => {
       const tools = await client.listTools();
       const resources = await client.listResources();
       const productCards = await client.readResource({
-        uri: "ui://findcheap/product-cards/v8.html"
+        uri: "ui://findcheap/product-cards/v9.html"
       });
       const comparison = await client.callTool({
         name: "compare_products",
@@ -72,6 +73,7 @@ describe("installed plugin stdio", () => {
         "search_shopify_products",
         "find_coupons",
         "create_watch",
+        "bind_watch_automation",
         "check_watch",
         "list_watches",
         "pause_watch",
@@ -82,16 +84,16 @@ describe("installed plugin stdio", () => {
       const renderTool = tools.tools.find((tool) => tool.name === "render_product_cards");
       expect(shopifyTool?._meta).toBeUndefined();
       expect(renderTool?._meta).toMatchObject({
-        ui: { resourceUri: "ui://findcheap/product-cards/v8.html" },
-        "openai/outputTemplate": "ui://findcheap/product-cards/v8.html"
+        ui: { resourceUri: "ui://findcheap/product-cards/v9.html" },
+        "openai/outputTemplate": "ui://findcheap/product-cards/v9.html"
       });
       expect(resources.resources).toEqual([expect.objectContaining({
         name: "findcheap-product-cards",
-        uri: "ui://findcheap/product-cards/v8.html",
+        uri: "ui://findcheap/product-cards/v9.html",
         mimeType: "text/html;profile=mcp-app"
       })]);
       expect(productCards.contents).toEqual([expect.objectContaining({
-        uri: "ui://findcheap/product-cards/v8.html",
+        uri: "ui://findcheap/product-cards/v9.html",
         mimeType: "text/html;profile=mcp-app",
         text: expect.stringContaining("ui/notifications/tool-result")
       })]);
@@ -184,7 +186,63 @@ describe("installed plugin stdio", () => {
       await new Promise<void>((resolve, reject) => api.close((error) => error ? reject(error) : resolve()));
     }
   }, 10_000);
+
+  it("persists the Watch-to-Automation lifecycle across MCP restarts", async () => {
+    const stateDirectory = await mkdtemp(path.join(tmpdir(), "findcheap-watch-e2e-"));
+    let first: Client | undefined;
+    let second: Client | undefined;
+    try {
+      first = await connectBundledClient({ FINDCHEAP_STATE_DIR: stateDirectory });
+      const created = await first.callTool({ name: "create_watch", arguments: {
+        query: "Sony WH-1000XM5",
+        condition: "PRICE_BELOW",
+        threshold: 25_000,
+        identity: { modelNumber: "WH-1000XM5" },
+        conditionPreference: "NEW",
+        intervalMinutes: 60
+      } });
+      const watchId = (created.structuredContent as { watchId: string }).watchId;
+      expect(created.structuredContent).toMatchObject({ status: "READY_TO_SCHEDULE" });
+      expect((await first.callTool({ name: "bind_watch_automation", arguments: {
+        watchId,
+        automationId: "findcheap-sony-xm5"
+      } })).structuredContent).toMatchObject({ status: "ACTIVE" });
+      await first.close();
+      first = undefined;
+
+      second = await connectBundledClient({ FINDCHEAP_STATE_DIR: stateDirectory });
+      expect((await second.callTool({ name: "list_watches", arguments: {} })).structuredContent).toMatchObject({
+        watches: [{ watchId, monitoringStatus: "ACTIVE", automationId: "findcheap-sony-xm5" }]
+      });
+      expect((await second.callTool({ name: "pause_watch", arguments: {
+        watchId,
+        paused: true,
+        automationId: "findcheap-sony-xm5"
+      } })).structuredContent).toMatchObject({ status: "PAUSED" });
+      expect((await second.callTool({ name: "delete_watch", arguments: {
+        watchId,
+        automationId: "findcheap-sony-xm5"
+      } })).structuredContent).toMatchObject({ status: "DELETED", deleted: true });
+    } finally {
+      await first?.close();
+      await second?.close();
+      await rm(stateDirectory, { recursive: true, force: true });
+    }
+  }, 10_000);
 });
+
+async function connectBundledClient(extraEnvironment: Record<string, string>): Promise<Client> {
+  const transport = new StdioClientTransport({
+    command: "node",
+    args: ["./dist/mcp-server.js"],
+    cwd: pluginRoot,
+    stderr: "pipe",
+    env: { ...definedEnvironment(), ...extraEnvironment }
+  });
+  const client = new Client({ name: "watch-lifecycle-stdio-smoke", version: "0.0.0" });
+  await client.connect(transport);
+  return client;
+}
 
 function quote(quoteId: string, amountCents: number) {
   return {

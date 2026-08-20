@@ -77,6 +77,23 @@ describe("Shopify Global Catalog client", () => {
       merchantUrl: "https://skybygramophone.com/products/sony-wh-1000xm5?variant=42797821853913",
       checkedAt: now
     });
+    expect(result.products.every((entry) => entry.matchStatus === "EXACT")).toBe(true);
+    expect(result.products[0]?.matchEvidence).toContain("Shopify Universal Product ID exact");
+  });
+
+  it("keeps category keyword results as discovery matches", async () => {
+    const fetch = vi.fn(async () => catalogResponse([
+      product({ shopId: "11236098", merchant: "GRAMOPHONE", host: "skybygramophone.com", price: 24_800 })
+    ]));
+    const port = createShopifyGlobalCatalogPort(
+      { SHOPIFY_AGENT_PROFILE_URL: profileUrl },
+      { fetch, clock: { now: () => new Date(now) } }
+    );
+
+    const result = await port.search({ query: "headphones", limit: 3, comparisonMode: "DISCOVERY" });
+
+    expect(result.products[0]?.matchStatus).toBe("DISCOVERY_MATCH");
+    expect(result.products[0]?.matchEvidence).not.toContain("Shopify Universal Product ID exact");
   });
 
   it("does not cache Global Catalog results", async () => {
@@ -104,6 +121,28 @@ describe("Shopify Global Catalog client", () => {
     expect(fetch).toHaveBeenCalledTimes(1);
     const request = JSON.parse(String(fetch.mock.calls[0]![1]!.body));
     expect(request.params.arguments.catalog.query).toBe("DÔEN dress");
+  });
+
+  it("omits the available-only Catalog filter and retains out-of-stock variants for Watch checks", async () => {
+    const fetch = vi.fn(async (_input: string, _init: RequestInit) => catalogResponse([
+      product({ shopId: "4", merchant: "Unavailable", host: "unavailable.example", price: 100, available: false })
+    ]));
+    const port = createShopifyGlobalCatalogPort(
+      { SHOPIFY_AGENT_PROFILE_URL: profileUrl },
+      { fetch, clock: { now: () => new Date(now) } }
+    );
+
+    const result = await port.search({
+      query: "Sony WH-1000XM5",
+      limit: 3,
+      includeOutOfStock: true
+    });
+
+    const request = JSON.parse(String(fetch.mock.calls[0]![1]!.body));
+    expect(request.params.arguments.catalog.filters).not.toHaveProperty("available");
+    expect(result.products).toEqual([
+      expect.objectContaining({ merchant: "Unavailable", availability: "OUT_OF_STOCK" })
+    ]);
   });
 
   it("uses one Shopify Universal Product ID as exact cross-merchant identity", async () => {

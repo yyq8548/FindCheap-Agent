@@ -14,7 +14,7 @@ The agent is read only. It does not order, check out, or submit payment.
 
 The agent searches Shopify Global Catalog across eligible merchants. It understands common product details such as brand, model, SKU, GTIN, color, size, and capacity.
 
-Results are classified as `EXACT` or `SIMILAR`. If the request is too broad, the agent asks for the missing model or variant instead of presenting a weak match as the same product.
+Results are classified as `EXACT`, `DISCOVERY_MATCH`, or `SIMILAR`. `EXACT` requires strong UPID, GTIN, or brand-plus-MPN/SKU evidence with the requested variant. Keyword matches remain discovery results instead of being presented as the same product.
 
 When the catalog returns no usable result, the agent can use a user authorized Chrome session for a bounded, read only search of public merchant pages. Chrome is a fallback, not the default search path.
 
@@ -35,7 +35,7 @@ The default result is the public item price, not a guaranteed delivered price. S
 
 ### Show product cards
 
-Codex can render the top results as interactive product cards. Each card shows the image, merchant, price, match quality, condition, availability, and a button that opens the merchant's product page.
+Codex can render the top results as interactive product cards grouped into exact matches, discovery matches, and similar options. Each card shows the image, merchant, price, identity evidence, model/SKU when available, variants, condition, availability, observation time, and a button that opens the merchant's product page.
 
 The complete text result remains available when a Codex client cannot display the card interface.
 
@@ -45,7 +45,7 @@ The plugin has a fail closed Coupon and promotion path. It can return a code, pr
 
 Without that evidence, the agent reports the deal as unavailable. It does not invent codes, savings, or Cashback rates.
 
-### Create watch reminders
+### Create persistent Watch reminders
 
 Users can ask Codex to watch a product and notify them when a condition is met. Supported watch conditions include:
 
@@ -54,7 +54,9 @@ Users can ask Codex to watch a product and notify them when a condition is met. 
 - inventory returns
 - a specific size, color, or variant is restocked
 
-Scheduling and notifications use Codex Automation. The plugin stores the watch rule and its last known state so it can report a change instead of repeating the same alert. Codex must remain configured to run the automation for monitoring to continue.
+Scheduling and notifications use native Codex Automation. v0.6.0 stores the Automation ID with the Watch and does not report monitoring as active until that binding succeeds. The plugin persists the rule, last observation, and transition state across MCP restarts so it can report a change once instead of repeating the same alert.
+
+Pause, resume, and delete synchronize the bound Automation and Watch rule. Existing pre-v0.6.0 rules remain runnable but are labeled `LEGACY_UNVERIFIED` until their Automation ID is reconciled.
 
 Example requests:
 
@@ -77,11 +79,13 @@ Affiliate status does not influence search or ranking.
 ## Current limits
 
 - Search coverage depends on Shopify Global Catalog and the public pages available to the authorized Chrome fallback.
+- A product marked `DISCOVERY_MATCH` is relevant but lacks independently verified same-product identity.
 - A product marked `SIMILAR` is an alternative, not the same item.
 - `UNKNOWN` condition does not mean new.
 - Stock signals and item prices can change after the observation time.
 - Shipping, tax, fees, membership prices, Coupon savings, and delivered prices are not estimated.
 - The agent cannot check out, purchase, reserve inventory, or pay.
+- Watch runs require Codex Automation and a currently available verified source. Automated checks never use Chrome.
 
 ## Install
 

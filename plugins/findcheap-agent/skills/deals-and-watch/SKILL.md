@@ -3,7 +3,7 @@ name: deals-and-watch
 description: Find verified Coupon, promotion, membership, Cashback, and offline-barcode evidence, or create and manage persistent shopping watches with Codex Automation.
 ---
 
-# FindCheap Agent v0.5.3 Deals and Watch
+# FindCheap Agent v0.6.0 Deals and Watch
 
 Use this workflow when the user asks for a Coupon before paying or asks to monitor a future purchase.
 
@@ -23,10 +23,18 @@ Risk tier: creating a recurring notification is `R2`. The user's direct request 
    - `DISCOUNT_AT_LEAST` or `CASHBACK_AT_LEAST`: threshold is percentage points and merchant is required.
    - `COUPON_AVAILABLE`: merchant is required.
    - `IN_STOCK` or `RESTOCKED`.
-2. For `PRICE_BELOW`, `IN_STOCK`, or `RESTOCKED`, require a generation, exact model number, or GTIN and an explicit condition preference: `NEW`, `USED`, `REFURBISHED`, `OPEN_BOX`, or `ANY`. Never interpret omission as any generation or any condition. Preserve requested size, color, capacity, and other variant dimensions.
-3. Call `create_watch`. Never infer product identity, condition, ZIP, membership, threshold, or expiration. If it returns `NEEDS_CLARIFICATION`, ask its questions and do not create an Automation.
-4. Only after `create_watch` returns `ACTIVE`, create a recurring Codex Automation using exactly the returned `automationPrompt` and `intervalMinutes`. Do not claim monitoring is active until both steps succeed.
-5. Each scheduled run calls `check_watch` once. Notify only for `TRIGGERED`. `NOT_TRIGGERED` is a silent check. `NEEDS_CLARIFICATION` requires the user to replace the broad legacy watch. `DATA_SOURCE_UNAVAILABLE` is not a deal or stock result.
-6. Use `list_watches`, `pause_watch`, and `delete_watch` for management. When deleting, also remove the matching Codex Automation.
+2. For `PRICE_BELOW`, `IN_STOCK`, or `RESTOCKED`, require a generation, exact model number, or GTIN and an explicit condition preference: `NEW`, `USED`, `REFURBISHED`, `OPEN_BOX`, or `ANY`. A generation or named style without model/GTIN also requires an explicit merchant. Never interpret omission as any generation, merchant, or condition. Preserve requested size, color, capacity, and other variant dimensions.
+3. Call `create_watch`. Never infer product identity, condition, ZIP, membership, threshold, or expiration. Handle its status exactly:
+   - `NEEDS_CLARIFICATION`: ask its questions; create no Automation.
+   - `ACTIVE`: the duplicate rule is already bound; create no duplicate Automation.
+   - `PAUSED`: the duplicate rule already exists but is paused; create no duplicate Automation.
+   - `LEGACY_UNVERIFIED`: locate the existing Automation that references the returned watch ID and call `bind_watch_automation`; create no duplicate until reconciliation proves none exists.
+   - `READY_TO_SCHEDULE`: continue below.
+4. For `READY_TO_SCHEDULE`, use the native `automation_update` tool to create one recurring heartbeat Automation in the current task. Use exactly the returned `automationPrompt` and `intervalMinutes`. Then call `bind_watch_automation` with the returned Automation ID. If binding does not return `ACTIVE`, delete the newly created Automation. Never claim monitoring is active until binding succeeds.
+5. Each scheduled run calls `check_watch` exactly once. Notify only for `TRIGGERED`, including the observed merchant/value, `checkedAt`, and direct source or merchant link from `observation`. `NOT_TRIGGERED` is a silent check. `NOT_SCHEDULED` means setup is incomplete. `NEEDS_CLARIFICATION` requires replacement of the broad legacy watch. `DATA_SOURCE_UNAVAILABLE` is not a deal or stock result. Automated Watch checks never use Chrome.
+6. Manage both sides as one lifecycle:
+   - Pause/resume: call `list_watches`, update the bound Automation first, then call `pause_watch` with the same `automationId`. Roll back the Automation update if the Watch update fails.
+   - Delete: call `list_watches`, delete the bound Automation first, then call `delete_watch` with the same `automationId`.
+   - A `LEGACY_UNVERIFIED` Watch must be bound to its existing Automation before pause, resume, or delete.
 
 Current live conditions are product price, verified promotion/Coupon/Cashback, stock, and restock. Travel, hotel, ticket, appointment, and automatic-buy execution remain unavailable until dedicated authorized sources and transaction controls exist.
