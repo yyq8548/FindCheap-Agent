@@ -34,6 +34,13 @@ const shopifyPort: ShopifyPort = {
       apiDurationMs: 250,
       cacheStatus: "MISS",
       chromeFallbackEligible: false,
+      queryAttempts: 1,
+      fallbackQueryUsed: false,
+      catalogProductsReturned: 1,
+      catalogVariantsReturned: 1,
+      catalogZeroResultAttempts: 0,
+      outOfStockProductsExcluded: 0,
+      identityProductsExcluded: 0,
       irrelevantProductsExcluded: 0,
       conditionProductsExcluded: 0,
       priceProductsExcluded: 0,
@@ -265,6 +272,13 @@ describe("shopping MCP server", () => {
         apiDurationMs: 250,
         cacheStatus: "MISS",
         chromeFallbackEligible: false,
+        queryAttempts: 1,
+        fallbackQueryUsed: false,
+        catalogProductsReturned: 1,
+        catalogVariantsReturned: 1,
+        catalogZeroResultAttempts: 0,
+        outOfStockProductsExcluded: 0,
+        identityProductsExcluded: 0,
         irrelevantProductsExcluded: 0,
         conditionProductsExcluded: 0,
         priceProductsExcluded: 0,
@@ -363,7 +377,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.6.11",
+        version: "0.6.12",
         terminalStage: "DOM_RENDERED",
         stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
       }
@@ -372,7 +386,7 @@ describe("shopping MCP server", () => {
     expect(result.structuredContent).toEqual({ status: "RECORDED" });
     expect(record).toHaveBeenCalledWith(expect.objectContaining({
       renderId,
-      version: "0.6.11",
+      version: "0.6.12",
       terminalStage: "DOM_RENDERED",
       stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
     }));
@@ -380,7 +394,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.6.11",
+        version: "0.6.12",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 14 }
       }
@@ -390,7 +404,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.6.11",
+        version: "0.6.12",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 300_001 }
       }
@@ -401,7 +415,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId: "22222222-2222-4222-8222-222222222222",
-        version: "0.6.11",
+        version: "0.6.12",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 1 }
       }
@@ -762,6 +776,44 @@ describe("shopping MCP server", () => {
     expect(search).toHaveBeenCalledWith(expect.objectContaining({ maxItemPriceCents: 8_000 }));
     expect(result.structuredContent).toMatchObject({ status: "OK", maxItemPriceCents: 8_000 });
     expect(JSON.stringify(result.content)).toContain("USD 80.00");
+  });
+
+  it("offers authorized Chrome only after bounded Shopify queries return no usable product", async () => {
+    const emptyShopify: ShopifyPort = {
+      search: async () => ({
+        ...await shopifyPort.search({ query: "missing product", limit: 3 }),
+        merchantsQueried: 0,
+        merchantsSucceeded: 0,
+        products: [],
+        diagnostics: {
+          ...(await shopifyPort.search({ query: "missing product", limit: 3 })).diagnostics,
+          chromeFallbackEligible: true,
+          queryAttempts: 2,
+          fallbackQueryUsed: true,
+          catalogProductsReturned: 0,
+          catalogVariantsReturned: 0,
+          catalogZeroResultAttempts: 2
+        }
+      })
+    };
+    const client = await connect({ compare: async () => comparison }, emptyShopify);
+
+    const result = await client.callTool({
+      name: "search_shopify_products",
+      arguments: {
+        query: "missing product",
+        limit: 3,
+        comparisonMode: "DISCOVERY",
+        selectionMode: "MERCHANT_DIVERSE"
+      }
+    });
+
+    expect(result.structuredContent).toMatchObject({
+      status: "OK",
+      diagnostics: { chromeFallbackEligible: true, queryAttempts: 2 },
+      products: []
+    });
+    expect(JSON.stringify(result.content)).toContain("authorize one bounded Chrome whole-web fallback");
   });
 
   it("reports independently verified same-product comparison evidence", async () => {

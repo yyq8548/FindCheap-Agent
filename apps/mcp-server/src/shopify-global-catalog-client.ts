@@ -75,6 +75,93 @@ type Dependencies = {
   monotonicNow?: () => number;
 };
 type GlobalCandidate = ShopifyProduct & { catalogProductId: string };
+type CatalogQuery = { kind: "PRIMARY" | "RELAXED"; query: string };
+
+const CHINESE_QUERY_REPLACEMENTS = [
+  ["头戴式耳机", "over ear headphones", "headphones"],
+  ["无线耳机", "wireless headphones", "headphones"],
+  ["蓝牙耳机", "bluetooth headphones", "headphones"],
+  ["逗猫棒", "cat wand toy", "cat toy"],
+  ["猫零食", "cat treats", "cat treats"],
+  ["猫用品", "cat supplies", "cat supplies"],
+  ["猫砂", "cat litter", "cat litter"],
+  ["猫粮", "cat food", "cat food"],
+  ["狗零食", "dog treats", "dog treats"],
+  ["狗粮", "dog food", "dog food"],
+  ["跑步鞋", "running shoes", "athletic shoes"],
+  ["跑鞋", "running shoes", "athletic shoes"],
+  ["运动鞋", "sneakers", "shoes"],
+  ["连衣裙", "dress", "dress"],
+  ["裙子", "dress", "dress"],
+  ["咖啡豆", "coffee beans", "coffee"],
+  ["咖啡", "coffee", "coffee"],
+  ["笔记本电脑", "laptop", "laptop"],
+  ["平板电脑", "tablet", "tablet"],
+  ["智能手表", "smartwatch", "watch"],
+  ["空气炸锅", "air fryer", "air fryer"],
+  ["吸尘器", "vacuum cleaner", "vacuum"],
+  ["洗衣机", "washing machine", "washer"],
+  ["吹风机", "hair dryer", "hair dryer"],
+  ["电视机", "television", "television"],
+  ["电视", "television", "television"],
+  ["冰箱", "refrigerator", "refrigerator"],
+  ["手机", "smartphone", "smartphone"],
+  ["沙发", "sofa", "sofa"],
+  ["床垫", "mattress", "mattress"],
+  ["枕头", "pillow", "pillow"],
+  ["床单", "bed sheets", "sheets"],
+  ["防晒霜", "sunscreen", "sunscreen"],
+  ["蛋白粉", "protein powder", "protein powder"],
+  ["维生素", "vitamins", "vitamins"],
+  ["香水", "perfume", "perfume"],
+  ["口红", "lipstick", "lipstick"],
+  ["项链", "necklace", "necklace"],
+  ["戒指", "ring", "ring"],
+  ["手链", "bracelet", "bracelet"],
+  ["背包", "backpack", "backpack"],
+  ["钱包", "wallet", "wallet"],
+  ["手提包", "handbag", "handbag"],
+  ["相机镜头", "camera lens", "camera lens"],
+  ["相机", "camera", "camera"],
+  ["音箱", "speaker", "speaker"],
+  ["键盘", "keyboard", "keyboard"],
+  ["鼠标", "computer mouse", "mouse"],
+  ["显示器", "computer monitor", "monitor"],
+  ["充电器", "charger", "charger"],
+  ["保护壳", "case", "case"],
+  ["男士", "men", "men"],
+  ["女士", "women", "women"],
+  ["黑色", "black", "black"],
+  ["白色", "white", "white"],
+  ["蓝色", "blue", "blue"],
+  ["红色", "red", "red"],
+  ["绿色", "green", "green"],
+  ["粉色", "pink", "pink"],
+  ["银色", "silver", "silver"],
+  ["金色", "gold", "gold"],
+  ["全新", "new", ""],
+  ["英寸", "inch", "inch"],
+  ["盎司", "oz", "oz"]
+] as const;
+
+const CHINESE_SEARCH_PHRASES = [
+  "请帮我搜索", "请帮我找", "帮我搜索", "帮我找", "我想购买", "我要购买", "我想买", "我要买",
+  "搜索一下", "查找一下", "搜索", "查找", "最便宜的", "最便宜", "便宜的", "推荐的", "推荐"
+] as const;
+
+const RELAXED_ENGLISH_TERMS = new Set([
+  "best", "does", "exist", "find", "latest", "not", "official", "product", "recommended", "search", "that"
+]);
+
+export function planCatalogQueries(value: string): CatalogQuery[] {
+  const primary = normalizeCatalogQuery(translateCatalogQuery(value, false));
+  const relaxedTranslation = normalizeCatalogQuery(translateCatalogQuery(value, true));
+  const relaxed = relaxCatalogQuery(relaxedTranslation);
+  return [
+    { kind: "PRIMARY", query: primary },
+    ...(relaxed !== "" && relaxed !== primary ? [{ kind: "RELAXED" as const, query: relaxed }] : [])
+  ];
+}
 
 export function createShopifyGlobalCatalogPort(
   environment: Readonly<Record<string, string | undefined>>,
@@ -90,20 +177,45 @@ export function createShopifyGlobalCatalogPort(
     async search(input) {
       const startedAt = monotonicNow();
       try {
-        const response = await fetchRequest(SHOPIFY_GLOBAL_CATALOG_ENDPOINT, {
-          method: "POST",
-          redirect: "error",
-          headers: { "content-type": "application/json", accept: "application/json" },
-          body: JSON.stringify(searchRequest(input, profileUrl)),
-          signal: AbortSignal.timeout(timeoutMs)
-        });
-        if (!response.ok) throw new Error("catalog request failed");
-        const parsed = CatalogEnvelopeSchema.parse(JSON.parse(await readLimitedText(response)));
-        return buildResult(parsed.result.structuredContent.products, input, {
-          checkedAt: clock.now().toISOString(),
-          durationMs: Math.max(0, Math.round(monotonicNow() - startedAt)),
-          timeoutMs
-        });
+        const sourceQuery = input.query ?? input.handle?.replaceAll("-", " ") ?? "";
+        const plan = planCatalogQueries(sourceQuery);
+        let totals = emptyAttemptTotals();
+        let latest: ShopifySearchResult | undefined;
+        for (const [index, attempt] of plan.entries()) {
+          const response = await fetchRequest(SHOPIFY_GLOBAL_CATALOG_ENDPOINT, {
+            method: "POST",
+            redirect: "error",
+            headers: { "content-type": "application/json", accept: "application/json" },
+            body: JSON.stringify(searchRequest(input, profileUrl, attempt.query)),
+            signal: AbortSignal.timeout(remainingTimeoutMs(startedAt, timeoutMs, monotonicNow))
+          });
+          if (!response.ok) throw new Error("catalog request failed");
+          const parsed = CatalogEnvelopeSchema.parse(JSON.parse(await readLimitedText(response)));
+          latest = buildResult(
+            parsed.result.structuredContent.products,
+            input.query === undefined ? input : { ...input, query: attempt.query },
+            {
+              checkedAt: clock.now().toISOString(),
+              durationMs: Math.max(0, Math.round(monotonicNow() - startedAt)),
+              timeoutMs,
+              relaxed: attempt.kind === "RELAXED"
+            }
+          );
+          totals = addAttemptTotals(totals, latest.diagnostics);
+          latest = {
+            ...latest,
+            diagnostics: {
+              ...latest.diagnostics,
+              apiDurationMs: Math.max(0, Math.round(monotonicNow() - startedAt)),
+              queryAttempts: index + 1,
+              fallbackQueryUsed: attempt.kind === "RELAXED",
+              ...totals
+            }
+          };
+          if (latest.products.length > 0) return latest;
+        }
+        if (latest === undefined) throw new Error("catalog query plan is empty");
+        return latest;
       } catch (error) {
         throw new Error("DATA_SOURCE_UNAVAILABLE", { cause: error });
       }
@@ -111,8 +223,13 @@ export function createShopifyGlobalCatalogPort(
   };
 }
 
-function searchRequest(input: ShopifySearchInput, profileUrl: string) {
-  const query = normalizeCatalogQuery(input.query ?? input.handle?.replaceAll("-", " ") ?? "");
+function remainingTimeoutMs(startedAt: number, timeoutMs: number, now: () => number): number {
+  const remaining = timeoutMs - Math.max(0, Math.round(now() - startedAt));
+  if (remaining < 1) throw new Error("catalog search deadline exceeded");
+  return remaining;
+}
+
+function searchRequest(input: ShopifySearchInput, profileUrl: string, query: string) {
   return {
     jsonrpc: "2.0",
     method: "tools/call",
@@ -138,13 +255,27 @@ function searchRequest(input: ShopifySearchInput, profileUrl: string) {
 }
 
 function normalizeCatalogQuery(value: string): string {
-  return value.normalize("NFKC").trim().replace(/\bdresses\b/giu, "dress");
+  return value.normalize("NFKC").trim().replace(/\bdresses\b/giu, "dress").replace(/\s+/gu, " ");
+}
+
+function translateCatalogQuery(value: string, relaxed: boolean): string {
+  let translated = value.normalize("NFKC");
+  for (const phrase of CHINESE_SEARCH_PHRASES) translated = translated.replaceAll(phrase, " ");
+  for (const [source, primary, fallback] of CHINESE_QUERY_REPLACEMENTS) {
+    translated = translated.replaceAll(source, ` ${relaxed ? fallback : primary} `);
+  }
+  return translated.replace(/[，。！？、]/gu, " ");
+}
+
+function relaxCatalogQuery(value: string): string {
+  const tokens = value.match(/[\p{L}\p{N}._+'-]+/gu) ?? [];
+  return tokens.filter((token) => !RELAXED_ENGLISH_TERMS.has(token.toLocaleLowerCase("en-US"))).join(" ");
 }
 
 function buildResult(
   products: z.infer<typeof ProductSchema>[],
   input: ShopifySearchInput,
-  context: { checkedAt: string; durationMs: number; timeoutMs: number }
+  context: { checkedAt: string; durationMs: number; timeoutMs: number; relaxed: boolean }
 ): ShopifySearchResult {
   const unsupportedConditions = products.reduce((count, product) => count + product.variants.filter((variant) =>
     detectCondition([
@@ -177,16 +308,22 @@ function buildResult(
         const catalogIdentityExact = match.status === "DISCOVERY_MATCH" && hasStrongProductIdentifier(input.query ?? "");
         return match.status === "IRRELEVANT" ? [] : [{
           ...candidate,
-          matchStatus: catalogIdentityExact ? "EXACT" as const : match.status,
-          matchEvidence: catalogIdentityExact
-            ? [...match.evidence, "Shopify Universal Product ID exact"]
-            : match.evidence
+          matchStatus: context.relaxed
+            ? "DISCOVERY_MATCH" as const
+            : catalogIdentityExact ? "EXACT" as const : match.status,
+          matchEvidence: context.relaxed
+            ? [...match.evidence, "bounded relaxed Catalog query", "exact identity not independently verified"]
+            : catalogIdentityExact
+              ? [...match.evidence, "Shopify Universal Product ID exact"]
+              : match.evidence
         }];
       });
   const requested = requestedCondition(input.query);
   const conditionEligible = classified.filter((candidate) => conditionMatches(candidate.condition, requested));
   const ranked = rankAndDeduplicate(conditionEligible);
-  const upidGroup = input.comparisonMode === "SAME_PRODUCT" ? selectUpidGroup(ranked) : undefined;
+  const upidGroup = input.comparisonMode === "SAME_PRODUCT" && !context.relaxed
+    ? selectUpidGroup(ranked)
+    : undefined;
   const sameProduct = upidGroup?.map((candidate) => ({
     ...candidate,
     matchStatus: "EXACT" as const,
@@ -223,6 +360,13 @@ function buildResult(
       apiDurationMs: context.durationMs,
       cacheStatus: "MISS",
       chromeFallbackEligible: selected.length === 0,
+      queryAttempts: 1,
+      fallbackQueryUsed: false,
+      catalogProductsReturned: products.length,
+      catalogVariantsReturned: products.reduce((count, product) => count + product.variants.length, 0),
+      catalogZeroResultAttempts: products.length === 0 ? 1 : 0,
+      outOfStockProductsExcluded: raw.length - availabilityEligible.length,
+      identityProductsExcluded: priceEligible.length - classified.length,
       irrelevantProductsExcluded: priceEligible.length - classified.length + (raw.length - availabilityEligible.length),
       conditionProductsExcluded: unsupportedConditions + classified.length - conditionEligible.length,
       priceProductsExcluded: availabilityEligible.length - priceEligible.length,
@@ -244,6 +388,40 @@ function buildResult(
       : [],
     products: selected.map(({ catalogProductId: _catalogProductId, ...candidate }) => candidate)
   };
+}
+
+type AttemptTotals = Pick<ShopifySearchResult["diagnostics"],
+  | "catalogProductsReturned"
+  | "catalogVariantsReturned"
+  | "catalogZeroResultAttempts"
+  | "outOfStockProductsExcluded"
+  | "identityProductsExcluded"
+  | "irrelevantProductsExcluded"
+  | "conditionProductsExcluded"
+  | "priceProductsExcluded"
+>;
+
+function emptyAttemptTotals(): AttemptTotals {
+  return {
+    catalogProductsReturned: 0,
+    catalogVariantsReturned: 0,
+    catalogZeroResultAttempts: 0,
+    outOfStockProductsExcluded: 0,
+    identityProductsExcluded: 0,
+    irrelevantProductsExcluded: 0,
+    conditionProductsExcluded: 0,
+    priceProductsExcluded: 0
+  };
+}
+
+function addAttemptTotals(
+  totals: AttemptTotals,
+  diagnostics: ShopifySearchResult["diagnostics"]
+): AttemptTotals {
+  return Object.fromEntries(Object.keys(totals).map((key) => [
+    key,
+    totals[key as keyof AttemptTotals] + diagnostics[key as keyof AttemptTotals]
+  ])) as AttemptTotals;
 }
 
 function toCandidate(

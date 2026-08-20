@@ -64,7 +64,7 @@ const ProductCardStagesSchema = z.object({
 
 const ProductCardTelemetryInputSchema = z.object({
   renderId: z.string().uuid(),
-  version: z.literal("0.6.11"),
+  version: z.literal("0.6.12"),
   terminalStage: z.enum([
     "DOM_RENDERED",
     "FIRST_IMAGE_SETTLED",
@@ -331,6 +331,13 @@ const ShopifyProductsOutputShape = {
     apiDurationMs: z.number().int().nonnegative(),
     cacheStatus: z.enum(["MISS", "HIT", "COALESCED"]),
     chromeFallbackEligible: z.boolean(),
+    queryAttempts: z.number().int().min(0).max(2),
+    fallbackQueryUsed: z.boolean(),
+    catalogProductsReturned: z.number().int().nonnegative(),
+    catalogVariantsReturned: z.number().int().nonnegative(),
+    catalogZeroResultAttempts: z.number().int().nonnegative(),
+    outOfStockProductsExcluded: z.number().int().nonnegative(),
+    identityProductsExcluded: z.number().int().nonnegative(),
     irrelevantProductsExcluded: z.number().int().nonnegative(),
     conditionProductsExcluded: z.number().int().nonnegative(),
     priceProductsExcluded: z.number().int().nonnegative(),
@@ -459,7 +466,11 @@ function shopifyResult(
   const quoteSummary = cartQuoteCoverage.attempted === 0
     ? "Prices are public item prices only; shipping, tax, mandatory fees, member price, delivered price, and verified coupons are unavailable without merchant evidence."
     : `${cartQuoteCoverage.succeeded}/${cartQuoteCoverage.attempted} products received a ZIP-specific Shopify Cart estimate. Tax uses Shopify totalTaxAmount only when explicitly returned; otherwise it is a labeled ZIP state-average estimate. Some merchants require a full address or checkout before calculating tax.`;
-  const summary = `Comparison status: ${result.comparison.status}. ${sourceLabel} returned ${result.products.length} product card(s): ${exactCount} exact, ${discoveryCount} discovery, and ${similarCount} similar, from ${result.merchantsSucceeded}/${result.merchantsQueried} returned merchants.${priceLimit}${comparison} ${quoteSummary} ${linkSummary}`;
+  const searchDiagnostics = `Search attempts: ${result.diagnostics.queryAttempts}; relaxed fallback: ${result.diagnostics.fallbackQueryUsed ? "USED" : "NOT_USED"}; Catalog products/variants: ${result.diagnostics.catalogProductsReturned}/${result.diagnostics.catalogVariantsReturned}; zero-result attempts: ${result.diagnostics.catalogZeroResultAttempts}; excluded out-of-stock/identity/condition/price: ${result.diagnostics.outOfStockProductsExcluded}/${result.diagnostics.identityProductsExcluded}/${result.diagnostics.conditionProductsExcluded}/${result.diagnostics.priceProductsExcluded}.`;
+  const chromeAdvice = result.products.length === 0 && result.diagnostics.chromeFallbackEligible
+    ? " Shopify still returned no usable product; the user may authorize one bounded Chrome whole-web fallback."
+    : "";
+  const summary = `Comparison status: ${result.comparison.status}. ${sourceLabel} returned ${result.products.length} product card(s): ${exactCount} exact, ${discoveryCount} discovery, and ${similarCount} similar, from ${result.merchantsSucceeded}/${result.merchantsQueried} returned merchants.${priceLimit}${comparison} ${quoteSummary} ${linkSummary} ${searchDiagnostics}${chromeAdvice}`;
   const products = linkedProducts.map(({ product, purchaseLink }, index) => {
     const price = product.itemPrice === undefined
       ? "price unavailable"
@@ -702,6 +713,13 @@ function shopifyClarificationResult(
         apiDurationMs: 0,
         cacheStatus: "MISS" as const,
         chromeFallbackEligible: false,
+        queryAttempts: 0,
+        fallbackQueryUsed: false,
+        catalogProductsReturned: 0,
+        catalogVariantsReturned: 0,
+        catalogZeroResultAttempts: 0,
+        outOfStockProductsExcluded: 0,
+        identityProductsExcluded: 0,
         irrelevantProductsExcluded: 0,
         conditionProductsExcluded: 0,
         priceProductsExcluded: 0,
@@ -751,6 +769,13 @@ function shopifyUnavailableResult(
         apiDurationMs: 0,
         cacheStatus: "MISS" as const,
         chromeFallbackEligible: false,
+        queryAttempts: 0,
+        fallbackQueryUsed: false,
+        catalogProductsReturned: 0,
+        catalogVariantsReturned: 0,
+        catalogZeroResultAttempts: 0,
+        outOfStockProductsExcluded: 0,
+        identityProductsExcluded: 0,
         irrelevantProductsExcluded: 0,
         conditionProductsExcluded: 0,
         priceProductsExcluded: 0,
@@ -776,7 +801,7 @@ export function createShoppingServer(
   affiliateLinks: AffiliateLinkResolver = createAffiliateLinkResolver(),
   dependencies: ShoppingServerDependencies = {}
 ): McpServer {
-  const server = new McpServer({ name: "findcheap-agent", version: "0.6.11" });
+  const server = new McpServer({ name: "findcheap-agent", version: "0.6.12" });
   const dealPort = dependencies.deals ?? createUnavailableDealPort();
   const toolAvailability = dependencies.toolAvailability ?? {
     commerceCompare: true,
@@ -877,7 +902,7 @@ export function createShoppingServer(
     "search_shopify_products",
     {
       title: "Search Shopify Global Catalog (Beta)",
-      description: "Search Shopify Global Catalog across eligible merchants once per new lookup and render the returned cards directly. For a later ZIP quote of one returned product, use quote_selected_shopify_product with its quoteReference; never search its title again. Use comparisonMode=SAME_PRODUCT only with exact identity; selectionMode=LOWEST_PRICE only when cheapest is explicit, otherwise MERCHANT_DIVERSE. Put budget in maxItemPriceCents.",
+      description: "Search Shopify Global Catalog across eligible merchants once per new lookup and render the returned cards directly. The tool translates supported Chinese product terms and may make one internal bounded relaxed request only after an empty primary result; relaxed results are DISCOVERY_MATCH, never EXACT. For a later ZIP quote of one returned product, use quote_selected_shopify_product with its quoteReference; never search its title again. Use comparisonMode=SAME_PRODUCT only with exact identity; selectionMode=LOWEST_PRICE only when cheapest is explicit, otherwise MERCHANT_DIVERSE. Put budget in maxItemPriceCents.",
       inputSchema: ShopifyProductsToolInputSchema,
       outputSchema: ShopifyProductsOutputShape,
       annotations: {

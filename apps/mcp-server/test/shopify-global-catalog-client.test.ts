@@ -2,13 +2,104 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   SHOPIFY_GLOBAL_CATALOG_ENDPOINT,
-  createShopifyGlobalCatalogPort
+  createShopifyGlobalCatalogPort,
+  planCatalogQueries
 } from "../src/shopify-global-catalog-client.js";
 
 const profileUrl = "https://cdn.jsdelivr.net/gh/yyq8548/FindCheap-Agent@24267014f0433adefb89181e4123d7b785e30285/plugins/findcheap-agent/ucp-agent-profile.json";
 const now = "2026-08-18T12:00:00.000Z";
 
 describe("Shopify Global Catalog client", () => {
+  it("translates supported Chinese product terms while preserving identity and variants", () => {
+    expect(planCatalogQueries("我要买 Sony WH-1000XM6 黑色 头戴式耳机")).toEqual([
+      { kind: "PRIMARY", query: "Sony WH-1000XM6 black over ear headphones" },
+      { kind: "RELAXED", query: "Sony WH-1000XM6 black headphones" }
+    ]);
+    expect(planCatalogQueries("DÔEN 连衣裙 Size S 白色")[0]?.query)
+      .toBe("DÔEN dress Size S white");
+    expect(planCatalogQueries("Nike 男士跑鞋 黑色 10")[0]?.query)
+      .toBe("Nike men running shoes black 10");
+    expect(planCatalogQueries("空气炸锅")[0]?.query).toBe("air fryer");
+    expect(planCatalogQueries("猫砂")[0]?.query).toBe("cat litter");
+  });
+
+  it("runs one bounded relaxed query only after the primary result is empty", async () => {
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(catalogResponse([]))
+      .mockResolvedValueOnce(catalogResponse([
+        product({
+          shopId: "30",
+          merchant: "Cat Shop",
+          host: "cats.example",
+          price: 799,
+          title: "Interactive Cat Toy"
+        })
+      ]));
+    const port = createShopifyGlobalCatalogPort(
+      { SHOPIFY_AGENT_PROFILE_URL: profileUrl },
+      { fetch, clock: { now: () => new Date(now) } }
+    );
+
+    const result = await port.search({ query: "逗猫棒", limit: 3 });
+
+    expect(fetch).toHaveBeenCalledTimes(2);
+    const requests = fetch.mock.calls.map((call) => JSON.parse(String(call[1]!.body)));
+    expect(requests.map((request) => request.params.arguments.catalog.query)).toEqual([
+      "cat wand toy",
+      "cat toy"
+    ]);
+    expect(result.products).toEqual([
+      expect.objectContaining({
+        title: "Interactive Cat Toy",
+        matchStatus: "DISCOVERY_MATCH",
+        matchEvidence: expect.arrayContaining(["bounded relaxed Catalog query"])
+      })
+    ]);
+    expect(result.products.every((product) => product.matchStatus !== "EXACT")).toBe(true);
+    expect(result.diagnostics).toMatchObject({
+      queryAttempts: 2,
+      fallbackQueryUsed: true,
+      catalogZeroResultAttempts: 1,
+      catalogProductsReturned: 1,
+      catalogVariantsReturned: 1
+    });
+  });
+
+  it("does not retry when the first Catalog query returns a usable product", async () => {
+    const fetch = vi.fn(async () => catalogResponse([
+      product({ shopId: "30", merchant: "Cat Shop", host: "cats.example", price: 799, title: "Cat Wand Toy" })
+    ]));
+    const port = createShopifyGlobalCatalogPort(
+      { SHOPIFY_AGENT_PROFILE_URL: profileUrl },
+      { fetch, clock: { now: () => new Date(now) } }
+    );
+
+    const result = await port.search({ query: "逗猫棒", limit: 3 });
+
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(result.diagnostics).toMatchObject({ queryAttempts: 1, fallbackQueryUsed: false });
+  });
+
+  it("never labels a relaxed-query result exact even when a model identifier is present", async () => {
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(catalogResponse([]))
+      .mockResolvedValueOnce(catalogResponse([
+        product({ shopId: "31", merchant: "Audio Shop", host: "audio.example", price: 24_999 })
+      ]));
+    const port = createShopifyGlobalCatalogPort(
+      { SHOPIFY_AGENT_PROFILE_URL: profileUrl },
+      { fetch, clock: { now: () => new Date(now) } }
+    );
+
+    const result = await port.search({ query: "Sony WH-1000XM5 latest", limit: 3 });
+
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(result.products[0]).toMatchObject({
+      matchStatus: "DISCOVERY_MATCH",
+      matchEvidence: expect.arrayContaining(["exact identity not independently verified"])
+    });
+  });
+
   it("searches all eligible Shopify merchants through one official Catalog request", async () => {
     const fetch = vi.fn(async (_input: string, _init: RequestInit) => catalogResponse([
       product({ shopId: "11236098", merchant: "GRAMOPHONE", host: "skybygramophone.com", price: 24_800 }),
@@ -180,7 +271,41 @@ describe("Shopify Global Catalog client", () => {
     const result = await port.search({ query: "product that does not exist", limit: 3 });
 
     expect(result.products).toEqual([]);
-    expect(result.diagnostics.chromeFallbackEligible).toBe(true);
+    expect(result.diagnostics).toMatchObject({
+      chromeFallbackEligible: true,
+      catalogZeroResultAttempts: 1,
+      queryAttempts: 1,
+      fallbackQueryUsed: false
+    });
+  });
+
+  it("reports separate Catalog, stock, identity, condition, and price filtering counts", async () => {
+    const port = createShopifyGlobalCatalogPort(
+      { SHOPIFY_AGENT_PROFILE_URL: profileUrl },
+      {
+        fetch: vi.fn(async () => catalogResponse([
+          product({ shopId: "1", merchant: "Wrong", host: "wrong.example", price: 100, title: "Coffee Beans" }),
+          product({ shopId: "2", merchant: "Unavailable", host: "unavailable.example", price: 100, available: false }),
+          product({ shopId: "3", merchant: "Damaged", host: "damaged.example", price: 100, condition: ["defective"] }),
+          product({ shopId: "4", merchant: "Expensive", host: "expensive.example", price: 20_000 }),
+          product({ shopId: "5", merchant: "Safe", host: "safe.example", price: 9_999 })
+        ])),
+        clock: { now: () => new Date(now) }
+      }
+    );
+
+    const result = await port.search({ query: "Sony WH-1000XM5", limit: 3, maxItemPriceCents: 10_000 });
+
+    expect(result.products.map((product) => product.merchant)).toEqual(["Safe"]);
+    expect(result.diagnostics).toMatchObject({
+      catalogProductsReturned: 5,
+      catalogVariantsReturned: 5,
+      catalogZeroResultAttempts: 0,
+      outOfStockProductsExcluded: 1,
+      identityProductsExcluded: 1,
+      conditionProductsExcluded: 1,
+      priceProductsExcluded: 1
+    });
   });
 
   it("filters unsafe, non-USD, damaged, unavailable, and over-budget variants", async () => {
@@ -249,15 +374,16 @@ function product(input: {
   currency?: string;
   condition?: string[];
   available?: boolean;
+  title?: string;
 }) {
   const variantId = input.shopId === "11236098" ? "42797821853913" : `${input.shopId}42797821853913`;
   return {
     id: `gid://shopify/p/${input.shopId}`,
-    title: "Sony WH-1000XM5 Wireless Noise Canceling Headphones",
+    title: input.title ?? "Sony WH-1000XM5 Wireless Noise Canceling Headphones",
     media: [{ type: "image", url: "https://cdn.shopify.com/s/files/sony.png" }],
     variants: [{
       id: `gid://shopify/ProductVariant/${variantId}`,
-      title: "Sony WH-1000XM5 Wireless Noise Canceling Headphones",
+      title: input.title ?? "Sony WH-1000XM5 Wireless Noise Canceling Headphones",
       url: input.url ?? `https://${input.host}/products/sony-wh-1000xm5?variant=${variantId}`,
       price: { amount: input.price, currency: input.currency ?? "USD" },
       availability: { available: input.available ?? true },

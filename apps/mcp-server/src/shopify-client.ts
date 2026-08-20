@@ -55,6 +55,13 @@ export type ShopifySearchResult = {
     apiDurationMs: number;
     cacheStatus: "MISS" | "HIT" | "COALESCED";
     chromeFallbackEligible: boolean;
+    queryAttempts: number;
+    fallbackQueryUsed: boolean;
+    catalogProductsReturned: number;
+    catalogVariantsReturned: number;
+    catalogZeroResultAttempts: number;
+    outOfStockProductsExcluded: number;
+    identityProductsExcluded: number;
     irrelevantProductsExcluded: number;
     conditionProductsExcluded: number;
     priceProductsExcluded: number;
