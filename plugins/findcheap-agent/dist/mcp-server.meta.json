@@ -4103,7 +4103,7 @@
   },
   "outputs": {
     "../../plugins/findcheap-agent/dist/mcp-server.js": {
-      "bytes": 479810,
+      "bytes": 481048,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
@@ -4709,7 +4709,7 @@
           "bytesInOutput": 2068
         },
         "src/product-card-ui.ts": {
-          "bytesInOutput": 24482
+          "bytesInOutput": 25650
         },
         "src/sales-tax-estimator.ts": {
           "bytesInOutput": 1784
@@ -4718,7 +4718,7 @@
           "bytesInOutput": 47446
         },
         "src/shopify-cart-quote.ts": {
-          "bytesInOutput": 10829
+          "bytesInOutput": 10899
         },
         "src/shopify-client.ts": {
           "bytesInOutput": 181

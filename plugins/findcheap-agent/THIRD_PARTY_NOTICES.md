@@ -6,7 +6,7 @@ Bundle: `plugins/findcheap-agent/dist/mcp-server.js`
 
 Metafile: `plugins/findcheap-agent/dist/mcp-server.meta.json`
 
-Bundle SHA-256: `a169b67afc64b5d300368cb5849211c10e9e819519e548aed2d87ae22be1ad92`
+Bundle SHA-256: `0be86b3054648dd4f9a9c2f793c757c4080ab49ace8b16f233a24d3e71b8ddd4`
 
 Build command: `pnpm build:mcp`
 

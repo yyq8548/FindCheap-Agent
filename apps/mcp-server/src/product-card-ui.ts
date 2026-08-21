@@ -1,4 +1,4 @@
-export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v17.html";
+export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v18.html";
 
 export const PRODUCT_CARD_RESOURCE_DOMAINS = [
   "https://cdn.shopify.com"
@@ -36,6 +36,17 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     }
     #app { display: grid; gap: 12px; padding: 0; }
     .summary { padding: 0 2px; color: var(--fc-muted); font-size: 12px; line-height: 1.45; }
+    .quote-summary {
+      display: grid;
+      gap: 7px;
+      border: 1px solid var(--fc-border-strong);
+      border-radius: 12px;
+      padding: 11px 12px;
+      background: var(--fc-surface);
+    }
+    .quote-summary h2 { margin: 0; font-size: 13px; font-weight: 650; }
+    .quote-summary-item { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; }
+    .quote-summary-value { font-weight: 680; white-space: nowrap; }
     .group {
       display: grid;
       gap: 11px;
@@ -162,7 +173,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     const uiStartedAt = typeof performance === "object" && typeof performance.now === "function"
       ? performance.now()
       : Date.now();
-    const cardMetrics = { version: "0.6.15", stages: {} };
+    const cardMetrics = { version: "0.6.16", stages: {} };
     window.__findcheapCardMetrics = cardMetrics;
     const notify = (method, params = {}) => {
       window.parent.postMessage({ jsonrpc: "2.0", method, params }, "*");
@@ -308,6 +319,20 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
           ? "Shopify Cart estimates for supplied ZIP"
           : quoteCount + " Shopify Cart estimate" + (quoteCount === 1 ? "" : "s") + "; remaining item-price-only";
       app.append(make("div", "summary", products.length + " product card" + (products.length === 1 ? "" : "s") + " · identity labels · " + priceSummary));
+      const quotedProducts = products.filter((product) => product?.pricing?.scope === "SHOPIFY_CART_ESTIMATE" && product?.card?.estimatedTotal);
+      if (quotedProducts.length > 0) {
+        const quoteSummary = make("section", "quote-summary");
+        quoteSummary.append(make("h2", "", "Estimated total summary"));
+        for (const product of quotedProducts) {
+          const item = make("div", "quote-summary-item");
+          item.append(
+            make("span", "", String(product.card.title || product.title || "Product")),
+            make("span", "quote-summary-value", money(product.card.estimatedTotal))
+          );
+          quoteSummary.append(item);
+        }
+        app.append(quoteSummary);
+      }
       for (const definition of groupDefinitions) {
         const grouped = products.filter((product) => {
           const verified = product?.merchantTrust?.verification === "INDEPENDENT";
@@ -502,7 +527,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     warmCompatibilityBridge();
     const initializeParams = {
       protocolVersion: "2026-01-26",
-      appInfo: { name: "FindCheap Agent product cards", version: "0.6.15" },
+      appInfo: { name: "FindCheap Agent product cards", version: "0.6.16" },
       appCapabilities: { availableDisplayModes: ["inline"] }
     };
     const finishInitialization = () => {

@@ -219,13 +219,15 @@ export function createShopifyCartQuotePort(
         timeoutMs
       }));
       if (create.deliveryGroups.nodes.length === 0) {
-        throw new ShopifyCartQuoteError("NO_DELIVERY_OPTIONS");
+        throw new ShopifyCartQuoteError(address === undefined ? "FULL_ADDRESS_REQUIRED" : "NO_DELIVERY_OPTIONS");
       }
       const selections = create.deliveryGroups.nodes.map((group) => {
         const selected = [...group.deliveryOptions].sort((left, right) =>
           cents(left.estimatedCost) - cents(right.estimatedCost) || compareText(left.title, right.title)
         )[0];
-        if (selected === undefined) throw new ShopifyCartQuoteError("NO_DELIVERY_OPTIONS");
+        if (selected === undefined) {
+          throw new ShopifyCartQuoteError(address === undefined ? "FULL_ADDRESS_REQUIRED" : "NO_DELIVERY_OPTIONS");
+        }
         return {
           deliveryGroupId: group.id,
           deliveryOptionHandle: selected.handle,

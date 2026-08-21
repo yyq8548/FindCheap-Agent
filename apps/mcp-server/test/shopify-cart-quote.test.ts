@@ -191,7 +191,7 @@ describe("Shopify tokenless Cart quote", () => {
     expect(request).not.toHaveBeenCalled();
   });
 
-  it("rejects incomplete delivery and malformed totals instead of inventing components", async () => {
+  it("requests a full address before declaring that no delivery option exists", async () => {
     const noDelivery = createShopifyCartQuotePort(
       { SHOPIFY_CART_QUOTE_MODE: "tokenless" },
       { request: async () => ({
@@ -208,8 +208,18 @@ describe("Shopify tokenless Cart quote", () => {
       }) }
     );
     await expect(noDelivery.quote(product, "33433")).rejects.toMatchObject({
+      code: "FULL_ADDRESS_REQUIRED"
+    });
+    await expect(noDelivery.quote(product, "33433", {
+      address1: "123 Main St",
+      city: "Boca Raton",
+      provinceCode: "FL"
+    })).rejects.toMatchObject({
       code: "NO_DELIVERY_OPTIONS"
     });
+  });
+
+  it("rejects malformed totals instead of inventing components", async () => {
 
     let call = 0;
     const invalidTotal = createShopifyCartQuotePort(

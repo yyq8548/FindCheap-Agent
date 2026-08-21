@@ -70,7 +70,7 @@ const ProductCardStagesSchema = z.object({
 
 const ProductCardTelemetryInputSchema = z.object({
   renderId: z.string().uuid(),
-  version: z.literal("0.6.15"),
+  version: z.literal("0.6.16"),
   terminalStage: z.enum([
     "DOM_RENDERED",
     "FIRST_IMAGE_SETTLED",
@@ -896,7 +896,7 @@ export function createShoppingServer(
   affiliateLinks: AffiliateLinkResolver = createAffiliateLinkResolver(),
   dependencies: ShoppingServerDependencies = {}
 ): McpServer {
-  const server = new McpServer({ name: "findcheap-agent", version: "0.6.15" });
+  const server = new McpServer({ name: "findcheap-agent", version: "0.6.16" });
   const dealPort = dependencies.deals ?? createUnavailableDealPort();
   const toolAvailability = dependencies.toolAvailability ?? {
     commerceCompare: true,
