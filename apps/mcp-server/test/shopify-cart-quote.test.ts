@@ -4,6 +4,7 @@ import type { request as httpsRequest } from "node:https";
 
 import {
   createShopifyCartQuotePort,
+  ShopifyCartQuoteError,
   type ShopifyCartRequest
 } from "../src/shopify-cart-quote.js";
 import type { ShopifyProduct } from "../src/shopify-client.js";
@@ -206,7 +207,9 @@ describe("Shopify tokenless Cart quote", () => {
         }
       }) }
     );
-    await expect(noDelivery.quote(product, "33433")).rejects.toThrow("delivery option");
+    await expect(noDelivery.quote(product, "33433")).rejects.toMatchObject({
+      code: "NO_DELIVERY_OPTIONS"
+    });
 
     let call = 0;
     const invalidTotal = createShopifyCartQuotePort(
@@ -219,7 +222,9 @@ describe("Shopify tokenless Cart quote", () => {
         return response;
       } }
     );
-    await expect(invalidTotal.quote(product, "33433")).rejects.toThrow("response");
+    await expect(invalidTotal.quote(product, "33433")).rejects.toMatchObject({
+      code: "MERCHANT_CART_UNAVAILABLE"
+    });
 
     let changedCall = 0;
     const changedDelivery = createShopifyCartQuotePort(
@@ -232,7 +237,103 @@ describe("Shopify tokenless Cart quote", () => {
         return response;
       } }
     );
-    await expect(changedDelivery.quote(product, "33433")).rejects.toThrow("selected delivery option changed");
+    await expect(changedDelivery.quote(product, "33433")).rejects.toMatchObject({
+      code: "NO_DELIVERY_OPTIONS"
+    });
+  });
+
+  it("classifies safe quote failures without exposing merchant error text", async () => {
+    const cases = [
+      {
+        response: {
+          data: {
+            cartCreate: {
+              cart: null,
+              userErrors: [{ field: ["input", "buyerIdentity"], message: "City and street address are required for delivery" }],
+              warnings: []
+            }
+          }
+        },
+        code: "FULL_ADDRESS_REQUIRED"
+      },
+      {
+        response: {
+          data: {
+            cartCreate: {
+              cart: null,
+              userErrors: [{ field: ["input", "lines", "0", "merchandiseId"], message: "Variant is sold out" }],
+              warnings: []
+            }
+          }
+        },
+        code: "VARIANT_REJECTED"
+      },
+      {
+        response: {
+          data: {
+            cartCreate: {
+              cart: null,
+              userErrors: [{ field: null, message: "Internal merchant extension failed: private detail" }],
+              warnings: []
+            }
+          }
+        },
+        code: "MERCHANT_CART_UNAVAILABLE"
+      }
+    ] as const;
+
+    for (const testCase of cases) {
+      const port = createShopifyCartQuotePort(
+        { SHOPIFY_CART_QUOTE_MODE: "tokenless" },
+        { request: async () => testCase.response }
+      );
+      const error = await port.quote(product, "33433").catch((cause: unknown) => cause);
+      expect(error).toBeInstanceOf(ShopifyCartQuoteError);
+      expect(error).toMatchObject({ code: testCase.code });
+      expect(String(error)).not.toContain("private detail");
+    }
+  });
+
+  it("classifies timeouts and sends optional one-time address fields", async () => {
+    const timeout = createShopifyCartQuotePort(
+      { SHOPIFY_CART_QUOTE_MODE: "tokenless" },
+      { request: async () => {
+        const error = new Error("request aborted");
+        error.name = "AbortError";
+        throw error;
+      } }
+    );
+    await expect(timeout.quote(product, "33433")).rejects.toMatchObject({ code: "QUOTE_TIMEOUT" });
+
+    const requests: ShopifyCartRequest[] = [];
+    const addressed = createShopifyCartQuotePort(
+      { SHOPIFY_CART_QUOTE_MODE: "tokenless" },
+      { request: async (input) => {
+        requests.push(input);
+        return requests.length === 1 ? createResponse() : updateResponse();
+      } }
+    );
+    await addressed.quote(product, "33433", {
+      address1: "123 Main St",
+      city: "Boca Raton",
+      provinceCode: "FL"
+    });
+    expect(requests[0]?.variables).toMatchObject({
+      input: {
+        buyerIdentity: {
+          deliveryAddressPreferences: [{
+            deliveryAddress: {
+              address1: "123 Main St",
+              city: "Boca Raton",
+              province: "FL",
+              country: "US",
+              zip: "33433"
+            },
+            oneTimeUse: true
+          }]
+        }
+      }
+    });
   });
 
   it("rejects every DNS set containing a private address before sending Cart data", async () => {
@@ -249,7 +350,9 @@ describe("Shopify tokenless Cart quote", () => {
       }
     );
 
-    await expect(port.quote(product, "33433")).rejects.toThrow("DNS is unsafe");
+    await expect(port.quote(product, "33433")).rejects.toMatchObject({
+      code: "MERCHANT_CART_UNAVAILABLE"
+    });
     expect(resolve).toHaveBeenCalledWith("shop.example", { all: true, verbatim: true });
     expect(requestImpl).not.toHaveBeenCalled();
   });

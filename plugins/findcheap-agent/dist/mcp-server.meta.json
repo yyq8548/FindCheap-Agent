@@ -3881,6 +3881,11 @@
         },
         {
           "kind": "import-statement",
+          "original": "./shopify-cart-quote.js",
+          "path": "src/shopify-cart-quote.ts"
+        },
+        {
+          "kind": "import-statement",
           "original": "./affiliate-links.js",
           "path": "src/affiliate-links.ts"
         },
@@ -4098,7 +4103,7 @@
   },
   "outputs": {
     "../../plugins/findcheap-agent/dist/mcp-server.js": {
-      "bytes": 476629,
+      "bytes": 479810,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
@@ -4136,21 +4141,6 @@
           "external": true,
           "kind": "import-statement",
           "path": "node:net"
-        },
-        {
-          "external": true,
-          "kind": "import-statement",
-          "path": "node:crypto"
-        },
-        {
-          "external": true,
-          "kind": "import-statement",
-          "path": "node:fs/promises"
-        },
-        {
-          "external": true,
-          "kind": "import-statement",
-          "path": "node:path"
         },
         {
           "external": true,
@@ -4196,6 +4186,21 @@
           "external": true,
           "kind": "import-statement",
           "path": "node:url"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:crypto"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:fs/promises"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:path"
         }
       ],
       "inputs": {
@@ -4710,10 +4715,10 @@
           "bytesInOutput": 1784
         },
         "src/server.ts": {
-          "bytesInOutput": 45877
+          "bytesInOutput": 47446
         },
         "src/shopify-cart-quote.ts": {
-          "bytesInOutput": 9217
+          "bytesInOutput": 10829
         },
         "src/shopify-client.ts": {
           "bytesInOutput": 181

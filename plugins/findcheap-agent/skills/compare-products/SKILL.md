@@ -3,7 +3,7 @@ name: compare-products
 description: Search Shopify Global Catalog first, verify product identity, and render MCP UI product cards with fail-closed affiliate-ready purchase links before authorized Chrome fallback. Use deals-and-watch for Coupon and monitoring requests.
 ---
 
-# FindCheap Agent v0.6.14 Shopify Global Catalog
+# FindCheap Agent v0.6.15 Shopify Global Catalog
 
 Risk tier: `R0` for search and authorized Chrome fallback. ZIP quoting is `R1` because it creates anonymous short-lived Shopify carts. Never checkout, reserve, purchase, or pay. Do not persist a delivery address or browser data.
 
@@ -20,6 +20,7 @@ When the request contains enough product identity or a discovery category, do no
 2. **Selected-product identity is immutable.** Every returned product includes `quoteReference` with search `renderId` and exact Shopify `variantId`. Once user identifies one returned product, `search_shopify_products` is forbidden for that follow-up. Never call `search_shopify_products` again by title. Never rebuild a query from title, convert title into a handle, or search a replacement.
    - Size, color, other option, or current-stock follow-up: call `inspect_selected_shopify_product` exactly once with original `{ renderId, variantId }` plus requested `variantDimensions`. It resolves only exact prior merchant product path and first proves original variant belongs to that product. Use returned sibling Variant ID and availability. If none match, say so; do not search.
    - ZIP shipping/tax/total follow-up: call `quote_selected_shopify_product` exactly once with returned `{ renderId, variantId, zipCode }`. When inspection selected a sibling variant, use inspection's new `quoteReference`, not original variant.
+   - Quote failures are terminal for that attempt. Preserve exact code and fixed meaning: `FULL_ADDRESS_REQUIRED` asks customer for street address, city, and two-letter US state code, then retries same reference with `deliveryAddress`; FindCheap sends it once and does not save it in FindCheap state. `NO_DELIVERY_OPTIONS` means merchant returned no shipping method for that address. `MERCHANT_CART_UNAVAILABLE` means Cart quoting is currently unavailable or incompatible, not proof of stock status. `VARIANT_REJECTED` means merchant rejected exact Variant ID as unavailable, sold out, invalid, or no longer purchasable. `QUOTE_TIMEOUT` means quote deadline expired. Never convert one code into another, invent a total, or search a replacement.
    - Expired reference or unavailable exact-product inspection/quote: report exact failure. Do not open Catalog, web search, or Chrome for a substitute.
 3. For `NEEDS_CLARIFICATION`, ask the returned question and stop; do not search merchants again and do not call Chrome. A category, color, or theme alone is not enough for same-product comparison.
 4. If Shopify returns `status: OK` and one or more products, return those API results. Do not open Chrome when Shopify returns one or more products.

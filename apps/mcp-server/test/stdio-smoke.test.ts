@@ -116,6 +116,7 @@ describe("installed plugin stdio", () => {
       expect(shopifyTool?.inputSchema.required).toContain("selectionMode");
       expect(shopifyTool?.inputSchema.required).toContain("comparisonMode");
       expect(Object.keys(quoteTool?.inputSchema.properties ?? {}).sort()).toEqual([
+        "deliveryAddress",
         "renderId",
         "variantId",
         "zipCode"
