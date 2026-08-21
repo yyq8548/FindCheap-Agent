@@ -3,7 +3,7 @@ name: deals-and-watch
 description: Find verified Coupon, promotion, membership, Cashback, and offline-barcode evidence, or create and manage persistent shopping watches with Codex Automation.
 ---
 
-# FindCheap Agent v0.6.16 Deals and Watch
+# FindCheap Agent v0.7.0 Deals and Watch
 
 Use this workflow when the user asks for a Coupon before paying or asks to monitor a future purchase.
 
@@ -19,12 +19,12 @@ Use this workflow when the user asks for a Coupon before paying or asks to monit
 Risk tier: creating a recurring notification is `R2`. The user's direct request to "tell me", "notify me", or "watch" authorizes creating that watch and its recurring Codex Automation. It never authorizes purchase, reservation, checkout, or payment.
 
 1. Normalize the request into one condition:
-   - `PRICE_BELOW`: threshold is integer USD cents.
+   - `PRICE_BELOW`: `threshold` is the exclusive ceiling in integer USD cents. Convert the user's stated price directly without subtracting one cent: “below $40” means `threshold: 4000`, so `$39.99` triggers and `$40.00` does not.
    - `DISCOUNT_AT_LEAST` or `CASHBACK_AT_LEAST`: threshold is percentage points and merchant is required.
    - `COUPON_AVAILABLE`: merchant is required.
    - `IN_STOCK` or `RESTOCKED`.
 2. For `PRICE_BELOW`, `IN_STOCK`, or `RESTOCKED`, require a generation, exact model number, or GTIN and an explicit condition preference: `NEW`, `USED`, `REFURBISHED`, `OPEN_BOX`, or `ANY`. A generation or named style without model/GTIN also requires an explicit merchant. Never interpret omission as any generation, merchant, or condition. Preserve requested size, color, capacity, and other variant dimensions.
-3. Call `create_watch`. Never infer product identity, condition, ZIP, membership, threshold, or expiration. Handle its status exactly:
+3. Call `create_watch`. Never infer product identity, condition, ZIP, membership, threshold, or expiration. Before calling it, verify that the spoken dollar ceiling converts directly to integer cents (`$X.YZ` → `XYZ` cents); strictness is applied by the Watch evaluator, not by reducing the threshold. Handle its status exactly:
    - `NEEDS_CLARIFICATION`: ask its questions; create no Automation.
    - `ACTIVE`: the duplicate rule is already bound; create no duplicate Automation.
    - `PAUSED`: the duplicate rule already exists but is paused; create no duplicate Automation.

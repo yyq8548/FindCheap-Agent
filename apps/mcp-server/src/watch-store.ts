@@ -36,19 +36,21 @@ export const ProductWatchIdentitySchema = z.object({
   }
 });
 
-export const WatchSpecSchema = z.object({
+export const WatchSpecInputSchema = z.object({
   query: z.string().trim().min(2).max(300),
   merchant: z.string().trim().min(2).max(160).optional(),
   condition: WatchConditionSchema,
   threshold: z.number().nonnegative().max(100_000_000).optional()
-    .describe("PRICE_BELOW uses integer USD cents; DISCOUNT_AT_LEAST and CASHBACK_AT_LEAST use percentage points."),
+    .describe("PRICE_BELOW is an exclusive ceiling in integer USD cents: for 'below $40', send 4000 so $39.99 triggers; never subtract one cent. DISCOUNT_AT_LEAST and CASHBACK_AT_LEAST use percentage points."),
   zipCode: z.string().regex(/^\d{5}(?:-\d{4})?$/u).optional(),
   membershipIds: z.array(z.string().trim().min(1).max(80)).max(20).default([]),
   identity: ProductWatchIdentitySchema.optional(),
   conditionPreference: ProductWatchConditionPreferenceSchema.optional(),
   intervalMinutes: z.number().int().min(15).max(1_440).default(60),
   expiresAt: z.string().datetime({ offset: true }).optional()
-}).strict().superRefine((spec, context) => {
+}).strict();
+
+export const WatchSpecSchema = WatchSpecInputSchema.superRefine((spec, context) => {
   if (["PRICE_BELOW", "DISCOUNT_AT_LEAST", "CASHBACK_AT_LEAST"].includes(spec.condition) && spec.threshold === undefined) {
     context.addIssue({ code: z.ZodIssueCode.custom, message: `${spec.condition} requires threshold` });
   }

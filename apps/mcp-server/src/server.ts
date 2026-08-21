@@ -35,6 +35,7 @@ import {
 } from "./deal-client.js";
 import {
   WatchSpecSchema,
+  WatchSpecInputSchema,
   WatchAutomationIdSchema,
   productWatchClarificationQuestions,
   createMemoryWatchStore,
@@ -70,7 +71,7 @@ const ProductCardStagesSchema = z.object({
 
 const ProductCardTelemetryInputSchema = z.object({
   renderId: z.string().uuid(),
-  version: z.literal("0.6.16"),
+  version: z.literal("0.7.0"),
   terminalStage: z.enum([
     "DOM_RENDERED",
     "FIRST_IMAGE_SETTLED",
@@ -896,7 +897,7 @@ export function createShoppingServer(
   affiliateLinks: AffiliateLinkResolver = createAffiliateLinkResolver(),
   dependencies: ShoppingServerDependencies = {}
 ): McpServer {
-  const server = new McpServer({ name: "findcheap-agent", version: "0.6.16" });
+  const server = new McpServer({ name: "findcheap-agent", version: "0.7.0" });
   const dealPort = dependencies.deals ?? createUnavailableDealPort();
   const toolAvailability = dependencies.toolAvailability ?? {
     commerceCompare: true,
@@ -1331,7 +1332,7 @@ export function createShoppingServer(
     {
       title: "Create a shopping watch",
       description: "Persist a Watch rule and return the exact Codex Automation handoff. Monitoring is not active until bind_watch_automation succeeds.",
-      inputSchema: WatchSpecSchema,
+      inputSchema: WatchSpecInputSchema,
       outputSchema: {
         status: z.enum(["READY_TO_SCHEDULE", "ACTIVE", "PAUSED", "LEGACY_UNVERIFIED", "NEEDS_CLARIFICATION", "DATA_SOURCE_UNAVAILABLE"]),
         message: z.string().optional(),

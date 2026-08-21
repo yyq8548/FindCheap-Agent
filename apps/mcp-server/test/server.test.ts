@@ -154,6 +154,7 @@ describe("shopping MCP server", () => {
 
     const tools = await client.listTools();
     const searchTool = tools.tools.find((candidate) => candidate.name === "search_shopify_products");
+    const createWatchTool = tools.tools.find((candidate) => candidate.name === "create_watch");
     const renderTool = tools.tools.find((candidate) => candidate.name === "render_product_cards");
     const metricsTool = tools.tools.find((candidate) => candidate.name === "report_product_card_metrics");
     expect(searchTool?._meta).toMatchObject({
@@ -167,6 +168,13 @@ describe("shopping MCP server", () => {
       }
     });
     expect(metricsTool?._meta).toMatchObject({ ui: { visibility: ["app"] } });
+    expect(createWatchTool?.inputSchema).toMatchObject({
+      properties: {
+        threshold: {
+          description: expect.stringContaining("for 'below $40', send 4000 so $39.99 triggers")
+        }
+      }
+    });
 
     const resources = await client.listResources();
     expect(resources.resources).toEqual([expect.objectContaining({
@@ -410,7 +418,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.6.16",
+        version: "0.7.0",
         terminalStage: "DOM_RENDERED",
         stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
       }
@@ -419,7 +427,7 @@ describe("shopping MCP server", () => {
     expect(result.structuredContent).toEqual({ status: "RECORDED" });
     expect(record).toHaveBeenCalledWith(expect.objectContaining({
       renderId,
-      version: "0.6.16",
+      version: "0.7.0",
       terminalStage: "DOM_RENDERED",
       stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
     }));
@@ -427,7 +435,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.6.16",
+        version: "0.7.0",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 14 }
       }
@@ -437,7 +445,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.6.16",
+        version: "0.7.0",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 300_001 }
       }
@@ -448,7 +456,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId: "22222222-2222-4222-8222-222222222222",
-        version: "0.6.16",
+        version: "0.7.0",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 1 }
       }
@@ -1459,6 +1467,35 @@ describe("Coupon and Watch tools", () => {
     expect(results.map((result) => (result.structuredContent as { status: string }).status).sort()).toEqual([
       "NOT_TRIGGERED", "TRIGGERED"
     ]);
+  });
+
+  it("treats a PRICE_BELOW threshold as an exclusive ceiling without subtracting one cent", async () => {
+    let observedCents = 3_999;
+    const boundaryShopifyPort: ShopifyPort = {
+      search: async (input) => {
+        const result = await shopifyPort.search(input);
+        return {
+          ...result,
+          products: result.products.map((product) => ({
+            ...product,
+            itemPrice: { amountCents: observedCents, currency: "USD" as const }
+          }))
+        };
+      }
+    };
+    const client = await connect({ compare: async () => comparison }, boundaryShopifyPort, undefined, { now: () => current });
+    const created = await client.callTool({ name: "create_watch", arguments: {
+      query: "Valhalla Java pods", condition: "PRICE_BELOW", threshold: 4_000,
+      identity: { modelNumber: "5094SSC" }, conditionPreference: "ANY"
+    } });
+    const watchId = (created.structuredContent as { watchId: string }).watchId;
+    await client.callTool({ name: "bind_watch_automation", arguments: { watchId, automationId: "watch-price-boundary" } });
+
+    expect((await client.callTool({ name: "check_watch", arguments: { watchId } })).structuredContent)
+      .toMatchObject({ status: "TRIGGERED" });
+    observedCents = 4_000;
+    expect((await client.callTool({ name: "check_watch", arguments: { watchId } })).structuredContent)
+      .toMatchObject({ status: "NOT_TRIGGERED" });
   });
 
   it("never binds one Codex Automation to two watches", async () => {

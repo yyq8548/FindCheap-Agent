@@ -1,6 +1,6 @@
 {
   "name": "findcheap-agent",
-  "version": "0.6.16+codex.20260821024015",
+  "version": "0.7.0+codex.20260820232122",
   "description": "Search Shopify Global Catalog, find verified deals, and monitor prices, promotions, and stock.",
   "author": {
     "name": "yyq8548"
@@ -12,7 +12,7 @@
   "interface": {
     "displayName": "FindCheap Agent",
     "shortDescription": "Verified cards, pricing, coupons, and safe links.",
-    "longDescription": "FindCheap Agent is a Codex Plugin Agent. v0.6.16 searches Shopify Global Catalog, preserves product identity and variants, and ranks independently reviewed exact merchant domains before unverified merchants. Unknown merchants are labeled separately and never pad the top three when trusted results exist; risky hosts are excluded. Relaxed results remain DISCOVERY_MATCH and never become EXACT. It renders evidence-rich product cards directly from the search tool. Selected-product size, color, option, stock, shipping, and tax follow-ups reuse the exact prior renderId and Shopify variant identity instead of searching the title again. ZIP-only empty delivery results request a fuller address; only an addressed retry can return NO_DELIVERY_OPTIONS. Quoted cards show estimated totals immediately. Commerce comparison and verified Deals tools appear only when approved providers are configured. Watch rules bind to native Codex Automation. Without approved affiliate relationships it uses canonical merchant links. User-authorized Chrome remains a bounded zero-result fallback. It never checks out, reserves inventory, purchases, or pays.",
+    "longDescription": "FindCheap Agent is a Codex Plugin Agent. v0.7.0 searches Shopify Global Catalog, preserves product identity and variants, and ranks independently reviewed exact merchant domains before unverified merchants. Unknown merchants are labeled separately and never pad the top three when trusted results exist; risky hosts are excluded. Relaxed results remain DISCOVERY_MATCH and never become EXACT. It renders evidence-rich product cards directly from the search tool. Selected-product size, color, option, stock, shipping, and tax follow-ups reuse the exact prior renderId and Shopify variant identity instead of searching the title again. ZIP-only empty delivery results request a fuller address; only an addressed retry can return NO_DELIVERY_OPTIONS. Quoted cards show estimated totals immediately. Watch price thresholds are exposed as exclusive cent ceilings, so below $40 correctly triggers at $39.99 without an off-by-one adjustment. Commerce comparison and verified Deals tools appear only when approved providers are configured. Watch rules bind to native Codex Automation. Without approved affiliate relationships it uses canonical merchant links. User-authorized Chrome remains a bounded zero-result fallback. It never checks out, reserves inventory, purchases, or pays.",
     "developerName": "yyq8548",
     "category": "Productivity",
     "capabilities": [
