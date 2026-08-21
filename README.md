@@ -3,11 +3,13 @@
 [![Latest release](https://img.shields.io/github/v/release/yyq8548/FindCheap-Agent?label=release)](https://github.com/yyq8548/FindCheap-Agent/releases/latest)
 [![Plugin CI](https://github.com/yyq8548/FindCheap-Agent/actions/workflows/ci.yml/badge.svg)](https://github.com/yyq8548/FindCheap-Agent/actions/workflows/ci.yml)
 
+Product form: **Codex Plugin Agent**.
+
 FindCheap Agent is a read-only Codex plugin for product search, offer matching, price checks, product cards, verified deals, and shopping watches. It returns up to three products with images, merchant links, price evidence, match labels, condition, and availability.
 
-Codex calls the plugin through a local stdio MCP server. Shopify Global Catalog is the primary product source. If the catalog returns no usable product, the user can authorize a bounded Chrome search of public merchant pages.
+Codex calls the plugin through a local stdio MCP server. Shopify Global Catalog is the primary product source. If the catalog returns no usable product, an authorized Chrome skill can run a bounded search of public merchant pages.
 
-The plugin does not order products, reserve inventory, check out, or submit payment.
+The plugin does not order, check out, or submit payment. It also does not reserve inventory.
 
 ## Product search
 
