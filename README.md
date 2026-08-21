@@ -1,64 +1,75 @@
 # FindCheap Agent
 
-Product form: **Codex Plugin Agent**.
+[![Latest release](https://img.shields.io/github/v/release/yyq8548/FindCheap-Agent?label=release)](https://github.com/yyq8548/FindCheap-Agent/releases/latest)
+[![Plugin CI](https://github.com/yyq8548/FindCheap-Agent/actions/workflows/ci.yml/badge.svg)](https://github.com/yyq8548/FindCheap-Agent/actions/workflows/ci.yml)
 
-FindCheap Agent is a Codex plugin for finding products, checking whether offers refer to the same item, and comparing verified public prices. It returns up to three options with product images, merchant links, match labels, condition, availability, and the evidence used to rank them.
+FindCheap Agent is a read-only Codex plugin for product search, offer matching, price checks, product cards, verified deals, and shopping watches. It returns up to three products with images, merchant links, price evidence, match labels, condition, and availability.
 
-Codex calls a local stdio MCP server for catalog search, matching, ranking, product cards, deals, and watch rules. An authorized Chrome skill handles the bounded fallback search when the catalog has no usable result.
+Codex calls the plugin through a local stdio MCP server. Shopify Global Catalog is the primary product source. If the catalog returns no usable product, the user can authorize a bounded Chrome search of public merchant pages.
 
-The agent is read only. It does not order, check out, or submit payment.
+The plugin does not order products, reserve inventory, check out, or submit payment.
 
-## What it can do
+## Product search
 
-### Search for products
+The plugin searches Shopify Global Catalog across eligible merchants. It preserves details such as brand, model, SKU, GTIN, color, size, and capacity. Supported Chinese product terms are translated while identity and variant details remain unchanged.
 
-The agent searches Shopify Global Catalog across eligible merchants. It understands common product details such as brand, model, SKU, GTIN, color, size, and capacity. v0.7.0 independently classifies exact merchant domains as `OFFICIAL`, `AUTHORIZED_RETAILER`, `ESTABLISHED_RETAILER`, `UNKNOWN`, or `RISKY`. Trusted merchants rank before price; unknown merchants are labeled separately and never pad the top three when trusted results exist. Follow-up size, color, stock, shipping, and tax checks reuse the selected product's stable `renderId` and Shopify Variant ID instead of searching its title again. ZIP-only empty delivery results request a fuller address before declaring no delivery option. Quoted cards show an immediate estimated-total summary. Price Watches use the stated amount as an exclusive ceiling, so “below $40” alerts at $39.99 without subtracting a cent from the threshold.
+Results use three match labels:
 
-Results are classified as `EXACT`, `DISCOVERY_MATCH`, or `SIMILAR`. `EXACT` requires strong UPID, GTIN, or brand-plus-MPN/SKU evidence with the requested variant. Keyword matches remain discovery results instead of being presented as the same product.
+- `EXACT` requires strong UPID, GTIN, or brand plus MPN/SKU evidence for the requested variant.
+- `DISCOVERY_MATCH` is relevant but does not have enough evidence for a same-product claim.
+- `SIMILAR` is an alternative, not the same item.
 
-When the catalog returns no usable result, the agent can use a user authorized Chrome session for a bounded, read only search of public merchant pages. Chrome is a fallback, not the default search path.
+Exact merchant domains can be labeled `OFFICIAL`, `AUTHORIZED_RETAILER`, `ESTABLISHED_RETAILER`, `UNKNOWN`, or `RISKY` when checked-in evidence supports the label. Trusted merchants rank before price. Unknown merchants are shown separately and do not fill the top three when trusted results are available. Risky hosts are excluded. Affiliate status never affects ranking.
 
-### Compare offers
+If the first catalog request returns no usable product, the plugin may run one bounded relaxed request. Relaxed results remain `DISCOVERY_MATCH`. If Shopify still returns nothing, the plugin can offer the authorized Chrome fallback instead of silently changing data sources.
 
-The agent compares offers only when the available identity evidence indicates that they are the same product and variant. Exact matches rank ahead of similar alternatives.
+## Offer comparison and delivery estimates
+
+The plugin compares offers only when the identity evidence shows that they refer to the same product and variant. Exact matches rank ahead of discovery results and similar alternatives.
 
 Each result can include:
 
 - merchant and product name
 - verified public item price
-- product image and canonical merchant link
+- image and canonical merchant link
 - stock signal and product condition
 - model, SKU, GTIN, or variant evidence
 - observation time and source status
 
-Without a ZIP, the result is the public item price. The agent translates supported Chinese product terms while preserving identity and variants, and may make one bounded relaxed Catalog request when the primary request yields no usable product; relaxed results remain `DISCOVERY_MATCH`, never `EXACT`. With a US ZIP, it may create a short-lived anonymous Shopify cart and separate item price, selected shipping, tax, and estimated total. When a user selects a product from an earlier result, `quote_selected_shopify_product` reuses that card's exact `renderId` and Shopify `variantId`; it never searches the title again. Free delivery is shown as `$0.00`. Shopify `totalTaxAmount` is used only when explicitly returned; otherwise the card shows a ZIP-inferred 2026 state-plus-average-local tax estimate. Some merchants require a full address or checkout before calculating final tax. Merchants that do not support Cart quoting remain item-price-only. Product cards are bound directly to the Shopify search or selected-variant quote result.
+Without a ZIP code, prices are public item prices. With a US ZIP, the plugin may create a short-lived anonymous Shopify cart and display item price, selected shipping, tax, and estimated total separately. Free delivery appears as `$0.00`.
 
-The default plugin advertises only working Shopify, card, and product-Watch tools. Commerce comparison and verified Deals tools are added automatically only when their complete provider URL and token are configured. This keeps model tool selection focused without removing future commercial integrations.
+Shopify tax is used only when the merchant returns `totalTaxAmount`. Otherwise, the card can show a ZIP-based state and average local tax estimate. That estimate is not checkout tax. Some merchants require a full address or checkout before they return shipping or tax. Merchants that do not support Cart quoting remain item-price-only.
 
-### Show product cards
+Follow-up questions reuse the selected result's `renderId` and Shopify Variant ID. The plugin does not search the title again, so product price, shipping, and tax stay attached to the same variant.
 
-Codex can render the top results as interactive product cards grouped by independently trusted versus unverified merchants, then exact matches, discovery matches, and similar options. Each card shows merchant trust evidence, image, merchant, price, identity evidence, model/SKU when available, variants, condition, availability, observation time, and a button that opens the merchant's product page.
+## Product cards
+
+Codex can display the top results as interactive cards inside the conversation. Cards are grouped by merchant trust and match quality. They show merchant trust evidence, image, merchant, price, model or SKU when available, identity evidence, variants, condition, availability, observation time, and a button to open the merchant page. Product cards stay bound to the search or selected-variant quote that produced them.
 
 The complete text result remains available when a Codex client cannot display the card interface.
 
-### Find verified deals
+## Verified deals
 
-The plugin has a fail closed Coupon and promotion path. It can return a code, promotion, membership offer, Cashback offer, or offline Coupon only when a configured Deals API provides current evidence.
+The Coupon and promotion path fails closed. It returns a Coupon, promo code, membership offer, Cashback offer, or offline Coupon only when a configured Deals API supplies current evidence.
 
-Without that evidence, the agent reports the deal as unavailable. It does not invent codes, savings, or Cashback rates.
+Without that evidence, the plugin reports the deal source as unavailable. It does not invent codes, discounts, expiration dates, or Cashback rates.
 
-### Create persistent Watch reminders
+The default plugin exposes working Shopify, product-card, and Watch tools. Commerce comparison and verified Deals tools appear only when their complete provider URL and token are configured.
 
-Users can ask Codex to watch a product and notify them when a condition is met. Supported watch conditions include:
+## Shopping watches
 
-- price falls below a target
-- a promotion or verified Coupon appears
-- inventory returns
-- a specific size, color, or variant is restocked
+Users can ask Codex to monitor a product and notify them when:
 
-Scheduling and notifications use native Codex Automation. v0.6.0 stores the Automation ID with the Watch and does not report monitoring as active until that binding succeeds. The plugin persists the rule, last observation, and transition state across MCP restarts so it can report a change once instead of repeating the same alert.
+- the price falls below a target
+- a verified Coupon or promotion appears
+- an item returns to stock
+- a requested size, color, or variant is restocked
 
-Pause, resume, and delete synchronize the bound Automation and Watch rule. Existing pre-v0.6.0 rules remain runnable but are labeled `LEGACY_UNVERIFIED` until their Automation ID is reconciled.
+Scheduling and notifications use native Codex Automation. A watch becomes active only after its Automation ID is bound successfully. The plugin persists the rule, last observation, and transition state across MCP restarts, which prevents repeated alerts for the same observation.
+
+Price thresholds are exclusive. A request for "below $40" stores `4000` cents and triggers at `$39.99`, not `$40.00`.
+
+Pause, resume, and delete operations synchronize the Automation and Watch rule. Older rules without a verified Automation binding are labeled `LEGACY_UNVERIFIED` until they are reconciled.
 
 Example requests:
 
@@ -74,22 +85,19 @@ Tell me when this jacket is back in stock in black, size M.
 
 Affiliate tracking is not connected yet.
 
-Product cards currently use ordinary canonical merchant links. FindCheap Agent does not claim an affiliate relationship, add tracking parameters, report commission, or promise Cashback. The repository includes a guarded Affiliate ready boundary, but it stays disabled until a merchant or network approves the relationship and supplies the required credentials.
-
-Affiliate status does not influence search or ranking.
+Product cards use canonical merchant links. FindCheap Agent does not claim an affiliate relationship, add tracking parameters, report commission, or promise Cashback. The repository contains guarded affiliate infrastructure, but it remains disabled until a merchant or network approves the relationship and supplies the required credentials.
 
 ## Current limits
 
-- Search coverage depends on Shopify Global Catalog and the public pages available to the authorized Chrome fallback.
-- Shopify Global Catalog does not supply an official-seller flag. Merchant trust is based only on exact domains with checked-in independent evidence; all other merchants remain `UNKNOWN`.
-- A product marked `DISCOVERY_MATCH` is relevant but lacks independently verified same-product identity.
-- A product marked `SIMILAR` is an alternative, not the same item.
+- Coverage depends on Shopify Global Catalog and the public pages available to the authorized Chrome fallback.
+- Shopify Global Catalog does not provide an official-seller flag. Merchant trust uses exact domains with checked-in independent evidence. Other merchants remain `UNKNOWN`.
 - `UNKNOWN` condition does not mean new.
-- Stock signals and item prices can change after the observation time.
-- ZIP-specific Shopify Cart shipping and total estimates are best effort; unsupported merchants remain item-price-only.
-- Tax and mandatory fees are never independently calculated or invented, and membership prices remain unavailable.
-- The agent cannot check out, purchase, reserve inventory, or pay.
+- Stock and prices can change after the observation time.
+- Shipping and total estimates are best effort. Unsupported merchants remain item-price-only.
+- ZIP-based tax is an estimate. Final tax and mandatory fees may remain unavailable until checkout.
+- Membership prices remain unavailable unless a merchant source verifies them.
 - Watch runs require Codex Automation and a currently available verified source. Automated checks never use Chrome.
+- The plugin cannot purchase, reserve, check out, or pay.
 
 ## Install
 
@@ -108,12 +116,12 @@ FindCheap Agent 搜索 DÔEN dress，显示三个商品卡片
 
 See [sharing and installation](docs/product/findcheap-agent-share-package.md) for testing and update instructions.
 
-## Project structure
+## Repository map
 
 - `plugins/findcheap-agent/` contains the distributable Codex plugin.
 - `apps/mcp-server/` contains the local MCP server and product card resource.
 - `apps/commerce-api/` contains the audited comparison API.
 - `apps/ingestion-worker/` contains merchant ingestion and watch state processing.
-- `docs/product/` contains deployment, data source, Coupon, Watch, and Affiliate runbooks.
+- `docs/product/` contains deployment, data-source, Coupon, Watch, and affiliate runbooks.
 
-The Commerce API path fails closed when no merchant has passed its audit gate. Shopify Global Catalog remains the primary product discovery source, and user authorized Chrome remains the zero result fallback.
+The Commerce API fails closed until a merchant passes its audit gate. Shopify Global Catalog remains the primary discovery source, and authorized Chrome remains the zero-result fallback.
