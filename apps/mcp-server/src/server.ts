@@ -13,6 +13,7 @@ import {
 } from "./shopify-client.js";
 import { hasSpecificProductIdentity } from "./shopify-match.js";
 import type { ShopifyCartQuotePort } from "./shopify-cart-quote.js";
+import type { ShopifySelectedProductInspector } from "./shopify-selected-product.js";
 import {
   createAffiliateLinkResolver,
   type AffiliateLinkResolver
@@ -65,7 +66,7 @@ const ProductCardStagesSchema = z.object({
 
 const ProductCardTelemetryInputSchema = z.object({
   renderId: z.string().uuid(),
-  version: z.literal("0.6.13"),
+  version: z.literal("0.6.14"),
   terminalStage: z.enum([
     "DOM_RENDERED",
     "FIRST_IMAGE_SETTLED",
@@ -131,6 +132,17 @@ const ShopifySelectedQuoteInputSchema = z.object({
   zipCode: z.string().regex(/^\d{5}(?:-\d{4})?$/u)
 }).strict();
 
+const ShopifySelectedProductInputSchema = z.object({
+  renderId: z.string().uuid(),
+  variantId: z.string().regex(/^\d{1,30}$/u),
+  variantDimensions: z.record(
+    z.string().trim().min(1).max(100),
+    z.string().trim().min(1).max(300)
+  ).refine((value) => Object.keys(value).length <= 10, {
+    message: "variantDimensions must contain at most 10 entries"
+  }).optional()
+}).strict();
+
 export interface ComparePort {
   compare(input: CompareProductsInput): Promise<ComparisonResult>;
 }
@@ -139,6 +151,30 @@ const MoneyOutputSchema = z.object({
   amountCents: z.number().int(),
   currency: z.literal("USD")
 });
+
+const ShopifySelectedProductOutputShape = {
+  status: z.enum(["OK", "NO_MATCHING_VARIANT"]),
+  message: z.string(),
+  sourceVariantId: z.string().regex(/^\d{1,30}$/u),
+  merchant: z.string(),
+  sourceHost: z.string(),
+  productTitle: z.string(),
+  canonicalProductUrl: z.string().url(),
+  variants: z.array(z.object({
+    variantId: z.string().regex(/^\d{1,30}$/u),
+    title: z.string(),
+    sku: z.string().optional(),
+    variantDimensions: z.record(z.string(), z.string()),
+    itemPrice: MoneyOutputSchema.optional(),
+    availability: z.enum(["IN_STOCK", "OUT_OF_STOCK", "UNKNOWN"]),
+    merchantUrl: z.string().url(),
+    checkedAt: z.string(),
+    quoteReference: z.object({
+      renderId: z.string().uuid(),
+      variantId: z.string().regex(/^\d{1,30}$/u)
+    }).strict()
+  }).strict()).max(3)
+};
 
 const LineItemOutputSchema = z.object({
   kind: z.enum(["ITEM", "COUPON", "MEMBERSHIP", "SHIPPING", "TAX", "MANDATORY_FEE"]),
@@ -653,6 +689,7 @@ export type ShoppingServerDependencies = {
   deals?: DealPort;
   watches?: WatchStore;
   cartQuotes?: ShopifyCartQuotePort;
+  selectedProducts?: ShopifySelectedProductInspector;
   now?: () => Date;
   cardTelemetry?: ProductCardTelemetrySink;
   toolAvailability?: {
@@ -835,7 +872,7 @@ export function createShoppingServer(
   affiliateLinks: AffiliateLinkResolver = createAffiliateLinkResolver(),
   dependencies: ShoppingServerDependencies = {}
 ): McpServer {
-  const server = new McpServer({ name: "findcheap-agent", version: "0.6.13" });
+  const server = new McpServer({ name: "findcheap-agent", version: "0.6.14" });
   const dealPort = dependencies.deals ?? createUnavailableDealPort();
   const toolAvailability = dependencies.toolAvailability ?? {
     commerceCompare: true,
@@ -843,6 +880,7 @@ export function createShoppingServer(
   };
   const watchStore = dependencies.watches ?? createMemoryWatchStore();
   const cartQuotes = dependencies.cartQuotes;
+  const selectedProducts = dependencies.selectedProducts;
   const now = dependencies.now ?? (() => new Date());
   const cardTelemetry = dependencies.cardTelemetry ?? {
     record: (event: ProductCardTelemetry) => {
@@ -936,7 +974,7 @@ export function createShoppingServer(
     "search_shopify_products",
     {
       title: "Search Shopify Global Catalog (Beta)",
-      description: "Search Shopify Global Catalog across eligible merchants once per new lookup and render the returned cards directly. Independently reviewed exact domains rank before price; UNKNOWN merchants never pad Top 3 when trusted results exist, and affiliate status never ranks. The tool translates supported Chinese product terms and may make one internal bounded relaxed request only after an empty primary result; relaxed results are DISCOVERY_MATCH, never EXACT. For a later ZIP quote of one returned product, use quote_selected_shopify_product with its quoteReference; never search its title again. Use comparisonMode=SAME_PRODUCT only with exact identity; selectionMode=LOWEST_PRICE only when cheapest is explicit, otherwise MERCHANT_DIVERSE. Put budget in maxItemPriceCents.",
+      description: "Search Shopify Global Catalog across eligible merchants once per new lookup and render the returned cards directly. Independently reviewed exact domains rank before price; UNKNOWN merchants never pad Top 3 when trusted results exist, and affiliate status never ranks. The tool translates supported Chinese product terms and may make one internal bounded relaxed request only after an empty primary result; relaxed results are DISCOVERY_MATCH, never EXACT. For any later follow-up about a returned product, never search its title again: use inspect_selected_shopify_product for size, color, options, or availability, and quote_selected_shopify_product for a ZIP quote. Use comparisonMode=SAME_PRODUCT only with exact identity; selectionMode=LOWEST_PRICE only when cheapest is explicit, otherwise MERCHANT_DIVERSE. Put budget in maxItemPriceCents.",
       inputSchema: ShopifyProductsToolInputSchema,
       outputSchema: ShopifyProductsOutputShape,
       annotations: {
@@ -977,12 +1015,143 @@ export function createShoppingServer(
           ...response,
           content: [{
             type: "text" as const,
-            text: `${response.content[0]!.text}\nFor a follow-up quote of one selected product, call quote_selected_shopify_product with quoteReference.renderId, quoteReference.variantId, and the ZIP; never search its title again.`
+            text: `${response.content[0]!.text}\nFor every follow-up about one selected product, reuse quoteReference and never search its title again. Call inspect_selected_shopify_product for size, color, options, or availability; call quote_selected_shopify_product only for a ZIP quote.`
           }],
           structuredContent: content
         };
       } catch {
         return shopifyUnavailableResult(validatedInput.selectionMode, validatedInput);
+      }
+    }
+  );
+
+  server.registerTool(
+    "inspect_selected_shopify_product",
+    {
+      title: "Inspect a selected Shopify product",
+      description: "Check size, color, other variants, or current availability for exactly one product returned by search_shopify_products. Copy renderId and variantId from its quoteReference and put requested options in variantDimensions. This resolves the exact prior merchant product path; never run another catalog search, pass a title/query, or substitute another product.",
+      inputSchema: ShopifySelectedProductInputSchema,
+      outputSchema: ShopifySelectedProductOutputShape,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true
+      }
+    },
+    async (input) => {
+      const { renderId, variantId, variantDimensions = {} } = ShopifySelectedProductInputSchema.parse(input);
+      const snapshot = renderSnapshots.get(renderId);
+      if (snapshot === undefined || snapshot.expiresAt <= Date.now()) {
+        renderSnapshots.delete(renderId);
+        return {
+          isError: true,
+          content: [{
+            type: "text" as const,
+            text: "Selected product reference expired. Run one new Shopify search before inspecting variants."
+          }]
+        };
+      }
+      const selected = snapshot.sourceResult.products.find((product) => product.handle === variantId);
+      if (selected === undefined) {
+        return {
+          isError: true,
+          content: [{
+            type: "text" as const,
+            text: "Selected variant does not belong to that search result. No product inspection was requested."
+          }]
+        };
+      }
+      if (selectedProducts === undefined) {
+        return {
+          isError: true,
+          content: [{
+            type: "text" as const,
+            text: "Selected-product inspection provider is unavailable. No replacement product was searched."
+          }]
+        };
+      }
+
+      try {
+        const inspection = await selectedProducts.inspect(selected, variantDimensions);
+        if (inspection.variants.length === 0) {
+          const message = "The exact selected product has no variant matching the requested options. No title or catalog search was used.";
+          return {
+            content: [{ type: "text" as const, text: message }],
+            structuredContent: {
+              status: "NO_MATCHING_VARIANT" as const,
+              message,
+              sourceVariantId: variantId,
+              merchant: selected.merchant,
+              sourceHost: selected.sourceHost,
+              productTitle: inspection.productTitle,
+              canonicalProductUrl: inspection.canonicalProductUrl,
+              variants: []
+            }
+          };
+        }
+
+        const inspectedResult: ShopifySearchResult = {
+          ...snapshot.sourceResult,
+          merchantsQueried: 1,
+          merchantsSucceeded: 1,
+          comparison: {
+            status: "DISCOVERY_ONLY",
+            evidence: ["exact prior merchant product path and source Shopify variant identity"],
+            merchantCount: 1,
+            offerCount: inspection.variants.length
+          },
+          diagnostics: {
+            ...snapshot.sourceResult.diagnostics,
+            chromeFallbackEligible: false,
+            queryAttempts: 0,
+            fallbackQueryUsed: false,
+            catalogProductsReturned: 1,
+            catalogVariantsReturned: inspection.variants.length,
+            catalogZeroResultAttempts: 0
+          },
+          questions: [],
+          products: inspection.variants
+        };
+        const internalResponse = shopifyResult(
+          inspectedResult,
+          { membershipIds: [] },
+          affiliateLinks
+        );
+        const remembered = rememberSnapshot(internalResponse.structuredContent, inspectedResult);
+        const variants = remembered.products.map((product) => ({
+          variantId: product.handle,
+          title: product.title,
+          ...(product.sku === undefined ? {} : { sku: product.sku }),
+          variantDimensions: product.variantDimensions,
+          ...(product.itemPrice === undefined ? {} : { itemPrice: product.itemPrice }),
+          availability: product.availability,
+          merchantUrl: product.merchantUrl,
+          checkedAt: product.checkedAt,
+          quoteReference: { renderId: remembered.renderId, variantId: product.handle }
+        }));
+        const message = `Inspected ${variants.length} variant(s) from the exact previously returned product by stable Shopify product and variant identity; no title or catalog search was used.`;
+        return {
+          content: [{ type: "text" as const, text: message }],
+          structuredContent: {
+            status: "OK" as const,
+            message,
+            sourceVariantId: variantId,
+            merchant: selected.merchant,
+            sourceHost: selected.sourceHost,
+            productTitle: inspection.productTitle,
+            canonicalProductUrl: inspection.canonicalProductUrl,
+            variants
+          }
+        };
+      } catch {
+        return {
+          isError: true,
+          content: [{
+            type: "text" as const,
+            text: "The exact selected product could not be inspected safely. No replacement product was searched."
+          }]
+        };
       }
     }
   );

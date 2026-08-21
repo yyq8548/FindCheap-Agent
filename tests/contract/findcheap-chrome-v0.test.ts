@@ -43,6 +43,7 @@ describe("FindCheap Agent plugin contract", () => {
     expect(skill).toContain("`search_shopify_products`");
     expect(skill).toContain("Call `search_shopify_products` exactly once per new user lookup");
     expect(skill).toContain("`quote_selected_shopify_product`");
+    expect(skill).toContain("`inspect_selected_shopify_product`");
     expect(skill).toContain("Never call `search_shopify_products` again by title");
     expect(skill).toContain("Do not repeat a successful call");
     expect(skill).toContain("Default and explicit-new searches keep `NEW` and unlabeled `UNKNOWN`");
@@ -141,7 +142,7 @@ describe("FindCheap Agent plugin contract", () => {
     };
 
     expect(manifest.name).toBe("findcheap-agent");
-    expect(manifest.version).toMatch(/^0\.6\.13(?:\+codex\.)?/u);
+    expect(manifest.version).toMatch(/^0\.6\.14(?:\+codex\.)?/u);
     expect(manifest.interface.displayName).toBe("FindCheap Agent");
     expect(manifest.interface.longDescription).toMatch(/Codex Plugin Agent/u);
     expect(manifest.interface.longDescription).toMatch(/authorized Chrome/u);

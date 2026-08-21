@@ -210,6 +210,7 @@ describe("shopping MCP server", () => {
     expect(tools.tools.map((tool) => tool.name)).toEqual([
       "compare_products",
       "search_shopify_products",
+      "inspect_selected_shopify_product",
       "quote_selected_shopify_product",
       "find_coupons",
       "create_watch",
@@ -244,6 +245,13 @@ describe("shopping MCP server", () => {
     expect(tools.tools[1]?.description).toContain("once per new lookup");
     expect(tools.tools[1]?.description).toContain("never search its title again");
     expect(tools.tools[1]?.description).not.toContain("call render_product_cards");
+    const inspectTool = tools.tools.find((tool) => tool.name === "inspect_selected_shopify_product");
+    expect(Object.keys(inspectTool?.inputSchema.properties ?? {}).sort()).toEqual([
+      "renderId",
+      "variantDimensions",
+      "variantId"
+    ]);
+    expect(inspectTool?.description).toContain("never run another catalog search");
     expect(tools.tools[1]?.inputSchema.properties?.selectionMode).toMatchObject({
       description: expect.stringContaining("MERCHANT_DIVERSE")
     });
@@ -401,7 +409,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.6.13",
+        version: "0.6.14",
         terminalStage: "DOM_RENDERED",
         stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
       }
@@ -410,7 +418,7 @@ describe("shopping MCP server", () => {
     expect(result.structuredContent).toEqual({ status: "RECORDED" });
     expect(record).toHaveBeenCalledWith(expect.objectContaining({
       renderId,
-      version: "0.6.13",
+      version: "0.6.14",
       terminalStage: "DOM_RENDERED",
       stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
     }));
@@ -418,7 +426,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.6.13",
+        version: "0.6.14",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 14 }
       }
@@ -428,7 +436,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.6.13",
+        version: "0.6.14",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 300_001 }
       }
@@ -439,7 +447,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId: "22222222-2222-4222-8222-222222222222",
-        version: "0.6.13",
+        version: "0.6.14",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 1 }
       }
@@ -719,6 +727,102 @@ describe("shopping MCP server", () => {
     expect(titleRetry.isError).toBe(true);
     expect(search).toHaveBeenCalledTimes(1);
     expect(quoteCart).not.toHaveBeenCalled();
+  });
+
+  it("inspects a requested size from the exact prior product without another catalog search", async () => {
+    const search = vi.fn(shopifyPort.search);
+    const quoteCart = vi.fn(async () => ({
+      status: "ESTIMATED" as const,
+      subtotal: { amountCents: 1_499, currency: "USD" as const },
+      shipping: { amountCents: 0, currency: "USD" as const, label: "Free" },
+      tax: {
+        status: "ZIP_ESTIMATED" as const,
+        amount: { amountCents: 105, currency: "USD" as const },
+        jurisdiction: "FL",
+        rateBasisPoints: 698,
+        source: "TAX_FOUNDATION_STATE_AVERAGE_2026" as const
+      },
+      deliveredPrice: { amountCents: 1_604, currency: "USD" as const },
+      totalEstimated: true,
+      checkedAt: "2026-08-21T00:00:00.000Z",
+      expiresAt: "2026-08-21T00:10:00.000Z"
+    }));
+    const inspect = vi.fn(async (product: { handle: string }) => ({
+      productTitle: product.handle === "42797821853913"
+        ? "Valhalla Java Single-Serve Pods — 10 count"
+        : "unexpected",
+      canonicalProductUrl: "https://deathwishcoffee.com/products/valhalla-java-single-serve-pods",
+      variants: [{
+        ...(await shopifyPort.search({ query: "fixture", limit: 1 })).products[0]!,
+        handle: "42797821853914",
+        sku: "5094SSC-S",
+        variantDimensions: { Size: "S" },
+        merchantUrl: "https://deathwishcoffee.com/products/valhalla-java-single-serve-pods?variant=42797821853914"
+      }]
+    }));
+    const client = await connect(
+      { compare: async () => comparison },
+      { search },
+      undefined,
+      { selectedProducts: { inspect }, cartQuotes: { quote: quoteCart } }
+    );
+    const first = await client.callTool({
+      name: "search_shopify_products",
+      arguments: {
+        query: "Valhalla Java",
+        limit: 3,
+        comparisonMode: "DISCOVERY",
+        selectionMode: "MERCHANT_DIVERSE"
+      }
+    });
+    const reference = (first.structuredContent as {
+      products: Array<{ quoteReference: { renderId: string; variantId: string } }>;
+    }).products[0]!.quoteReference;
+
+    const inspected = await client.callTool({
+      name: "inspect_selected_shopify_product",
+      arguments: { ...reference, variantDimensions: { Size: "S" } }
+    });
+
+    expect(search).toHaveBeenCalledTimes(1);
+    expect(inspect).toHaveBeenCalledWith(expect.objectContaining({
+      handle: "42797821853913",
+      merchantUrl: "https://deathwishcoffee.com/products/valhalla-java-single-serve-pods"
+    }), { Size: "S" });
+    expect(inspected.structuredContent).toMatchObject({
+      status: "OK",
+      sourceVariantId: "42797821853913",
+      variants: [{
+        variantId: "42797821853914",
+        variantDimensions: { Size: "S" },
+        availability: "IN_STOCK",
+        quoteReference: {
+          renderId: expect.any(String),
+          variantId: "42797821853914"
+        }
+      }]
+    });
+    expect(JSON.stringify(inspected.content)).toContain("no title or catalog search was used");
+
+    const siblingReference = (inspected.structuredContent as {
+      variants: Array<{ quoteReference: { renderId: string; variantId: string } }>;
+    }).variants[0]!.quoteReference;
+    await client.callTool({
+      name: "quote_selected_shopify_product",
+      arguments: { ...siblingReference, zipCode: "33433" }
+    });
+    expect(quoteCart).toHaveBeenCalledWith(expect.objectContaining({
+      handle: "42797821853914",
+      variantDimensions: { Size: "S" }
+    }), "33433");
+    expect(search).toHaveBeenCalledTimes(1);
+
+    const titleRetry = await client.callTool({
+      name: "inspect_selected_shopify_product",
+      arguments: { ...reference, variantDimensions: { Size: "S" }, query: "Valhalla Java size S" }
+    });
+    expect(titleRetry.isError).toBe(true);
+    expect(search).toHaveBeenCalledTimes(1);
   });
 
   it("keeps item-price output when one merchant Cart quote fails", async () => {
