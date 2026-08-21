@@ -1,6 +1,6 @@
 {
   "name": "findcheap-agent",
-  "version": "0.6.11+codex.20260820222430",
+  "version": "0.6.12+codex.20260820233045",
   "description": "Search Shopify Global Catalog, find verified deals, and monitor prices, promotions, and stock.",
   "author": {
     "name": "yyq8548"
@@ -12,7 +12,7 @@
   "interface": {
     "displayName": "FindCheap Agent",
     "shortDescription": "Verified cards, pricing, coupons, and safe links.",
-    "longDescription": "FindCheap Agent is a Codex Plugin Agent. v0.6.11 searches Shopify Global Catalog, reserves EXACT for strong product identity, and renders evidence-rich product cards directly from the search tool in a Codex-native embedded surface. A selected-product follow-up quote reuses the exact prior renderId and Shopify variant ID instead of searching the title again, keeping item price, shipping, tax, and estimated total bound to one variant. Shopify totalTaxAmount is used only when explicitly returned; otherwise tax is clearly labeled as a ZIP-inferred 2026 state-average estimate. Unsupported merchants remain item-price-only. Commerce comparison and verified Deals tools appear only when their approved providers are configured. Watch rules bind to native Codex Automation. Without approved affiliate relationships it fails closed and uses canonical merchant links. User-authorized Chrome remains a bounded zero-result fallback. It never checks out, reserves inventory, purchases, or pays.",
+    "longDescription": "FindCheap Agent is a Codex Plugin Agent. v0.6.12 searches Shopify Global Catalog, translates supported Chinese product terms while preserving identity and variants, and makes at most one bounded relaxed request after an empty primary result. Relaxed results remain DISCOVERY_MATCH and never become EXACT. It renders evidence-rich product cards directly from the search tool in a Codex-native embedded surface. A selected-product follow-up quote reuses the exact prior renderId and Shopify variant ID instead of searching the title again, keeping item price, shipping, tax, and estimated total bound to one variant. Shopify totalTaxAmount is used only when explicitly returned; otherwise tax is clearly labeled as a ZIP-inferred 2026 state-average estimate. Unsupported merchants remain item-price-only. Commerce comparison and verified Deals tools appear only when their approved providers are configured. Watch rules bind to native Codex Automation. Without approved affiliate relationships it fails closed and uses canonical merchant links. User-authorized Chrome remains a bounded zero-result fallback. It never checks out, reserves inventory, purchases, or pays.",
     "developerName": "yyq8548",
     "category": "Productivity",
     "capabilities": [

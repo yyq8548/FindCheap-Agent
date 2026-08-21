@@ -1,4 +1,4 @@
 interface:
-  display_name: "FindCheap Agent v0.6.11"
+  display_name: "FindCheap Agent v0.6.12"
   short_description: "Verified products, deals, and shopping watches"
-  default_prompt: "Search products, find verified deals, or create and bind a Watch to Codex Automation. Never launch MCP."
+  default_prompt: "Use $compare-products to search Shopify products and render verified cards without launching MCP directly."
