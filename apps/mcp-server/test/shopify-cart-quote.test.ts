@@ -12,6 +12,11 @@ const product: ShopifyProduct = {
   merchantId: "shopify-123",
   merchant: "Fixture Shop",
   sourceHost: "shop.example",
+  merchantTrust: {
+    level: "UNKNOWN",
+    verification: "UNVERIFIED",
+    evidence: ["no independent merchant trust evidence"]
+  },
   handle: "456",
   title: "Fixture Product — Blue",
   gtins: [],

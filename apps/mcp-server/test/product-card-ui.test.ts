@@ -39,7 +39,7 @@ function nodes(node: FakeNode): FakeNode[] {
 
 describe("product-card MCP Apps UI", () => {
   it("uses an embedded Codex-native surface with responsive cards", () => {
-    expect(PRODUCT_CARD_UI_URI).toBe("ui://findcheap/product-cards/v16.html");
+    expect(PRODUCT_CARD_UI_URI).toBe("ui://findcheap/product-cards/v17.html");
     expect(PRODUCT_CARD_HTML).toContain("--fc-surface:");
     expect(PRODUCT_CARD_HTML).toContain("background: var(--fc-action);");
     expect(PRODUCT_CARD_HTML).toContain("@media (max-width: 640px)");
@@ -113,7 +113,7 @@ describe("product-card MCP Apps UI", () => {
       params: expect.objectContaining({
         name: "report_product_card_metrics",
         arguments: expect.objectContaining({
-          version: "0.6.12",
+          version: "0.6.13",
           terminalStage: "DOM_RENDERED",
           stages: expect.objectContaining({ DOM_RENDERED: expect.any(Number) })
         })
@@ -302,6 +302,11 @@ describe("product-card MCP Apps UI", () => {
       variantDimensions: { Color: "Black" },
       matchStatus,
       matchEvidence: [matchStatus === "EXACT" ? "brand and MPN exact" : "matched query terms"],
+      merchantTrust: {
+        level: "OFFICIAL",
+        verification: "INDEPENDENT",
+        evidence: ["Official merchant domain independently reviewed"]
+      },
       condition: "UNKNOWN",
       availability: "IN_STOCK",
       checkedAt: "2026-08-19T12:00:00.000Z",
@@ -311,6 +316,7 @@ describe("product-card MCP Apps UI", () => {
         title,
         primaryPrice: { amountCents: 1299, currency: "USD" },
         matchBadge: matchStatus,
+        merchantTrustBadge: "OFFICIAL",
         conditionBadge: "UNKNOWN",
         availability: "IN_STOCK"
       }
@@ -336,15 +342,16 @@ describe("product-card MCP Apps UI", () => {
     vm.runInNewContext(script!, { window, document, URL, Intl, Number, String, Array, Object, Promise, Map, Math, Date });
 
     const output = text(app);
-    expect(output).toContain("Exact matches");
-    expect(output).toContain("Discovery matches");
-    expect(output).toContain("Similar options");
+    expect(output).toContain("Trusted exact matches");
+    expect(output).toContain("Trusted discovery matches");
+    expect(output).toContain("Trusted similar options");
     expect(output.indexOf("Exact Product")).toBeLessThan(output.indexOf("Discovery Product"));
     expect(output.indexOf("Discovery Product")).toBeLessThan(output.indexOf("Similar Product"));
     expect(output).toContain("Sony");
     expect(output).toContain("WH1000XM5");
     expect(output).toContain("Color: Black");
     expect(output).toContain("brand and MPN exact");
+    expect(output).toContain("Official merchant domain independently reviewed");
     expect(output).toContain("Observed Aug 19, 2026");
   });
 
@@ -383,7 +390,7 @@ describe("product-card MCP Apps UI", () => {
       method: "ui/initialize",
       params: {
         protocolVersion: "2026-01-26",
-        appInfo: { name: "FindCheap Agent product cards", version: "0.6.12" },
+        appInfo: { name: "FindCheap Agent product cards", version: "0.6.13" },
         appCapabilities: { availableDisplayModes: ["inline"] }
       }
     });

@@ -172,6 +172,91 @@ describe("Shopify Global Catalog client", () => {
     expect(result.products[0]?.matchEvidence).toContain("Shopify Universal Product ID exact");
   });
 
+  it("returns reviewed official merchants before price and does not pad with unknown sellers", async () => {
+    const port = createShopifyGlobalCatalogPort(
+      { SHOPIFY_AGENT_PROFILE_URL: profileUrl },
+      {
+        fetch: vi.fn(async () => catalogResponse([
+          product({ shopId: "90", merchant: "Tiny Cheap Shop", host: "tiny-cheap.example", price: 9_900, title: "DÔEN Quinn Dress" }),
+          product({ shopId: "91", merchant: "DÔEN", host: "www.shopdoen.com", price: 27_800, title: "DÔEN Quinn Dress" })
+        ])),
+        clock: { now: () => new Date(now) }
+      }
+    );
+
+    const result = await port.search({
+      query: "DÔEN Quinn Dress",
+      limit: 3,
+      selectionMode: "LOWEST_PRICE"
+    });
+
+    expect(result.products).toEqual([
+      expect.objectContaining({
+        merchant: "DÔEN",
+        merchantTrust: expect.objectContaining({
+          level: "OFFICIAL",
+          verification: "INDEPENDENT"
+        })
+      })
+    ]);
+    expect(result.diagnostics).toMatchObject({
+      trustedMerchantProductsReturned: 1,
+      unverifiedMerchantProductsReturned: 0,
+      unverifiedMerchantProductsExcluded: 1,
+      riskyMerchantProductsExcluded: 0
+    });
+  });
+
+  it("keeps unknown merchants as explicitly unverified discovery only when no trusted seller exists", async () => {
+    const port = createShopifyGlobalCatalogPort(
+      { SHOPIFY_AGENT_PROFILE_URL: profileUrl },
+      {
+        fetch: vi.fn(async () => catalogResponse([
+          product({ shopId: "92", merchant: "Unknown Shop", host: "unknown-shop.example", price: 11_000, title: "DÔEN Quinn Dress" })
+        ])),
+        clock: { now: () => new Date(now) }
+      }
+    );
+
+    const result = await port.search({ query: "DÔEN Quinn Dress", limit: 3 });
+
+    expect(result.products[0]).toMatchObject({
+      merchant: "Unknown Shop",
+      merchantTrust: {
+        level: "UNKNOWN",
+        verification: "UNVERIFIED",
+        evidence: ["no independent merchant trust evidence"]
+      }
+    });
+    expect(result.diagnostics).toMatchObject({
+      trustedMerchantProductsReturned: 0,
+      unverifiedMerchantProductsReturned: 1,
+      unverifiedMerchantProductsExcluded: 0
+    });
+  });
+
+  it("fails closed on risky numeric and punycode merchant hosts", async () => {
+    const port = createShopifyGlobalCatalogPort(
+      { SHOPIFY_AGENT_PROFILE_URL: profileUrl },
+      {
+        fetch: vi.fn(async () => catalogResponse([
+          product({ shopId: "93", merchant: "Numeric Host", host: "203.0.113.10", price: 1_000, title: "DÔEN Quinn Dress" }),
+          product({ shopId: "94", merchant: "Lookalike", host: "xn--d1acpjx3f.example", price: 1_100, title: "DÔEN Quinn Dress" })
+        ])),
+        clock: { now: () => new Date(now) }
+      }
+    );
+
+    const result = await port.search({ query: "DÔEN Quinn Dress", limit: 3 });
+
+    expect(result.products).toEqual([]);
+    expect(result.diagnostics).toMatchObject({
+      riskyMerchantProductsExcluded: 2,
+      trustedMerchantProductsReturned: 0,
+      unverifiedMerchantProductsReturned: 0
+    });
+  });
+
   it("keeps category keyword results as discovery matches", async () => {
     const fetch = vi.fn(async () => catalogResponse([
       product({ shopId: "11236098", merchant: "GRAMOPHONE", host: "skybygramophone.com", price: 24_800 })

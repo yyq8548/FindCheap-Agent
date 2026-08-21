@@ -12,7 +12,7 @@ The agent is read only. It does not order, check out, or submit payment.
 
 ### Search for products
 
-The agent searches Shopify Global Catalog across eligible merchants. It understands common product details such as brand, model, SKU, GTIN, color, size, and capacity.
+The agent searches Shopify Global Catalog across eligible merchants. It understands common product details such as brand, model, SKU, GTIN, color, size, and capacity. v0.6.13 independently classifies exact merchant domains as `OFFICIAL`, `AUTHORIZED_RETAILER`, `ESTABLISHED_RETAILER`, `UNKNOWN`, or `RISKY`. Trusted merchants rank before price; unknown merchants are labeled separately and never pad the top three when trusted results exist.
 
 Results are classified as `EXACT`, `DISCOVERY_MATCH`, or `SIMILAR`. `EXACT` requires strong UPID, GTIN, or brand-plus-MPN/SKU evidence with the requested variant. Keyword matches remain discovery results instead of being presented as the same product.
 
@@ -31,13 +31,13 @@ Each result can include:
 - model, SKU, GTIN, or variant evidence
 - observation time and source status
 
-Without a ZIP, the result is the public item price. v0.6.12 translates supported Chinese product terms while preserving identity and variants, and may make one bounded relaxed Catalog request when the primary request yields no usable product; relaxed results remain `DISCOVERY_MATCH`, never `EXACT`. With a US ZIP, it may create a short-lived anonymous Shopify cart and separate item price, selected shipping, tax, and estimated total. When a user selects a product from an earlier result, `quote_selected_shopify_product` reuses that card's exact `renderId` and Shopify `variantId`; it never searches the title again. Free delivery is shown as `$0.00`. Shopify `totalTaxAmount` is used only when explicitly returned; otherwise the card shows a ZIP-inferred 2026 state-plus-average-local tax estimate. Some merchants require a full address or checkout before calculating final tax. Merchants that do not support Cart quoting remain item-price-only. Product cards are bound directly to the Shopify search or selected-variant quote result.
+Without a ZIP, the result is the public item price. The agent translates supported Chinese product terms while preserving identity and variants, and may make one bounded relaxed Catalog request when the primary request yields no usable product; relaxed results remain `DISCOVERY_MATCH`, never `EXACT`. With a US ZIP, it may create a short-lived anonymous Shopify cart and separate item price, selected shipping, tax, and estimated total. When a user selects a product from an earlier result, `quote_selected_shopify_product` reuses that card's exact `renderId` and Shopify `variantId`; it never searches the title again. Free delivery is shown as `$0.00`. Shopify `totalTaxAmount` is used only when explicitly returned; otherwise the card shows a ZIP-inferred 2026 state-plus-average-local tax estimate. Some merchants require a full address or checkout before calculating final tax. Merchants that do not support Cart quoting remain item-price-only. Product cards are bound directly to the Shopify search or selected-variant quote result.
 
 The default plugin advertises only working Shopify, card, and product-Watch tools. Commerce comparison and verified Deals tools are added automatically only when their complete provider URL and token are configured. This keeps model tool selection focused without removing future commercial integrations.
 
 ### Show product cards
 
-Codex can render the top results as interactive product cards grouped into exact matches, discovery matches, and similar options. Each card shows the image, merchant, price, identity evidence, model/SKU when available, variants, condition, availability, observation time, and a button that opens the merchant's product page.
+Codex can render the top results as interactive product cards grouped by independently trusted versus unverified merchants, then exact matches, discovery matches, and similar options. Each card shows merchant trust evidence, image, merchant, price, identity evidence, model/SKU when available, variants, condition, availability, observation time, and a button that opens the merchant's product page.
 
 The complete text result remains available when a Codex client cannot display the card interface.
 
@@ -81,6 +81,7 @@ Affiliate status does not influence search or ranking.
 ## Current limits
 
 - Search coverage depends on Shopify Global Catalog and the public pages available to the authorized Chrome fallback.
+- Shopify Global Catalog does not supply an official-seller flag. Merchant trust is based only on exact domains with checked-in independent evidence; all other merchants remain `UNKNOWN`.
 - A product marked `DISCOVERY_MATCH` is relevant but lacks independently verified same-product identity.
 - A product marked `SIMILAR` is an alternative, not the same item.
 - `UNKNOWN` condition does not mean new.
