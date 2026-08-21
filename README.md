@@ -3,6 +3,8 @@
 [![Latest release](https://img.shields.io/github/v/release/yyq8548/FindCheap-Agent?label=release)](https://github.com/yyq8548/FindCheap-Agent/releases/latest)
 [![Plugin CI](https://github.com/yyq8548/FindCheap-Agent/actions/workflows/ci.yml/badge.svg)](https://github.com/yyq8548/FindCheap-Agent/actions/workflows/ci.yml)
 
+English | [简体中文](README.zh-CN.md)
+
 Product form: **Codex Plugin Agent**.
 
 FindCheap Agent is a read-only Codex plugin for product search, offer matching, price checks, product cards, verified deals, and shopping watches. It returns up to three products with images, merchant links, price evidence, match labels, condition, and availability.
@@ -16,7 +18,7 @@ The plugin does not order, check out, or submit payment. It also does not reserv
 Call FindCheap Agent directly in Codex:
 
 ```text
-@FindCheap Agent 搜索 Sony WH-1000XM6，返回三个商品卡片
+@FindCheap Agent search for Sony WH-1000XM6 and show three product cards.
 ```
 
 Or ask in plain language after enabling the plugin:
@@ -28,13 +30,13 @@ Find me three trusted offers for AirPods Pro 2.
 Add a ZIP code when you want available shipping, tax, and estimated-total details:
 
 ```text
-报价第一个商品，ZIP 33065
+Quote the first product for ZIP 33065.
 ```
 
 Create a shopping watch:
 
 ```text
-监控这个商品，全新价格低于 $170 时提醒我。
+Watch this product and notify me when a new item falls below $170.
 ```
 
 For a follow-up quote, refer to a result by its number or choose it from the card. FindCheap Agent reuses the original product and variant instead of searching its title again.
@@ -129,7 +131,7 @@ codex plugin add findcheap-agent@findcheap-agent
 Restart Codex, open a new task, and try:
 
 ```text
-FindCheap Agent 搜索 DÔEN dress，显示三个商品卡片
+FindCheap Agent, search for DÔEN dresses and show three product cards.
 ```
 
 See [sharing and installation](docs/product/findcheap-agent-share-package.md) for testing and update instructions.
