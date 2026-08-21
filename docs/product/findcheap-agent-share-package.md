@@ -24,7 +24,7 @@ Open the Plugins Directory and confirm:
 - marketplace: `FindCheap Agent`
 - plugin: `FindCheap Agent`
 - plugin ID: `findcheap-agent`
-- version: `0.6.14`
+- version: `0.7.0`
 
 Test prompt:
 

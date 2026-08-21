@@ -12,7 +12,11 @@ import {
   type ShopifySearchResult
 } from "./shopify-client.js";
 import { hasSpecificProductIdentity } from "./shopify-match.js";
-import type { ShopifyCartQuotePort } from "./shopify-cart-quote.js";
+import {
+  ShopifyCartQuoteError,
+  type ShopifyCartQuotePort,
+  type ShopifyQuoteFailureCode
+} from "./shopify-cart-quote.js";
 import type { ShopifySelectedProductInspector } from "./shopify-selected-product.js";
 import {
   createAffiliateLinkResolver,
@@ -31,6 +35,7 @@ import {
 } from "./deal-client.js";
 import {
   WatchSpecSchema,
+  WatchSpecInputSchema,
   WatchAutomationIdSchema,
   productWatchClarificationQuestions,
   createMemoryWatchStore,
@@ -66,7 +71,7 @@ const ProductCardStagesSchema = z.object({
 
 const ProductCardTelemetryInputSchema = z.object({
   renderId: z.string().uuid(),
-  version: z.literal("0.6.14"),
+  version: z.literal("0.7.0"),
   terminalStage: z.enum([
     "DOM_RENDERED",
     "FIRST_IMAGE_SETTLED",
@@ -129,8 +134,28 @@ export const ShopifyProductsInputSchema = ShopifyProductsToolInputSchema;
 const ShopifySelectedQuoteInputSchema = z.object({
   renderId: z.string().uuid(),
   variantId: z.string().regex(/^\d{1,30}$/u),
-  zipCode: z.string().regex(/^\d{5}(?:-\d{4})?$/u)
+  zipCode: z.string().regex(/^\d{5}(?:-\d{4})?$/u),
+  deliveryAddress: z.object({
+    address1: z.string().trim().min(1).max(200),
+    city: z.string().trim().min(1).max(100),
+    provinceCode: z.string().regex(/^[A-Z]{2}$/u)
+  }).strict().optional()
 }).strict();
+
+function quoteFailureMessage(code: ShopifyQuoteFailureCode): string {
+  switch (code) {
+    case "FULL_ADDRESS_REQUIRED":
+      return "[FULL_ADDRESS_REQUIRED] This merchant requires a fuller delivery address. Ask the customer for street address, city, and two-letter state code, then retry the same renderId and variantId. FindCheap sends it once to the merchant and does not save it in FindCheap state.";
+    case "NO_DELIVERY_OPTIONS":
+      return "[NO_DELIVERY_OPTIONS] This merchant returned no shipping method for this address. The item may not ship to this destination; no shipping, tax, or total was inferred.";
+    case "MERCHANT_CART_UNAVAILABLE":
+      return "[MERCHANT_CART_UNAVAILABLE] This merchant's Cart quote service is currently unavailable or incompatible. This does not prove the product is out of stock or invalid. Retry later or check merchant checkout.";
+    case "VARIANT_REJECTED":
+      return "[VARIANT_REJECTED] The merchant rejected this exact Shopify variant. It may be unavailable, sold out, or no longer purchasable; no replacement product was searched.";
+    case "QUOTE_TIMEOUT":
+      return "[QUOTE_TIMEOUT] The merchant did not return a Cart quote before the deadline. Product availability was not changed; retry later.";
+  }
+}
 
 const ShopifySelectedProductInputSchema = z.object({
   renderId: z.string().uuid(),
@@ -872,7 +897,7 @@ export function createShoppingServer(
   affiliateLinks: AffiliateLinkResolver = createAffiliateLinkResolver(),
   dependencies: ShoppingServerDependencies = {}
 ): McpServer {
-  const server = new McpServer({ name: "findcheap-agent", version: "0.6.14" });
+  const server = new McpServer({ name: "findcheap-agent", version: "0.7.0" });
   const dealPort = dependencies.deals ?? createUnavailableDealPort();
   const toolAvailability = dependencies.toolAvailability ?? {
     commerceCompare: true,
@@ -1160,7 +1185,7 @@ export function createShoppingServer(
     "quote_selected_shopify_product",
     {
       title: "Quote a selected Shopify product",
-      description: "Get shipping, tax, and estimated total for exactly one product returned by search_shopify_products. Copy renderId and variantId from that product's quoteReference. Never substitute a title query or run another catalog search.",
+      description: "Get shipping, tax, and estimated total for exactly one product returned by search_shopify_products. Copy renderId and variantId from that product's quoteReference. When FULL_ADDRESS_REQUIRED is returned, ask for street address, city, and two-letter US state code, then retry with deliveryAddress; FindCheap sends it once to the merchant and does not save it in FindCheap state. Never substitute a title query or run another catalog search.",
       inputSchema: ShopifySelectedQuoteInputSchema,
       outputSchema: ShopifyProductsOutputShape,
       annotations: {
@@ -1177,7 +1202,7 @@ export function createShoppingServer(
       }
     },
     async (input) => {
-      const { renderId, variantId, zipCode } = ShopifySelectedQuoteInputSchema.parse(input);
+      const { renderId, variantId, zipCode, deliveryAddress } = ShopifySelectedQuoteInputSchema.parse(input);
       const snapshot = renderSnapshots.get(renderId);
       if (snapshot === undefined || snapshot.expiresAt <= Date.now()) {
         renderSnapshots.delete(renderId);
@@ -1206,7 +1231,9 @@ export function createShoppingServer(
         };
       }
       try {
-        const cartQuote = await cartQuotes.quote(selected, zipCode);
+        const cartQuote = deliveryAddress === undefined
+          ? await cartQuotes.quote(selected, zipCode)
+          : await cartQuotes.quote(selected, zipCode, deliveryAddress);
         const quotedProduct = {
           ...selected,
           itemPrice: cartQuote.subtotal,
@@ -1241,12 +1268,15 @@ export function createShoppingServer(
           }],
           structuredContent: content
         };
-      } catch {
+      } catch (error) {
+        const failure = error instanceof ShopifyCartQuoteError
+          ? error
+          : new ShopifyCartQuoteError("MERCHANT_CART_UNAVAILABLE", { cause: error });
         return {
           isError: true,
           content: [{
             type: "text" as const,
-            text: "Shopify Cart could not quote the selected variant. No replacement product was searched."
+            text: quoteFailureMessage(failure.code)
           }]
         };
       }
@@ -1302,7 +1332,7 @@ export function createShoppingServer(
     {
       title: "Create a shopping watch",
       description: "Persist a Watch rule and return the exact Codex Automation handoff. Monitoring is not active until bind_watch_automation succeeds.",
-      inputSchema: WatchSpecSchema,
+      inputSchema: WatchSpecInputSchema,
       outputSchema: {
         status: z.enum(["READY_TO_SCHEDULE", "ACTIVE", "PAUSED", "LEGACY_UNVERIFIED", "NEEDS_CLARIFICATION", "DATA_SOURCE_UNAVAILABLE"]),
         message: z.string().optional(),

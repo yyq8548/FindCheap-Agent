@@ -39,7 +39,7 @@ function nodes(node: FakeNode): FakeNode[] {
 
 describe("product-card MCP Apps UI", () => {
   it("uses an embedded Codex-native surface with responsive cards", () => {
-    expect(PRODUCT_CARD_UI_URI).toBe("ui://findcheap/product-cards/v17.html");
+    expect(PRODUCT_CARD_UI_URI).toBe("ui://findcheap/product-cards/v18.html");
     expect(PRODUCT_CARD_HTML).toContain("--fc-surface:");
     expect(PRODUCT_CARD_HTML).toContain("background: var(--fc-action);");
     expect(PRODUCT_CARD_HTML).toContain("@media (max-width: 640px)");
@@ -113,7 +113,7 @@ describe("product-card MCP Apps UI", () => {
       params: expect.objectContaining({
         name: "report_product_card_metrics",
         arguments: expect.objectContaining({
-          version: "0.6.14",
+          version: "0.7.0",
           terminalStage: "DOM_RENDERED",
           stages: expect.objectContaining({ DOM_RENDERED: expect.any(Number) })
         })
@@ -223,6 +223,7 @@ describe("product-card MCP Apps UI", () => {
     expect(text(app)).toContain("Shipping 免费配送 $0.00");
     expect(text(app)).toContain("Estimated tax (FL ZIP state average 6.98%) $0.91");
     expect(text(app)).toContain("Estimated total $13.90");
+    expect(text(app)).toMatch(/Estimated total summary\s+Direct Product \$13\.90/u);
     expect(text(app)).toContain("Some merchants require a full address or checkout before calculating tax");
     expect(text(app)).toContain("Final checkout total may change");
     expect(messages.some((message) => message.method === "tools/call")).toBe(false);
@@ -390,7 +391,7 @@ describe("product-card MCP Apps UI", () => {
       method: "ui/initialize",
       params: {
         protocolVersion: "2026-01-26",
-        appInfo: { name: "FindCheap Agent product cards", version: "0.6.14" },
+        appInfo: { name: "FindCheap Agent product cards", version: "0.7.0" },
         appCapabilities: { availableDisplayModes: ["inline"] }
       }
     });

@@ -138,8 +138,38 @@ export type ShopifyCartEstimate = {
   expiresAt: string;
 };
 
+export const ShopifyQuoteFailureCodes = [
+  "FULL_ADDRESS_REQUIRED",
+  "NO_DELIVERY_OPTIONS",
+  "MERCHANT_CART_UNAVAILABLE",
+  "VARIANT_REJECTED",
+  "QUOTE_TIMEOUT"
+] as const;
+
+export type ShopifyQuoteFailureCode = typeof ShopifyQuoteFailureCodes[number];
+
+export type ShopifyDeliveryAddress = {
+  address1: string;
+  city: string;
+  provinceCode: string;
+};
+
+export class ShopifyCartQuoteError extends Error {
+  readonly code: ShopifyQuoteFailureCode;
+
+  constructor(code: ShopifyQuoteFailureCode, options?: ErrorOptions) {
+    super(code, options);
+    this.name = "ShopifyCartQuoteError";
+    this.code = code;
+  }
+}
+
 export interface ShopifyCartQuotePort {
-  quote(product: ShopifyProduct, zipCode: string): Promise<ShopifyCartEstimate>;
+  quote(
+    product: ShopifyProduct,
+    zipCode: string,
+    deliveryAddress?: ShopifyDeliveryAddress
+  ): Promise<ShopifyCartEstimate>;
 }
 
 type Dependencies = {
@@ -159,10 +189,12 @@ export function createShopifyCartQuotePort(
   const clock = dependencies.clock ?? { now: () => new Date() };
 
   return {
-    async quote(product, zipCode) {
+    async quote(product, zipCode, deliveryAddress) {
       const target = quoteTarget(product);
       const zip = parseZip(zipCode);
+      const address = deliveryAddress === undefined ? undefined : parseDeliveryAddress(deliveryAddress);
       const variantId = parseVariantId(product.handle);
+      try {
       const create = parseCreate(await request({
         url: target,
         query: CREATE_CART,
@@ -172,7 +204,13 @@ export function createShopifyCartQuotePort(
             buyerIdentity: {
               countryCode: "US",
               deliveryAddressPreferences: [{
-                deliveryAddress: { country: "US", zip },
+                deliveryAddress: {
+                  country: "US",
+                  zip,
+                  ...(address === undefined
+                    ? {}
+                    : { address1: address.address1, city: address.city, province: address.provinceCode })
+                },
                 oneTimeUse: true
               }]
             }
@@ -181,13 +219,15 @@ export function createShopifyCartQuotePort(
         timeoutMs
       }));
       if (create.deliveryGroups.nodes.length === 0) {
-        throw new Error("Shopify Cart returned no delivery option");
+        throw new ShopifyCartQuoteError(address === undefined ? "FULL_ADDRESS_REQUIRED" : "NO_DELIVERY_OPTIONS");
       }
       const selections = create.deliveryGroups.nodes.map((group) => {
         const selected = [...group.deliveryOptions].sort((left, right) =>
           cents(left.estimatedCost) - cents(right.estimatedCost) || compareText(left.title, right.title)
         )[0];
-        if (selected === undefined) throw new Error("Shopify Cart returned no delivery option");
+        if (selected === undefined) {
+          throw new ShopifyCartQuoteError(address === undefined ? "FULL_ADDRESS_REQUIRED" : "NO_DELIVERY_OPTIONS");
+        }
         return {
           deliveryGroupId: group.id,
           deliveryOptionHandle: selected.handle,
@@ -262,6 +302,9 @@ export function createShopifyCartQuotePort(
         checkedAt: checkedAt.toISOString(),
         expiresAt: new Date(checkedAt.getTime() + QUOTE_TTL_MS).toISOString()
       };
+      } catch (error) {
+        throw normalizeQuoteError(error);
+      }
     }
   };
 }
@@ -298,6 +341,27 @@ function parseZip(value: string): string {
   return value;
 }
 
+function parseDeliveryAddress(value: ShopifyDeliveryAddress): ShopifyDeliveryAddress {
+  const address1 = boundedAddressText(value.address1, "address1", 200);
+  const city = boundedAddressText(value.city, "city", 100);
+  const provinceCode = value.provinceCode.trim().toUpperCase();
+  if (!/^[A-Z]{2}$/u.test(provinceCode)) throw new Error("Shopify delivery province is invalid");
+  return { address1, city, provinceCode };
+}
+
+function boundedAddressText(value: string, field: string, maximumLength: number): string {
+  const normalized = value.trim();
+  if (normalized.length < 1 || normalized.length > maximumLength || [...normalized].some(isControlCharacter)) {
+    throw new Error(`Shopify delivery ${field} is invalid`);
+  }
+  return normalized;
+}
+
+function isControlCharacter(character: string): boolean {
+  const code = character.codePointAt(0) ?? 0;
+  return code <= 31 || code === 127;
+}
+
 function parseTimeout(value: string | undefined): number {
   if (value === undefined) return 2_500;
   if (!/^\d+$/u.test(value)) throw new Error("SHOPIFY_CART_QUOTE_TIMEOUT_MS is invalid");
@@ -309,26 +373,63 @@ function parseTimeout(value: string | undefined): number {
 function parseCreate(input: unknown): z.infer<typeof CartSchema> {
   try {
     const parsed = CreateResponseSchema.parse(input);
-    if ((parsed.errors?.length ?? 0) > 0 || parsed.data.cartCreate.userErrors.length > 0) throw new Error();
-    if (parsed.data.cartCreate.cart === null) throw new Error();
+    const failures = [...(parsed.errors ?? []), ...parsed.data.cartCreate.userErrors];
+    if (failures.length > 0) throw classifyMerchantFailures(failures);
+    if (parsed.data.cartCreate.cart === null) throw new ShopifyCartQuoteError("MERCHANT_CART_UNAVAILABLE");
     return parsed.data.cartCreate.cart;
   } catch (error) {
-    throw new Error("Shopify Cart create response is invalid", { cause: error });
+    if (error instanceof ShopifyCartQuoteError) throw error;
+    throw new ShopifyCartQuoteError("MERCHANT_CART_UNAVAILABLE", { cause: error });
   }
 }
 
 function parseUpdate(input: unknown): z.infer<typeof CartSchema> {
   try {
     const parsed = UpdateResponseSchema.parse(input);
-    if (
-      (parsed.errors?.length ?? 0) > 0 ||
-      parsed.data.cartSelectedDeliveryOptionsUpdate.userErrors.length > 0 ||
-      parsed.data.cartSelectedDeliveryOptionsUpdate.cart === null
-    ) throw new Error();
+    const failures = [...(parsed.errors ?? []), ...parsed.data.cartSelectedDeliveryOptionsUpdate.userErrors];
+    if (failures.length > 0) throw classifyMerchantFailures(failures);
+    if (parsed.data.cartSelectedDeliveryOptionsUpdate.cart === null) {
+      throw new ShopifyCartQuoteError("MERCHANT_CART_UNAVAILABLE");
+    }
     return parsed.data.cartSelectedDeliveryOptionsUpdate.cart;
   } catch (error) {
-    throw new Error("Shopify Cart update response is invalid", { cause: error });
+    if (error instanceof ShopifyCartQuoteError) throw error;
+    throw new ShopifyCartQuoteError("MERCHANT_CART_UNAVAILABLE", { cause: error });
   }
+}
+
+function classifyMerchantFailures(failures: unknown[]): ShopifyCartQuoteError {
+  const evidence = failures.map((failure) => {
+    if (typeof failure !== "object" || failure === null) return "";
+    const record = failure as Record<string, unknown>;
+    const field = Array.isArray(record.field) ? record.field.filter((part) => typeof part === "string").join(" ") : "";
+    const message = typeof record.message === "string" ? record.message : "";
+    return `${field} ${message}`.toLowerCase();
+  }).join(" ");
+  if (/\b(address|city|province|state|postal|zip)\b/u.test(evidence)) {
+    return new ShopifyCartQuoteError("FULL_ADDRESS_REQUIRED");
+  }
+  if (/\b(delivery|shipping|ship)\b/u.test(evidence)) {
+    return new ShopifyCartQuoteError("NO_DELIVERY_OPTIONS");
+  }
+  if (/\b(line|lines|merchandise|variant|inventory|stock|sold|quantity|available|availability)\b/u.test(evidence)) {
+    return new ShopifyCartQuoteError("VARIANT_REJECTED");
+  }
+  return new ShopifyCartQuoteError("MERCHANT_CART_UNAVAILABLE");
+}
+
+function normalizeQuoteError(error: unknown): ShopifyCartQuoteError {
+  if (error instanceof ShopifyCartQuoteError) return error;
+  if (
+    error instanceof Error &&
+    (error.name === "AbortError" || error.name === "TimeoutError" || /\b(?:timed out|timeout|aborted)\b/iu.test(error.message))
+  ) {
+    return new ShopifyCartQuoteError("QUOTE_TIMEOUT", { cause: error });
+  }
+  if (error instanceof Error && /delivery option/iu.test(error.message)) {
+    return new ShopifyCartQuoteError("NO_DELIVERY_OPTIONS", { cause: error });
+  }
+  return new ShopifyCartQuoteError("MERCHANT_CART_UNAVAILABLE", { cause: error });
 }
 
 function money(value: z.infer<typeof MoneySchema>): { amountCents: number; currency: "USD" } {

@@ -10,6 +10,7 @@ import {
   type ShoppingServerDependencies
 } from "../src/server.js";
 import type { AffiliateLinkResolver } from "../src/affiliate-links.js";
+import { ShopifyCartQuoteError } from "../src/shopify-cart-quote.js";
 import { createMemoryWatchStore } from "../src/watch-store.js";
 
 const closers: Array<() => Promise<void>> = [];
@@ -153,28 +154,36 @@ describe("shopping MCP server", () => {
 
     const tools = await client.listTools();
     const searchTool = tools.tools.find((candidate) => candidate.name === "search_shopify_products");
+    const createWatchTool = tools.tools.find((candidate) => candidate.name === "create_watch");
     const renderTool = tools.tools.find((candidate) => candidate.name === "render_product_cards");
     const metricsTool = tools.tools.find((candidate) => candidate.name === "report_product_card_metrics");
     expect(searchTool?._meta).toMatchObject({
-      ui: { resourceUri: "ui://findcheap/product-cards/v17.html" },
-      "openai/outputTemplate": "ui://findcheap/product-cards/v17.html"
+      ui: { resourceUri: "ui://findcheap/product-cards/v18.html" },
+      "openai/outputTemplate": "ui://findcheap/product-cards/v18.html"
     });
     expect(renderTool?._meta).toMatchObject({
       ui: {
-        resourceUri: "ui://findcheap/product-cards/v17.html",
+        resourceUri: "ui://findcheap/product-cards/v18.html",
         visibility: ["app"]
       }
     });
     expect(metricsTool?._meta).toMatchObject({ ui: { visibility: ["app"] } });
+    expect(createWatchTool?.inputSchema).toMatchObject({
+      properties: {
+        threshold: {
+          description: expect.stringContaining("for 'below $40', send 4000 so $39.99 triggers")
+        }
+      }
+    });
 
     const resources = await client.listResources();
     expect(resources.resources).toEqual([expect.objectContaining({
       name: "findcheap-product-cards",
-      uri: "ui://findcheap/product-cards/v17.html",
+      uri: "ui://findcheap/product-cards/v18.html",
       mimeType: "text/html;profile=mcp-app"
     })]);
 
-    const resource = await client.readResource({ uri: "ui://findcheap/product-cards/v17.html" });
+    const resource = await client.readResource({ uri: "ui://findcheap/product-cards/v18.html" });
     const content = resource.contents[0];
     const html = content !== undefined && "text" in content ? content.text : "";
     expect(html).toContain("ui/notifications/tool-result");
@@ -409,7 +418,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.6.14",
+        version: "0.7.0",
         terminalStage: "DOM_RENDERED",
         stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
       }
@@ -418,7 +427,7 @@ describe("shopping MCP server", () => {
     expect(result.structuredContent).toEqual({ status: "RECORDED" });
     expect(record).toHaveBeenCalledWith(expect.objectContaining({
       renderId,
-      version: "0.6.14",
+      version: "0.7.0",
       terminalStage: "DOM_RENDERED",
       stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
     }));
@@ -426,7 +435,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.6.14",
+        version: "0.7.0",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 14 }
       }
@@ -436,7 +445,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.6.14",
+        version: "0.7.0",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 300_001 }
       }
@@ -447,7 +456,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId: "22222222-2222-4222-8222-222222222222",
-        version: "0.6.14",
+        version: "0.7.0",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 1 }
       }
@@ -683,6 +692,71 @@ describe("shopping MCP server", () => {
       }]
     });
     expect(JSON.stringify(quoted.content)).toContain("stable Shopify variant reference");
+  });
+
+  it("returns safe actionable quote failure codes and forwards a one-time address", async () => {
+    const search = vi.fn(shopifyPort.search);
+    const quoteCart = vi.fn();
+    const client = await connect(
+      { compare: async () => comparison },
+      { search },
+      undefined,
+      { cartQuotes: { quote: quoteCart } }
+    );
+    const first = await client.callTool({
+      name: "search_shopify_products",
+      arguments: {
+        query: "Valhalla Java",
+        limit: 3,
+        comparisonMode: "DISCOVERY",
+        selectionMode: "MERCHANT_DIVERSE"
+      }
+    });
+    const reference = (first.structuredContent as {
+      products: Array<{ quoteReference: { renderId: string; variantId: string } }>;
+    }).products[0]!.quoteReference;
+    const cases = [
+      ["FULL_ADDRESS_REQUIRED", "street address, city, and two-letter state code"],
+      ["NO_DELIVERY_OPTIONS", "no shipping method"],
+      ["MERCHANT_CART_UNAVAILABLE", "does not prove the product is out of stock"],
+      ["VARIANT_REJECTED", "rejected this exact Shopify variant"],
+      ["QUOTE_TIMEOUT", "before the deadline"]
+    ] as const;
+
+    for (const [code, message] of cases) {
+      quoteCart.mockRejectedValueOnce(new ShopifyCartQuoteError(code));
+      const result = await client.callTool({
+        name: "quote_selected_shopify_product",
+        arguments: { ...reference, zipCode: "33433" }
+      });
+      expect(result.isError).toBe(true);
+      expect(JSON.stringify(result.content)).toContain(`[${code}]`);
+      expect(JSON.stringify(result.content)).toContain(message);
+    }
+
+    quoteCart.mockResolvedValueOnce({
+      status: "ESTIMATED",
+      subtotal: { amountCents: 1_499, currency: "USD" },
+      shipping: { amountCents: 0, currency: "USD", label: "Free" },
+      tax: {
+        status: "ZIP_ESTIMATED",
+        amount: { amountCents: 105, currency: "USD" },
+        jurisdiction: "FL",
+        rateBasisPoints: 698,
+        source: "TAX_FOUNDATION_STATE_AVERAGE_2026"
+      },
+      deliveredPrice: { amountCents: 1_604, currency: "USD" },
+      totalEstimated: true,
+      checkedAt: "2026-08-20T12:00:00.000Z",
+      expiresAt: "2026-08-20T12:10:00.000Z"
+    });
+    const address = { address1: "123 Main St", city: "Boca Raton", provinceCode: "FL" };
+    await client.callTool({
+      name: "quote_selected_shopify_product",
+      arguments: { ...reference, zipCode: "33433", deliveryAddress: address }
+    });
+    expect(quoteCart).toHaveBeenLastCalledWith(expect.any(Object), "33433", address);
+    expect(search).toHaveBeenCalledTimes(1);
   });
 
   it("fails closed when a quote reference variant was not returned by that search", async () => {
@@ -1393,6 +1467,35 @@ describe("Coupon and Watch tools", () => {
     expect(results.map((result) => (result.structuredContent as { status: string }).status).sort()).toEqual([
       "NOT_TRIGGERED", "TRIGGERED"
     ]);
+  });
+
+  it("treats a PRICE_BELOW threshold as an exclusive ceiling without subtracting one cent", async () => {
+    let observedCents = 3_999;
+    const boundaryShopifyPort: ShopifyPort = {
+      search: async (input) => {
+        const result = await shopifyPort.search(input);
+        return {
+          ...result,
+          products: result.products.map((product) => ({
+            ...product,
+            itemPrice: { amountCents: observedCents, currency: "USD" as const }
+          }))
+        };
+      }
+    };
+    const client = await connect({ compare: async () => comparison }, boundaryShopifyPort, undefined, { now: () => current });
+    const created = await client.callTool({ name: "create_watch", arguments: {
+      query: "Valhalla Java pods", condition: "PRICE_BELOW", threshold: 4_000,
+      identity: { modelNumber: "5094SSC" }, conditionPreference: "ANY"
+    } });
+    const watchId = (created.structuredContent as { watchId: string }).watchId;
+    await client.callTool({ name: "bind_watch_automation", arguments: { watchId, automationId: "watch-price-boundary" } });
+
+    expect((await client.callTool({ name: "check_watch", arguments: { watchId } })).structuredContent)
+      .toMatchObject({ status: "TRIGGERED" });
+    observedCents = 4_000;
+    expect((await client.callTool({ name: "check_watch", arguments: { watchId } })).structuredContent)
+      .toMatchObject({ status: "NOT_TRIGGERED" });
   });
 
   it("never binds one Codex Automation to two watches", async () => {
