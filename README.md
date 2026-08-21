@@ -11,6 +11,34 @@ Codex calls the plugin through a local stdio MCP server. Shopify Global Catalog 
 
 The plugin does not order, check out, or submit payment. It also does not reserve inventory.
 
+## Usage
+
+Call FindCheap Agent directly in Codex:
+
+```text
+@FindCheap Agent 搜索 Sony WH-1000XM6，返回三个商品卡片
+```
+
+Or ask in plain language after enabling the plugin:
+
+```text
+Find me three trusted offers for AirPods Pro 2.
+```
+
+Add a ZIP code when you want available shipping, tax, and estimated-total details:
+
+```text
+报价第一个商品，ZIP 33065
+```
+
+Create a shopping watch:
+
+```text
+监控这个商品，全新价格低于 $170 时提醒我。
+```
+
+For a follow-up quote, refer to a result by its number or choose it from the card. FindCheap Agent reuses the original product and variant instead of searching its title again.
+
 ## Product search
 
 The plugin searches Shopify Global Catalog across eligible merchants. It preserves details such as brand, model, SKU, GTIN, color, size, and capacity. Supported Chinese product terms are translated while identity and variant details remain unchanged.
@@ -88,18 +116,6 @@ Tell me when this jacket is back in stock in black, size M.
 Affiliate tracking is not connected yet.
 
 Product cards use canonical merchant links. FindCheap Agent does not claim an affiliate relationship, add tracking parameters, report commission, or promise Cashback. The repository contains guarded affiliate infrastructure, but it remains disabled until a merchant or network approves the relationship and supplies the required credentials.
-
-## Current limits
-
-- Coverage depends on Shopify Global Catalog and the public pages available to the authorized Chrome fallback.
-- Shopify Global Catalog does not provide an official-seller flag. Merchant trust uses exact domains with checked-in independent evidence. Other merchants remain `UNKNOWN`.
-- `UNKNOWN` condition does not mean new.
-- Stock and prices can change after the observation time.
-- Shipping and total estimates are best effort. Unsupported merchants remain item-price-only.
-- ZIP-based tax is an estimate. Final tax and mandatory fees may remain unavailable until checkout.
-- Membership prices remain unavailable unless a merchant source verifies them.
-- Watch runs require Codex Automation and a currently available verified source. Automated checks never use Chrome.
-- The plugin cannot purchase, reserve, check out, or pay.
 
 ## Install
 
