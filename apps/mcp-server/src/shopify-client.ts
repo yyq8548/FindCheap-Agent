@@ -1,6 +1,7 @@
 import { createShopifyGlobalCatalogPort } from "./shopify-global-catalog-client.js";
 import type { ShopifyMatchStatus } from "./shopify-match.js";
 import type { ShopifyCartEstimate } from "./shopify-cart-quote.js";
+import type { MerchantTrustEvidence } from "./merchant-trust.js";
 
 export type ShopifySearchInput = {
   query?: string | undefined;
@@ -21,6 +22,7 @@ export type ShopifyProduct = {
   merchantId: string;
   merchant: string;
   sourceHost: string;
+  merchantTrust: MerchantTrustEvidence;
   handle: string;
   title: string;
   brand?: string;
@@ -65,6 +67,11 @@ export type ShopifySearchResult = {
     irrelevantProductsExcluded: number;
     conditionProductsExcluded: number;
     priceProductsExcluded: number;
+    trustedMerchantProductsReturned: number;
+    unverifiedMerchantProductsReturned: number;
+    unverifiedMerchantProductsExcluded: number;
+    riskyMerchantProductsExcluded: number;
+    merchantTrustRegistryVersion: string;
     merchantsFailed: number;
     coveragePercent: number;
     failedMerchantIds: string[];

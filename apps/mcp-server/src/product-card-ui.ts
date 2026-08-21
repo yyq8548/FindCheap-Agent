@@ -1,4 +1,4 @@
-export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v16.html";
+export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v17.html";
 
 export const PRODUCT_CARD_RESOURCE_DOMAINS = [
   "https://cdn.shopify.com"
@@ -86,6 +86,8 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     .exact { color: light-dark(#24633f, #a8dbb9); }
     .discovery { color: light-dark(#3f5f8a, #b6caea); }
     .similar { color: light-dark(#765c2b, #dac594); }
+    .trusted { color: light-dark(#24633f, #a8dbb9); }
+    .unverified { color: light-dark(#8b4f16, #f2c28f); }
     .details, .evidence, .limitations, .disclosure, .observed {
       color: var(--fc-muted);
       font-size: 11px;
@@ -160,7 +162,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     const uiStartedAt = typeof performance === "object" && typeof performance.now === "function"
       ? performance.now()
       : Date.now();
-    const cardMetrics = { version: "0.6.12", stages: {} };
+    const cardMetrics = { version: "0.6.13", stages: {} };
     window.__findcheapCardMetrics = cardMetrics;
     const notify = (method, params = {}) => {
       window.parent.postMessage({ jsonrpc: "2.0", method, params }, "*");
@@ -281,9 +283,10 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       container.append(line);
     };
     const groupDefinitions = [
-      { status: "EXACT", title: "Exact matches" },
-      { status: "DISCOVERY_MATCH", title: "Discovery matches" },
-      { status: "SIMILAR", title: "Similar options" }
+      { status: "EXACT", trusted: true, title: "Trusted exact matches" },
+      { status: "DISCOVERY_MATCH", trusted: true, title: "Trusted discovery matches" },
+      { status: "SIMILAR", trusted: true, title: "Trusted similar options" },
+      { trusted: false, title: "Unverified merchant candidates" }
     ];
     function render(output) {
       hasResult = true;
@@ -306,7 +309,10 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
           : quoteCount + " Shopify Cart estimate" + (quoteCount === 1 ? "" : "s") + "; remaining item-price-only";
       app.append(make("div", "summary", products.length + " product card" + (products.length === 1 ? "" : "s") + " · identity labels · " + priceSummary));
       for (const definition of groupDefinitions) {
-        const grouped = products.filter((product) => product?.matchStatus === definition.status);
+        const grouped = products.filter((product) => {
+          const verified = product?.merchantTrust?.verification === "INDEPENDENT";
+          return definition.trusted ? verified && product?.matchStatus === definition.status : !verified;
+        });
         if (grouped.length === 0) continue;
         const group = make("section", "group");
         group.append(make("h2", "", definition.title));
@@ -357,6 +363,8 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
           const match = String(cardData.matchBadge || product.matchStatus || "UNCONFIRMED");
           const matchClass = match === "EXACT" ? "exact" : match === "DISCOVERY_MATCH" ? "discovery" : "similar";
           badges.append(make("span", "badge " + matchClass, match));
+          const trustBadge = String(cardData.merchantTrustBadge || "MERCHANT_UNVERIFIED");
+          badges.append(make("span", "badge " + (trustBadge === "MERCHANT_UNVERIFIED" ? "unverified" : "trusted"), trustBadge));
           badges.append(make("span", "badge", String(cardData.conditionBadge || product.condition || "UNKNOWN")));
           badges.append(make("span", "badge", String(cardData.availability || product.availability || "UNKNOWN")));
           row.append(badges);
@@ -377,6 +385,9 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
           if (breakdown.children.length > 0) body.append(breakdown);
           if (Array.isArray(product.matchEvidence) && product.matchEvidence.length > 0) {
             body.append(make("div", "evidence", "Identity evidence: " + product.matchEvidence.join("; ")));
+          }
+          if (Array.isArray(product?.merchantTrust?.evidence) && product.merchantTrust.evidence.length > 0) {
+            body.append(make("div", "evidence", "Merchant evidence: " + product.merchantTrust.evidence.join("; ")));
           }
           body.append(make("div", "observed", observedAt(product.checkedAt)));
           body.append(make("div", "limitations notice", product?.pricing?.scope === "SHOPIFY_CART_ESTIMATE"
@@ -491,7 +502,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     warmCompatibilityBridge();
     const initializeParams = {
       protocolVersion: "2026-01-26",
-      appInfo: { name: "FindCheap Agent product cards", version: "0.6.12" },
+      appInfo: { name: "FindCheap Agent product cards", version: "0.6.13" },
       appCapabilities: { availableDisplayModes: ["inline"] }
     };
     const finishInitialization = () => {

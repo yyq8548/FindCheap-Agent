@@ -8,6 +8,12 @@ import type {
   ShopifySearchInput,
   ShopifySearchResult
 } from "./shopify-client.js";
+import {
+  MERCHANT_TRUST_REGISTRY_VERSION,
+  isTrustedMerchant,
+  merchantTrustRank,
+  resolveMerchantTrust
+} from "./merchant-trust.js";
 
 export const SHOPIFY_GLOBAL_CATALOG_ENDPOINT = "https://catalog.shopify.com/api/ucp/mcp";
 const CATALOG_VERSION = "2026-04-08";
@@ -320,7 +326,11 @@ function buildResult(
       });
   const requested = requestedCondition(input.query);
   const conditionEligible = classified.filter((candidate) => conditionMatches(candidate.condition, requested));
-  const ranked = rankAndDeduplicate(conditionEligible);
+  const riskyMerchantProductsExcluded = conditionEligible.filter((candidate) =>
+    candidate.merchantTrust.level === "RISKY"
+  ).length;
+  const safeMerchantCandidates = conditionEligible.filter((candidate) => candidate.merchantTrust.level !== "RISKY");
+  const ranked = rankAndDeduplicate(safeMerchantCandidates);
   const upidGroup = input.comparisonMode === "SAME_PRODUCT" && !context.relaxed
     ? selectUpidGroup(ranked)
     : undefined;
@@ -330,10 +340,13 @@ function buildResult(
     matchEvidence: [...new Set([...candidate.matchEvidence, "Shopify Universal Product ID exact"])]
   }));
   const pool = sameProduct ?? ranked;
+  const trustedPool = pool.filter((candidate) => isTrustedMerchant(candidate.merchantTrust));
+  const unverifiedPool = pool.filter((candidate) => candidate.merchantTrust.level === "UNKNOWN");
+  const selectionPool = trustedPool.length > 0 ? trustedPool : unverifiedPool;
   const selectionMode = input.selectionMode ?? "MERCHANT_DIVERSE";
   const selected = selectionMode === "LOWEST_PRICE"
-    ? pool.slice(0, input.limit)
-    : selectDiverseThenFill(pool, input.limit);
+    ? selectionPool.slice(0, input.limit)
+    : selectDiverseThenFill(selectionPool, input.limit);
   const merchantCount = new Set(raw.map((candidate) => candidate.merchantId)).size;
 
   return {
@@ -353,8 +366,8 @@ function buildResult(
           status: "SAME_PRODUCT",
           identityType: "UPID",
           evidence: ["Shopify Universal Product ID exact"],
-          merchantCount: new Set(sameProduct.map((candidate) => candidate.merchantId)).size,
-          offerCount: sameProduct.length
+          merchantCount: new Set(selected.map((candidate) => candidate.merchantId)).size,
+          offerCount: selected.length
         },
     diagnostics: {
       apiDurationMs: context.durationMs,
@@ -370,6 +383,11 @@ function buildResult(
       irrelevantProductsExcluded: priceEligible.length - classified.length + (raw.length - availabilityEligible.length),
       conditionProductsExcluded: unsupportedConditions + classified.length - conditionEligible.length,
       priceProductsExcluded: availabilityEligible.length - priceEligible.length,
+      trustedMerchantProductsReturned: selected.filter((candidate) => isTrustedMerchant(candidate.merchantTrust)).length,
+      unverifiedMerchantProductsReturned: selected.filter((candidate) => candidate.merchantTrust.level === "UNKNOWN").length,
+      unverifiedMerchantProductsExcluded: trustedPool.length > 0 ? unverifiedPool.length : 0,
+      riskyMerchantProductsExcluded,
+      merchantTrustRegistryVersion: MERCHANT_TRUST_REGISTRY_VERSION,
       merchantsFailed: 0,
       coveragePercent: 100,
       failedMerchantIds: [],
@@ -399,6 +417,8 @@ type AttemptTotals = Pick<ShopifySearchResult["diagnostics"],
   | "irrelevantProductsExcluded"
   | "conditionProductsExcluded"
   | "priceProductsExcluded"
+  | "unverifiedMerchantProductsExcluded"
+  | "riskyMerchantProductsExcluded"
 >;
 
 function emptyAttemptTotals(): AttemptTotals {
@@ -410,7 +430,9 @@ function emptyAttemptTotals(): AttemptTotals {
     identityProductsExcluded: 0,
     irrelevantProductsExcluded: 0,
     conditionProductsExcluded: 0,
-    priceProductsExcluded: 0
+    priceProductsExcluded: 0,
+    unverifiedMerchantProductsExcluded: 0,
+    riskyMerchantProductsExcluded: 0
   };
 }
 
@@ -449,6 +471,7 @@ function toCandidate(
     merchantId: `shopify-${shopId}`,
     merchant: variant.seller.name,
     sourceHost: new URL(productUrl).hostname,
+    merchantTrust: resolveMerchantTrust(new URL(productUrl).hostname, variant.seller.name),
     handle: variantId,
     title: variant.title,
     gtins: [],
@@ -506,6 +529,7 @@ function rankAndDeduplicate(products: GlobalCandidate[]): GlobalCandidate[] {
   for (const product of products) if (!unique.has(product.merchantUrl)) unique.set(product.merchantUrl, product);
   return [...unique.values()].sort((left, right) =>
     matchRank(left.matchStatus) - matchRank(right.matchStatus)
+    || merchantTrustRank(left.merchantTrust.level) - merchantTrustRank(right.merchantTrust.level)
     || availabilityRank(left.availability) - availabilityRank(right.availability)
     || (left.itemPrice?.amountCents ?? Number.MAX_SAFE_INTEGER) - (right.itemPrice?.amountCents ?? Number.MAX_SAFE_INTEGER)
     || compareText(left.merchant, right.merchant)

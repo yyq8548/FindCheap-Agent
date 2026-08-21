@@ -36,6 +36,7 @@ import {
   type WatchStore
 } from "./watch-store.js";
 import { evaluateWatch, type WatchEvaluation } from "./watch-service.js";
+import { MERCHANT_TRUST_REGISTRY_VERSION } from "./merchant-trust.js";
 
 export type { ShopifyPort } from "./shopify-client.js";
 export type { DealPort } from "./deal-client.js";
@@ -64,7 +65,7 @@ const ProductCardStagesSchema = z.object({
 
 const ProductCardTelemetryInputSchema = z.object({
   renderId: z.string().uuid(),
-  version: z.literal("0.6.12"),
+  version: z.literal("0.6.13"),
   terminalStage: z.enum([
     "DOM_RENDERED",
     "FIRST_IMAGE_SETTLED",
@@ -187,6 +188,12 @@ const ShopifyProductOutputSchema = z.object({
   merchantId: z.string(),
   merchant: z.string(),
   sourceHost: z.string(),
+  merchantTrust: z.object({
+    level: z.enum(["OFFICIAL", "AUTHORIZED_RETAILER", "ESTABLISHED_RETAILER", "UNKNOWN", "RISKY"]),
+    verification: z.enum(["INDEPENDENT", "UNVERIFIED"]),
+    evidence: z.array(z.string()),
+    reviewedAt: z.string().optional()
+  }),
   handle: z.string(),
   title: z.string(),
   brand: z.string().optional(),
@@ -286,6 +293,7 @@ const ShopifyProductOutputSchema = z.object({
     matchBadge: z.enum(["EXACT", "DISCOVERY_MATCH", "SIMILAR"]),
     conditionBadge: z.enum(["NEW", "USED", "REFURBISHED", "OPEN_BOX", "UNKNOWN"]),
     availability: z.enum(["IN_STOCK", "OUT_OF_STOCK", "UNKNOWN"]),
+    merchantTrustBadge: z.enum(["OFFICIAL", "AUTHORIZED_RETAILER", "ESTABLISHED_RETAILER", "MERCHANT_UNVERIFIED"]),
     actionLabel: z.literal("View at merchant")
   }),
   quoteReference: z.object({
@@ -341,6 +349,11 @@ const ShopifyProductsOutputShape = {
     irrelevantProductsExcluded: z.number().int().nonnegative(),
     conditionProductsExcluded: z.number().int().nonnegative(),
     priceProductsExcluded: z.number().int().nonnegative(),
+    trustedMerchantProductsReturned: z.number().int().nonnegative(),
+    unverifiedMerchantProductsReturned: z.number().int().nonnegative(),
+    unverifiedMerchantProductsExcluded: z.number().int().nonnegative(),
+    riskyMerchantProductsExcluded: z.number().int().nonnegative(),
+    merchantTrustRegistryVersion: z.string(),
     merchantsFailed: z.number().int().nonnegative(),
     coveragePercent: z.number().int().min(0).max(100),
     failedMerchantIds: z.array(z.string()),
@@ -447,6 +460,8 @@ function shopifyResult(
   const exactCount = result.products.filter((product) => product.matchStatus === "EXACT").length;
   const discoveryCount = result.products.filter((product) => product.matchStatus === "DISCOVERY_MATCH").length;
   const similarCount = result.products.filter((product) => product.matchStatus === "SIMILAR").length;
+  const trustedCount = result.products.filter((product) => product.merchantTrust.verification === "INDEPENDENT").length;
+  const unverifiedCount = result.products.filter((product) => product.merchantTrust.verification === "UNVERIFIED").length;
   const priceLimit = result.maxItemPriceCents === undefined
     ? ""
     : ` Maximum item price: USD ${(result.maxItemPriceCents / 100).toFixed(2)}.`;
@@ -466,11 +481,14 @@ function shopifyResult(
   const quoteSummary = cartQuoteCoverage.attempted === 0
     ? "Prices are public item prices only; shipping, tax, mandatory fees, member price, delivered price, and verified coupons are unavailable without merchant evidence."
     : `${cartQuoteCoverage.succeeded}/${cartQuoteCoverage.attempted} products received a ZIP-specific Shopify Cart estimate. Tax uses Shopify totalTaxAmount only when explicitly returned; otherwise it is a labeled ZIP state-average estimate. Some merchants require a full address or checkout before calculating tax.`;
-  const searchDiagnostics = `Search attempts: ${result.diagnostics.queryAttempts}; relaxed fallback: ${result.diagnostics.fallbackQueryUsed ? "USED" : "NOT_USED"}; Catalog products/variants: ${result.diagnostics.catalogProductsReturned}/${result.diagnostics.catalogVariantsReturned}; zero-result attempts: ${result.diagnostics.catalogZeroResultAttempts}; excluded out-of-stock/identity/condition/price: ${result.diagnostics.outOfStockProductsExcluded}/${result.diagnostics.identityProductsExcluded}/${result.diagnostics.conditionProductsExcluded}/${result.diagnostics.priceProductsExcluded}.`;
+  const searchDiagnostics = `Search attempts: ${result.diagnostics.queryAttempts}; relaxed fallback: ${result.diagnostics.fallbackQueryUsed ? "USED" : "NOT_USED"}; Catalog products/variants: ${result.diagnostics.catalogProductsReturned}/${result.diagnostics.catalogVariantsReturned}; zero-result attempts: ${result.diagnostics.catalogZeroResultAttempts}; excluded out-of-stock/identity/condition/price/unverified/risky: ${result.diagnostics.outOfStockProductsExcluded}/${result.diagnostics.identityProductsExcluded}/${result.diagnostics.conditionProductsExcluded}/${result.diagnostics.priceProductsExcluded}/${result.diagnostics.unverifiedMerchantProductsExcluded}/${result.diagnostics.riskyMerchantProductsExcluded}.`;
+  const trustSummary = trustedCount > 0
+    ? `${trustedCount} independently verified merchant card(s); unknown merchants were not used to pad the result.`
+    : `${unverifiedCount} merchant card(s) lack independent trust evidence and are discovery candidates, not merchant recommendations.`;
   const chromeAdvice = result.products.length === 0 && result.diagnostics.chromeFallbackEligible
     ? " Shopify still returned no usable product; the user may authorize one bounded Chrome whole-web fallback."
     : "";
-  const summary = `Comparison status: ${result.comparison.status}. ${sourceLabel} returned ${result.products.length} product card(s): ${exactCount} exact, ${discoveryCount} discovery, and ${similarCount} similar, from ${result.merchantsSucceeded}/${result.merchantsQueried} returned merchants.${priceLimit}${comparison} ${quoteSummary} ${linkSummary} ${searchDiagnostics}${chromeAdvice}`;
+  const summary = `Comparison status: ${result.comparison.status}. ${sourceLabel} returned ${result.products.length} product card(s): ${exactCount} exact, ${discoveryCount} discovery, and ${similarCount} similar, from ${result.merchantsSucceeded}/${result.merchantsQueried} returned merchants. ${trustSummary}${priceLimit}${comparison} ${quoteSummary} ${linkSummary} ${searchDiagnostics}${chromeAdvice}`;
   const products = linkedProducts.map(({ product, purchaseLink }, index) => {
     const price = product.itemPrice === undefined
       ? "price unavailable"
@@ -482,6 +500,8 @@ function shopifyResult(
     return [
       `${index + 1}. [${product.matchStatus}] ${product.title}`,
       `merchant: ${product.merchant} (${product.sourceHost})`,
+      `merchant trust: ${product.merchantTrust.level} (${product.merchantTrust.verification})`,
+      `merchant trust evidence: ${product.merchantTrust.evidence.join("; ")}`,
       `regular item price: ${price}`,
       cartQuote === undefined
         ? "shipping: unavailable | tax: unavailable | mandatory fees: unavailable | member price: unavailable | delivered price unavailable"
@@ -525,7 +545,8 @@ function shopifyResult(
           "coupon source is unavailable",
           ...(affiliateLinksApproved === result.products.length
             ? []
-            : ["one or more purchase links remain canonical merchant links"])
+            : ["one or more purchase links remain canonical merchant links"]),
+          ...(unverifiedCount === 0 ? [] : ["one or more merchants lack independent trust evidence"])
         ]
       },
       coverage: result.coverage,
@@ -618,6 +639,9 @@ function shopifyResult(
           matchBadge: product.matchStatus,
           conditionBadge: product.condition,
           availability: product.availability,
+          merchantTrustBadge: product.merchantTrust.verification === "INDEPENDENT"
+            ? product.merchantTrust.level as "OFFICIAL" | "AUTHORIZED_RETAILER" | "ESTABLISHED_RETAILER"
+            : "MERCHANT_UNVERIFIED" as const,
           actionLabel: "View at merchant" as const
         }
       }))
@@ -723,6 +747,11 @@ function shopifyClarificationResult(
         irrelevantProductsExcluded: 0,
         conditionProductsExcluded: 0,
         priceProductsExcluded: 0,
+        trustedMerchantProductsReturned: 0,
+        unverifiedMerchantProductsReturned: 0,
+        unverifiedMerchantProductsExcluded: 0,
+        riskyMerchantProductsExcluded: 0,
+        merchantTrustRegistryVersion: MERCHANT_TRUST_REGISTRY_VERSION,
         merchantsFailed: 0,
         coveragePercent: 0,
         failedMerchantIds: [],
@@ -779,6 +808,11 @@ function shopifyUnavailableResult(
         irrelevantProductsExcluded: 0,
         conditionProductsExcluded: 0,
         priceProductsExcluded: 0,
+        trustedMerchantProductsReturned: 0,
+        unverifiedMerchantProductsReturned: 0,
+        unverifiedMerchantProductsExcluded: 0,
+        riskyMerchantProductsExcluded: 0,
+        merchantTrustRegistryVersion: MERCHANT_TRUST_REGISTRY_VERSION,
         merchantsFailed: 0,
         coveragePercent: 0,
         failedMerchantIds: [],
@@ -801,7 +835,7 @@ export function createShoppingServer(
   affiliateLinks: AffiliateLinkResolver = createAffiliateLinkResolver(),
   dependencies: ShoppingServerDependencies = {}
 ): McpServer {
-  const server = new McpServer({ name: "findcheap-agent", version: "0.6.12" });
+  const server = new McpServer({ name: "findcheap-agent", version: "0.6.13" });
   const dealPort = dependencies.deals ?? createUnavailableDealPort();
   const toolAvailability = dependencies.toolAvailability ?? {
     commerceCompare: true,
@@ -902,7 +936,7 @@ export function createShoppingServer(
     "search_shopify_products",
     {
       title: "Search Shopify Global Catalog (Beta)",
-      description: "Search Shopify Global Catalog across eligible merchants once per new lookup and render the returned cards directly. The tool translates supported Chinese product terms and may make one internal bounded relaxed request only after an empty primary result; relaxed results are DISCOVERY_MATCH, never EXACT. For a later ZIP quote of one returned product, use quote_selected_shopify_product with its quoteReference; never search its title again. Use comparisonMode=SAME_PRODUCT only with exact identity; selectionMode=LOWEST_PRICE only when cheapest is explicit, otherwise MERCHANT_DIVERSE. Put budget in maxItemPriceCents.",
+      description: "Search Shopify Global Catalog across eligible merchants once per new lookup and render the returned cards directly. Independently reviewed exact domains rank before price; UNKNOWN merchants never pad Top 3 when trusted results exist, and affiliate status never ranks. The tool translates supported Chinese product terms and may make one internal bounded relaxed request only after an empty primary result; relaxed results are DISCOVERY_MATCH, never EXACT. For a later ZIP quote of one returned product, use quote_selected_shopify_product with its quoteReference; never search its title again. Use comparisonMode=SAME_PRODUCT only with exact identity; selectionMode=LOWEST_PRICE only when cheapest is explicit, otherwise MERCHANT_DIVERSE. Put budget in maxItemPriceCents.",
       inputSchema: ShopifyProductsToolInputSchema,
       outputSchema: ShopifyProductsOutputShape,
       annotations: {
@@ -914,7 +948,7 @@ export function createShoppingServer(
       _meta: {
         ui: { resourceUri: PRODUCT_CARD_UI_URI },
         "openai/outputTemplate": PRODUCT_CARD_UI_URI,
-        "openai/toolInvocation/invoking": "Searching verified Shopify products…",
+        "openai/toolInvocation/invoking": "Searching Shopify products…",
         "openai/toolInvocation/invoked": "Product cards ready."
       }
     },
