@@ -7,6 +7,7 @@ import { createShopifyPortFromEnvironment } from "./shopify-client.js";
 import { createDealPortFromEnvironment, hasDealProviderConfiguration } from "./deal-client.js";
 import { createJsonWatchStore } from "./watch-store.js";
 import { createShopifyCartQuotePort } from "./shopify-cart-quote.js";
+import { createShopifySelectedProductInspector } from "./shopify-selected-product.js";
 
 const comparePort = createComparePortFromEnvironment(process.env, createUnavailableComparePort);
 const shopifyPort = createShopifyPortFromEnvironment(process.env);
@@ -16,6 +17,7 @@ const stateDirectory = process.env.FINDCHEAP_STATE_DIR ?? join(homedir(), ".find
 const server = createShoppingServer(comparePort, shopifyPort, undefined, {
   deals: dealPort,
   cartQuotes: cartQuotePort,
+  selectedProducts: createShopifySelectedProductInspector(),
   watches: createJsonWatchStore(stateDirectory),
   toolAvailability: {
     commerceCompare: hasCommerceApiConfiguration(process.env),

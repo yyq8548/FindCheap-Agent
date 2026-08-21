@@ -3985,6 +3985,21 @@
       "format": "esm",
       "imports": []
     },
+    "src/shopify-selected-product.ts": {
+      "format": "esm",
+      "imports": [
+        {
+          "kind": "import-statement",
+          "original": "zod",
+          "path": "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/index.js"
+        },
+        {
+          "kind": "import-statement",
+          "original": "../../ingestion-worker/src/network/safe-fetch.js",
+          "path": "../ingestion-worker/src/network/safe-fetch.ts"
+        }
+      ]
+    },
     "src/stdio.ts": {
       "format": "esm",
       "imports": [
@@ -4032,6 +4047,11 @@
           "kind": "import-statement",
           "original": "./shopify-cart-quote.js",
           "path": "src/shopify-cart-quote.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./shopify-selected-product.js",
+          "path": "src/shopify-selected-product.ts"
         }
       ]
     },
@@ -4078,7 +4098,7 @@
   },
   "outputs": {
     "../../plugins/findcheap-agent/dist/mcp-server.js": {
-      "bytes": 466249,
+      "bytes": 476629,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
@@ -4155,6 +4175,11 @@
         {
           "external": true,
           "kind": "import-statement",
+          "path": "node:dns/promises"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
           "path": "node:https"
         },
         {
@@ -4166,6 +4191,11 @@
           "external": true,
           "kind": "import-statement",
           "path": "node:stream"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:url"
         }
       ],
       "inputs": {
@@ -4659,7 +4689,7 @@
           "bytesInOutput": 254
         },
         "../ingestion-worker/src/network/safe-fetch.ts": {
-          "bytesInOutput": 4470
+          "bytesInOutput": 7439
         },
         "src/affiliate-links.ts": {
           "bytesInOutput": 2966
@@ -4680,7 +4710,7 @@
           "bytesInOutput": 1784
         },
         "src/server.ts": {
-          "bytesInOutput": 41738
+          "bytesInOutput": 45877
         },
         "src/shopify-cart-quote.ts": {
           "bytesInOutput": 9217
@@ -4694,8 +4724,11 @@
         "src/shopify-match.ts": {
           "bytesInOutput": 4585
         },
+        "src/shopify-selected-product.ts": {
+          "bytesInOutput": 3250
+        },
         "src/stdio.ts": {
-          "bytesInOutput": 485
+          "bytesInOutput": 507
         },
         "src/watch-service.ts": {
           "bytesInOutput": 4775

@@ -66,6 +66,7 @@ describe("installed plugin stdio", () => {
       });
       expect(tools.tools.map((tool) => tool.name)).toEqual([
         "search_shopify_products",
+        "inspect_selected_shopify_product",
         "quote_selected_shopify_product",
         "create_watch",
         "bind_watch_automation",
