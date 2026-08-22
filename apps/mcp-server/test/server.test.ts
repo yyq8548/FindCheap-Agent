@@ -255,6 +255,11 @@ describe("shopping MCP server", () => {
     expect(tools.tools[1]?.description).toContain("once per new lookup");
     expect(tools.tools[1]?.description).toContain("never search its title again");
     expect(tools.tools[1]?.description).not.toContain("call render_product_cards");
+    const awinTool = tools.tools.find((tool) => tool.name === "search_awin_products");
+    expect(awinTool?.description).toContain("haircare");
+    expect(awinTool?.description).toContain("equivalent Chinese hair-specific product types");
+    expect(awinTool?.description).toContain("commission never affects routing or ranking");
+    expect(awinTool?.description).toContain("broad beauty or personal-care queries");
     const inspectTool = tools.tools.find((tool) => tool.name === "inspect_selected_shopify_product");
     expect(Object.keys(inspectTool?.inputSchema.properties ?? {}).sort()).toEqual([
       "renderId",
@@ -419,7 +424,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.7.1",
+        version: "0.7.2",
         terminalStage: "DOM_RENDERED",
         stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
       }
@@ -428,7 +433,7 @@ describe("shopping MCP server", () => {
     expect(result.structuredContent).toEqual({ status: "RECORDED" });
     expect(record).toHaveBeenCalledWith(expect.objectContaining({
       renderId,
-      version: "0.7.1",
+      version: "0.7.2",
       terminalStage: "DOM_RENDERED",
       stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
     }));
@@ -436,7 +441,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.7.1",
+        version: "0.7.2",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 14 }
       }
@@ -446,7 +451,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.7.1",
+        version: "0.7.2",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 300_001 }
       }
@@ -457,7 +462,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId: "22222222-2222-4222-8222-222222222222",
-        version: "0.7.1",
+        version: "0.7.2",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 1 }
       }

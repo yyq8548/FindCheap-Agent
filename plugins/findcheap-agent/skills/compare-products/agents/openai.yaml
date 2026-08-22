@@ -1,4 +1,4 @@
 interface:
-  display_name: "FindCheap Agent v0.7.1"
+  display_name: "FindCheap Agent v0.7.2"
   short_description: "Trusted merchants, products, deals, and watches"
   default_prompt: "Use $compare-products to search Shopify products and render verified cards without launching MCP directly."

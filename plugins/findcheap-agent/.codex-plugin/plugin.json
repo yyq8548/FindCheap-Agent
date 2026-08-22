@@ -1,6 +1,6 @@
 {
   "name": "findcheap-agent",
-  "version": "0.7.1+codex.20260821210739",
+  "version": "0.7.2+codex.20260821221731",
   "description": "Search Shopify Global Catalog and an approved Awin Feed, find verified deals, and monitor prices, promotions, and stock.",
   "author": {
     "name": "yyq8548"
@@ -12,7 +12,7 @@
   "interface": {
     "displayName": "FindCheap Agent",
     "shortDescription": "Verified cards, pricing, coupons, and safe links.",
-    "longDescription": "FindCheap Agent is a Codex Plugin Agent. v0.7.1 searches Shopify Global Catalog, preserves product identity and variants, and ranks independently reviewed exact merchant domains before unverified merchants. It also searches an authenticated server Feed, with a local development fallback, for the approved Amazonliss Awin relationship. Those results remain DISCOVERY_MATCH, DISCOVERY_ONLY, and condition UNKNOWN because the Feed lacks GTIN, MPN, brand, and condition. Approved Awin links are disclosed and never affect ranking. Unknown merchants are labeled separately and never pad the top three when trusted results exist; risky hosts are excluded. Relaxed Shopify results remain DISCOVERY_MATCH and never become EXACT. Selected-product size, color, option, stock, shipping, and tax follow-ups reuse the exact prior renderId and Shopify variant identity instead of searching the title again. Watch price thresholds are exclusive cent ceilings. Commerce comparison and verified Deals tools appear only when approved providers are configured. Watch rules bind to native Codex Automation. Other sources use canonical links without their own approved relationship. User-authorized Chrome remains a bounded zero-result fallback. It never checks out, reserves inventory, purchases, or pays.",
+    "longDescription": "FindCheap Agent is a Codex Plugin Agent. v0.7.2 routes hair-specific product categories to the approved Amazonliss Awin Feed first, with transparent affiliate disclosure and relevance-first ranking; commission never affects routing or order. Other searches use Shopify Global Catalog, preserve product identity and variants, and rank independently reviewed exact merchant domains before unverified merchants. Awin results remain DISCOVERY_MATCH, DISCOVERY_ONLY, and condition UNKNOWN because the Feed lacks GTIN, MPN, brand, and condition. Unknown merchants are labeled separately and never pad the top three when trusted results exist; risky hosts are excluded. Relaxed Shopify results remain DISCOVERY_MATCH and never become EXACT. Selected-product size, color, option, stock, shipping, and tax follow-ups reuse the exact prior renderId and Shopify variant identity instead of searching the title again. Watch price thresholds are exclusive cent ceilings. Commerce comparison and verified Deals tools appear only when approved providers are configured. Watch rules bind to native Codex Automation. Other sources use canonical links without their own approved relationship. User-authorized Chrome remains a bounded zero-result fallback. It never checks out, reserves inventory, purchases, or pays.",
     "developerName": "yyq8548",
     "category": "Productivity",
     "capabilities": [

@@ -77,7 +77,7 @@ const ProductCardStagesSchema = z.object({
 
 const ProductCardTelemetryInputSchema = z.object({
   renderId: z.string().uuid(),
-  version: z.literal("0.7.1"),
+  version: z.literal("0.7.2"),
   terminalStage: z.enum([
     "DOM_RENDERED",
     "FIRST_IMAGE_SETTLED",
@@ -1024,7 +1024,7 @@ export function createShoppingServer(
   affiliateLinks: AffiliateLinkResolver = createAffiliateLinkResolver(),
   dependencies: ShoppingServerDependencies = {}
 ): McpServer {
-  const server = new McpServer({ name: "findcheap-agent", version: "0.7.1" });
+  const server = new McpServer({ name: "findcheap-agent", version: "0.7.2" });
   const dealPort = dependencies.deals ?? createUnavailableDealPort();
   const awinPort = dependencies.awin ?? createUnavailableAwinPort();
   const toolAvailability = dependencies.toolAvailability ?? {
@@ -1182,7 +1182,7 @@ export function createShoppingServer(
     "search_awin_products",
     {
       title: "Search approved Awin Product Feed",
-      description: "Search the authenticated Amazonliss (US) Awin Product Feed, with a local Downloads fallback for development. Use only for Amazonliss, Nutree Cosmetics, or an explicit Awin-feed lookup. Results are DISCOVERY_MATCH and DISCOVERY_ONLY because the feed lacks GTIN, MPN, brand, and condition. Returned Awin links belong to the checked-in approved publisher/merchant relationship and include disclosure. Item price and feed availability only; no shipping, tax, coupon, member, or delivered-price claims.",
+      description: "Search the authenticated Amazonliss (US) Awin Product Feed, with a local Downloads fallback for development. Use first for haircare, hair mask, keratin hair treatment, shampoo, conditioner, hair straightening, smoothing, hair repair, or hair styling queries, including equivalent Chinese hair-specific product types; also use for explicit Amazonliss, Nutree Cosmetics, or Awin-feed requests. Do not use for broad beauty or personal-care queries without a hair-specific signal. Results are DISCOVERY_MATCH and DISCOVERY_ONLY because the feed lacks GTIN, MPN, brand, and condition. Returned Awin links belong to the checked-in approved publisher/merchant relationship and include disclosure. Relevance and item price determine order; commission never affects routing or ranking. Item price and feed availability only; no shipping, tax, coupon, member, or delivered-price claims.",
       inputSchema: AwinProductsToolInputSchema,
       outputSchema: AwinProductsOutputShape,
       annotations: {
