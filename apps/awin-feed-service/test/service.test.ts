@@ -133,6 +133,25 @@ describe("Awin Feed service", () => {
       await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
     }
   });
+
+  it("reports a bounded refresh failure code without exposing the source URL", async () => {
+    const environment = parseAwinFeedServiceEnvironment({
+      AWIN_SOURCE_FEED_URL: "https://productdata.awin.com/private/feed.csv.gz",
+      AWIN_FEED_API_TOKEN: "v".repeat(32)
+    });
+    const controller = createAwinFeedController(environment, {
+      fetch: async () => new Response(null, { status: 403 }),
+      now: () => new Date("2026-08-22T02:00:00.000Z")
+    });
+
+    await expect(controller.refresh()).rejects.toThrow("HTTP 403");
+
+    expect(controller.getState()).toMatchObject({
+      lastErrorAt: "2026-08-22T02:00:00.000Z",
+      lastErrorCode: "SOURCE_HTTP_ERROR"
+    });
+    expect(JSON.stringify(controller.getState())).not.toContain(environment.sourceUrl);
+  });
 });
 
 function fixtureArchive(): Buffer {

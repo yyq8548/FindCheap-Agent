@@ -18,6 +18,7 @@ type FeedState = {
   snapshot?: FeedSnapshot;
   lastRefreshAt?: string;
   lastErrorAt?: string;
+  lastErrorCode?: "SOURCE_REQUEST_FAILED" | "SOURCE_HTTP_ERROR" | "SOURCE_READ_FAILED" | "FEED_INVALID" | "STORAGE_WRITE_FAILED";
 };
 
 type Dependencies = {
@@ -50,6 +51,7 @@ export function createAwinFeedController(
     }
   };
   const runRefresh = async (): Promise<void> => {
+    let failureCode: NonNullable<FeedState["lastErrorCode"]> = "SOURCE_REQUEST_FAILED";
     try {
       const response = await fetchRequest(environment.sourceUrl, {
         method: "GET",
@@ -57,16 +59,24 @@ export function createAwinFeedController(
         headers: { accept: "application/gzip, application/x-gzip, application/octet-stream" },
         signal: AbortSignal.timeout(environment.sourceTimeoutMs)
       });
-      if (!response.ok) throw new Error(`Awin source returned HTTP ${response.status}`);
+      if (!response.ok) {
+        failureCode = "SOURCE_HTTP_ERROR";
+        throw new Error(`Awin source returned HTTP ${response.status}`);
+      }
+      failureCode = "SOURCE_READ_FAILED";
       const archive = await readLimitedBody(response, MAX_COMPRESSED_BYTES);
       const snapshotAt = validDate(now()).toISOString();
+      failureCode = "FEED_INVALID";
       const snapshot = validatedSnapshot(archive, snapshotAt);
+      failureCode = "STORAGE_WRITE_FAILED";
       await writeArchiveAtomically(environment.dataPath, archive);
       state.snapshot = snapshot;
       state.lastRefreshAt = snapshotAt;
       delete state.lastErrorAt;
+      delete state.lastErrorCode;
     } catch (error) {
       state.lastErrorAt = validDate(now()).toISOString();
+      state.lastErrorCode = failureCode;
       throw error;
     }
   };
@@ -145,7 +155,8 @@ function feedMetadata(state: Readonly<FeedState>): Record<string, unknown> {
       ? {}
       : { snapshotAt: state.snapshot.snapshotAt, feedRows: state.snapshot.feedRows }),
     ...(state.lastRefreshAt === undefined ? {} : { lastRefreshAt: state.lastRefreshAt }),
-    ...(state.lastErrorAt === undefined ? {} : { lastErrorAt: state.lastErrorAt })
+    ...(state.lastErrorAt === undefined ? {} : { lastErrorAt: state.lastErrorAt }),
+    ...(state.lastErrorCode === undefined ? {} : { lastErrorCode: state.lastErrorCode })
   };
 }
 

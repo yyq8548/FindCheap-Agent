@@ -50,7 +50,8 @@ The container:
 
 `GET /health` is the process liveness check and always returns `200` while the server is running.
 `GET /ready` returns `200` only when a validated Feed snapshot is available; otherwise it returns
-`503`. Configure Railway to use `/health`; use `/ready` to monitor Feed availability.
+`503`. Configure Railway to use `/health`; use `/ready` to monitor Feed availability. Failed refreshes
+include only a bounded `lastErrorCode`, never the source URL or credentials.
 
 Publish `127.0.0.1:3010` through the server's TLS reverse proxy as, for example,
 `https://feed.example.com/v1/feed`. Do not expose port `3010` directly to the internet.
