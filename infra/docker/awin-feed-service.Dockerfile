@@ -12,7 +12,6 @@ FROM node:22.22.0-bookworm-slim@sha256:dd9d21971ec4395903fa6143c2b9267d048ae01ca
 ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=build --chown=node:node /opt/awin-feed/ /app/
-USER node
 EXPOSE 3010
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
   CMD ["node", "-e", "fetch('http://127.0.0.1:'+(process.env.AWIN_FEED_SERVICE_PORT||process.env.PORT||'3010')+'/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]

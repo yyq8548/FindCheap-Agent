@@ -45,6 +45,7 @@ The container:
 - requires every row to match Awin publisher `3047955`, Amazonliss merchant `20282`, approved HTTPS
   hosts, USD, and a valid price;
 - writes `/data/current.csv.gz` atomically on the persistent `awin_feed_data` volume;
+- fixes the mounted `/data` directory ownership at startup, then drops to the unprivileged `node` user;
 - keeps the last valid snapshot when a later refresh fails;
 - returns `503` instead of unvalidated or missing data.
 
