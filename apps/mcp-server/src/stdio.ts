@@ -8,13 +8,16 @@ import { createDealPortFromEnvironment, hasDealProviderConfiguration } from "./d
 import { createJsonWatchStore } from "./watch-store.js";
 import { createShopifyCartQuotePort } from "./shopify-cart-quote.js";
 import { createShopifySelectedProductInspector } from "./shopify-selected-product.js";
+import { createAwinFeedPort } from "./awin-feed-client.js";
 
 const comparePort = createComparePortFromEnvironment(process.env, createUnavailableComparePort);
 const shopifyPort = createShopifyPortFromEnvironment(process.env);
 const dealPort = createDealPortFromEnvironment(process.env);
 const cartQuotePort = createShopifyCartQuotePort(process.env);
+const awinPort = createAwinFeedPort(process.env);
 const stateDirectory = process.env.FINDCHEAP_STATE_DIR ?? join(homedir(), ".findcheap-agent", "watches-v1");
 const server = createShoppingServer(comparePort, shopifyPort, undefined, {
+  awin: awinPort,
   deals: dealPort,
   cartQuotes: cartQuotePort,
   selectedProducts: createShopifySelectedProductInspector(),

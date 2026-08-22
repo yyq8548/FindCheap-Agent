@@ -31,3 +31,32 @@ services:
     pids_limit: 128
     cpus: 1.0
     mem_limit: 256m
+
+  awin-feed-service:
+    profiles: ["awin"]
+    build:
+      context: .
+      dockerfile: infra/docker/awin-feed-service.Dockerfile
+    environment:
+      NODE_ENV: production
+      AWIN_SOURCE_FEED_URL: ${AWIN_SOURCE_FEED_URL:-}
+      AWIN_SOURCE_ALLOWED_HOSTS: ${AWIN_SOURCE_ALLOWED_HOSTS:-productdata.awin.com,datafeed.api.productserve.com}
+      AWIN_FEED_API_TOKEN: ${AWIN_FEED_API_TOKEN:-}
+      AWIN_FEED_DATA_PATH: /data/current.csv.gz
+      AWIN_REFRESH_INTERVAL_MINUTES: ${AWIN_REFRESH_INTERVAL_MINUTES:-360}
+      AWIN_SOURCE_TIMEOUT_MS: ${AWIN_SOURCE_TIMEOUT_MS:-15000}
+      AWIN_FEED_SERVICE_HOST: 0.0.0.0
+      AWIN_FEED_SERVICE_PORT: 3010
+    ports: ["127.0.0.1:3010:3010"]
+    volumes: ["awin_feed_data:/data"]
+    read_only: true
+    tmpfs: ["/tmp:rw,noexec,nosuid,nodev,size=16m"]
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    init: true
+    pids_limit: 128
+    cpus: 0.5
+    mem_limit: 128m
+
+volumes:
+  awin_feed_data:

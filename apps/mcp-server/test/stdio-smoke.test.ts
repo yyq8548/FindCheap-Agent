@@ -34,7 +34,7 @@ describe("installed plugin stdio", () => {
       args: ["./dist/mcp-server.js"],
       cwd: ".",
       enabled: true,
-      env_vars: ["PATH", "FINDCHEAP_DEALS_API_URL", "FINDCHEAP_DEALS_API_TOKEN", "FINDCHEAP_STATE_DIR", "SHOPPING_COMMERCE_API_URL", "SHOPPING_COMMERCE_API_TOKEN"],
+      env_vars: ["PATH", "AWIN_PRODUCT_FEED_PATH", "AWIN_PRODUCT_FEED_URL", "AWIN_PRODUCT_FEED_TOKEN", "AWIN_PRODUCT_FEED_TIMEOUT_MS", "FINDCHEAP_DEALS_API_URL", "FINDCHEAP_DEALS_API_TOKEN", "FINDCHEAP_STATE_DIR", "SHOPPING_COMMERCE_API_URL", "SHOPPING_COMMERCE_API_TOKEN"],
       startup_timeout_sec: 10,
       tool_timeout_sec: 30,
       env: {
@@ -66,6 +66,7 @@ describe("installed plugin stdio", () => {
       });
       expect(tools.tools.map((tool) => tool.name)).toEqual([
         "search_shopify_products",
+        "search_awin_products",
         "inspect_selected_shopify_product",
         "quote_selected_shopify_product",
         "create_watch",

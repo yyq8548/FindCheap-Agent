@@ -35,6 +35,17 @@ FindCheap Agent 搜索 DÔEN dress，显示三个商品卡片
 Expected behavior: one Shopify Global Catalog search, one immutable product-card render, at most
 three product cards, and no Chrome fallback when API results exist.
 
+Approved Awin Feed test prompt:
+
+```text
+FindCheap Agent 搜索 Amazonliss keratin mask
+```
+
+Expected behavior: one `search_awin_products` call reading the authenticated remote Feed when
+`AWIN_PRODUCT_FEED_URL` is configured, otherwise `datafeed_3047955.csv.gz` from Downloads; up to
+three `DISCOVERY_MATCH` results with `condition: UNKNOWN`, disclosed approved Awin links, and no
+Shopify or Chrome call. See `docs/product/awin-feed-deployment.md` for production setup.
+
 ## Update
 
 ```powershell
@@ -52,5 +63,6 @@ Restart Codex and test in a new task.
 - Shopify tax is used only when explicitly returned. Otherwise tax is a labeled ZIP-inferred 2026
   state-average estimate; some merchants need a full address or checkout for final tax.
 - Coupon and Cashback require a configured approved Deals API.
-- Affiliate links remain canonical merchant links until a relationship is approved.
+- Amazonliss (US) Awin Feed links use the approved publisher/merchant relationship with disclosure.
+  Other sources remain canonical until their own relationship is approved.
 - The plugin never orders, checks out, submits payment, or auto-buys.

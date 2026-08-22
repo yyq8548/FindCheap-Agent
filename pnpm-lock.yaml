@@ -49,6 +49,12 @@ importers:
         specifier: ^3
         version: 3.2.7(@types/node@22.20.1)(tsx@4.23.12)(yaml@2.9.0)
 
+  apps/awin-feed-service:
+    devDependencies:
+      esbuild:
+        specifier: 0.28.2
+        version: 0.28.2
+
   apps/commerce-api:
     dependencies:
       fastify:

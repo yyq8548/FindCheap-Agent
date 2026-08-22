@@ -43,10 +43,16 @@ import {
 } from "./watch-store.js";
 import { evaluateWatch, type WatchEvaluation } from "./watch-service.js";
 import { MERCHANT_TRUST_REGISTRY_VERSION } from "./merchant-trust.js";
+import {
+  createUnavailableAwinPort,
+  type AwinProductPort,
+  type AwinSearchResult
+} from "./awin-feed-client.js";
 
 export type { ShopifyPort } from "./shopify-client.js";
 export type { DealPort } from "./deal-client.js";
 export type { WatchStore } from "./watch-store.js";
+export type { AwinProductPort } from "./awin-feed-client.js";
 
 const CardStageDurationSchema = z.number().nonnegative().max(300_000);
 const ProductCardStagesSchema = z.object({
@@ -71,7 +77,7 @@ const ProductCardStagesSchema = z.object({
 
 const ProductCardTelemetryInputSchema = z.object({
   renderId: z.string().uuid(),
-  version: z.literal("0.7.0"),
+  version: z.literal("0.7.1"),
   terminalStage: z.enum([
     "DOM_RENDERED",
     "FIRST_IMAGE_SETTLED",
@@ -127,6 +133,14 @@ const ShopifyProductsToolInputSchema = z.object({
     .describe("Use SAME_PRODUCT only for an explicit like-for-like comparison request; use DISCOVERY otherwise."),
   selectionMode: z.enum(["LOWEST_PRICE", "MERCHANT_DIVERSE"])
     .describe("Use LOWEST_PRICE only for an explicit cheapest request; use MERCHANT_DIVERSE otherwise.")
+}).strict();
+
+const AwinProductsToolInputSchema = z.object({
+  query: z.string().trim().min(2).max(300).regex(/^[\p{L}\p{N}\s._+'-]+$/u)
+    .refine((value) => /[\p{L}\p{N}]/u.test(value), "query must contain a letter or number"),
+  limit: z.number().int().min(1).max(3).default(3),
+  maxItemPriceCents: z.number().int().min(1).max(100_000_000).optional()
+    .describe("Inclusive Awin Feed item-price ceiling in integer USD cents. Keep price words and currency symbols out of query.")
 }).strict();
 
 export const ShopifyProductsInputSchema = ShopifyProductsToolInputSchema;
@@ -430,6 +444,46 @@ const ShopifyProductsOutputShape = {
   products: z.array(ShopifyProductOutputSchema)
 };
 
+const AwinProductsOutputShape = {
+  status: z.enum(["OK", "DATA_SOURCE_UNAVAILABLE"]),
+  message: z.string(),
+  source: z.literal("AWIN_PRODUCT_FEED"),
+  coverage: z.enum(["COMPLETE", "UNAVAILABLE"]),
+  snapshotAt: z.string().optional(),
+  comparison: z.object({
+    status: z.literal("DISCOVERY_ONLY"),
+    evidence: z.array(z.string())
+  }),
+  diagnostics: z.object({
+    feedRows: z.number().int().nonnegative(),
+    validRows: z.number().int().nonnegative(),
+    rejectedRows: z.number().int().nonnegative(),
+    queryMatches: z.number().int().nonnegative(),
+    priceProductsExcluded: z.number().int().nonnegative()
+  }),
+  products: z.array(z.object({
+    merchantId: z.string(),
+    merchant: z.string(),
+    merchantProductId: z.string(),
+    title: z.string(),
+    category: z.string(),
+    matchStatus: z.literal("DISCOVERY_MATCH"),
+    matchEvidence: z.array(z.string()),
+    condition: z.literal("UNKNOWN"),
+    imageUrl: z.string().url().optional(),
+    itemPrice: MoneyOutputSchema,
+    availability: z.enum(["IN_STOCK", "OUT_OF_STOCK", "UNKNOWN"]),
+    merchantUrl: z.string().url(),
+    checkedAt: z.string(),
+    purchaseLink: z.object({
+      kind: z.literal("APPROVED_AFFILIATE"),
+      providerName: z.literal("Awin"),
+      url: z.string().url(),
+      disclosure: z.string()
+    })
+  }))
+};
+
 type SafeQuote = z.infer<typeof QuoteOutputSchema>;
 
 function safeQuote(quote: PriceQuote): SafeQuote {
@@ -710,7 +764,80 @@ function shopifyResult(
   };
 }
 
+function awinResult(result: AwinSearchResult) {
+  const products = result.products.map((product) => ({
+    merchantId: product.merchantId,
+    merchant: product.merchant,
+    merchantProductId: product.merchantProductId,
+    title: product.title,
+    category: product.category,
+    matchStatus: product.matchStatus,
+    matchEvidence: product.matchEvidence,
+    condition: product.condition,
+    ...(product.imageUrl === undefined ? {} : { imageUrl: product.imageUrl }),
+    itemPrice: product.itemPrice,
+    availability: product.availability,
+    merchantUrl: product.merchantUrl,
+    checkedAt: product.checkedAt,
+    purchaseLink: {
+      kind: "APPROVED_AFFILIATE" as const,
+      providerName: "Awin" as const,
+      url: product.affiliateUrl,
+      disclosure: "Affiliate link: FindCheap may earn a commission; ranking is not commission-based."
+    }
+  }));
+  const message = [
+    `Awin Feed snapshot returned ${products.length}/${result.diagnostics.queryMatches} matching Amazonliss product(s) from ${result.diagnostics.validRows} valid rows.`,
+    "All results are DISCOVERY_MATCH with condition UNKNOWN because GTIN, MPN, brand, and condition are absent. Item price and feed stock only; shipping, tax, coupons, and delivered price are unavailable.",
+    ...products.map((product, index) =>
+      `${index + 1}. [DISCOVERY_MATCH] ${product.title} | ${product.category} | USD ${(product.itemPrice.amountCents / 100).toFixed(2)} | ${product.availability} | condition UNKNOWN | ${product.purchaseLink.url}`
+    )
+  ].join("\n");
+  return {
+    content: [{ type: "text" as const, text: message }],
+    structuredContent: {
+      status: "OK" as const,
+      message,
+      source: result.source,
+      coverage: result.coverage,
+      snapshotAt: result.snapshotAt,
+      comparison: {
+        status: "DISCOVERY_ONLY" as const,
+        evidence: ["Awin Feed has merchant product IDs but no GTIN, MPN, brand, or condition"]
+      },
+      diagnostics: result.diagnostics,
+      products
+    }
+  };
+}
+
+function awinUnavailableResult() {
+  const message = "Awin Product Feed is unavailable. Configure AWIN_PRODUCT_FEED_URL and AWIN_PRODUCT_FEED_TOKEN, or use datafeed_3047955.csv.gz in Downloads for local development.";
+  return {
+    content: [{ type: "text" as const, text: message }],
+    structuredContent: {
+      status: "DATA_SOURCE_UNAVAILABLE" as const,
+      message,
+      source: "AWIN_PRODUCT_FEED" as const,
+      coverage: "UNAVAILABLE" as const,
+      comparison: {
+        status: "DISCOVERY_ONLY" as const,
+        evidence: ["Awin Product Feed unavailable"]
+      },
+      diagnostics: {
+        feedRows: 0,
+        validRows: 0,
+        rejectedRows: 0,
+        queryMatches: 0,
+        priceProductsExcluded: 0
+      },
+      products: []
+    }
+  };
+}
+
 export type ShoppingServerDependencies = {
+  awin?: AwinProductPort;
   deals?: DealPort;
   watches?: WatchStore;
   cartQuotes?: ShopifyCartQuotePort;
@@ -897,8 +1024,9 @@ export function createShoppingServer(
   affiliateLinks: AffiliateLinkResolver = createAffiliateLinkResolver(),
   dependencies: ShoppingServerDependencies = {}
 ): McpServer {
-  const server = new McpServer({ name: "findcheap-agent", version: "0.7.0" });
+  const server = new McpServer({ name: "findcheap-agent", version: "0.7.1" });
   const dealPort = dependencies.deals ?? createUnavailableDealPort();
+  const awinPort = dependencies.awin ?? createUnavailableAwinPort();
   const toolAvailability = dependencies.toolAvailability ?? {
     commerceCompare: true,
     verifiedDeals: true
@@ -1046,6 +1174,30 @@ export function createShoppingServer(
         };
       } catch {
         return shopifyUnavailableResult(validatedInput.selectionMode, validatedInput);
+      }
+    }
+  );
+
+  server.registerTool(
+    "search_awin_products",
+    {
+      title: "Search approved Awin Product Feed",
+      description: "Search the authenticated Amazonliss (US) Awin Product Feed, with a local Downloads fallback for development. Use only for Amazonliss, Nutree Cosmetics, or an explicit Awin-feed lookup. Results are DISCOVERY_MATCH and DISCOVERY_ONLY because the feed lacks GTIN, MPN, brand, and condition. Returned Awin links belong to the checked-in approved publisher/merchant relationship and include disclosure. Item price and feed availability only; no shipping, tax, coupon, member, or delivered-price claims.",
+      inputSchema: AwinProductsToolInputSchema,
+      outputSchema: AwinProductsOutputShape,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false
+      }
+    },
+    async (input) => {
+      const validatedInput = AwinProductsToolInputSchema.parse(input);
+      try {
+        return awinResult(await awinPort.search(validatedInput));
+      } catch {
+        return awinUnavailableResult();
       }
     }
   );

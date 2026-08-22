@@ -8,6 +8,7 @@
   "packageManager": "pnpm@10.34.5",
   "scripts": {
     "build:commerce": "pnpm --filter @shopping-agent/commerce-api build",
+    "build:awin-feed": "pnpm --filter @shopping-agent/awin-feed-service build",
     "build:ingestion": "pnpm --filter @shopping-agent/ingestion-worker build",
     "build:mcp": "pnpm --filter @shopping-agent/mcp-server build",
     "lint": "eslint .",

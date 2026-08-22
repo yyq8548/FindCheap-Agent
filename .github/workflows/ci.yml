@@ -19,6 +19,7 @@ jobs:
         with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
       - run: pnpm build:mcp
+      - run: pnpm build:awin-feed
       - run: git diff --exit-code -- plugins/findcheap-agent/dist/mcp-server.js
       - run: git diff --exit-code -- plugins/findcheap-agent/dist/mcp-server.meta.json
       - run: git diff --exit-code -- plugins/findcheap-agent/THIRD_PARTY_NOTICES.md

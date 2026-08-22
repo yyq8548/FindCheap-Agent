@@ -219,6 +219,7 @@ describe("shopping MCP server", () => {
     expect(tools.tools.map((tool) => tool.name)).toEqual([
       "compare_products",
       "search_shopify_products",
+      "search_awin_products",
       "inspect_selected_shopify_product",
       "quote_selected_shopify_product",
       "find_coupons",
@@ -418,7 +419,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.7.0",
+        version: "0.7.1",
         terminalStage: "DOM_RENDERED",
         stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
       }
@@ -427,7 +428,7 @@ describe("shopping MCP server", () => {
     expect(result.structuredContent).toEqual({ status: "RECORDED" });
     expect(record).toHaveBeenCalledWith(expect.objectContaining({
       renderId,
-      version: "0.7.0",
+      version: "0.7.1",
       terminalStage: "DOM_RENDERED",
       stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
     }));
@@ -435,7 +436,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.7.0",
+        version: "0.7.1",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 14 }
       }
@@ -445,7 +446,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.7.0",
+        version: "0.7.1",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 300_001 }
       }
@@ -456,7 +457,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId: "22222222-2222-4222-8222-222222222222",
-        version: "0.7.0",
+        version: "0.7.1",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 1 }
       }
@@ -554,6 +555,7 @@ describe("shopping MCP server", () => {
     expect(names).not.toContain("find_coupons");
     expect(names).toEqual(expect.arrayContaining([
       "search_shopify_products",
+      "search_awin_products",
       "create_watch",
       "render_product_cards"
     ]));
@@ -1467,6 +1469,56 @@ describe("Coupon and Watch tools", () => {
     expect(results.map((result) => (result.structuredContent as { status: string }).status).sort()).toEqual([
       "NOT_TRIGGERED", "TRIGGERED"
     ]);
+  });
+
+  it("returns Awin products with approved affiliate disclosure and discovery-only identity", async () => {
+    const client = await connect({ compare: async () => comparison }, shopifyPort, undefined, {
+      awin: {
+        search: async () => ({
+          source: "AWIN_PRODUCT_FEED",
+          coverage: "COMPLETE",
+          snapshotAt: "2026-08-21T23:32:40.000Z",
+          diagnostics: {
+            feedRows: 38,
+            validRows: 38,
+            rejectedRows: 0,
+            queryMatches: 1,
+            priceProductsExcluded: 0
+          },
+          products: [{
+            merchantId: "20282",
+            merchant: "Amazonliss (US)",
+            merchantProductId: "sku-1",
+            title: "Amazonliss Keratin Mask",
+            category: "Hair Care",
+            matchStatus: "DISCOVERY_MATCH",
+            matchEvidence: ["GTIN, MPN, brand, and condition unavailable"],
+            condition: "UNKNOWN",
+            itemPrice: { amountCents: 1_999, currency: "USD" },
+            availability: "IN_STOCK",
+            merchantUrl: "https://www.nutreecosmetics.com/products/keratin-mask",
+            affiliateUrl: "https://www.awin1.com/pclick.php?p=1&a=3047955&m=20282",
+            checkedAt: "2026-08-21T23:32:40.000Z"
+          }]
+        })
+      }
+    });
+
+    const result = await client.callTool({
+      name: "search_awin_products",
+      arguments: { query: "keratin mask", limit: 3 }
+    });
+
+    expect(result.structuredContent).toMatchObject({
+      status: "OK",
+      source: "AWIN_PRODUCT_FEED",
+      comparison: { status: "DISCOVERY_ONLY" },
+      products: [{
+        matchStatus: "DISCOVERY_MATCH",
+        condition: "UNKNOWN",
+        purchaseLink: { kind: "APPROVED_AFFILIATE", providerName: "Awin" }
+      }]
+    });
   });
 
   it("treats a PRICE_BELOW threshold as an exclusive ceiling without subtracting one cent", async () => {

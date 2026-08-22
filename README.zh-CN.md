@@ -115,9 +115,11 @@ Coupon 和促销路径采用失败关闭策略。只有配置的 Deals API 提�
 
 ## 联盟状态
 
-联盟跟踪尚未接入。
+Awin 商家 Amazonliss (US)（merchant `20282`）已批准 publisher `3047955`。生产环境中，`search_awin_products` 读取由 `AWIN_PRODUCT_FEED_URL` 和 `AWIN_PRODUCT_FEED_TOKEN` 配置的认证 HTTPS Feed 服务。本地开发才回退到 Downloads 中的 `datafeed_3047955.csv.gz`，也可用 `AWIN_PRODUCT_FEED_PATH` 指定路径。返回链接为带披露的已批准 Awin 深链。
 
-商品卡片目前使用商家原始链接。FindCheap Agent 不会声称存在联盟关系，不会添加跟踪参数、报告佣金或承诺 Cashback。仓库已包含受控的联盟基础设施，但只有商家或联盟网络批准合作并提供凭证后才会启用。
+该 Feed 有商品价、库存和商家商品 ID，但没有 GTIN、MPN、品牌和 condition。因此结果始终标记为 `DISCOVERY_MATCH`、`DISCOVERY_ONLY`、`condition: UNKNOWN`，不能当作精确同款比价。配送、税费、优惠券、会员价和到手价仍不可用。其他来源在没有各自已批准关系时继续使用商家原始链接；佣金不参与排序。
+
+正式部署步骤见 [Awin Product Feed production deployment](docs/product/awin-feed-deployment.md)，包含定时下载、持久化卷、认证接口和所需密钥。
 
 ## 安装
 

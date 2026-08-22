@@ -1,0 +1,12 @@
+{
+  "name": "@shopping-agent/awin-feed-service",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "esbuild src/main.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/main.js",
+    "start": "node dist/main.js"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
+}
