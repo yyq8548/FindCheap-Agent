@@ -98,8 +98,37 @@ describe("Awin Feed service", () => {
       expect(Buffer.from(await feed.arrayBuffer())).toEqual(Buffer.from(archive));
       expect(await (await fetch(`${origin}/health`)).json()).toMatchObject({
         status: "ok",
+        feedStatus: "ready",
         feedRows: 1
       });
+      expect(await (await fetch(`${origin}/ready`)).json()).toMatchObject({
+        feedStatus: "ready",
+        feedRows: 1
+      });
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    }
+  });
+
+  it("keeps liveness healthy while reporting a missing Feed as not ready", async () => {
+    const environment = parseAwinFeedServiceEnvironment({
+      AWIN_SOURCE_FEED_URL: "https://productdata.awin.com/private/feed.csv.gz",
+      AWIN_FEED_API_TOKEN: "u".repeat(32)
+    });
+    const controller = createAwinFeedController(environment);
+    const server = createAwinFeedHttpServer(controller, environment.apiToken);
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const address = server.address();
+    if (address === null || typeof address === "string") throw new Error("test server did not bind TCP");
+    const origin = `http://127.0.0.1:${address.port}`;
+    try {
+      const health = await fetch(`${origin}/health`);
+      expect(health.status).toBe(200);
+      expect(await health.json()).toEqual({ status: "ok", feedStatus: "unavailable" });
+      const ready = await fetch(`${origin}/ready`);
+      expect(ready.status).toBe(503);
+      expect(await ready.json()).toEqual({ feedStatus: "unavailable" });
     } finally {
       await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
     }

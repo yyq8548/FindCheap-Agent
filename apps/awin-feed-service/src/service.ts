@@ -108,14 +108,11 @@ async function handleRequest(
   const path = new URL(request.url ?? "/", "http://localhost").pathname;
   const state = controller.getState();
   if (path === "/health") {
-    json(response, state.snapshot === undefined ? 503 : 200, {
-      status: state.snapshot === undefined ? "unavailable" : state.lastErrorAt === undefined ? "ok" : "degraded",
-      ...(state.snapshot === undefined
-        ? {}
-        : { snapshotAt: state.snapshot.snapshotAt, feedRows: state.snapshot.feedRows }),
-      ...(state.lastRefreshAt === undefined ? {} : { lastRefreshAt: state.lastRefreshAt }),
-      ...(state.lastErrorAt === undefined ? {} : { lastErrorAt: state.lastErrorAt })
-    });
+    json(response, 200, { status: "ok", ...feedMetadata(state) });
+    return;
+  }
+  if (path === "/ready") {
+    json(response, state.snapshot === undefined ? 503 : 200, feedMetadata(state));
     return;
   }
   if (path !== "/v1/feed") {
@@ -139,6 +136,17 @@ async function handleRequest(
     "x-feed-snapshot-at": state.snapshot.snapshotAt
   });
   response.end(state.snapshot.archive);
+}
+
+function feedMetadata(state: Readonly<FeedState>): Record<string, unknown> {
+  return {
+    feedStatus: state.snapshot === undefined ? "unavailable" : state.lastErrorAt === undefined ? "ready" : "degraded",
+    ...(state.snapshot === undefined
+      ? {}
+      : { snapshotAt: state.snapshot.snapshotAt, feedRows: state.snapshot.feedRows }),
+    ...(state.lastRefreshAt === undefined ? {} : { lastRefreshAt: state.lastRefreshAt }),
+    ...(state.lastErrorAt === undefined ? {} : { lastErrorAt: state.lastErrorAt })
+  };
 }
 
 function validatedSnapshot(archive: Uint8Array, snapshotAt: string): FeedSnapshot {
