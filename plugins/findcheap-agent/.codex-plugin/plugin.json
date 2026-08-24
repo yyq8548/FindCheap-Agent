@@ -1,6 +1,6 @@
 {
   "name": "findcheap-agent",
-  "version": "0.8.1+codex.20260824223000",
+  "version": "0.8.2+codex.20260824194115",
   "description": "Search Shopify Global Catalog and an approved Awin Feed, find verified deals, and monitor prices, promotions, and stock.",
   "author": {
     "name": "yyq8548"
@@ -12,7 +12,7 @@
   "interface": {
     "displayName": "FindCheap Agent",
     "shortDescription": "Verified cards, pricing, coupons, and safe links.",
-    "longDescription": "FindCheap Agent is a Codex Plugin Agent. v0.8.1 exposes one product-search entrypoint that routes approved Awin affiliate products, Shopify Global Catalog, and an authorized zero-result Chrome fallback. Affiliate products must satisfy the same identity, condition, feature, availability, and price constraints; commission never affects routing or ranking. All qualifying sources use one Codex-native product-card contract with explicit evidence, condition, merchant trust, price scope, and affiliate disclosure. Selected Shopify follow-ups and delivered-total Watch rules reuse the exact prior renderId and variant identity. Watch rules bind to native Codex Automation and distinguish item price from estimated delivered total. The agent never checks out, reserves inventory, purchases, or pays.",
+    "longDescription": "FindCheap Agent is a Codex Plugin Agent. v0.8.2 exposes one product-search entrypoint across configured product sources plus an authorized zero-result Chrome fallback. Commercial relationships never affect relevance or ranking. All qualifying products use one Codex-native card contract with explicit identity, condition, merchant trust, and price scope. Selected-product follow-ups reuse the exact prior renderId and stable product identity; supported merchant pages can resolve to Shopify Cart for shipping, tax, and estimated-total quotes. Watch rules bind to native Codex Automation and distinguish item price from estimated delivered total. The agent never checks out, reserves inventory, purchases, or pays.",
     "developerName": "yyq8548",
     "category": "Productivity",
     "capabilities": [

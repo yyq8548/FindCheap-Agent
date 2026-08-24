@@ -341,7 +341,10 @@ describe("safeFetch", () => {
       port: 443,
       path: "/product?q=1",
       servername: "shop.example",
-      agent: false
+      agent: false,
+      headers: expect.objectContaining({
+        "user-agent": "FindCheap-Agent/0.8.2 (+https://github.com/yyq8548/FindCheap-Agent)"
+      })
     });
     expect(captured?.lookup).toBeTypeOf("function");
 

@@ -15,9 +15,11 @@ import { hasSpecificProductIdentity } from "./shopify-match.js";
 import {
   ShopifyCartQuoteError,
   type ShopifyCartQuotePort,
+  type ShopifyCartEstimate,
   type ShopifyQuoteFailureCode
 } from "./shopify-cart-quote.js";
 import type { ShopifySelectedProductInspector } from "./shopify-selected-product.js";
+import type { AwinShopifyQuoteResolver } from "./awin-shopify-quote.js";
 import {
   createAffiliateLinkResolver,
   type AffiliateLinkResolver
@@ -83,7 +85,7 @@ const ProductCardStagesSchema = z.object({
 
 const ProductCardTelemetryInputSchema = z.object({
   renderId: z.string().uuid(),
-  version: z.literal("0.8.1"),
+  version: z.literal("0.8.2"),
   terminalStage: z.enum([
     "DOM_RENDERED",
     "FIRST_IMAGE_SETTLED",
@@ -153,7 +155,7 @@ export const ShopifyProductsInputSchema = ShopifyProductsToolInputSchema;
 
 const ShopifySelectedQuoteInputSchema = z.object({
   renderId: z.string().uuid(),
-  variantId: z.string().regex(/^\d{1,30}$/u),
+  variantId: z.string().regex(/^[A-Za-z0-9._:-]{1,100}$/u),
   zipCode: z.string().regex(/^\d{5}(?:-\d{4})?$/u),
   deliveryAddress: z.object({
     address1: z.string().trim().min(1).max(200),
@@ -382,7 +384,7 @@ const ShopifyProductOutputSchema = z.object({
   }),
   quoteReference: z.object({
     renderId: z.string().uuid(),
-    variantId: z.string().regex(/^\d{1,30}$/u)
+    variantId: z.string().regex(/^[A-Za-z0-9._:-]{1,100}$/u)
   }).strict().optional()
 });
 
@@ -813,20 +815,14 @@ function unifiedResult(
   const unavailableSource = Object.values(execution.sourceStatus).includes("UNAVAILABLE");
   const partialSource = execution.sourceStatus.shopify === "PARTIAL";
   const coverage = unavailableSource || partialSource ? "PARTIAL" as const : "COMPLETE" as const;
-  const affiliateSummary = affiliateCount === 0
-    ? "No approved Affiliate Program product satisfied the request; general catalog results are shown."
-    : `${affiliateCount} approved Affiliate Program product(s) appear first; commission is disclosed and never enters relevance, feature, or price scoring.`;
   const chromeAdvice = execution.chromeFallbackEligible
     ? "No configured source returned a qualifying product. The user may authorize one bounded Chrome whole-web fallback."
     : "";
   const message = [
-    `Unified search returned ${products.length} product card(s).`,
-    affiliateSummary,
-    input.selectionMode === "LOWEST_PRICE"
-      ? "Explicit LOWEST_PRICE mode compares qualifying Awin and Shopify item prices across sources."
-      : "Approved affiliate candidates are grouped first; Shopify fills remaining slots.",
+    `Found ${products.length} qualifying product recommendation(s).`,
+    input.selectionMode === "LOWEST_PRICE" ? "Results are ordered by qualifying item price." : "Results preserve merchant diversity.",
     chromeAdvice,
-    "Hard condition, required feature, availability, identity, and price constraints apply before source priority."
+    "Condition, required feature, availability, identity, and price constraints are applied before ranking."
   ].filter(Boolean).join(" ");
   const dataUnavailable = products.length === 0 && (
     execution.sourceStatus.shopify === "UNAVAILABLE" ||
@@ -896,7 +892,7 @@ function awinCardProduct(candidate: UnifiedCandidate): ProductCardProduct {
     merchantTrust: {
       level: "UNKNOWN",
       verification: "UNVERIFIED",
-      evidence: ["Awin relationship and tracking link approved; merchant trust not independently reviewed"]
+      evidence: ["merchant trust not independently reviewed"]
     },
     handle: product.merchantProductId,
     title: product.title,
@@ -925,7 +921,7 @@ function awinCardProduct(candidate: UnifiedCandidate): ProductCardProduct {
       kind: "APPROVED_AFFILIATE",
       providerName: "Awin",
       url: product.affiliateUrl,
-      disclosure: "Affiliate link: FindCheap may earn a commission; commission never affects relevance, feature, or price scoring."
+      disclosure: "Affiliate link. FindCheap may earn a commission."
     },
     card: {
       title: product.title,
@@ -939,6 +935,73 @@ function awinCardProduct(candidate: UnifiedCandidate): ProductCardProduct {
       availability: product.availability,
       merchantTrustBadge: "MERCHANT_UNVERIFIED",
       actionLabel: "View at merchant"
+    }
+  };
+}
+
+function withCartQuote(
+  product: ProductCardProduct,
+  cartQuote: ShopifyCartEstimate
+): ProductCardProduct {
+  const tax = cartQuote.tax.status === "ZIP_ESTIMATED"
+    ? {
+        status: "ESTIMATED" as const,
+        amount: cartQuote.tax.amount,
+        source: "ZIP_STATE_AVERAGE_2026" as const,
+        jurisdiction: cartQuote.tax.jurisdiction,
+        rateBasisPoints: cartQuote.tax.rateBasisPoints,
+        reason: "ZIP-inferred state plus 2026 population-weighted average local rate; local and product-specific tax rules may differ"
+      }
+    : {
+        status: cartQuote.tax.shopifyEstimated ? "ESTIMATED" as const : "VERIFIED" as const,
+        amount: cartQuote.tax.amount,
+        source: "SHOPIFY_CART" as const,
+        reason: cartQuote.tax.shopifyEstimated
+          ? "Shopify explicitly returned totalTaxAmount and marked it estimated"
+          : "Shopify explicitly returned totalTaxAmount"
+      };
+  return {
+    ...product,
+    itemPrice: cartQuote.subtotal,
+    checkedAt: cartQuote.checkedAt,
+    cartQuote,
+    pricing: {
+      scope: "SHOPIFY_CART_ESTIMATE",
+      regularItemPrice: { status: "VERIFIED", amount: cartQuote.subtotal },
+      memberPrice: { status: "UNAVAILABLE", reason: "membership-specific price was not verified" },
+      shipping: {
+        status: "ESTIMATED",
+        amount: {
+          amountCents: cartQuote.shipping.amountCents,
+          currency: cartQuote.shipping.currency
+        },
+        label: cartQuote.shipping.label
+      },
+      tax,
+      mandatoryFees: { status: "UNAVAILABLE", reason: "mandatory fees were not separately returned" },
+      deliveredPrice: {
+        status: "ESTIMATED",
+        amount: cartQuote.deliveredPrice,
+        reason: cartQuote.tax.status === "ZIP_ESTIMATED"
+          ? "item subtotal plus selected shipping plus ZIP state-average estimated tax; final checkout total may change"
+          : "Shopify Cart total; final checkout total may change",
+        checkedAt: cartQuote.checkedAt,
+        expiresAt: cartQuote.expiresAt
+      }
+    },
+    card: {
+      ...product.card,
+      primaryPrice: cartQuote.deliveredPrice,
+      priceLabel: "Estimated total",
+      itemPrice: cartQuote.subtotal,
+      shippingLabel: cartQuote.shipping.amountCents === 0
+        ? "免费配送 $0.00"
+        : `${cartQuote.shipping.label} shipping $${(cartQuote.shipping.amountCents / 100).toFixed(2)}`,
+      taxPrice: cartQuote.tax.amount,
+      taxLabel: cartQuote.tax.status === "ZIP_ESTIMATED"
+        ? `Estimated tax (${cartQuote.tax.jurisdiction} ZIP state average ${(cartQuote.tax.rateBasisPoints / 100).toFixed(2)}%)`
+        : cartQuote.tax.shopifyEstimated ? "Shopify estimated tax" : "Shopify-reported tax",
+      estimatedTotal: cartQuote.deliveredPrice
     }
   };
 }
@@ -1066,6 +1129,7 @@ function awinUnavailableResult() {
 
 export type ShoppingServerDependencies = {
   awin?: AwinProductPort;
+  awinShopifyQuotes?: AwinShopifyQuoteResolver;
   deals?: DealPort;
   watches?: WatchStore;
   cartQuotes?: ShopifyCartQuotePort;
@@ -1253,7 +1317,7 @@ export function createShoppingServer(
   dependencies: ShoppingServerDependencies = {}
 ): McpServer {
   void comparePort;
-  const server = new McpServer({ name: "findcheap-agent", version: "0.8.1" });
+  const server = new McpServer({ name: "findcheap-agent", version: "0.8.2" });
   const dealPort = dependencies.deals ?? createUnavailableDealPort();
   const awinPort = dependencies.awin ?? createUnavailableAwinPort();
   const toolAvailability = dependencies.toolAvailability ?? {
@@ -1262,6 +1326,7 @@ export function createShoppingServer(
   };
   const watchStore = dependencies.watches ?? createMemoryWatchStore();
   const cartQuotes = dependencies.cartQuotes;
+  const awinShopifyQuotes = dependencies.awinShopifyQuotes;
   const selectedProducts = dependencies.selectedProducts;
   const now = dependencies.now ?? (() => new Date());
   const cardTelemetry = dependencies.cardTelemetry ?? {
@@ -1286,9 +1351,7 @@ export function createShoppingServer(
       renderId,
       products: content.products.map((product) => ({
         ...product,
-        ...(product.sourceKind === "AWIN_PRODUCT_FEED"
-          ? {}
-          : { quoteReference: { renderId, variantId: product.handle } })
+        quoteReference: { renderId, variantId: product.handle }
       }))
     };
     renderSnapshots.set(renderId, {
@@ -1334,7 +1397,7 @@ export function createShoppingServer(
     "search_products",
     {
       title: "Search products",
-      description: "The single public product-search entrypoint. Search once through FindCheap's source router. Approved Affiliate Program products are considered first only when they satisfy the requested identity, condition, required features, availability, and price constraints. Shopify Global Catalog fills missing slots. Use selectionMode=LOWEST_PRICE only when the user explicitly asks for the cheapest qualifying item, and pass maxItemPriceCents for a stated ceiling. Commission never affects routing or ranking. Returned Awin cards disclose affiliate links and remain item-price-only. Reuse Shopify quoteReference for all later variant and delivery-quote follow-ups; never search a selected title again.",
+      description: "The single public product-search entrypoint. Search once through FindCheap's configured product sources. Use selectionMode=LOWEST_PRICE only when the user explicitly asks for the cheapest qualifying item, and pass maxItemPriceCents for a stated ceiling. Commercial relationships never affect relevance or ranking. Reuse the returned quoteReference for every selected-product delivery quote; never search a selected title again.",
       inputSchema: SearchProductsInputSchema,
       outputSchema: ShopifyProductsOutputShape,
       annotations: {
@@ -1386,13 +1449,27 @@ export function createShoppingServer(
         attempted: enriched.attempted,
         succeeded: enriched.succeeded
       });
+      process.stderr.write(`[findcheap-search-debug] ${JSON.stringify({
+        recordedAt: now().toISOString(),
+        sourceStatus: execution.sourceStatus,
+        awin: execution.awinResult?.diagnostics,
+        shopify: enriched.result.diagnostics,
+        cardsReturned: response.structuredContent.products.length,
+        qualityStatus: response.structuredContent.quality.status,
+        coverage: response.structuredContent.coverage,
+        comparisonStatus: response.structuredContent.comparison.status,
+        priceScope: response.structuredContent.priceScope,
+        comparisonMode: input.comparisonMode,
+        selectionMode: input.selectionMode,
+        chromeFallbackEligible: execution.chromeFallbackEligible
+      })}\n`);
       if (response.structuredContent.products.length === 0) return response;
       const content = rememberSnapshot(response.structuredContent, enriched.result);
       return {
         ...response,
         content: [{
           type: "text" as const,
-          text: `${response.content[0]!.text}\nFor any selected Shopify card, reuse quoteReference. Awin cards link directly through the disclosed approved affiliate URL and do not support Shopify Cart quotes.`
+          text: `${response.content[0]!.text}\nFor a selected card, reuse its quoteReference; do not search its title again.`
         }],
         structuredContent: content
       };
@@ -1503,7 +1580,7 @@ export function createShoppingServer(
     "inspect_selected_shopify_product",
     {
       title: "Inspect a selected Shopify product",
-      description: "Check size, color, other variants, or current availability for exactly one Shopify product returned by search_products. Copy renderId and variantId from its quoteReference; never run another catalog search. Awin cards have no Shopify quoteReference and must not use this tool.",
+      description: "Check size, color, other variants, or current availability for exactly one native Shopify catalog product returned by search_products. Copy renderId and variantId from its quoteReference; never run another catalog search. Awin cards can be quoted when supported but cannot use this variant-inspection tool.",
       inputSchema: ShopifySelectedProductInputSchema,
       outputSchema: ShopifySelectedProductOutputShape,
       annotations: {
@@ -1633,8 +1710,8 @@ export function createShoppingServer(
   server.registerTool(
     "quote_selected_shopify_product",
     {
-      title: "Quote a selected Shopify product",
-      description: "Get shipping, tax, and estimated total for exactly one Shopify product returned by search_products. Copy renderId and variantId from that product's quoteReference. Awin item-price-only cards have no Shopify quoteReference. When FULL_ADDRESS_REQUIRED is returned, ask for street address, city, and two-letter US state code, then retry the same stable reference.",
+      title: "Quote a selected product",
+      description: "Get shipping, tax, and estimated total for exactly one product returned by search_products. Copy renderId and variantId from that product's quoteReference. Supported merchant pages are resolved to the exact Shopify variant without a title search. When FULL_ADDRESS_REQUIRED is returned, ask for street address, city, and two-letter US state code, then retry the same stable reference.",
       inputSchema: ShopifySelectedQuoteInputSchema,
       outputSchema: ShopifyProductsOutputShape,
       annotations: {
@@ -1646,7 +1723,7 @@ export function createShoppingServer(
       _meta: {
         ui: { resourceUri: PRODUCT_CARD_UI_URI },
         "openai/outputTemplate": PRODUCT_CARD_UI_URI,
-        "openai/toolInvocation/invoking": "Quoting the selected Shopify variant…",
+        "openai/toolInvocation/invoking": "Quoting the selected product…",
         "openai/toolInvocation/invoked": "Selected-product quote ready."
       }
     },
@@ -1663,13 +1740,13 @@ export function createShoppingServer(
           }]
         };
       }
-      const selected = snapshot.sourceResult.products.find((product) => product.handle === variantId);
-      if (selected === undefined) {
+      const selectedCard = snapshot.content.products.find((product) => product.handle === variantId);
+      if (selectedCard === undefined) {
         return {
           isError: true,
           content: [{
             type: "text" as const,
-            text: "Selected variant does not belong to that search result. No quote was requested."
+            text: "Selected product does not belong to that search result. No quote was requested."
           }]
         };
       }
@@ -1680,41 +1757,50 @@ export function createShoppingServer(
         };
       }
       try {
+        const selected = selectedCard.sourceKind === "AWIN_PRODUCT_FEED"
+          ? await awinShopifyQuotes?.resolve({
+              merchantId: selectedCard.merchantId,
+              merchant: selectedCard.merchant,
+              merchantProductId: selectedCard.handle,
+              title: selectedCard.title,
+              sourceHost: selectedCard.sourceHost,
+              merchantUrl: selectedCard.merchantUrl,
+              itemPrice: selectedCard.itemPrice!,
+              availability: selectedCard.availability,
+              checkedAt: selectedCard.checkedAt
+            })
+          : snapshot.sourceResult.products.find((product) => product.handle === variantId);
+        if (selected === undefined) {
+          throw new ShopifyCartQuoteError("MERCHANT_CART_UNAVAILABLE");
+        }
         const cartQuote = deliveryAddress === undefined
           ? await cartQuotes.quote(selected, zipCode)
           : await cartQuotes.quote(selected, zipCode, deliveryAddress);
-        const quotedProduct = {
-          ...selected,
-          itemPrice: cartQuote.subtotal,
-          checkedAt: cartQuote.checkedAt,
-          cartQuote
-        };
-        const quotedResult: ShopifySearchResult = {
-          ...snapshot.sourceResult,
-          merchantsQueried: 1,
-          merchantsSucceeded: 1,
+        const quotedProduct = withCartQuote(selectedCard, cartQuote);
+        const { renderId: _previousRenderId, ...previousContent } = snapshot.content;
+        const message = `Estimated delivered total for the selected product is USD ${(cartQuote.deliveredPrice.amountCents / 100).toFixed(2)}. It includes item price, selected shipping, and ${cartQuote.tax.status === "ZIP_ESTIMATED" ? "ZIP state-average estimated tax" : "merchant-reported tax"}; final checkout may change.`;
+        const content = rememberSnapshot({
+          ...previousContent,
+          message,
+          priceScope: "SHOPIFY_CART_ESTIMATE",
+          cartQuoteCoverage: { attempted: 1, succeeded: 1 },
+          pricingContext: { zipCode, membershipIds: [] },
+          quality: {
+            ...previousContent.quality,
+            cardsReturned: 1,
+            itemPricesVerified: 1,
+            limitations: ["final checkout total may change", "coupons and membership prices remain unavailable unless separately verified"]
+          },
           comparison: {
             status: "DISCOVERY_ONLY",
-            evidence: ["selected from immutable prior result by Shopify variant identity"],
+            evidence: ["selected from the immutable prior result without a title search"],
             merchantCount: 1,
             offerCount: 1
           },
-          questions: [],
           products: [quotedProduct]
-        };
-        const response = shopifyResult(
-          quotedResult,
-          { zipCode, membershipIds: [] },
-          affiliateLinks,
-          { attempted: 1, succeeded: 1 }
-        );
-        const content = rememberSnapshot(response.structuredContent, quotedResult);
+        }, snapshot.sourceResult);
         return {
-          ...response,
-          content: [{
-            type: "text" as const,
-            text: `Quoted the exact previously returned product by stable Shopify variant reference ${variantId}; no title or catalog search was used.\n${response.content[0]!.text}`
-          }],
+          content: [{ type: "text" as const, text: message }],
           structuredContent: content
         };
       } catch (error) {

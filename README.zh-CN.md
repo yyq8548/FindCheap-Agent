@@ -72,7 +72,7 @@ Codex 通过本地 stdio MCP 服务器调用唯一公开的 `search_products` �
 
 只有商家返回 `totalTaxAmount` 时，插件才使用 Shopify 税额。否则，商品卡可以显示基于邮编所在州和平均地方税率计算的税费估算。该数字不是结账税额。部分商家需要完整地址或进入结账流程后才返回配送费和税费。不支持 Cart 报价的商家只显示商品价。
 
-后续问题会复用所选结果的 `renderId` 和 Shopify Variant ID。插件不会重新搜索商品标题，因此商品价、配送费和税费始终对应同一个变体。
+后续问题会复用所选结果的 `renderId` 和稳定商品身份。原生 Shopify 卡片使用 Variant ID；受支持的 Awin 商家页面会先把原始商家商品路径安全解析为唯一 Shopify Variant。插件不会重新搜索商品标题，因此商品价、配送费和税费始终对应同一件已选商品。
 
 ## 商品卡片
 
@@ -117,7 +117,7 @@ Coupon 和促销路径采用失败关闭策略。只有配置的 Deals API 提�
 
 Awin 商家 Amazonliss (US)（merchant `20282`）已批准 publisher `3047955`。生产环境中，统一的 `search_products` 路由读取由 `AWIN_PRODUCT_FEED_URL` 和 `AWIN_PRODUCT_FEED_TOKEN` 配置的认证 HTTPS Feed 服务。本地开发才回退到 Downloads 中的 `datafeed_3047955.csv.gz`，也可用 `AWIN_PRODUCT_FEED_PATH` 指定路径。Awin 结果与 Shopify 使用同一套商品卡片，链接为带披露的已批准 Awin 深链。
 
-该 Feed 有商品价、库存和商家商品 ID，但没有 GTIN、MPN、品牌和 condition。因此结果始终标记为 `DISCOVERY_MATCH`、`DISCOVERY_ONLY`、`condition: UNKNOWN`，不能当作精确同款比价。配送、税费、优惠券、会员价和到手价仍不可用。其他来源在没有各自已批准关系时继续使用商家原始链接；佣金不参与排序。
+该 Feed 有商品价、库存和商家商品 ID，但没有 GTIN、MPN、品牌和 condition。因此结果始终标记为 `DISCOVERY_MATCH`、`DISCOVERY_ONLY`、`condition: UNKNOWN`，不能当作精确同款比价。当原始商家商品路径可安全解析为唯一且受支持的 Shopify Variant 时，后续邮编报价可显示配送费、税费和预估总价；否则继续只显示商品价。优惠券和会员价仍需独立验证。其他来源在没有各自已批准关系时继续使用商家原始链接；佣金不参与排序。
 
 正式部署步骤见 [Awin Product Feed production deployment](docs/product/awin-feed-deployment.md)，包含定时下载、持久化卷、认证接口和所需密钥。
 

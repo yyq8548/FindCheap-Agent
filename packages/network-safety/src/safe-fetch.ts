@@ -129,7 +129,11 @@ export function createPinnedRequest(
         path: `${url.pathname}${url.search}`,
         servername: url.hostname,
         agent: false,
-        headers: { connection: "close", "accept-encoding": "identity" },
+        headers: {
+          connection: "close",
+          "accept-encoding": "identity",
+          "user-agent": "FindCheap-Agent/0.8.2 (+https://github.com/yyq8548/FindCheap-Agent)"
+        },
         lookup: (_hostname, options, callback) => {
           const requestedFamily = typeof options === "number" ? options : options.family;
           const selected = approved.find(

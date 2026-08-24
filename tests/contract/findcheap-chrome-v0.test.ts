@@ -55,8 +55,9 @@ describe("FindCheap Agent plugin contract", () => {
     expect(skill).toContain("Do not open Chrome when Shopify returns one or more products");
     expect(skill).toContain("an API error, `DATA_SOURCE_UNAVAILABLE`, malformed response, or timeout");
     expect(skill).toContain("explicitly requests no Chrome");
-    expect(skill).toContain("API duration");
-    expect(skill).toContain("Chrome fallback: `NOT_USED` or `USED`");
+    expect(skill).toContain("backend diagnostics");
+    expect(skill).toContain("Never print, summarize, or expose them to the customer");
+    expect(skill).toContain("logged by the MCP server for debugging");
     expect(skill).toContain("rejects unrelated products first");
     expect(skill).toContain("Never restore a rejected product");
     expect(skill).toContain("Never restore a condition-excluded product");
@@ -69,7 +70,6 @@ describe("FindCheap Agent plugin contract", () => {
     expect(skill).toContain("Always pass `limit: 3`");
     expect(skill).toContain("Pass price ceilings as exact integer cents");
     expect(skill).toContain("required capabilities in `features`");
-    expect(skill).toContain("priceProductsExcluded");
     expect(skill).toContain("`comparison.status`");
     expect(skill).toContain("`SAME_PRODUCT`");
     expect(skill).toContain("`DISCOVERY_ONLY`");
@@ -80,9 +80,6 @@ describe("FindCheap Agent plugin contract", () => {
     expect(skill).toContain("`LOWEST_PRICE`");
     expect(skill).toContain("`MERCHANT_DIVERSE`");
     expect(skill).toContain("Do not re-sort the returned products");
-    expect(skill).toContain("coverage percentage");
-    expect(skill).toContain("failed/timed-out merchant IDs");
-    expect(skill).toContain("catalog version");
   });
 
   it("defines one bounded, user-authorized web-wide merchant workflow", async () => {
@@ -142,7 +139,7 @@ describe("FindCheap Agent plugin contract", () => {
     };
 
     expect(manifest.name).toBe("findcheap-agent");
-    expect(manifest.version).toMatch(/^0\.8\.1(?:\+codex\.)?/u);
+    expect(manifest.version).toMatch(/^0\.8\.2(?:\+codex\.)?/u);
     expect(manifest.interface.displayName).toBe("FindCheap Agent");
     expect(manifest.interface.longDescription).toMatch(/Codex Plugin Agent/u);
     expect(manifest.interface.longDescription).toMatch(/authorized.*Chrome/u);

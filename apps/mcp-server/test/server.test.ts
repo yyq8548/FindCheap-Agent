@@ -250,7 +250,7 @@ describe("shopping MCP server", () => {
     const unifiedTool = tools.tools.find((tool) => tool.name === "search_products");
     expect(unifiedTool?.inputSchema.required).toEqual(["query"]);
     expect(unifiedTool?.description).toContain("selectionMode=LOWEST_PRICE");
-    expect(unifiedTool?.description).toContain("Commission never affects routing or ranking");
+    expect(unifiedTool?.description).toContain("Commercial relationships never affect relevance or ranking");
     expect(unifiedTool?.description).toContain("maxItemPriceCents");
     expect(unifiedTool?.description).toContain("single public product-search entrypoint");
     expect(unifiedTool?.description).not.toContain("call render_product_cards");
@@ -422,7 +422,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.8.1",
+        version: "0.8.2",
         terminalStage: "DOM_RENDERED",
         stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
       }
@@ -431,7 +431,7 @@ describe("shopping MCP server", () => {
     expect(result.structuredContent).toEqual({ status: "RECORDED" });
     expect(record).toHaveBeenCalledWith(expect.objectContaining({
       renderId,
-      version: "0.8.1",
+      version: "0.8.2",
       terminalStage: "DOM_RENDERED",
       stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
     }));
@@ -439,7 +439,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.8.1",
+        version: "0.8.2",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 14 }
       }
@@ -449,7 +449,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.8.1",
+        version: "0.8.2",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 300_001 }
       }
@@ -460,7 +460,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId: "22222222-2222-4222-8222-222222222222",
-        version: "0.8.1",
+        version: "0.8.2",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 1 }
       }
@@ -696,7 +696,7 @@ describe("shopping MCP server", () => {
         quoteReference: { variantId: "42797821853913" }
       }]
     });
-    expect(JSON.stringify(quoted.content)).toContain("stable Shopify variant reference");
+    expect(JSON.stringify(quoted.content)).toContain("Estimated delivered total");
   });
 
   it("returns safe actionable quote failure codes and forwards a one-time address", async () => {
@@ -1642,7 +1642,102 @@ describe("Coupon and Watch tools", () => {
         affiliateState: "APPROVED",
         purchaseLink: { kind: "APPROVED_AFFILIATE", providerName: "Awin" },
         card: { priceLabel: "Verified item price" },
-        pricing: { scope: "ITEM_PRICE_ONLY", deliveredPrice: { status: "UNAVAILABLE" } }
+        pricing: { scope: "ITEM_PRICE_ONLY", deliveredPrice: { status: "UNAVAILABLE" } },
+        quoteReference: { renderId: expect.any(String), variantId: "sku-1" }
+    });
+    expect(result.content).toEqual([expect.objectContaining({
+      text: expect.not.stringMatching(/affiliate|Awin/iu)
+    })]);
+  });
+
+  it("quotes an Awin card through its stable merchant product reference and Shopify cart", async () => {
+    const client = await connect({ compare: async () => comparison }, shopifyPort, undefined, {
+      awin: {
+        search: async () => ({
+          source: "AWIN_PRODUCT_FEED",
+          coverage: "COMPLETE",
+          snapshotAt: "2026-08-21T23:32:40.000Z",
+          diagnostics: { feedRows: 1, validRows: 1, rejectedRows: 0, queryMatches: 1, priceProductsExcluded: 0 },
+          products: [{
+            merchantId: "20282",
+            merchant: "Amazonliss (US)",
+            merchantProductId: "141003",
+            title: "B24 Molecular Peptides pH Maintenance Shampoo 5.07 Fl Oz",
+            category: "Hair Care",
+            matchStatus: "DISCOVERY_MATCH",
+            matchEvidence: ["stable merchant product ID"],
+            condition: "UNKNOWN",
+            itemPrice: { amountCents: 1_599, currency: "USD" },
+            availability: "IN_STOCK",
+            merchantUrl: "https://www.nutreecosmetics.com/products/b24-shampoo",
+            affiliateUrl: "https://www.awin1.com/pclick.php?p=40969355207&a=3047955&m=20282",
+            checkedAt: "2026-08-21T23:32:40.000Z"
+          }]
+        })
+      },
+      awinShopifyQuotes: {
+        resolve: async () => ({
+          ...(await shopifyPort.search({ query: "B24 shampoo", limit: 1 })).products[0]!,
+          merchantId: "20282",
+          merchant: "Amazonliss (US)",
+          sourceHost: "bondoxhair.com",
+          handle: "44128515064053",
+          title: "B24 Molecular Peptides pH Maintenance Shampoo 5.07 Fl Oz",
+          itemPrice: { amountCents: 1_599, currency: "USD" },
+          merchantUrl: "https://bondoxhair.com/products/b24-shampoo?variant=44128515064053"
+        })
+      },
+      cartQuotes: {
+        quote: async (product, zipCode) => {
+          expect(product.handle).toBe("44128515064053");
+          expect(zipCode).toBe("33065");
+          return {
+            status: "ESTIMATED",
+            subtotal: { amountCents: 1_599, currency: "USD" },
+            shipping: { amountCents: 0, currency: "USD", label: "Standard" },
+            tax: {
+              status: "ZIP_ESTIMATED",
+              amount: { amountCents: 112, currency: "USD" },
+              jurisdiction: "Florida",
+              rateBasisPoints: 702,
+              source: "TAX_FOUNDATION_STATE_AVERAGE_2026"
+            },
+            deliveredPrice: { amountCents: 1_711, currency: "USD" },
+            totalEstimated: true,
+            checkedAt: "2026-08-24T23:45:00.000Z",
+            expiresAt: "2026-08-24T23:55:00.000Z"
+          };
+        }
+      }
+    });
+    const found = await client.callTool({ name: "search_products", arguments: { query: "B24 shampoo", limit: 1 } });
+    const reference = (found.structuredContent as {
+      products: Array<{ quoteReference: { renderId: string; variantId: string } }>;
+    }).products[0]!.quoteReference;
+
+    const quoted = await client.callTool({
+      name: "quote_selected_shopify_product",
+      arguments: { ...reference, zipCode: "33065" }
+    });
+
+    expect(quoted.structuredContent).toMatchObject({
+      priceScope: "SHOPIFY_CART_ESTIMATE",
+      pricingContext: { zipCode: "33065" },
+      products: [{
+        sourceKind: "AWIN_PRODUCT_FEED",
+        purchaseLink: { kind: "APPROVED_AFFILIATE" },
+        pricing: {
+          scope: "SHOPIFY_CART_ESTIMATE",
+          shipping: { amount: { amountCents: 0 } },
+          tax: { status: "ESTIMATED", amount: { amountCents: 112 } },
+          deliveredPrice: { status: "ESTIMATED", amount: { amountCents: 1_711 } }
+        },
+        card: {
+          priceLabel: "Estimated total",
+          primaryPrice: { amountCents: 1_711 },
+          shippingLabel: "免费配送 $0.00"
+        }
+      }]
     });
   });
 

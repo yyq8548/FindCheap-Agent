@@ -3823,6 +3823,26 @@
         }
       ]
     },
+    "src/awin-shopify-quote.ts": {
+      "format": "esm",
+      "imports": [
+        {
+          "kind": "import-statement",
+          "original": "zod",
+          "path": "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/index.js"
+        },
+        {
+          "kind": "import-statement",
+          "original": "../../../packages/network-safety/src/safe-fetch.js",
+          "path": "../../packages/network-safety/src/safe-fetch.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./shopify-cart-quote.js",
+          "path": "src/shopify-cart-quote.ts"
+        }
+      ]
+    },
     "src/commerce-client.ts": {
       "format": "esm",
       "imports": [
@@ -4107,6 +4127,11 @@
           "kind": "import-statement",
           "original": "../../../packages/awin-feed/src/index.js",
           "path": "../../packages/awin-feed/src/index.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./awin-shopify-quote.js",
+          "path": "src/awin-shopify-quote.ts"
         }
       ]
     },
@@ -4158,7 +4183,7 @@
   },
   "outputs": {
     "../../plugins/findcheap-agent/dist/mcp-server.js": {
-      "bytes": 507771,
+      "bytes": 514160,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
@@ -4391,7 +4416,7 @@
           "bytesInOutput": 1979
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/core.js": {
-          "bytesInOutput": 12292
+          "bytesInOutput": 12289
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/refs/data.json": {
           "bytesInOutput": 358
@@ -4772,10 +4797,13 @@
           "bytesInOutput": 254
         },
         "../../packages/network-safety/src/safe-fetch.ts": {
-          "bytesInOutput": 7439
+          "bytesInOutput": 7522
         },
         "src/affiliate-links.ts": {
           "bytesInOutput": 2966
+        },
+        "src/awin-shopify-quote.ts": {
+          "bytesInOutput": 3979
         },
         "src/commerce-client.ts": {
           "bytesInOutput": 2670
@@ -4796,16 +4824,16 @@
           "bytesInOutput": 3663
         },
         "src/server.ts": {
-          "bytesInOutput": 60813
+          "bytesInOutput": 63125
         },
         "src/shopify-cart-quote.ts": {
-          "bytesInOutput": 10894
+          "bytesInOutput": 10891
         },
         "src/shopify-client.ts": {
           "bytesInOutput": 181
         },
         "src/shopify-global-catalog-client.ts": {
-          "bytesInOutput": 14993
+          "bytesInOutput": 14991
         },
         "src/shopify-match.ts": {
           "bytesInOutput": 4585
@@ -4814,7 +4842,7 @@
           "bytesInOutput": 3250
         },
         "src/stdio.ts": {
-          "bytesInOutput": 534
+          "bytesInOutput": 557
         },
         "src/watch-service.ts": {
           "bytesInOutput": 6032
