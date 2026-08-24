@@ -5,12 +5,12 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import type { PublishedOffer } from "../../../apps/ingestion-worker/src/jobs/refresh-product.js";
-import { sha256 } from "../../../apps/ingestion-worker/src/evidence/store-evidence.js";
 import {
   productSourceIdentity,
-  stableRecordId
-} from "../../../apps/ingestion-worker/src/jobs/refresh-identity.js";
+  sha256,
+  stableRecordId,
+  type PublishedOffer
+} from "../../ingestion-contracts/src/index.js";
 import { normalizeToken } from "../../product-identity/src/index.js";
 import { createDatabase } from "../src/client.js";
 import { runMigrations } from "../src/migrate.js";

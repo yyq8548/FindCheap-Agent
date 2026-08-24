@@ -9,7 +9,7 @@ Product form: **Codex Plugin Agent**.
 
 FindCheap Agent is a read-only Codex plugin for product search, offer matching, price checks, product cards, verified deals, and shopping watches. It returns up to three products with images, merchant links, price evidence, match labels, condition, and availability.
 
-Codex calls the plugin through a local stdio MCP server. Shopify Global Catalog is the primary product source. If the catalog returns no usable product, an authorized Chrome skill can run a bounded search of public merchant pages.
+Codex calls one public `search_products` tool through a local stdio MCP server. The router considers relevant products from approved affiliate programs first, fills remaining slots from Shopify Global Catalog, and offers an authorized bounded Chrome search only after complete API coverage returns no usable product.
 
 The plugin does not order, check out, or submit payment. It also does not reserve inventory.
 
@@ -43,7 +43,7 @@ For a follow-up quote, refer to a result by its number or choose it from the car
 
 ## Product search
 
-The plugin searches Shopify Global Catalog across eligible merchants. It preserves details such as brand, model, SKU, GTIN, color, size, and capacity. Supported Chinese product terms are translated while identity and variant details remain unchanged.
+The plugin uses one constrained search request across its eligible sources. Approved Awin products are considered first for supported categories only when they satisfy the requested identity, condition, required features, availability, and price limits. Shopify Global Catalog fills remaining slots. Supported Chinese product terms are translated while identity and variant details remain unchanged.
 
 Results use three match labels:
 
@@ -53,7 +53,7 @@ Results use three match labels:
 
 Exact merchant domains can be labeled `OFFICIAL`, `AUTHORIZED_RETAILER`, `ESTABLISHED_RETAILER`, `UNKNOWN`, or `RISKY` when checked-in evidence supports the label. Trusted merchants rank before price. Unknown merchants are shown separately and do not fill the top three when trusted results are available. Risky hosts are excluded. Affiliate status never affects ranking.
 
-If the first catalog request returns no usable product, the plugin may run one bounded relaxed request. Relaxed results remain `DISCOVERY_MATCH`. If Shopify still returns nothing, the plugin can offer the authorized Chrome fallback instead of silently changing data sources.
+Affiliate commission never affects routing or ranking. `LOWEST_PRICE` compares qualifying item prices across sources; normal discovery preserves merchant diversity. If the first catalog request returns no usable product, the plugin may run one bounded relaxed request. Relaxed results remain `DISCOVERY_MATCH`. Chrome is offered only after every attempted API source reports complete zero-result coverage; partial coverage and source errors fail closed.
 
 ## Offer comparison and delivery estimates
 
@@ -86,7 +86,7 @@ The Coupon and promotion path fails closed. It returns a Coupon, promo code, mem
 
 Without that evidence, the plugin reports the deal source as unavailable. It does not invent codes, discounts, expiration dates, or Cashback rates.
 
-The default plugin exposes working Shopify, product-card, and Watch tools. Commerce comparison and verified Deals tools appear only when their complete provider URL and token are configured.
+The default plugin exposes the unified product search, product-card, and Watch tools. Commerce comparison and verified Deals tools appear only when their complete provider URL and token are configured.
 
 ## Shopping watches
 
@@ -115,7 +115,7 @@ Tell me when this jacket is back in stock in black, size M.
 
 ## Affiliate status
 
-Amazonliss (US), Awin merchant `20282`, is approved for publisher `3047955`. In production, `search_awin_products` reads the authenticated HTTPS Feed service configured by `AWIN_PRODUCT_FEED_URL` and `AWIN_PRODUCT_FEED_TOKEN`. For local development it falls back to `datafeed_3047955.csv.gz` in Downloads, or `AWIN_PRODUCT_FEED_PATH`. Returned Awin deep links include disclosure.
+Amazonliss (US), Awin merchant `20282`, is approved for publisher `3047955`. In production, the unified `search_products` router reads the authenticated HTTPS Feed service configured by `AWIN_PRODUCT_FEED_URL` and `AWIN_PRODUCT_FEED_TOKEN`. For local development it falls back to `datafeed_3047955.csv.gz` in Downloads, or `AWIN_PRODUCT_FEED_PATH`. Returned Awin deep links include disclosure and use the same product-card contract as Shopify results.
 
 This Feed has item price, availability, and merchant product ID, but no GTIN, MPN, brand, or condition. Results therefore remain `DISCOVERY_MATCH`, `DISCOVERY_ONLY`, and `condition: UNKNOWN`; they are not exact or same-product comparisons. Shipping, tax, coupons, member price, and delivered price remain unavailable. Other product sources keep canonical merchant links unless their own approved relationship is configured. Commission never affects ranking.
 
@@ -146,4 +146,4 @@ See [sharing and installation](docs/product/findcheap-agent-share-package.md) fo
 - `apps/ingestion-worker/` contains merchant ingestion and watch state processing.
 - `docs/product/` contains deployment, data-source, Coupon, Watch, and affiliate runbooks.
 
-The Commerce API fails closed until a merchant passes its audit gate. Shopify Global Catalog remains the primary discovery source, and authorized Chrome remains the zero-result fallback.
+The Commerce API fails closed until a merchant passes its audit gate. The unified router uses approved affiliate sources and Shopify Global Catalog, while authorized Chrome remains a complete-zero-result fallback.

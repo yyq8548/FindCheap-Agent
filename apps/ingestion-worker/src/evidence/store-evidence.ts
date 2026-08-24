@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import {
   requireHttpsUrl,
   requireMetadata,
@@ -6,39 +5,21 @@ import {
   requireSourceType,
   requireStrictTimestamp
 } from "../../../../packages/merchant-sdk/src/index.js";
-import { stableRecordId, type SourceIdentity } from "../jobs/refresh-identity.js";
+import {
+  sha256,
+  type EvidenceRepository,
+  type EvidenceWrite,
+  type StoredEvidence,
+  type StoreEvidenceInput
+} from "../../../../packages/ingestion-contracts/src/index.js";
+import { stableRecordId } from "../jobs/refresh-identity.js";
 
-export type EvidenceWrite = {
-  id: string;
-  sourceIdentityKey: string;
-  merchantId: string;
-  merchantProductId: string;
-  sourceVersion: string;
-  quoteContext?: { zipCode: string; memberships: string[] };
-  sourceUrl: string;
-  sourceType: string;
-  contentHash: string;
-  rawContent: string;
-  capturedAt: string;
-  metadata: Record<string, string>;
-};
-
-export type StoredEvidence = EvidenceWrite & { id: string };
-
-export type EvidenceSaveResult =
-  | { status: "STORED" | "REUSED"; record: StoredEvidence }
-  | {
-    status: "CONFLICT";
-    evidenceId: string;
-    conflictEvidenceId: string;
-    expectedContentHash: string;
-    actualContentHash: string;
-  };
-
-export interface EvidenceRepository {
-  /** Saves at most one record for an idempotency key and returns the existing record on retry. */
-  save(write: EvidenceWrite): Promise<EvidenceSaveResult>;
-}
+export type {
+  EvidenceRepository,
+  EvidenceSaveResult,
+  EvidenceWrite,
+  StoredEvidence
+} from "../../../../packages/ingestion-contracts/src/index.js";
 
 export class SourceVersionConflictError extends Error {
   constructor(
@@ -52,20 +33,11 @@ export class SourceVersionConflictError extends Error {
   }
 }
 
-export function sha256(content: string): string {
-  return createHash("sha256").update(content, "utf8").digest("hex");
-}
+export { sha256 } from "../../../../packages/ingestion-contracts/src/index.js";
 
 export async function storeEvidence(
   repository: EvidenceRepository,
-  input: {
-    sourceIdentity: SourceIdentity;
-    sourceUrl: string;
-    sourceType: string;
-    rawContent: string;
-    capturedAt: string;
-    metadata: Record<string, string>;
-  }
+  input: StoreEvidenceInput
 ): Promise<StoredEvidence> {
   requireHttpsUrl(input.sourceUrl);
   requireRawEvidence(input.rawContent);

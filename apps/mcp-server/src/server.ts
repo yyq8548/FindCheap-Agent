@@ -44,15 +44,21 @@ import {
 import { evaluateWatch, type WatchEvaluation } from "./watch-service.js";
 import { MERCHANT_TRUST_REGISTRY_VERSION } from "./merchant-trust.js";
 import {
+  SearchProductsInputSchema,
+  searchProducts,
+  type UnifiedCandidate,
+  type UnifiedSearchExecution
+} from "./search-products.js";
+import {
   createUnavailableAwinPort,
   type AwinProductPort,
   type AwinSearchResult
-} from "./awin-feed-client.js";
+} from "../../../packages/awin-feed/src/index.js";
 
 export type { ShopifyPort } from "./shopify-client.js";
 export type { DealPort } from "./deal-client.js";
 export type { WatchStore } from "./watch-store.js";
-export type { AwinProductPort } from "./awin-feed-client.js";
+export type { AwinProductPort } from "../../../packages/awin-feed/src/index.js";
 
 const CardStageDurationSchema = z.number().nonnegative().max(300_000);
 const ProductCardStagesSchema = z.object({
@@ -77,7 +83,7 @@ const ProductCardStagesSchema = z.object({
 
 const ProductCardTelemetryInputSchema = z.object({
   renderId: z.string().uuid(),
-  version: z.literal("0.7.2"),
+  version: z.literal("0.8.0"),
   terminalStage: z.enum([
     "DOM_RENDERED",
     "FIRST_IMAGE_SETTLED",
@@ -260,6 +266,9 @@ const CompareProductsOutputShape = {
 };
 
 const ShopifyProductOutputSchema = z.object({
+  sourceKind: z.enum(["AWIN_PRODUCT_FEED", "SHOPIFY_GLOBAL_CATALOG"]).optional(),
+  affiliateState: z.enum(["APPROVED", "NONE"]).optional(),
+  featureEvidence: z.array(z.string()).optional(),
   merchantId: z.string(),
   merchant: z.string(),
   sourceHost: z.string(),
@@ -381,7 +390,11 @@ const ShopifyProductsOutputShape = {
   renderId: z.string().uuid().optional(),
   status: z.enum(["OK", "NEEDS_CLARIFICATION", "DATA_SOURCE_UNAVAILABLE"]),
   message: z.string(),
-  source: z.literal("SHOPIFY_GLOBAL_CATALOG"),
+  source: z.enum(["SHOPIFY_GLOBAL_CATALOG", "UNIFIED_PRODUCT_SEARCH"]),
+  sources: z.object({
+    awin: z.enum(["SKIPPED", "COMPLETE", "UNAVAILABLE"]),
+    shopify: z.enum(["SKIPPED", "COMPLETE", "PARTIAL", "UNAVAILABLE"])
+  }).optional(),
   priceScope: z.enum(["ITEM_PRICE_ONLY", "SHOPIFY_CART_ESTIMATE", "MIXED"]),
   cartQuoteCoverage: z.object({
     attempted: z.number().int().nonnegative(),
@@ -443,6 +456,7 @@ const ShopifyProductsOutputShape = {
   questions: z.array(z.string()),
   products: z.array(ShopifyProductOutputSchema)
 };
+const _ShopifyProductsOutputSchemaObject = z.object(ShopifyProductsOutputShape);
 
 const AwinProductsOutputShape = {
   status: z.enum(["OK", "DATA_SOURCE_UNAVAILABLE"]),
@@ -672,6 +686,9 @@ function shopifyResult(
       diagnostics: result.diagnostics,
       questions: result.questions,
       products: linkedProducts.map(({ product, purchaseLink }) => ({
+        sourceKind: "SHOPIFY_GLOBAL_CATALOG" as const,
+        affiliateState: purchaseLink.kind === "APPROVED_AFFILIATE" ? "APPROVED" as const : "NONE" as const,
+        featureEvidence: [],
         ...product,
         pricing: {
           scope: product.cartQuote === undefined ? "ITEM_PRICE_ONLY" as const : "SHOPIFY_CART_ESTIMATE" as const,
@@ -761,6 +778,217 @@ function shopifyResult(
         }
       }))
     }
+  };
+}
+
+type ProductCardProduct = z.infer<typeof ShopifyProductOutputSchema>;
+type ProductCardContent = z.infer<typeof _ShopifyProductsOutputSchemaObject>;
+
+function unifiedResult(
+  execution: UnifiedSearchExecution,
+  input: z.infer<typeof SearchProductsInputSchema>,
+  shopifyResponse: ReturnType<typeof shopifyResult>,
+  cartQuoteCoverage: { attempted: number; succeeded: number }
+) {
+  const shopifyCards = new Map<string, ProductCardProduct>(
+    shopifyResponse.structuredContent.products.map((product) => [product.handle, product])
+  );
+  const products = execution.candidates.flatMap((candidate) => {
+    if (candidate.awinProduct !== undefined) {
+      return [awinCardProduct(candidate)];
+    }
+    const handle = candidate.shopifyProduct?.handle;
+    const card = handle === undefined ? undefined : shopifyCards.get(handle);
+    return card === undefined ? [] : [{
+      ...card,
+      sourceKind: "SHOPIFY_GLOBAL_CATALOG" as const,
+      affiliateState: card.purchaseLink.kind === "APPROVED_AFFILIATE"
+        ? "APPROVED" as const
+        : "NONE" as const,
+      featureEvidence: candidate.featureEvidence
+    }];
+  });
+  const affiliateCount = products.filter((product) => product.affiliateState === "APPROVED").length;
+  const itemPriceCount = products.filter((product) => product.itemPrice !== undefined).length;
+  const unavailableSource = Object.values(execution.sourceStatus).includes("UNAVAILABLE");
+  const partialSource = execution.sourceStatus.shopify === "PARTIAL";
+  const coverage = unavailableSource || partialSource ? "PARTIAL" as const : "COMPLETE" as const;
+  const affiliateSummary = affiliateCount === 0
+    ? "No approved Affiliate Program product satisfied the request; general catalog results are shown."
+    : `${affiliateCount} approved Affiliate Program product(s) appear first; commission is disclosed and never enters relevance, feature, or price scoring.`;
+  const chromeAdvice = execution.chromeFallbackEligible
+    ? "No configured source returned a qualifying product. The user may authorize one bounded Chrome whole-web fallback."
+    : "";
+  const message = [
+    `Unified search returned ${products.length} product card(s).`,
+    affiliateSummary,
+    input.selectionMode === "LOWEST_PRICE"
+      ? "Explicit LOWEST_PRICE mode compares qualifying Awin and Shopify item prices across sources."
+      : "Approved affiliate candidates are grouped first; Shopify fills remaining slots.",
+    chromeAdvice,
+    "Hard condition, required feature, availability, identity, and price constraints apply before source priority."
+  ].filter(Boolean).join(" ");
+  const dataUnavailable = products.length === 0 && (
+    execution.sourceStatus.shopify === "UNAVAILABLE" ||
+    (execution.sourceStatus.awin === "UNAVAILABLE" && execution.sourceStatus.shopify === "SKIPPED")
+  );
+  return {
+    content: [{ type: "text" as const, text: message }],
+    structuredContent: {
+      ...shopifyResponse.structuredContent,
+      status: dataUnavailable ? "DATA_SOURCE_UNAVAILABLE" as const : "OK" as const,
+      message,
+      source: "UNIFIED_PRODUCT_SEARCH" as const,
+      sources: execution.sourceStatus,
+      coverage,
+      priceScope: cartQuoteCoverage.succeeded === 0
+        ? "ITEM_PRICE_ONLY" as const
+        : cartQuoteCoverage.succeeded === products.length
+          ? "SHOPIFY_CART_ESTIMATE" as const
+          : "MIXED" as const,
+      cartQuoteCoverage,
+      quality: {
+        status: unavailableSource || products.some((product) => product.condition === "UNKNOWN")
+          ? "PASS_WITH_LIMITATIONS" as const
+          : "PASS" as const,
+        cardsReturned: products.length,
+        itemPricesVerified: itemPriceCount,
+        couponsVerified: 0,
+        affiliateLinksApproved: affiliateCount,
+        limitations: [
+          ...(unavailableSource ? ["one configured source was unavailable"] : []),
+          ...(products.some((product) => product.condition === "UNKNOWN")
+            ? ["one or more product conditions are unverified"]
+            : []),
+          ...(products.some((product) => product.sourceKind === "AWIN_PRODUCT_FEED")
+            ? ["Awin cards contain verified item price and feed availability only; shipping, tax, and delivered price are unavailable"]
+            : [])
+        ]
+      },
+      comparison: execution.candidates.some((candidate) => candidate.source === "AWIN_PRODUCT_FEED")
+        ? {
+            status: "DISCOVERY_ONLY" as const,
+            evidence: ["cross-source results are product recommendations, not independently verified same-product offers"],
+            merchantCount: new Set(products.map((product) => product.merchantId)).size,
+            offerCount: products.length
+          }
+        : shopifyResponse.structuredContent.comparison,
+      diagnostics: {
+        ...shopifyResponse.structuredContent.diagnostics,
+        chromeFallbackEligible: execution.chromeFallbackEligible
+      },
+      products
+    }
+  };
+}
+
+function awinCardProduct(candidate: UnifiedCandidate): ProductCardProduct {
+  const product = candidate.awinProduct;
+  if (product === undefined) throw new Error("Awin candidate is missing its source product");
+  const sourceHost = new URL(product.merchantUrl).hostname;
+  return {
+    sourceKind: "AWIN_PRODUCT_FEED",
+    affiliateState: "APPROVED",
+    featureEvidence: candidate.featureEvidence,
+    merchantId: product.merchantId,
+    merchant: product.merchant,
+    sourceHost,
+    merchantTrust: {
+      level: "UNKNOWN",
+      verification: "UNVERIFIED",
+      evidence: ["Awin relationship and tracking link approved; merchant trust not independently reviewed"]
+    },
+    handle: product.merchantProductId,
+    title: product.title,
+    gtins: [],
+    variantDimensions: {},
+    matchStatus: product.matchStatus,
+    matchEvidence: product.matchEvidence,
+    condition: product.condition,
+    ...(product.imageUrl === undefined ? {} : { imageUrl: product.imageUrl }),
+    itemPrice: product.itemPrice,
+    availability: product.availability,
+    merchantUrl: product.merchantUrl,
+    checkedAt: product.checkedAt,
+    pricing: {
+      scope: "ITEM_PRICE_ONLY",
+      regularItemPrice: { status: "VERIFIED", amount: product.itemPrice },
+      memberPrice: { status: "UNAVAILABLE", reason: "membership-specific price was not provided by the Awin Feed" },
+      shipping: { status: "UNAVAILABLE", reason: "shipping was not provided by the Awin Feed" },
+      tax: { status: "UNAVAILABLE", reason: "tax was not provided by the Awin Feed" },
+      mandatoryFees: { status: "UNAVAILABLE", reason: "mandatory fees were not provided by the Awin Feed" },
+      deliveredPrice: { status: "UNAVAILABLE", reason: "shipping, tax, and fees were not provided by the Awin Feed" }
+    },
+    freshness: { status: "OBSERVED_AT_QUERY", checkedAt: product.checkedAt },
+    coupons: { status: "UNAVAILABLE", verified: [] },
+    purchaseLink: {
+      kind: "APPROVED_AFFILIATE",
+      providerName: "Awin",
+      url: product.affiliateUrl,
+      disclosure: "Affiliate link: FindCheap may earn a commission; commission never affects relevance, feature, or price scoring."
+    },
+    card: {
+      title: product.title,
+      merchant: product.merchant,
+      ...(product.imageUrl === undefined ? {} : { imageUrl: product.imageUrl }),
+      primaryPrice: product.itemPrice,
+      priceLabel: "Verified item price",
+      itemPrice: product.itemPrice,
+      matchBadge: product.matchStatus,
+      conditionBadge: product.condition,
+      availability: product.availability,
+      merchantTrustBadge: "MERCHANT_UNVERIFIED",
+      actionLabel: "View at merchant"
+    }
+  };
+}
+
+function emptyShopifySearchResult(
+  input: z.infer<typeof SearchProductsInputSchema>
+): ShopifySearchResult {
+  return {
+    source: "SHOPIFY_GLOBAL_CATALOG",
+    coverage: "COMPLETE",
+    merchantsQueried: 0,
+    merchantsSucceeded: 0,
+    ...(input.maxItemPriceCents === undefined ? {} : { maxItemPriceCents: input.maxItemPriceCents }),
+    comparison: {
+      status: "DISCOVERY_ONLY",
+      evidence: ["Shopify source not needed or returned no qualifying product"],
+      merchantCount: 0,
+      offerCount: 0
+    },
+    diagnostics: {
+      apiDurationMs: 0,
+      cacheStatus: "MISS",
+      chromeFallbackEligible: false,
+      queryAttempts: 0,
+      fallbackQueryUsed: false,
+      catalogProductsReturned: 0,
+      catalogVariantsReturned: 0,
+      catalogZeroResultAttempts: 0,
+      outOfStockProductsExcluded: 0,
+      identityProductsExcluded: 0,
+      irrelevantProductsExcluded: 0,
+      conditionProductsExcluded: 0,
+      priceProductsExcluded: 0,
+      trustedMerchantProductsReturned: 0,
+      unverifiedMerchantProductsReturned: 0,
+      unverifiedMerchantProductsExcluded: 0,
+      riskyMerchantProductsExcluded: 0,
+      merchantTrustRegistryVersion: MERCHANT_TRUST_REGISTRY_VERSION,
+      merchantsFailed: 0,
+      coveragePercent: 100,
+      failedMerchantIds: [],
+      timedOutMerchantIds: [],
+      registryVersion: "NOT_QUERIED",
+      searchTimeoutMs: 0,
+      selectionPolicy: input.selectionMode === "LOWEST_PRICE"
+        ? "EXACT_THEN_DISCOVERY_THEN_SIMILAR_THEN_PRICE"
+        : "EXACT_THEN_DISCOVERY_THEN_SIMILAR_THEN_DIVERSE_MERCHANTS_THEN_PRICE"
+    },
+    questions: [],
+    products: []
   };
 }
 
@@ -1024,7 +1252,8 @@ export function createShoppingServer(
   affiliateLinks: AffiliateLinkResolver = createAffiliateLinkResolver(),
   dependencies: ShoppingServerDependencies = {}
 ): McpServer {
-  const server = new McpServer({ name: "findcheap-agent", version: "0.7.2" });
+  void comparePort;
+  const server = new McpServer({ name: "findcheap-agent", version: "0.8.0" });
   const dealPort = dependencies.deals ?? createUnavailableDealPort();
   const awinPort = dependencies.awin ?? createUnavailableAwinPort();
   const toolAvailability = dependencies.toolAvailability ?? {
@@ -1043,21 +1272,23 @@ export function createShoppingServer(
   const watchChecks = new Map<string, Promise<WatchEvaluation>>();
   const renderSnapshots = new Map<string, {
     expiresAt: number;
-    content: ReturnType<typeof shopifyResult>["structuredContent"] & { renderId: string };
+    content: ProductCardContent & { renderId: string };
     sourceResult: ShopifySearchResult;
   }>();
   const recordedCardTelemetry = new Set<string>();
   const rememberSnapshot = (
-    content: ReturnType<typeof shopifyResult>["structuredContent"],
+    content: ProductCardContent,
     sourceResult: ShopifySearchResult
-  ): ReturnType<typeof shopifyResult>["structuredContent"] & { renderId: string } => {
+  ): ProductCardContent & { renderId: string } => {
     const renderId = randomUUID();
     const snapshot = {
       ...content,
       renderId,
       products: content.products.map((product) => ({
         ...product,
-        quoteReference: { renderId, variantId: product.handle }
+        ...(product.sourceKind === "AWIN_PRODUCT_FEED"
+          ? {}
+          : { quoteReference: { renderId, variantId: product.handle } })
       }))
     };
     renderSnapshots.set(renderId, {
@@ -1099,11 +1330,82 @@ export function createShoppingServer(
     })
   );
 
+  server.registerTool(
+    "search_products",
+    {
+      title: "Search products",
+      description: "The single public product-search entrypoint. Search once through FindCheap's source router. Approved Affiliate Program products are considered first only when they satisfy the requested identity, condition, required features, availability, and price constraints. Shopify Global Catalog fills missing slots. Use selectionMode=LOWEST_PRICE only when the user explicitly asks for the cheapest qualifying item, and pass maxItemPriceCents for a stated ceiling. Commission never affects routing or ranking. Returned Awin cards disclose affiliate links and remain item-price-only. Reuse Shopify quoteReference for all later variant and delivery-quote follow-ups; never search a selected title again.",
+      inputSchema: SearchProductsInputSchema,
+      outputSchema: ShopifyProductsOutputShape,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true
+      },
+      _meta: {
+        ui: { resourceUri: PRODUCT_CARD_UI_URI },
+        "openai/outputTemplate": PRODUCT_CARD_UI_URI,
+        "openai/toolInvocation/invoking": "Searching approved product sources…",
+        "openai/toolInvocation/invoked": "Product cards ready."
+      }
+    },
+    async (rawInput) => {
+      const input = SearchProductsInputSchema.parse(rawInput);
+      if (
+        input.comparisonMode === "SAME_PRODUCT" &&
+        !hasSpecificProductIdentity(input.query)
+      ) {
+        return shopifyClarificationResult(input.selectionMode, input);
+      }
+      const execution = await searchProducts(input, { awin: awinPort, shopify: shopifyPort });
+      const initialShopify = execution.shopifyResult ?? emptyShopifySearchResult(input);
+      const enriched = execution.shopifyResult === undefined
+        ? { result: initialShopify, attempted: 0, succeeded: 0 }
+        : await enrichShopifyCartQuotes(initialShopify, input.zipCode, cartQuotes);
+      if (execution.shopifyResult !== undefined) {
+        const enrichedByHandle = new Map(enriched.result.products.map((product) => [product.handle, product]));
+        execution.shopifyResult = enriched.result;
+        execution.candidates = execution.candidates.map((candidate) =>
+          candidate.shopifyProduct === undefined
+            ? candidate
+            : {
+                ...candidate,
+                shopifyProduct: enrichedByHandle.get(candidate.shopifyProduct.handle) ?? candidate.shopifyProduct
+              }
+        );
+      }
+      const shopifyResponse = shopifyResult(enriched.result, {
+        ...(input.zipCode === undefined ? {} : { zipCode: input.zipCode }),
+        membershipIds: input.membershipIds ?? []
+      }, affiliateLinks, {
+        attempted: enriched.attempted,
+        succeeded: enriched.succeeded
+      });
+      const response = unifiedResult(execution, input, shopifyResponse, {
+        attempted: enriched.attempted,
+        succeeded: enriched.succeeded
+      });
+      if (response.structuredContent.products.length === 0) return response;
+      const content = rememberSnapshot(response.structuredContent, enriched.result);
+      return {
+        ...response,
+        content: [{
+          type: "text" as const,
+          text: `${response.content[0]!.text}\nFor any selected Shopify card, reuse quoteReference. Awin cards link directly through the disclosed approved affiliate URL and do not support Shopify Cart quotes.`
+        }],
+        structuredContent: content
+      };
+    }
+  );
+
+  // One-release app-only aliases keep existing rendered tasks functional while
+  // the model sees only search_products as the public search entrypoint.
   if (toolAvailability.commerceCompare) server.registerTool(
     "compare_products",
     {
-      title: "Compare products",
-      description: "Compare exact products and separately identify similar items for a US delivery ZIP.",
+      title: "Legacy compare products",
+      description: "Compatibility alias for an existing app task. New model calls use search_products.",
       inputSchema: CompareProductsInputSchema,
       outputSchema: CompareProductsOutputShape,
       annotations: {
@@ -1111,7 +1413,8 @@ export function createShoppingServer(
         destructiveHint: false,
         idempotentHint: true,
         openWorldHint: true
-      }
+      },
+      _meta: { ui: { visibility: ["app"] } }
     },
     async (input) => {
       try {
@@ -1126,8 +1429,8 @@ export function createShoppingServer(
   server.registerTool(
     "search_shopify_products",
     {
-      title: "Search Shopify Global Catalog (Beta)",
-      description: "Search Shopify Global Catalog across eligible merchants once per new lookup and render the returned cards directly. Independently reviewed exact domains rank before price; UNKNOWN merchants never pad Top 3 when trusted results exist, and affiliate status never ranks. The tool translates supported Chinese product terms and may make one internal bounded relaxed request only after an empty primary result; relaxed results are DISCOVERY_MATCH, never EXACT. For any later follow-up about a returned product, never search its title again: use inspect_selected_shopify_product for size, color, options, or availability, and quote_selected_shopify_product for a ZIP quote. Use comparisonMode=SAME_PRODUCT only with exact identity; selectionMode=LOWEST_PRICE only when cheapest is explicit, otherwise MERCHANT_DIVERSE. Put budget in maxItemPriceCents.",
+      title: "Legacy Shopify search",
+      description: "Compatibility alias for an existing app task. New model calls use search_products.",
       inputSchema: ShopifyProductsToolInputSchema,
       outputSchema: ShopifyProductsOutputShape,
       annotations: {
@@ -1137,10 +1440,8 @@ export function createShoppingServer(
         openWorldHint: true
       },
       _meta: {
-        ui: { resourceUri: PRODUCT_CARD_UI_URI },
-        "openai/outputTemplate": PRODUCT_CARD_UI_URI,
-        "openai/toolInvocation/invoking": "Searching Shopify products…",
-        "openai/toolInvocation/invoked": "Product cards ready."
+        ui: { visibility: ["app"], resourceUri: PRODUCT_CARD_UI_URI },
+        "openai/outputTemplate": PRODUCT_CARD_UI_URI
       }
     },
     async (input) => {
@@ -1163,14 +1464,9 @@ export function createShoppingServer(
           succeeded: enriched.succeeded
         });
         if (response.structuredContent.products.length === 0) return response;
-        const content = rememberSnapshot(response.structuredContent, enriched.result);
         return {
           ...response,
-          content: [{
-            type: "text" as const,
-            text: `${response.content[0]!.text}\nFor every follow-up about one selected product, reuse quoteReference and never search its title again. Call inspect_selected_shopify_product for size, color, options, or availability; call quote_selected_shopify_product only for a ZIP quote.`
-          }],
-          structuredContent: content
+          structuredContent: rememberSnapshot(response.structuredContent, enriched.result)
         };
       } catch {
         return shopifyUnavailableResult(validatedInput.selectionMode, validatedInput);
@@ -1181,8 +1477,8 @@ export function createShoppingServer(
   server.registerTool(
     "search_awin_products",
     {
-      title: "Search approved Awin Product Feed",
-      description: "Search the authenticated Amazonliss (US) Awin Product Feed, with a local Downloads fallback for development. Use first for haircare, hair mask, keratin hair treatment, shampoo, conditioner, hair straightening, smoothing, hair repair, or hair styling queries, including equivalent Chinese hair-specific product types; also use for explicit Amazonliss, Nutree Cosmetics, or Awin-feed requests. Do not use for broad beauty or personal-care queries without a hair-specific signal. Results are DISCOVERY_MATCH and DISCOVERY_ONLY because the feed lacks GTIN, MPN, brand, and condition. Returned Awin links belong to the checked-in approved publisher/merchant relationship and include disclosure. Relevance and item price determine order; commission never affects routing or ranking. Item price and feed availability only; no shipping, tax, coupon, member, or delivered-price claims.",
+      title: "Legacy Awin search",
+      description: "Compatibility alias for an existing app task. New model calls use search_products.",
       inputSchema: AwinProductsToolInputSchema,
       outputSchema: AwinProductsOutputShape,
       annotations: {
@@ -1190,7 +1486,8 @@ export function createShoppingServer(
         destructiveHint: false,
         idempotentHint: true,
         openWorldHint: false
-      }
+      },
+      _meta: { ui: { visibility: ["app"] } }
     },
     async (input) => {
       const validatedInput = AwinProductsToolInputSchema.parse(input);
@@ -1206,7 +1503,7 @@ export function createShoppingServer(
     "inspect_selected_shopify_product",
     {
       title: "Inspect a selected Shopify product",
-      description: "Check size, color, other variants, or current availability for exactly one product returned by search_shopify_products. Copy renderId and variantId from its quoteReference and put requested options in variantDimensions. This resolves the exact prior merchant product path; never run another catalog search, pass a title/query, or substitute another product.",
+      description: "Check size, color, other variants, or current availability for exactly one Shopify product returned by search_products. Copy renderId and variantId from its quoteReference; never run another catalog search. Awin cards have no Shopify quoteReference and must not use this tool.",
       inputSchema: ShopifySelectedProductInputSchema,
       outputSchema: ShopifySelectedProductOutputShape,
       annotations: {
@@ -1337,7 +1634,7 @@ export function createShoppingServer(
     "quote_selected_shopify_product",
     {
       title: "Quote a selected Shopify product",
-      description: "Get shipping, tax, and estimated total for exactly one product returned by search_shopify_products. Copy renderId and variantId from that product's quoteReference. When FULL_ADDRESS_REQUIRED is returned, ask for street address, city, and two-letter US state code, then retry with deliveryAddress; FindCheap sends it once to the merchant and does not save it in FindCheap state. Never substitute a title query or run another catalog search.",
+      description: "Get shipping, tax, and estimated total for exactly one Shopify product returned by search_products. Copy renderId and variantId from that product's quoteReference. Awin item-price-only cards have no Shopify quoteReference. When FULL_ADDRESS_REQUIRED is returned, ask for street address, city, and two-letter US state code, then retry the same stable reference.",
       inputSchema: ShopifySelectedQuoteInputSchema,
       outputSchema: ShopifyProductsOutputShape,
       annotations: {
@@ -1752,7 +2049,7 @@ export function createShoppingServer(
     "render_product_cards",
     {
       title: "Render identity-labeled product cards",
-      description: "Render the immutable snapshot identified by renderId from search_shopify_products.",
+      description: "Render the immutable cross-source snapshot identified by renderId from search_products.",
       inputSchema: z.object({ renderId: z.string().uuid() }).strict(),
       outputSchema: ShopifyProductsOutputShape,
       annotations: {
@@ -1776,7 +2073,7 @@ export function createShoppingServer(
           isError: true,
           content: [{
             type: "text" as const,
-            text: "Product-card snapshot is unavailable. Run search_shopify_products once."
+            text: "Product-card snapshot is unavailable. Run search_products once."
           }]
         };
       }

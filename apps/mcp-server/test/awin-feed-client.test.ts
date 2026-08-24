@@ -4,7 +4,7 @@ import { mkdtemp, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { createAwinFeedPort, parseAwinCsv } from "../src/awin-feed-client.js";
+import { createAwinFeedPort, parseAwinCsv } from "../../../packages/awin-feed/src/index.js";
 
 const temporaryDirectories: string[] = [];
 

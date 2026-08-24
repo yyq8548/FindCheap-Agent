@@ -7,7 +7,7 @@ import {
   type SafeFetchInput,
   type SafeRequest,
   type SafeFetchResponse
-} from "../../../../apps/ingestion-worker/src/network/safe-fetch.js";
+} from "../../../network-safety/src/safe-fetch.js";
 
 export const FieldPathSchema = z
   .string()

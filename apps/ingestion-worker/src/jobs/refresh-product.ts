@@ -2,9 +2,12 @@ import {
   requireEvidenceRefs,
   requireMetadata,
   requireOfferShape,
-  type MerchantAdapter,
-  type RawMerchantOffer
+  type MerchantAdapter
 } from "../../../../packages/merchant-sdk/src/index.js";
+import type {
+  OfferRepository,
+  PublishedOffer
+} from "../../../../packages/ingestion-contracts/src/index.js";
 import { storeEvidence, type EvidenceRepository } from "../evidence/store-evidence.js";
 import {
   canonicalizeProductRefreshJob,
@@ -23,14 +26,7 @@ import { callAdapterSource } from "./source-error.js";
 export type { RefreshJob } from "./refresh-identity.js";
 export type { FreshnessPolicy } from "./freshness.js";
 
-export type PublishedOffer = RawMerchantOffer & {
-  offerId: string;
-  sourceIdentityKey: string;
-  sourceVersion: string;
-  primaryEvidenceId: string;
-  externalEvidenceRefs: string[];
-  evidenceRefs: string[];
-};
+export type { PublishedOffer } from "../../../../packages/ingestion-contracts/src/index.js";
 
 export type RefreshOutcome =
   | { status: "DISABLED" }
@@ -39,10 +35,7 @@ export type RefreshOutcome =
   | { status: "NOT_FOUND" }
   | { status: "PUBLISHED"; offerId: string };
 
-export interface OfferRepository {
-  /** Upserts at most once for an idempotency key. */
-  upsert(offer: PublishedOffer, idempotencyKey: string): Promise<void>;
-}
+export type { OfferRepository } from "../../../../packages/ingestion-contracts/src/index.js";
 
 export type RefreshControls = {
   flags: {

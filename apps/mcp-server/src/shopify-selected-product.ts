@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { safeFetchWithProvenance } from "../../ingestion-worker/src/network/safe-fetch.js";
+import { safeFetchWithProvenance } from "../../../packages/network-safety/src/safe-fetch.js";
 import type { ShopifyProduct } from "./shopify-client.js";
 
 const VariantIdSchema = z.union([

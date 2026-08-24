@@ -32,25 +32,25 @@ const profilePath = path.join(root, "plugins", "findcheap-agent", "ucp-agent-pro
 const marketplacePath = path.join(root, ".agents", "plugins", "marketplace.json");
 
 describe("FindCheap Agent plugin contract", () => {
-  it("uses Shopify first and Chrome only after a successful zero-result response", async () => {
+  it("uses one constrained search router and Chrome only after complete zero-result coverage", async () => {
     const skill = await readFile(skillPath, "utf8");
 
-    expect(skill).toContain("Shopify-first default");
+    expect(skill).toContain("Unified source router");
     expect(skill).toContain("The plugin MCP server is auto-loaded");
     expect(skill).toContain("Never inspect the plugin cache");
     expect(skill).toContain("do not announce, explain, or summarize the plan before the tool call");
     expect(skill).toContain("Its result renders product cards directly; do not call `render_product_cards`");
-    expect(skill).toContain("`search_shopify_products`");
-    expect(skill).toContain("Call `search_shopify_products` exactly once per new user lookup");
+    expect(skill).toContain("Call `search_products` exactly once");
+    expect(skill).toContain("never call source-specific legacy tools");
     expect(skill).toContain("`quote_selected_shopify_product`");
     expect(skill).toContain("`inspect_selected_shopify_product`");
-    expect(skill).toContain("Never call `search_shopify_products` again by title");
+    expect(skill).toContain("`search_products` is forbidden for that follow-up");
     expect(skill).toContain("Do not repeat a successful call");
     expect(skill).toContain("Default and explicit-new searches keep `NEW` and unlabeled `UNKNOWN`");
     expect(skill).toContain("Never describe `UNKNOWN` as new");
     expect(skill).toContain("`status: OK`, `coverage: COMPLETE`, and `products.length === 0`");
     expect(skill).toContain("`coverage: PARTIAL`");
-    expect(skill).toContain("Global Catalog searches products from Shopify merchants eligible for catalog inclusion");
+    expect(skill).toContain("Shopify Global Catalog is not whole-web coverage");
     expect(skill).toContain("Do not reuse a result for a different product lookup or download its images");
     expect(skill).toContain("Do not open Chrome when Shopify returns one or more products");
     expect(skill).toContain("an API error, `DATA_SOURCE_UNAVAILABLE`, malformed response, or timeout");
@@ -67,14 +67,14 @@ describe("FindCheap Agent plugin contract", () => {
     expect(skill).toContain("`matchEvidence`");
     expect(skill).toContain("`variantDimensions`");
     expect(skill).toContain("Always pass `limit: 3`");
-    expect(skill).toContain("pass `maxItemPriceCents` as exact integer cents");
-    expect(skill).toContain("Do not include price words or currency symbols in `query`");
+    expect(skill).toContain("Pass price ceilings as exact integer cents");
+    expect(skill).toContain("required capabilities in `features`");
     expect(skill).toContain("priceProductsExcluded");
     expect(skill).toContain("`comparison.status`");
     expect(skill).toContain("`SAME_PRODUCT`");
     expect(skill).toContain("`DISCOVERY_ONLY`");
-    expect(skill).toContain("pass `comparisonMode: SAME_PRODUCT`");
-    expect(skill).toContain("pass `comparisonMode: DISCOVERY`");
+    expect(skill).toContain("`comparisonMode: SAME_PRODUCT`");
+    expect(skill).toContain("otherwise `DISCOVERY`");
     expect(skill).toContain("`NEEDS_CLARIFICATION`");
     expect(skill).toContain("do not call Chrome");
     expect(skill).toContain("`LOWEST_PRICE`");
@@ -142,10 +142,10 @@ describe("FindCheap Agent plugin contract", () => {
     };
 
     expect(manifest.name).toBe("findcheap-agent");
-    expect(manifest.version).toMatch(/^0\.7\.2(?:\+codex\.)?/u);
+    expect(manifest.version).toMatch(/^0\.8\.0(?:\+codex\.)?/u);
     expect(manifest.interface.displayName).toBe("FindCheap Agent");
     expect(manifest.interface.longDescription).toMatch(/Codex Plugin Agent/u);
-    expect(manifest.interface.longDescription).toMatch(/authorized Chrome/u);
+    expect(manifest.interface.longDescription).toMatch(/authorized.*Chrome/u);
     expect(manifest.interface.defaultPrompt).toEqual([
       "Search products, find verified deals, or create and bind a Watch to Codex Automation. Never launch MCP."
     ]);
@@ -159,7 +159,7 @@ describe("FindCheap Agent plugin contract", () => {
     expect(readme).toContain("`plugins/findcheap-agent/`");
     expect(readme).toContain("codex plugin marketplace add yyq8548/FindCheap-Agent --ref main");
     expect(readme).toContain("codex plugin add findcheap-agent@findcheap-agent");
-    expect(readme).toContain("authorized Chrome skill");
+    expect(readme).toContain("authorized bounded Chrome search");
     expect(readme).toContain("local stdio MCP server");
     expect(readme).toContain("does not order, check out, or submit payment");
   });

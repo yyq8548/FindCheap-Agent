@@ -9,7 +9,7 @@
 
 FindCheap Agent 是一个只读的 Codex 购物插件，支持商品搜索、商品匹配、价格查询、商品卡片、已验证优惠和购物监控。每次最多返回三个商品，并提供图片、商家链接、价格证据、匹配标签、商品成色和库存状态。
 
-Codex 通过本地 stdio MCP 服务器调用插件。主要商品来源是 Shopify Global Catalog。如果目录没有返回可用商品，用户授权后可以使用 Chrome 技能，对公开商家页面进行一次受限搜索。
+Codex 通过本地 stdio MCP 服务器调用唯一公开的 `search_products` 工具。路由器先考虑符合条件的已批准联盟商品，再用 Shopify Global Catalog 补足结果；只有所有 API 来源都完整返回零结果后，才会询问是否授权 Chrome 对公开商家页面进行一次受限搜索。
 
 插件不会下单、结账、付款或预留库存。
 
@@ -43,7 +43,7 @@ Codex 通过本地 stdio MCP 服务器调用插件。主要商品来源是 Shopi
 
 ## 商品搜索
 
-插件通过 Shopify Global Catalog 搜索符合条件的商家，并保留品牌、型号、SKU、GTIN、颜色、尺寸和容量等信息。支持的中文商品词会转换成英文搜索词，商品身份和变体信息不会改变。
+插件用一次受约束的请求搜索所有合格来源。对于已支持的品类，只有同时满足商品身份、成色、必需功能、库存和价格限制的 Awin 联盟商品才会优先进入候选；其余位置由 Shopify Global Catalog 补足。中文商品词会转换成英文搜索词，品牌、型号、SKU、GTIN、颜色、尺寸和容量等身份与变体信息保持不变。
 
 搜索结果使用三种匹配标签：
 
@@ -53,7 +53,7 @@ Codex 通过本地 stdio MCP 服务器调用插件。主要商品来源是 Shopi
 
 如果本地证据文件支持，精确商家域名可以标记为 `OFFICIAL`、`AUTHORIZED_RETAILER`、`ESTABLISHED_RETAILER`、`UNKNOWN` 或 `RISKY`。可信商家优先于价格排序。当可信结果足够时，未知商家不会占用前三名。高风险域名会被排除。联盟状态不参与排序。
 
-如果第一次目录请求没有可用商品，插件可以执行一次受限的宽松搜索。宽松结果仍标记为 `DISCOVERY_MATCH`。如果 Shopify 仍然没有结果，插件会询问是否使用已授权的 Chrome 搜索，不会静默切换数据来源。
+联盟佣金不会影响路由或排序。明确要求最低价时，插件会跨来源比较符合条件的商品价；普通搜索保留商家多样性。第一次目录请求没有可用商品时，可以执行一次受限宽松搜索，结果仍标记为 `DISCOVERY_MATCH`。只有全部 API 来源完整返回零结果时才会询问是否使用 Chrome；来源错误或部分覆盖会失败关闭。
 
 ## 报价比较与配送估算
 
@@ -86,7 +86,7 @@ Coupon 和促销路径采用失败关闭策略。只有配置的 Deals API 提�
 
 缺少证据时，插件会说明优惠来源不可用。它不会虚构优惠码、折扣、到期时间或 Cashback 比例。
 
-默认插件会显示可用的 Shopify、商品卡片和 Watch 工具。只有配置完整的服务地址和 Token 后，Commerce 比价和已验证 Deals 工具才会出现。
+默认插件会显示统一商品搜索、商品卡片和 Watch 工具。只有配置完整的服务地址和 Token 后，Commerce 比价和已验证 Deals 工具才会出现。
 
 ## 购物监控
 
@@ -115,7 +115,7 @@ Coupon 和促销路径采用失败关闭策略。只有配置的 Deals API 提�
 
 ## 联盟状态
 
-Awin 商家 Amazonliss (US)（merchant `20282`）已批准 publisher `3047955`。生产环境中，`search_awin_products` 读取由 `AWIN_PRODUCT_FEED_URL` 和 `AWIN_PRODUCT_FEED_TOKEN` 配置的认证 HTTPS Feed 服务。本地开发才回退到 Downloads 中的 `datafeed_3047955.csv.gz`，也可用 `AWIN_PRODUCT_FEED_PATH` 指定路径。返回链接为带披露的已批准 Awin 深链。
+Awin 商家 Amazonliss (US)（merchant `20282`）已批准 publisher `3047955`。生产环境中，统一的 `search_products` 路由读取由 `AWIN_PRODUCT_FEED_URL` 和 `AWIN_PRODUCT_FEED_TOKEN` 配置的认证 HTTPS Feed 服务。本地开发才回退到 Downloads 中的 `datafeed_3047955.csv.gz`，也可用 `AWIN_PRODUCT_FEED_PATH` 指定路径。Awin 结果与 Shopify 使用同一套商品卡片，链接为带披露的已批准 Awin 深链。
 
 该 Feed 有商品价、库存和商家商品 ID，但没有 GTIN、MPN、品牌和 condition。因此结果始终标记为 `DISCOVERY_MATCH`、`DISCOVERY_ONLY`、`condition: UNKNOWN`，不能当作精确同款比价。配送、税费、优惠券、会员价和到手价仍不可用。其他来源在没有各自已批准关系时继续使用商家原始链接；佣金不参与排序。
 
@@ -146,4 +146,4 @@ FindCheap Agent 搜索 DÔEN 连衣裙，显示三个商品卡片。
 - `apps/ingestion-worker/`：商家数据导入和 Watch 状态处理。
 - `docs/product/`：部署、数据来源、Coupon、Watch 和联盟运行手册。
 
-Commerce API 会保持失败关闭，直到商家通过审计门。Shopify Global Catalog 仍是主要发现来源，授权 Chrome 仅作为零结果时的补充方式。
+Commerce API 会保持失败关闭，直到商家通过审计门。统一路由会使用已批准联盟来源和 Shopify Global Catalog，授权 Chrome 仅作为所有来源完整返回零结果时的补充方式。

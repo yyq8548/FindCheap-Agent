@@ -2,31 +2,25 @@ import type {
   EvidenceRepository,
   EvidenceSaveResult,
   EvidenceWrite,
-  StoredEvidence
-} from "../../../../apps/ingestion-worker/src/evidence/store-evidence.js";
-import { sha256 } from "../../../../apps/ingestion-worker/src/evidence/store-evidence.js";
-import type {
+  OfferRepository as WorkerOfferRepository,
   PublishedQuote,
-  QuoteRepository
-} from "../../../../apps/ingestion-worker/src/jobs/refresh-price.js";
+  PublishedOffer,
+  QuoteRepository,
+  QuarantineRecord,
+  QuarantineRepository,
+  StoredEvidence
+} from "../../../ingestion-contracts/src/index.js";
 import {
   canonicalHash,
+  detectPriceAnomaly,
+  sha256,
   normalizeMemberships,
   normalizeZipCode,
   priceSourceIdentity,
   productSourceIdentity,
   quoteContextKey,
   stableRecordId
-} from "../../../../apps/ingestion-worker/src/jobs/refresh-identity.js";
-import type {
-  OfferRepository as WorkerOfferRepository,
-  PublishedOffer
-} from "../../../../apps/ingestion-worker/src/jobs/refresh-product.js";
-import {
-  detectPriceAnomaly,
-  type QuarantineRecord,
-  type QuarantineRepository
-} from "../../../../apps/ingestion-worker/src/quality/quarantine.js";
+} from "../../../ingestion-contracts/src/index.js";
 import {
   requireEvidenceRefs,
   requireHttpsUrl,

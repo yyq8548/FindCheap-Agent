@@ -2,9 +2,9 @@ import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createDatabase } from "../src/client.js";
 import { runMigrations } from "../src/migrate.js";
-import { createOfferRepository } from "../src/repositories/offer-repository.js";
-import { createProductRepository } from "../src/repositories/product-repository.js";
-import type { StoredCoupon, StoredEvidence, StoredMerchantOffer, StoredPriceQuote } from "../src/schema.js";
+import { createOfferRepository } from "./support/offer-repository.js";
+import { createProductRepository } from "./support/product-repository.js";
+import type { StoredCoupon, StoredEvidence, StoredMerchantOffer, StoredPriceQuote } from "./support/schema.js";
 
 const databaseUrl = process.env.DATABASE_URL ?? "postgresql://shopping:local-only@127.0.0.1:5432/shopping";
 const admin = createDatabase(databaseUrl);

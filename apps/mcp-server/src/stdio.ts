@@ -8,7 +8,7 @@ import { createDealPortFromEnvironment, hasDealProviderConfiguration } from "./d
 import { createJsonWatchStore } from "./watch-store.js";
 import { createShopifyCartQuotePort } from "./shopify-cart-quote.js";
 import { createShopifySelectedProductInspector } from "./shopify-selected-product.js";
-import { createAwinFeedPort } from "./awin-feed-client.js";
+import { createAwinFeedPort } from "../../../packages/awin-feed/src/index.js";
 
 const comparePort = createComparePortFromEnvironment(process.env, createUnavailableComparePort);
 const shopifyPort = createShopifyPortFromEnvironment(process.env);

@@ -12,7 +12,7 @@ import {
   safeFetchWithProvenance,
   type FetchPolicy,
   type ResolvedAddress
-} from "../../apps/ingestion-worker/src/network/safe-fetch.js";
+} from "../../packages/network-safety/src/safe-fetch.js";
 
 const publicAddress: ResolvedAddress = { address: "93.184.216.34", family: 4 };
 

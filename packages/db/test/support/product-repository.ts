@@ -1,5 +1,5 @@
-import type { Database } from "../client.js";
-import type { CanonicalProduct } from "../schema.js";
+import type { Database } from "../../src/client.js";
+import type { CanonicalProduct } from "./schema.js";
 import { normalizeToken } from "../../../product-identity/src/index.js";
 
 export interface ProductRepository {

@@ -3653,6 +3653,31 @@
         }
       ]
     },
+    "../../packages/awin-feed/src/index.ts": {
+      "format": "esm",
+      "imports": [
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:fs/promises"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:os"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:path"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:zlib"
+        }
+      ]
+    },
     "../../packages/contracts/src/comparison.ts": {
       "format": "esm",
       "imports": [
@@ -3753,7 +3778,7 @@
         }
       ]
     },
-    "../ingestion-worker/src/network/safe-fetch.ts": {
+    "../../packages/network-safety/src/safe-fetch.ts": {
       "format": "esm",
       "imports": [
         {
@@ -3795,31 +3820,6 @@
           "kind": "import-statement",
           "original": "../../../config/shopify/affiliate-registry.js",
           "path": "../../config/shopify/affiliate-registry.ts"
-        }
-      ]
-    },
-    "src/awin-feed-client.ts": {
-      "format": "esm",
-      "imports": [
-        {
-          "external": true,
-          "kind": "import-statement",
-          "path": "node:fs/promises"
-        },
-        {
-          "external": true,
-          "kind": "import-statement",
-          "path": "node:os"
-        },
-        {
-          "external": true,
-          "kind": "import-statement",
-          "path": "node:path"
-        },
-        {
-          "external": true,
-          "kind": "import-statement",
-          "path": "node:zlib"
         }
       ]
     },
@@ -3870,6 +3870,16 @@
     "src/sales-tax-estimator.ts": {
       "format": "esm",
       "imports": []
+    },
+    "src/search-products.ts": {
+      "format": "esm",
+      "imports": [
+        {
+          "kind": "import-statement",
+          "original": "zod",
+          "path": "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/index.js"
+        }
+      ]
     },
     "src/server.ts": {
       "format": "esm",
@@ -3941,8 +3951,13 @@
         },
         {
           "kind": "import-statement",
-          "original": "./awin-feed-client.js",
-          "path": "src/awin-feed-client.ts"
+          "original": "./search-products.js",
+          "path": "src/search-products.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "../../../packages/awin-feed/src/index.js",
+          "path": "../../packages/awin-feed/src/index.ts"
         }
       ]
     },
@@ -3976,8 +3991,8 @@
         },
         {
           "kind": "import-statement",
-          "original": "../../ingestion-worker/src/network/safe-fetch.js",
-          "path": "../ingestion-worker/src/network/safe-fetch.ts"
+          "original": "../../../packages/network-safety/src/safe-fetch.js",
+          "path": "../../packages/network-safety/src/safe-fetch.ts"
         },
         {
           "kind": "import-statement",
@@ -4030,8 +4045,8 @@
         },
         {
           "kind": "import-statement",
-          "original": "../../ingestion-worker/src/network/safe-fetch.js",
-          "path": "../ingestion-worker/src/network/safe-fetch.ts"
+          "original": "../../../packages/network-safety/src/safe-fetch.js",
+          "path": "../../packages/network-safety/src/safe-fetch.ts"
         }
       ]
     },
@@ -4090,8 +4105,8 @@
         },
         {
           "kind": "import-statement",
-          "original": "./awin-feed-client.js",
-          "path": "src/awin-feed-client.ts"
+          "original": "../../../packages/awin-feed/src/index.js",
+          "path": "../../packages/awin-feed/src/index.ts"
         }
       ]
     },
@@ -4138,7 +4153,7 @@
   },
   "outputs": {
     "../../plugins/findcheap-agent/dist/mcp-server.js": {
-      "bytes": 492279,
+      "bytes": 502351,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
@@ -4730,6 +4745,9 @@
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v4/mini/schemas.js": {
           "bytesInOutput": 747
         },
+        "../../packages/awin-feed/src/index.ts": {
+          "bytesInOutput": 6514
+        },
         "../../packages/contracts/src/comparison.ts": {
           "bytesInOutput": 1322
         },
@@ -4748,14 +4766,11 @@
         "../../packages/contracts/src/url.ts": {
           "bytesInOutput": 254
         },
-        "../ingestion-worker/src/network/safe-fetch.ts": {
+        "../../packages/network-safety/src/safe-fetch.ts": {
           "bytesInOutput": 7439
         },
         "src/affiliate-links.ts": {
           "bytesInOutput": 2966
-        },
-        "src/awin-feed-client.ts": {
-          "bytesInOutput": 6515
         },
         "src/commerce-client.ts": {
           "bytesInOutput": 2670
@@ -4772,8 +4787,11 @@
         "src/sales-tax-estimator.ts": {
           "bytesInOutput": 1784
         },
+        "src/search-products.ts": {
+          "bytesInOutput": 3663
+        },
         "src/server.ts": {
-          "bytesInOutput": 52016
+          "bytesInOutput": 58426
         },
         "src/shopify-cart-quote.ts": {
           "bytesInOutput": 10894
