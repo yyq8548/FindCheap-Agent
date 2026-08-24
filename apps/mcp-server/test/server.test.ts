@@ -153,7 +153,8 @@ describe("shopping MCP server", () => {
     const client = await connect({ compare: async () => comparison });
 
     const tools = await client.listTools();
-    const searchTool = tools.tools.find((candidate) => candidate.name === "search_shopify_products");
+    const searchTool = tools.tools.find((candidate) => candidate.name === "search_products");
+    const legacyShopifyTool = tools.tools.find((candidate) => candidate.name === "search_shopify_products");
     const createWatchTool = tools.tools.find((candidate) => candidate.name === "create_watch");
     const renderTool = tools.tools.find((candidate) => candidate.name === "render_product_cards");
     const metricsTool = tools.tools.find((candidate) => candidate.name === "report_product_card_metrics");
@@ -168,6 +169,7 @@ describe("shopping MCP server", () => {
       }
     });
     expect(metricsTool?._meta).toMatchObject({ ui: { visibility: ["app"] } });
+    expect(legacyShopifyTool?._meta).toMatchObject({ ui: { visibility: ["app"] } });
     expect(createWatchTool?.inputSchema).toMatchObject({
       properties: {
         threshold: {
@@ -217,6 +219,7 @@ describe("shopping MCP server", () => {
     const tools = await client.listTools();
 
     expect(tools.tools.map((tool) => tool.name)).toEqual([
+      "search_products",
       "compare_products",
       "search_shopify_products",
       "search_awin_products",
@@ -233,12 +236,10 @@ describe("shopping MCP server", () => {
       "report_product_card_metrics"
     ]);
     expect(Object.keys(tools.tools[0]?.inputSchema.properties ?? {}).sort()).toEqual([
-      "membershipIds",
-      "query",
-      "zipCode"
-    ]);
-    expect(Object.keys(tools.tools[1]?.inputSchema.properties ?? {}).sort()).toEqual([
       "comparisonMode",
+      "conditionPreference",
+      "featureMode",
+      "features",
       "limit",
       "maxItemPriceCents",
       "membershipIds",
@@ -246,20 +247,17 @@ describe("shopping MCP server", () => {
       "selectionMode",
       "zipCode"
     ]);
-    expect(tools.tools[1]?.inputSchema.required).toContain("selectionMode");
-    expect(tools.tools[1]?.inputSchema.required).toContain("comparisonMode");
-    expect(tools.tools[1]?.description).toContain("selectionMode=LOWEST_PRICE");
-    expect(tools.tools[1]?.description).toContain("UNKNOWN merchants never pad Top 3");
-    expect(tools.tools[1]?.description).toContain("affiliate status never ranks");
-    expect(tools.tools[1]?.description).toContain("maxItemPriceCents");
-    expect(tools.tools[1]?.description).toContain("once per new lookup");
-    expect(tools.tools[1]?.description).toContain("never search its title again");
-    expect(tools.tools[1]?.description).not.toContain("call render_product_cards");
+    const unifiedTool = tools.tools.find((tool) => tool.name === "search_products");
+    expect(unifiedTool?.inputSchema.required).toEqual(["query"]);
+    expect(unifiedTool?.description).toContain("selectionMode=LOWEST_PRICE");
+    expect(unifiedTool?.description).toContain("Commission never affects routing or ranking");
+    expect(unifiedTool?.description).toContain("maxItemPriceCents");
+    expect(unifiedTool?.description).toContain("single public product-search entrypoint");
+    expect(unifiedTool?.description).not.toContain("call render_product_cards");
+    expect(tools.tools.find((tool) => tool.name === "compare_products")?._meta)
+      .toMatchObject({ ui: { visibility: ["app"] } });
     const awinTool = tools.tools.find((tool) => tool.name === "search_awin_products");
-    expect(awinTool?.description).toContain("haircare");
-    expect(awinTool?.description).toContain("equivalent Chinese hair-specific product types");
-    expect(awinTool?.description).toContain("commission never affects routing or ranking");
-    expect(awinTool?.description).toContain("broad beauty or personal-care queries");
+    expect(awinTool?._meta).toMatchObject({ ui: { visibility: ["app"] } });
     const inspectTool = tools.tools.find((tool) => tool.name === "inspect_selected_shopify_product");
     expect(Object.keys(inspectTool?.inputSchema.properties ?? {}).sort()).toEqual([
       "renderId",
@@ -267,15 +265,15 @@ describe("shopping MCP server", () => {
       "variantId"
     ]);
     expect(inspectTool?.description).toContain("never run another catalog search");
-    expect(tools.tools[1]?.inputSchema.properties?.selectionMode).toMatchObject({
-      description: expect.stringContaining("MERCHANT_DIVERSE")
+    expect(unifiedTool?.inputSchema.properties?.selectionMode).toMatchObject({
+      default: "MERCHANT_DIVERSE"
     });
     expect(Object.keys(tools.tools.find((tool) => tool.name === "render_product_cards")?.inputSchema.properties ?? {}))
       .toEqual(["renderId"]);
     expect(Object.keys(tools.tools.find((tool) => tool.name === "report_product_card_metrics")?.inputSchema.properties ?? {}).sort())
       .toEqual(["renderId", "stages", "terminalStage", "version"]);
     expect(tools.tools[0]?.annotations).toMatchObject({
-      readOnlyHint: true,
+      readOnlyHint: false,
       destructiveHint: false
     });
     expect(tools.tools.map((tool) => tool.name)).not.toEqual(expect.arrayContaining([
@@ -424,7 +422,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.7.2",
+        version: "0.8.0",
         terminalStage: "DOM_RENDERED",
         stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
       }
@@ -433,7 +431,7 @@ describe("shopping MCP server", () => {
     expect(result.structuredContent).toEqual({ status: "RECORDED" });
     expect(record).toHaveBeenCalledWith(expect.objectContaining({
       renderId,
-      version: "0.7.2",
+      version: "0.8.0",
       terminalStage: "DOM_RENDERED",
       stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
     }));
@@ -441,7 +439,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.7.2",
+        version: "0.8.0",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 14 }
       }
@@ -451,7 +449,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.7.2",
+        version: "0.8.0",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 300_001 }
       }
@@ -462,7 +460,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId: "22222222-2222-4222-8222-222222222222",
-        version: "0.7.2",
+        version: "0.8.0",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 1 }
       }
@@ -484,7 +482,7 @@ describe("shopping MCP server", () => {
       },
       coupons: { status: "UNAVAILABLE", verified: [] }
     });
-    expect(JSON.stringify(product)).not.toMatch(/utm_|affiliate|couponCode/i);
+    expect(JSON.stringify(product)).not.toMatch(/utm_|couponCode/i);
   });
 
   it("uses only injected approved affiliate links and exposes disclosure next to the CTA", async () => {
@@ -1084,7 +1082,7 @@ describe("shopping MCP server", () => {
     expect(result.isError).toBe(true);
     expect(result.content).toEqual([{
       type: "text",
-      text: "Product-card snapshot is unavailable. Run search_shopify_products once."
+      text: "Product-card snapshot is unavailable. Run search_products once."
     }]);
     expect(result.structuredContent).toBeUndefined();
   });
@@ -1476,7 +1474,7 @@ describe("Coupon and Watch tools", () => {
     ]);
   });
 
-  it("returns Awin products with approved affiliate disclosure and discovery-only identity", async () => {
+  it("renders approved Awin products through the unified card contract", async () => {
     const client = await connect({ compare: async () => comparison }, shopifyPort, undefined, {
       awin: {
         search: async () => ({
@@ -1508,21 +1506,25 @@ describe("Coupon and Watch tools", () => {
         })
       }
     });
-
     const result = await client.callTool({
-      name: "search_awin_products",
-      arguments: { query: "keratin mask", limit: 3 }
+      name: "search_products",
+      arguments: { query: "keratin hair mask", limit: 3 }
     });
 
     expect(result.structuredContent).toMatchObject({
       status: "OK",
-      source: "AWIN_PRODUCT_FEED",
-      comparison: { status: "DISCOVERY_ONLY" },
-      products: [{
+      source: "UNIFIED_PRODUCT_SEARCH",
+      sources: { awin: "COMPLETE", shopify: "COMPLETE" },
+      comparison: { status: "DISCOVERY_ONLY" }
+    });
+    expect((result.structuredContent as { products: unknown[] }).products[0]).toMatchObject({
         matchStatus: "DISCOVERY_MATCH",
         condition: "UNKNOWN",
-        purchaseLink: { kind: "APPROVED_AFFILIATE", providerName: "Awin" }
-      }]
+        sourceKind: "AWIN_PRODUCT_FEED",
+        affiliateState: "APPROVED",
+        purchaseLink: { kind: "APPROVED_AFFILIATE", providerName: "Awin" },
+        card: { priceLabel: "Verified item price" },
+        pricing: { scope: "ITEM_PRICE_ONLY", deliveredPrice: { status: "UNAVAILABLE" } }
     });
   });
 

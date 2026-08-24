@@ -5,12 +5,16 @@ import {
   type MerchantAdapter,
   type RawPriceQuote
 } from "../../../../packages/merchant-sdk/src/index.js";
+import type {
+  PublishedQuote,
+  QuoteRepository,
+  QuarantineRepository
+} from "../../../../packages/ingestion-contracts/src/index.js";
 import {
   SourceVersionConflictError,
   storeEvidence,
   type EvidenceRepository
 } from "../evidence/store-evidence.js";
-import type { QuarantineRecord, QuarantineRepository } from "../quality/quarantine.js";
 import {
   requireSafeSourceUrl,
   sourceType,
@@ -31,17 +35,7 @@ import { callAdapterSource } from "./source-error.js";
 
 export type { RefreshPriceJob } from "./refresh-identity.js";
 
-export type PublishedQuote = RawPriceQuote & {
-  quoteId: string;
-  merchantId: string;
-  sourceIdentityKey: string;
-  sourceVersion: string;
-  quoteContext: { zipCode: string; memberships: string[] };
-  primaryEvidenceId: string;
-  externalEvidenceRefs: string[];
-  deliveredPriceCents: number;
-  evidenceRefs: string[];
-};
+export type { PublishedQuote } from "../../../../packages/ingestion-contracts/src/index.js";
 
 export type RefreshPriceOutcome =
   | { status: "DISABLED" }
@@ -53,17 +47,7 @@ export type RefreshPriceOutcome =
   }
   | { status: "PUBLISHED"; quoteId: string };
 
-export interface QuoteRepository {
-  /** Atomically checks exact-context history and persists a quote or quarantine. */
-  commit(input: {
-    quote: PublishedQuote;
-    publicationKey: string;
-    quarantineKey: string;
-  }): Promise<
-    | { status: "PUBLISHED" }
-    | { status: "QUARANTINED"; quarantine: QuarantineRecord }
-  >;
-}
+export type { QuoteRepository } from "../../../../packages/ingestion-contracts/src/index.js";
 
 export type RefreshPriceDeps = RefreshControls & {
   adapters: { get(merchantId: string): MerchantAdapter };

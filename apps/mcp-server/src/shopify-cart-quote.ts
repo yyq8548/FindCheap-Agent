@@ -4,7 +4,7 @@ import { isIP } from "node:net";
 import { domainToASCII } from "node:url";
 import { z } from "zod";
 
-import { isForbiddenIp } from "../../ingestion-worker/src/network/safe-fetch.js";
+import { isForbiddenIp } from "../../../packages/network-safety/src/safe-fetch.js";
 import type { ShopifyProduct } from "./shopify-client.js";
 import { estimateSalesTax } from "./sales-tax-estimator.js";
 

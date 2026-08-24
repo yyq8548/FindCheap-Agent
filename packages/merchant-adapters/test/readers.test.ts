@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { FetchPolicy, SafeFetchInput } from "../../../apps/ingestion-worker/src/network/safe-fetch.js";
+import type { FetchPolicy, SafeFetchInput } from "../../network-safety/src/safe-fetch.js";
 import {
   createFeedReader,
   parseMappedRecords,

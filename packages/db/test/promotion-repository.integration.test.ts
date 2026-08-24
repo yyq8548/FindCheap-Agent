@@ -4,14 +4,14 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../../../apps/commerce-api/src/app.js";
 import { createCurrentOfferStore } from "../../../apps/commerce-api/src/current-offer-store.js";
 
-import type { PublishedQuote } from "../../../apps/ingestion-worker/src/jobs/refresh-price.js";
-import type { PublishedOffer } from "../../../apps/ingestion-worker/src/jobs/refresh-product.js";
-import { sha256 } from "../../../apps/ingestion-worker/src/evidence/store-evidence.js";
 import {
   priceSourceIdentity,
   productSourceIdentity,
-  stableRecordId
-} from "../../../apps/ingestion-worker/src/jobs/refresh-identity.js";
+  sha256,
+  stableRecordId,
+  type PublishedOffer,
+  type PublishedQuote
+} from "../../ingestion-contracts/src/index.js";
 import { createDatabase } from "../src/client.js";
 import { runMigrations } from "../src/migrate.js";
 import {
@@ -19,8 +19,8 @@ import {
   createIngestionOfferRepository,
   createIngestionQuoteRepository
 } from "../src/repositories/ingestion-repository.js";
-import { createOfferRepository } from "../src/repositories/offer-repository.js";
-import { createProductRepository } from "../src/repositories/product-repository.js";
+import { createOfferRepository } from "./support/offer-repository.js";
+import { createProductRepository } from "./support/product-repository.js";
 import { createPromotionRepository } from "../src/repositories/promotion-repository.js";
 
 const databaseUrl = process.env.DATABASE_URL ??

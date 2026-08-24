@@ -1,5 +1,5 @@
-import type { Database, SqlExecutor } from "../client.js";
-import type { StoredCoupon, StoredEvidence, StoredMerchantOffer, StoredPriceQuote } from "../schema.js";
+import type { Database, SqlExecutor } from "../../src/client.js";
+import type { StoredCoupon, StoredEvidence, StoredMerchantOffer, StoredPriceQuote } from "./schema.js";
 
 type PriceQuoteRow = {
   id: string;

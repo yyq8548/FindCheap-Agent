@@ -65,6 +65,7 @@ describe("installed plugin stdio", () => {
         uri: "ui://findcheap/product-cards/v18.html"
       });
       expect(tools.tools.map((tool) => tool.name)).toEqual([
+        "search_products",
         "search_shopify_products",
         "search_awin_products",
         "inspect_selected_shopify_product",
@@ -78,7 +79,7 @@ describe("installed plugin stdio", () => {
         "render_product_cards",
         "report_product_card_metrics"
       ]);
-      const shopifyTool = tools.tools.find((tool) => tool.name === "search_shopify_products");
+      const shopifyTool = tools.tools.find((tool) => tool.name === "search_products");
       const quoteTool = tools.tools.find((tool) => tool.name === "quote_selected_shopify_product");
       const renderTool = tools.tools.find((tool) => tool.name === "render_product_cards");
       expect(shopifyTool?._meta).toMatchObject({
@@ -107,6 +108,9 @@ describe("installed plugin stdio", () => {
       })]);
       expect(Object.keys(shopifyTool?.inputSchema.properties ?? {}).sort()).toEqual([
         "comparisonMode",
+        "conditionPreference",
+        "featureMode",
+        "features",
         "limit",
         "maxItemPriceCents",
         "membershipIds",
@@ -114,8 +118,7 @@ describe("installed plugin stdio", () => {
         "selectionMode",
         "zipCode"
       ]);
-      expect(shopifyTool?.inputSchema.required).toContain("selectionMode");
-      expect(shopifyTool?.inputSchema.required).toContain("comparisonMode");
+      expect(shopifyTool?.inputSchema.required).toEqual(["query"]);
       expect(Object.keys(quoteTool?.inputSchema.properties ?? {}).sort()).toEqual([
         "deliveryAddress",
         "renderId",

@@ -3,10 +3,12 @@ import { mkdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promis
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { dirname } from "node:path";
 
-import { validateAwinFeedArchive } from "../../mcp-server/src/awin-feed-client.js";
+import {
+  MAX_AWIN_COMPRESSED_BYTES,
+  readLimitedBody,
+  validateAwinFeedArchive
+} from "../../../packages/awin-feed/src/index.js";
 import type { AwinFeedServiceEnvironment } from "./environment.js";
-
-const MAX_COMPRESSED_BYTES = 4 * 1024 * 1024;
 
 type FeedSnapshot = {
   archive: Uint8Array;
@@ -64,7 +66,11 @@ export function createAwinFeedController(
         throw new Error(`Awin source returned HTTP ${response.status}`);
       }
       failureCode = "SOURCE_READ_FAILED";
-      const archive = await readLimitedBody(response, MAX_COMPRESSED_BYTES);
+      const archive = await readLimitedBody(
+        response,
+        MAX_AWIN_COMPRESSED_BYTES,
+        "Awin source"
+      );
       const snapshotAt = validDate(now()).toISOString();
       failureCode = "FEED_INVALID";
       const snapshot = validatedSnapshot(archive, snapshotAt);
@@ -183,35 +189,6 @@ async function writeArchiveAtomically(path: string, archive: Uint8Array): Promis
     await unlink(temporaryPath).catch(() => {});
     throw error;
   }
-}
-
-async function readLimitedBody(response: Response, limit: number): Promise<Uint8Array> {
-  const declared = response.headers.get("content-length");
-  if (declared !== null && (!/^\d+$/u.test(declared) || Number(declared) > limit)) {
-    throw new Error("Awin source response is too large");
-  }
-  if (response.body === null) throw new Error("Awin source returned an empty body");
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  try {
-    while (true) {
-      const next = await reader.read();
-      if (next.done) break;
-      total += next.value.byteLength;
-      if (total > limit) throw new Error("Awin source response is too large");
-      chunks.push(next.value);
-    }
-  } finally {
-    reader.releaseLock();
-  }
-  const output = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    output.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return output;
 }
 
 function validBearer(header: string | undefined, expected: string): boolean {

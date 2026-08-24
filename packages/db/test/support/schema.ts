@@ -3,7 +3,7 @@ import type {
   CouponStackingPolicy,
   MerchantOffer,
   PriceQuote
-} from "../../contracts/src/index.js";
+} from "../../../contracts/src/index.js";
 
 export const tables = {
   products: "products",

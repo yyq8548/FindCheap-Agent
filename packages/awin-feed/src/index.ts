@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
 
-const MAX_COMPRESSED_BYTES = 4 * 1024 * 1024;
+export const MAX_AWIN_COMPRESSED_BYTES = 4 * 1024 * 1024;
 const MAX_UNCOMPRESSED_BYTES = 16 * 1024 * 1024;
 const DEFAULT_FEED_NAME = "datafeed_3047955.csv.gz";
 const APPROVED_PUBLISHER_ID = "3047955";
@@ -234,7 +234,7 @@ function parseArchive(compressed: Uint8Array, checkedAt: string): {
   rows: ReturnType<typeof parseAwinCsv>;
   parsed: IndexedProduct[];
 } {
-  if (compressed.byteLength > MAX_COMPRESSED_BYTES) throw new Error("AWIN_FEED_TOO_LARGE");
+  if (compressed.byteLength > MAX_AWIN_COMPRESSED_BYTES) throw new Error("AWIN_FEED_TOO_LARGE");
   const csv = gunzipSync(compressed, { maxOutputLength: MAX_UNCOMPRESSED_BYTES }).toString("utf8");
   const rows = parseAwinCsv(csv);
   const parsed = rows.records.flatMap((record) => {
@@ -292,7 +292,7 @@ async function fetchRemoteArchive(
   if (contentType !== "application/gzip" && contentType !== "application/octet-stream") {
     throw new Error("Awin Feed service returned an unsupported content type");
   }
-  const compressed = await readLimitedBody(response, MAX_COMPRESSED_BYTES);
+  const compressed = await readLimitedBody(response, MAX_AWIN_COMPRESSED_BYTES, "Awin Feed service");
   const snapshotAt = response.headers.get("x-feed-snapshot-at");
   if (snapshotAt === null || !Number.isFinite(Date.parse(snapshotAt))) {
     throw new Error("Awin Feed service omitted a valid snapshot timestamp");
@@ -300,12 +300,16 @@ async function fetchRemoteArchive(
   return { compressed, snapshotAt: new Date(snapshotAt).toISOString() };
 }
 
-async function readLimitedBody(response: Response, limit: number): Promise<Uint8Array> {
+export async function readLimitedBody(
+  response: Response,
+  limit: number,
+  sourceName = "remote source"
+): Promise<Uint8Array> {
   const declared = response.headers.get("content-length");
   if (declared !== null && (!/^\d+$/u.test(declared) || Number(declared) > limit)) {
-    throw new Error("Awin Feed service response is too large");
+    throw new Error(`${sourceName} response is too large`);
   }
-  if (response.body === null) throw new Error("Awin Feed service returned an empty body");
+  if (response.body === null) throw new Error(`${sourceName} returned an empty body`);
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;
@@ -314,7 +318,7 @@ async function readLimitedBody(response: Response, limit: number): Promise<Uint8
       const next = await reader.read();
       if (next.done) break;
       total += next.value.byteLength;
-      if (total > limit) throw new Error("Awin Feed service response is too large");
+      if (total > limit) throw new Error(`${sourceName} response is too large`);
       chunks.push(next.value);
     }
   } finally {

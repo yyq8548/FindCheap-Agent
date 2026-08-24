@@ -9,7 +9,7 @@ import {
 } from "../../../packages/contracts/src/index.js";
 import type { Database } from "../../../packages/db/src/client.js";
 import { normalizeGtin, normalizeToken } from "../../../packages/product-identity/src/index.js";
-import { quoteContextKey } from "../../ingestion-worker/src/jobs/refresh-identity.js";
+import { quoteContextKey } from "../../../packages/ingestion-contracts/src/index.js";
 import type {
   ComparableOffer,
   ContextualQuoteSet,

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ComparisonOfferSchema } from "../../contracts/src/index.js";
-import { rankExactOffers } from "../src/index.js";
+import { rankExactOffers } from "../src/rank-offers.js";
 
 type OfferInput = {
   id: string;

@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   selectSameProductGroup,
   type ShopifyIdentityCandidate
-} from "../../apps/mcp-server/src/shopify-identity.js";
+} from "./helpers/shopify-identity.js";
 
 const goldenPath = new URL("./shopify-identity-golden.json", import.meta.url);
 

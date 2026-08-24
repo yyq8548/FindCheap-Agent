@@ -1,9 +1,4 @@
-import {
-  PriceQuoteSchema,
-  type CanonicalProduct,
-  type MerchantOffer,
-  type PriceQuote
-} from "../../../contracts/src/index.js";
+import type { CanonicalProduct, MerchantOffer } from "../../../contracts/src/index.js";
 import {
   requireOfferShape,
   requireQuoteShape
@@ -14,146 +9,44 @@ import {
   normalizeToken,
   type ProductPromotionDecision
 } from "../../../product-identity/src/index.js";
-import type { PublishedQuote } from "../../../../apps/ingestion-worker/src/jobs/refresh-price.js";
-import type { PublishedOffer } from "../../../../apps/ingestion-worker/src/jobs/refresh-product.js";
 import {
   canonicalHash,
   normalizeMemberships,
   normalizeZipCode,
-  quoteContextKey
-} from "../../../../apps/ingestion-worker/src/jobs/refresh-identity.js";
+  quoteContextKey,
+  type PublishedOffer
+} from "../../../ingestion-contracts/src/index.js";
 import type { Database, SqlExecutor } from "../client.js";
+import type {
+  DecisionWrite,
+  IngestionEvidenceRow,
+  ProductRow,
+  ProductStagingRow,
+  PromotionOptions,
+  PromotionRepository,
+  PromotionResult,
+  PromotionStatus,
+  QuoteStagingRow
+} from "./promotion-types.js";
+import {
+  decisionRecordId,
+  existingDecision,
+  insertDecision
+} from "./promotion-decision-store.js";
+import {
+  promotedQuoteSnapshot,
+  quoteLineItems,
+  replaceEvidence
+} from "./promotion-quote.js";
+
+export type {
+  PromotionOptions,
+  PromotionRepository,
+  PromotionResult,
+  PromotionStatus
+} from "./promotion-types.js";
 
 const MAX_CANDIDATES = 20;
-
-export type PromotionStatus =
-  | "EXACT_PROMOTED"
-  | "SIMILAR"
-  | "NEEDS_CLARIFICATION"
-  | "NO_MATCH"
-  | "AMBIGUOUS"
-  | "PENDING_EXACT_OFFER"
-  | "QUOTE_PROMOTED";
-
-export type PromotionResult = {
-  decisionId: string;
-  status: PromotionStatus;
-  offerId?: string;
-  quoteId?: string;
-  offerPromotionDecisionId?: string;
-  offerRevision?: number;
-  canonicalProductId?: string;
-};
-
-export type PromotionOptions = {
-  decisionVersion?: number;
-  decidedBy?: string;
-  expectedCurrentOfferPromotionDecisionId?: string;
-};
-
-export interface PromotionRepository {
-  promoteProduct(stagingId: string, options?: PromotionOptions): Promise<PromotionResult>;
-  promoteQuote(stagingId: string, options?: PromotionOptions): Promise<PromotionResult>;
-  promotePendingQuotes(merchantId: string, merchantProductId: string): Promise<PromotionResult[]>;
-}
-
-type ProductStagingRow = {
-  id: string;
-  source_identity_key: string;
-  merchant_id: string;
-  merchant_product_id: string;
-  source_version: string;
-  payload: PublishedOffer;
-  primary_evidence_id: string;
-  external_evidence_refs: string[];
-  checked_at: Date;
-  expires_at: Date;
-};
-
-type QuoteStagingRow = {
-  id: string;
-  source_identity_key: string;
-  merchant_id: string;
-  merchant_product_id: string;
-  source_version: string;
-  zip_code: string;
-  memberships: string[];
-  context_hash: string;
-  delivered_price_cents: string;
-  payload: PublishedQuote;
-  primary_evidence_id: string;
-  external_evidence_refs: string[];
-  checked_at: Date;
-  expires_at: Date;
-};
-
-type IngestionEvidenceRow = {
-  id: string;
-  source_identity_key: string;
-  merchant_id: string;
-  merchant_product_id: string;
-  source_version: string;
-  quote_context: { zipCode: string; memberships: string[] } | null;
-  source_url: string;
-  source_type: string;
-  content_hash: string;
-  captured_at: Date;
-  metadata: Record<string, string>;
-};
-
-type ProductRow = {
-  id: string;
-  brand: string;
-  manufacturer_part_number: string | null;
-  gtins: string[];
-  title: string;
-  category_path: string[];
-  attributes: CanonicalProduct["attributes"];
-  variant_dimensions: Record<string, string>;
-};
-
-type ExistingDecisionRow = {
-  id: string;
-  input_hash: string;
-  status: PromotionStatus;
-  canonical_product_id: string | null;
-  promoted_offer_id: string | null;
-  promoted_quote_id: string | null;
-  offer_promotion_decision_id: string | null;
-  offer_revision: string | null;
-};
-
-type DecisionWrite = {
-  entityKind: "OFFER" | "QUOTE";
-  sourceIdentityKey: string;
-  decisionVersion: number;
-  stagingRecordId: string;
-  merchantId: string;
-  merchantProductId: string;
-  sourceVersion: string;
-  status: PromotionStatus;
-  canonicalProductId?: string;
-  offerId?: string;
-  quoteId?: string;
-  offerPromotionDecisionId?: string;
-  offerRevision?: number;
-  evidence: IngestionEvidenceRow;
-  externalEvidenceRefs: string[];
-  matchBasis?: "GTIN" | "BRAND_MPN";
-  matchEvidence: MerchantOffer["matchEvidence"];
-  reason: string;
-  questions: string[];
-  candidateProductIds: string[];
-  zipCode?: string;
-  memberships?: string[];
-  contextHash?: string;
-  stagedCheckedAt: Date;
-  stagedExpiresAt: Date;
-  stagedRecordHash: string;
-  decidedBy: string;
-  inputHash: string;
-  quoteSnapshot?: PriceQuote;
-};
 
 export function createPromotionRepository(
   db: Database,
@@ -920,129 +813,6 @@ async function upsertQuote(
   }
   await replaceEvidence(transaction, "quote_evidence", "quote_id", quoteId, staging.primary_evidence_id);
   return quoteId;
-}
-
-function quoteLineItems(quote: PublishedQuote): PriceQuote["lineItems"] {
-  const money = (amountCents: number) => ({ amountCents, currency: "USD" as const });
-  return [
-    { kind: "ITEM" as const, amount: money(quote.itemPriceCents), label: "Item price" },
-    { kind: "SHIPPING" as const, amount: money(quote.shippingCents), label: "Shipping" },
-    { kind: "TAX" as const, amount: money(quote.taxCents), label: "Tax" },
-    { kind: "MANDATORY_FEE" as const, amount: money(quote.mandatoryFeeCents), label: "Mandatory fee" }
-  ];
-}
-
-function promotedQuoteSnapshot(
-  staging: QuoteStagingRow,
-  quoteId: string,
-  offerId: string
-): PriceQuote {
-  return PriceQuoteSchema.parse({
-    quoteId,
-    offerId,
-    status: staging.payload.status,
-    deliveredPrice: {
-      amountCents: Number(staging.delivered_price_cents),
-      currency: "USD"
-    },
-    lineItems: quoteLineItems(staging.payload),
-    eligibilityConditions: staging.payload.conditions,
-    evidenceRefs: [staging.primary_evidence_id],
-    checkedAt: staging.checked_at.toISOString(),
-    expiresAt: staging.expires_at.toISOString()
-  });
-}
-
-async function replaceEvidence(
-  transaction: SqlExecutor,
-  table: "offer_evidence" | "quote_evidence",
-  key: "offer_id" | "quote_id",
-  recordId: string,
-  evidenceId: string
-): Promise<void> {
-  await transaction.query(`DELETE FROM ${table} WHERE ${key} = $1`, [recordId]);
-  await transaction.query(
-    `INSERT INTO ${table} (${key}, evidence_id) VALUES ($1, $2)`,
-    [recordId, evidenceId]
-  );
-}
-
-async function existingDecision(
-  transaction: SqlExecutor,
-  entityKind: "OFFER" | "QUOTE",
-  sourceIdentityKey: string,
-  decisionVersion: number,
-  inputHash: string
-): Promise<PromotionResult | undefined> {
-  const result = await transaction.query<ExistingDecisionRow>(
-    `SELECT id, input_hash, status, canonical_product_id, promoted_offer_id, promoted_quote_id,
-            offer_promotion_decision_id, offer_revision::text
-     FROM merchant_promotion_decisions
-     WHERE entity_kind = $1 AND source_identity_key = $2 AND decision_version = $3`,
-    [entityKind, sourceIdentityKey, decisionVersion]
-  );
-  const row = result.rows[0];
-  if (row === undefined) return undefined;
-  if (row.input_hash !== inputHash) throw new Error("promotion decision idempotency conflict");
-  return {
-    decisionId: row.id,
-    status: row.status,
-    ...(row.canonical_product_id === null ? {} : { canonicalProductId: row.canonical_product_id }),
-    ...(row.promoted_offer_id === null ? {} : { offerId: row.promoted_offer_id }),
-    ...(row.promoted_quote_id === null ? {} : { quoteId: row.promoted_quote_id }),
-    ...(row.offer_promotion_decision_id === null
-      ? {}
-      : { offerPromotionDecisionId: row.offer_promotion_decision_id }),
-    ...(row.offer_revision === null ? {} : { offerRevision: Number(row.offer_revision) })
-  };
-}
-
-async function insertDecision(transaction: SqlExecutor, write: DecisionWrite): Promise<string> {
-  const id = decisionRecordId(write.entityKind, write.sourceIdentityKey, write.decisionVersion);
-  await transaction.query(
-    `INSERT INTO merchant_promotion_decisions (
-       id, input_hash, entity_kind, source_identity_key, decision_version,
-       staging_record_id, merchant_id, merchant_product_id, source_version, status,
-       canonical_product_id, promoted_offer_id, promoted_quote_id, primary_evidence_id,
-       offer_promotion_decision_id, offer_revision,
-       source_url, source_type, source_content_hash, source_captured_at,
-       external_evidence_refs, match_basis, match_evidence, reason, questions,
-       candidate_product_ids, zip_code, memberships, context_hash, staged_checked_at,
-       staged_expires_at, staged_record_hash, decided_by, promoted_quote_snapshot
-     ) VALUES (
-       $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
-       $15, $16, $17, $18, $19, $20, $21::jsonb, $22, $23::jsonb, $24, $25::jsonb,
-       $26::jsonb, $27, $28::jsonb, $29, $30, $31, $32, $33, $34::jsonb
-     )`,
-    [id, write.inputHash, write.entityKind, write.sourceIdentityKey,
-      write.decisionVersion, write.stagingRecordId, write.merchantId,
-      write.merchantProductId, write.sourceVersion, write.status,
-      write.canonicalProductId ?? null, write.offerId ?? null, write.quoteId ?? null,
-      write.evidence.id, write.offerPromotionDecisionId ?? null, write.offerRevision ?? null,
-      write.evidence.source_url, write.evidence.source_type,
-      write.evidence.content_hash, write.evidence.captured_at,
-      JSON.stringify(write.externalEvidenceRefs), write.matchBasis ?? null,
-      JSON.stringify(write.matchEvidence), write.reason, JSON.stringify(write.questions),
-      JSON.stringify(write.candidateProductIds), write.zipCode ?? null,
-      write.memberships === undefined ? null : JSON.stringify(write.memberships),
-      write.contextHash ?? null, write.stagedCheckedAt, write.stagedExpiresAt,
-      write.stagedRecordHash, write.decidedBy,
-      write.quoteSnapshot === undefined ? null : JSON.stringify(write.quoteSnapshot)]
-  );
-  return id;
-}
-
-function decisionRecordId(
-  entityKind: "OFFER" | "QUOTE",
-  sourceIdentityKey: string,
-  decisionVersion: number
-): string {
-  return canonicalHash({
-    kind: "merchant-promotion-decision",
-    entityKind,
-    sourceIdentityKey,
-    decisionVersion
-  });
 }
 
 function baseDecision(
