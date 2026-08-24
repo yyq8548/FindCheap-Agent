@@ -3,7 +3,7 @@ name: deals-and-watch
 description: Find verified Coupon, promotion, membership, Cashback, and offline-barcode evidence, or create and manage persistent shopping watches with Codex Automation.
 ---
 
-# FindCheap Agent v0.8.0 Deals and Watch
+# FindCheap Agent v0.8.1 Deals and Watch
 
 Use this workflow when the user asks for a Coupon before paying or asks to monitor a future purchase.
 
@@ -19,18 +19,18 @@ Use this workflow when the user asks for a Coupon before paying or asks to monit
 Risk tier: creating a recurring notification is `R2`. The user's direct request to "tell me", "notify me", or "watch" authorizes creating that watch and its recurring Codex Automation. It never authorizes purchase, reservation, checkout, or payment.
 
 1. Normalize the request into one condition:
-   - `PRICE_BELOW`: `threshold` is the exclusive ceiling in integer USD cents. Convert the user's stated price directly without subtracting one cent: “below $40” means `threshold: 4000`, so `$39.99` triggers and `$40.00` does not.
+   - `PRICE_BELOW`: `threshold` is the exclusive ceiling in integer USD cents. Convert the user's stated price directly without subtracting one cent: “below $40” means `threshold: 4000`, so `$39.99` triggers and `$40.00` does not. Always set `priceBasis` explicitly. Use `ITEM_PRICE` for public item price, or `DELIVERED_TOTAL` for item price plus quoted shipping and tax.
    - `DISCOUNT_AT_LEAST` or `CASHBACK_AT_LEAST`: threshold is percentage points and merchant is required.
    - `COUPON_AVAILABLE`: merchant is required.
    - `IN_STOCK` or `RESTOCKED`.
-2. For `PRICE_BELOW`, `IN_STOCK`, or `RESTOCKED`, require a generation, exact model number, or GTIN and an explicit condition preference: `NEW`, `USED`, `REFURBISHED`, `OPEN_BOX`, or `ANY`. A generation or named style without model/GTIN also requires an explicit merchant. Never interpret omission as any generation, merchant, or condition. Preserve requested size, color, capacity, and other variant dimensions.
+2. For an `ITEM_PRICE`, `IN_STOCK`, or `RESTOCKED` product Watch, require a generation, exact model number, or GTIN and an explicit condition preference: `NEW`, `USED`, `REFURBISHED`, `OPEN_BOX`, or `ANY`. A generation or named style without model/GTIN also requires an explicit merchant. For `DELIVERED_TOTAL`, require the exact `quoteReference` from a previously returned Shopify card, a US ZIP code, and an explicit condition preference. Never search the title again after selection. Never infer product identity, condition, ZIP, merchant, or price basis. Preserve requested size, color, capacity, and other variant dimensions.
 3. Call `create_watch`. Never infer product identity, condition, ZIP, membership, threshold, or expiration. Before calling it, verify that the spoken dollar ceiling converts directly to integer cents (`$X.YZ` → `XYZ` cents); strictness is applied by the Watch evaluator, not by reducing the threshold. Handle its status exactly:
    - `NEEDS_CLARIFICATION`: ask its questions; create no Automation.
    - `ACTIVE`: the duplicate rule is already bound; create no duplicate Automation.
    - `PAUSED`: the duplicate rule already exists but is paused; create no duplicate Automation.
    - `LEGACY_UNVERIFIED`: locate the existing Automation that references the returned watch ID and call `bind_watch_automation`; create no duplicate until reconciliation proves none exists.
    - `READY_TO_SCHEDULE`: continue below.
-   - `DATA_SOURCE_UNAVAILABLE`: do not create an Automation; explain that this condition requires a configured verified Deals provider.
+   - `DATA_SOURCE_UNAVAILABLE`: do not create an Automation. Explain the returned source or Shopify Cart quote failure; this may mean a Deals provider is not configured, the exact variant cannot be quoted, or the merchant requires a full address.
 4. For `READY_TO_SCHEDULE`, use the native `automation_update` tool to create one recurring heartbeat Automation in the current task. Use exactly the returned `automationPrompt` and `intervalMinutes`. Then call `bind_watch_automation` with the returned Automation ID. If binding does not return `ACTIVE`, delete the newly created Automation. Never claim monitoring is active until binding succeeds.
 5. Each scheduled run calls `check_watch` exactly once. Notify only for `TRIGGERED`, including the observed merchant/value, `checkedAt`, and direct source or merchant link from `observation`. `NOT_TRIGGERED` is a silent check. `NOT_SCHEDULED` means setup is incomplete. `NEEDS_CLARIFICATION` requires replacement of the broad legacy watch. `DATA_SOURCE_UNAVAILABLE` is not a deal or stock result. Automated Watch checks never use Chrome.
 6. Manage both sides as one lifecycle:

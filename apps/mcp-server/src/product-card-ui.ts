@@ -1,4 +1,4 @@
-export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v18.html";
+export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v19.html";
 
 export const PRODUCT_CARD_RESOURCE_DOMAINS = [
   "https://cdn.shopify.com"
@@ -34,14 +34,14 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       -webkit-font-smoothing: antialiased;
       text-rendering: optimizeLegibility;
     }
-    #app { display: grid; gap: 12px; padding: 0; }
-    .summary { padding: 0 2px; color: var(--fc-muted); font-size: 12px; line-height: 1.45; }
+    #app { display: grid; gap: 10px; padding: 0; }
+    .summary { padding: 0 1px; color: var(--fc-muted); font-size: 12px; line-height: 1.45; }
     .quote-summary {
       display: grid;
       gap: 7px;
       border: 1px solid var(--fc-border-strong);
-      border-radius: 12px;
-      padding: 11px 12px;
+      border-radius: 14px;
+      padding: 14px 16px;
       background: var(--fc-surface);
     }
     .quote-summary h2 { margin: 0; font-size: 13px; font-weight: 650; }
@@ -49,56 +49,55 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     .quote-summary-value { font-weight: 680; white-space: nowrap; }
     .group {
       display: grid;
-      gap: 11px;
+      gap: 14px;
       border: 1px solid var(--fc-border-strong);
       border-radius: 16px;
-      padding: 12px;
+      padding: 16px;
       background: var(--fc-surface);
     }
     .group h2 { margin: 0; color: var(--fc-text); font-size: 14px; font-weight: 650; line-height: 1.4; }
-    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 10px; }
+    .cards { display: grid; grid-template-columns: 1fr; gap: 12px; }
     .card {
-      display: flex;
+      display: grid;
+      grid-template-columns: minmax(150px, 24%) 1fr;
       min-width: 0;
-      flex-direction: column;
       overflow: hidden;
-      border: 1px solid var(--fc-border);
-      border-radius: 12px;
+      border: 1px solid var(--fc-border-strong);
+      border-radius: 14px;
       background: var(--fc-surface);
       box-shadow: none;
-      transition: border-color 120ms ease;
+      transition: border-color 120ms ease, background-color 120ms ease;
     }
-    .card:hover { border-color: var(--fc-border-strong); }
+    .card:hover { border-color: var(--fc-text); }
+    .card.no-image { grid-template-columns: 1fr; }
     .image {
       display: block;
-      width: 100%;
-      aspect-ratio: 4 / 3;
-      max-height: 230px;
+      width: calc(100% - 24px);
+      height: auto;
+      aspect-ratio: 1;
+      margin: 12px;
       object-fit: contain;
-      border-bottom: 1px solid var(--fc-border);
+      border: 1px solid var(--fc-border);
+      border-radius: 10px;
       background: var(--fc-surface-muted);
     }
-    .body { display: grid; flex: 1; gap: 10px; padding: 15px; }
-    .merchant { color: var(--fc-muted); font-size: 12px; font-weight: 600; line-height: 1.35; }
-    h3 { margin: -2px 0 0; font-size: 15px; font-weight: 650; line-height: 1.4; }
+    .body { display: grid; min-width: 0; gap: 10px; padding: 17px 18px; }
+    .merchant { color: var(--fc-muted); font-size: 12px; font-weight: 600; line-height: 1.35; letter-spacing: .01em; }
+    h3 { margin: -2px 0 0; font-size: 16px; font-weight: 650; line-height: 1.35; }
     .row { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 9px; }
-    .price { font-size: 22px; font-weight: 680; letter-spacing: -.02em; line-height: 1.1; }
+    .price { font-size: 23px; font-weight: 680; letter-spacing: -.025em; line-height: 1.1; }
     .badges { display: flex; flex-wrap: wrap; gap: 5px; }
     .badge {
       border: 1px solid var(--fc-border);
-      border-radius: 999px;
-      padding: 3px 7px;
+      border-radius: 7px;
+      padding: 3px 6px;
       color: var(--fc-muted);
       background: var(--fc-surface-muted);
       font-size: 10px;
       font-weight: 600;
       line-height: 1.3;
     }
-    .exact { color: light-dark(#24633f, #a8dbb9); }
-    .discovery { color: light-dark(#3f5f8a, #b6caea); }
-    .similar { color: light-dark(#765c2b, #dac594); }
-    .trusted { color: light-dark(#24633f, #a8dbb9); }
-    .unverified { color: light-dark(#8b4f16, #f2c28f); }
+    .exact, .discovery, .similar, .trusted, .unverified { color: var(--fc-muted); }
     .details, .evidence, .limitations, .disclosure, .observed {
       color: var(--fc-muted);
       font-size: 11px;
@@ -110,25 +109,22 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       display: grid;
       gap: 5px;
       border-top: 1px solid var(--fc-border);
-      border-bottom: 1px solid var(--fc-border);
-      padding: 9px 0;
+      padding: 9px 0 0;
     }
     .price-line { display: flex; justify-content: space-between; gap: 12px; }
     .price-label { color: var(--fc-muted); font-size: 11px; }
     .price-value { color: var(--fc-text); font-size: 11px; font-weight: 550; text-align: right; }
     .price-line.total .price-label, .price-line.total .price-value { color: var(--fc-text); font-weight: 650; }
-    .notice {
-      border-radius: 9px;
-      padding: 9px 10px;
-      background: var(--fc-surface-muted);
-    }
+    .notice { padding-top: 1px; }
     a {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      margin-top: auto;
+      justify-self: end;
+      min-width: 142px;
+      margin-top: 2px;
       border: 1px solid var(--fc-action);
-      border-radius: 9px;
+      border-radius: 10px;
       padding: 9px 12px;
       color: var(--fc-action-text);
       background: var(--fc-action);
@@ -136,9 +132,10 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       font-weight: 650;
       line-height: 1.2;
       text-decoration: none;
-      transition: opacity 120ms ease;
+      transition: opacity 120ms ease, transform 80ms ease;
     }
     a:hover { opacity: .86; }
+    a:active { transform: translateY(1px); }
     a:focus-visible { outline: 2px solid var(--fc-focus); outline-offset: 2px; }
     .empty {
       border: 1px solid var(--fc-border);
@@ -151,15 +148,14 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     .error { color: var(--fc-danger); }
     @media (max-width: 640px) {
       #app { gap: 10px; }
-      .group { border-radius: 14px; padding: 10px; }
-      .cards { grid-template-columns: 1fr; }
-      .card { display: grid; grid-template-columns: minmax(104px, 34%) 1fr; }
-      .image { height: 100%; min-height: 180px; aspect-ratio: auto; border-right: 1px solid var(--fc-border); border-bottom: 0; }
+      .group { border-radius: 14px; padding: 12px; }
+      .card { grid-template-columns: minmax(116px, 34%) 1fr; }
       .body { padding: 13px; }
+      a { justify-self: stretch; }
     }
     @media (max-width: 420px) {
-      .card { display: flex; }
-      .image { height: auto; min-height: 0; aspect-ratio: 16 / 10; border-right: 0; border-bottom: 1px solid var(--fc-border); }
+      .card { display: flex; flex-direction: column; }
+      .image { width: 100%; margin: 0; aspect-ratio: 16 / 10; border: 0; border-bottom: 1px solid var(--fc-border); border-radius: 0; }
     }
     @media (prefers-reduced-motion: reduce) {
       .card, a { transition: none; }
@@ -173,7 +169,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     const uiStartedAt = typeof performance === "object" && typeof performance.now === "function"
       ? performance.now()
       : Date.now();
-    const cardMetrics = { version: "0.8.0", stages: {} };
+    const cardMetrics = { version: "0.8.1", stages: {} };
     window.__findcheapCardMetrics = cardMetrics;
     const notify = (method, params = {}) => {
       window.parent.postMessage({ jsonrpc: "2.0", method, params }, "*");
@@ -273,7 +269,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     const make = (tag, className, text) => {
       const node = document.createElement(tag);
       if (className) node.className = className;
-      if (text !== undefined) node.textContent = String(text);
+      if (text !== undefined) node.textContent = String(text).replace(/[—–]/gu, "-");
       return node;
     };
     const money = (value) => value && Number.isInteger(value.amountCents) && value.currency === "USD"
@@ -318,7 +314,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
         : quoteCount === products.length
           ? "Shopify Cart estimates for supplied ZIP"
           : quoteCount + " Shopify Cart estimate" + (quoteCount === 1 ? "" : "s") + "; remaining item-price-only";
-      app.append(make("div", "summary", products.length + " product card" + (products.length === 1 ? "" : "s") + " · identity labels · " + priceSummary));
+      app.append(make("div", "summary", products.length + " product card" + (products.length === 1 ? "" : "s") + " / identity labels / " + priceSummary));
       const quotedProducts = products.filter((product) => product?.pricing?.scope === "SHOPIFY_CART_ESTIMATE" && product?.card?.estimatedTotal);
       if (quotedProducts.length > 0) {
         const quoteSummary = make("section", "quote-summary");
@@ -346,6 +342,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
           const cardData = product && typeof product.card === "object" ? product.card : {};
           const card = make("article", "card");
           const imageUrl = safeHttps(cardData.imageUrl);
+          if (!imageUrl) card.className = "card no-image";
           if (imageUrl) {
             const image = make("img", "image");
             image.alt = cardData.title || product.title || "Product image";
@@ -375,9 +372,9 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
           body.append(make("div", "merchant", cardData.merchant || product.merchant || "Merchant"));
           body.append(make("h3", "", cardData.title || product.title || "Product"));
           const identity = [product.brand, product.sku ? "Model/SKU: " + product.sku : undefined, product.gtins?.[0] ? "GTIN: " + product.gtins[0] : undefined]
-            .filter(Boolean).join(" · ");
+            .filter(Boolean).join(" / ");
           if (identity) body.append(make("div", "details", identity));
-          const variants = Object.entries(product.variantDimensions || {}).map(([name, value]) => name + ": " + value).join(" · ");
+          const variants = Object.entries(product.variantDimensions || {}).map(([name, value]) => name + ": " + value).join(" / ");
           if (variants) body.append(make("div", "details", variants));
           const row = make("div", "row");
           const priceBlock = make("div", "");
@@ -527,7 +524,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     warmCompatibilityBridge();
     const initializeParams = {
       protocolVersion: "2026-01-26",
-      appInfo: { name: "FindCheap Agent product cards", version: "0.8.0" },
+      appInfo: { name: "FindCheap Agent product cards", version: "0.8.1" },
       appCapabilities: { availableDisplayModes: ["inline"] }
     };
     const finishInitialization = () => {

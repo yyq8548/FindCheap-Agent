@@ -1,5 +1,6 @@
 import { VerifiedDealsSchema, type DealPort, type VerifiedDeal } from "./deal-client.js";
 import type { ShopifyPort, ShopifyProduct } from "./shopify-client.js";
+import { ShopifyCartQuoteError, type ShopifyCartQuotePort } from "./shopify-cart-quote.js";
 import { productWatchClarificationQuestions, type WatchRecord, type WatchStore } from "./watch-store.js";
 
 export type WatchEvaluation = {
@@ -14,6 +15,7 @@ export async function evaluateWatch(
   store: WatchStore,
   shopify: ShopifyPort,
   deals: DealPort,
+  cartQuotes: ShopifyCartQuotePort | undefined,
   now: Date
 ): Promise<WatchEvaluation> {
   if (watch.status === "PAUSED") return { status: "PAUSED", message: "Watch is paused.", watch };
@@ -35,7 +37,7 @@ export async function evaluateWatch(
   try {
     const observation = isDealCondition(watch)
       ? await observeDeals(watch, deals, now)
-      : await observeProducts(watch, shopify, now);
+      : await observeProducts(watch, shopify, cartQuotes, now);
     const triggered = observation.satisfied && watch.wasSatisfied !== true;
     const updated = {
       ...watch,
@@ -51,11 +53,15 @@ export async function evaluateWatch(
       watch: updated,
       observation: observation.data
     };
-  } catch {
+  } catch (error) {
+    const failureCode = error instanceof ShopifyCartQuoteError ? error.code : undefined;
     return {
       status: "DATA_SOURCE_UNAVAILABLE",
-      message: "The verified source required by this watch is unavailable; no alert was generated.",
-      watch
+      message: failureCode === undefined
+        ? "The verified source required by this watch is unavailable; no alert was generated."
+        : `The selected merchant could not provide a delivered-total quote (${failureCode}); no alert was generated.`,
+      watch,
+      ...(failureCode === undefined ? {} : { observation: { failureCode, priceBasis: "DELIVERED_TOTAL" } })
     };
   }
 }
@@ -64,7 +70,15 @@ function isDealCondition(watch: WatchRecord) {
   return ["DISCOUNT_AT_LEAST", "COUPON_AVAILABLE", "CASHBACK_AT_LEAST"].includes(watch.spec.condition);
 }
 
-async function observeProducts(watch: WatchRecord, shopify: ShopifyPort, now: Date) {
+async function observeProducts(
+  watch: WatchRecord,
+  shopify: ShopifyPort,
+  cartQuotes: ShopifyCartQuotePort | undefined,
+  now: Date
+) {
+  if (watch.spec.condition === "PRICE_BELOW" && watch.spec.priceBasis === "DELIVERED_TOTAL") {
+    return observeDeliveredTotal(watch, cartQuotes);
+  }
   const result = await shopify.search({
     query: buildProductWatchQuery(watch),
     limit: 3,
@@ -91,7 +105,7 @@ async function observeProducts(watch: WatchRecord, shopify: ShopifyPort, now: Da
       satisfied,
       triggerMessage: `${product.title} is ${price}, below the watch target.`,
       statusMessage: `${product.title} is ${price}; target not reached.`,
-      data: productObservation(product)
+      data: { ...productObservation(product), priceBasis: "ITEM_PRICE" }
     };
   }
   const product = products.find((candidate) => candidate.availability === "IN_STOCK") ?? products[0];
@@ -105,6 +119,47 @@ async function observeProducts(watch: WatchRecord, shopify: ShopifyPort, now: Da
     triggerMessage: `${product.title} is now in stock at ${product.merchant}.`,
     statusMessage: inStock ? `${product.title} is in stock; no new transition to alert.` : `${product.title} is not currently in stock.`,
     data: productObservation(product)
+  };
+}
+
+async function observeDeliveredTotal(
+  watch: WatchRecord,
+  cartQuotes: ShopifyCartQuotePort | undefined
+) {
+  const selected = watch.spec.selectedProduct;
+  const zipCode = watch.spec.zipCode;
+  if (selected === undefined || zipCode === undefined || cartQuotes === undefined) {
+    throw new Error("DATA_SOURCE_UNAVAILABLE");
+  }
+  const quote = await cartQuotes.quote({
+    merchantId: selected.merchantId,
+    handle: selected.variantId,
+    sourceHost: selected.sourceHost,
+    merchantUrl: selected.merchantUrl,
+    title: selected.title
+  }, zipCode);
+  const threshold = watch.spec.threshold ?? 0;
+  const satisfied = quote.deliveredPrice.amountCents < threshold;
+  const delivered = `$${(quote.deliveredPrice.amountCents / 100).toFixed(2)}`;
+  return {
+    satisfied,
+    triggerMessage: `${selected.title} has an estimated delivered total of ${delivered}, below the watch target.`,
+    statusMessage: `${selected.title} has an estimated delivered total of ${delivered}; target not reached.`,
+    data: {
+      title: selected.title,
+      merchant: selected.merchant,
+      merchantUrl: selected.merchantUrl,
+      variantId: selected.variantId,
+      variantDimensions: selected.variantDimensions,
+      priceBasis: "DELIVERED_TOTAL",
+      subtotal: quote.subtotal,
+      shipping: quote.shipping,
+      tax: quote.tax,
+      deliveredPrice: quote.deliveredPrice,
+      totalEstimated: quote.totalEstimated,
+      checkedAt: quote.checkedAt,
+      expiresAt: quote.expiresAt
+    }
   };
 }
 

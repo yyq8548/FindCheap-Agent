@@ -164,9 +164,14 @@ export class ShopifyCartQuoteError extends Error {
   }
 }
 
+export type ShopifyCartQuoteProduct = Pick<
+  ShopifyProduct,
+  "handle" | "sourceHost" | "merchantUrl" | "title" | "merchantId"
+>;
+
 export interface ShopifyCartQuotePort {
   quote(
-    product: ShopifyProduct,
+    product: ShopifyCartQuoteProduct,
     zipCode: string,
     deliveryAddress?: ShopifyDeliveryAddress
   ): Promise<ShopifyCartEstimate>;
@@ -313,7 +318,7 @@ function unavailablePort(): ShopifyCartQuotePort {
   return { async quote() { throw new Error("DATA_SOURCE_UNAVAILABLE"); } };
 }
 
-function quoteTarget(product: ShopifyProduct): string {
+function quoteTarget(product: ShopifyCartQuoteProduct): string {
   const sourceHost = normalizeHost(product.sourceHost);
   let merchant: URL;
   try {

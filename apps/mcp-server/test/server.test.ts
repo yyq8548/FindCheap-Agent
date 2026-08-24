@@ -159,12 +159,12 @@ describe("shopping MCP server", () => {
     const renderTool = tools.tools.find((candidate) => candidate.name === "render_product_cards");
     const metricsTool = tools.tools.find((candidate) => candidate.name === "report_product_card_metrics");
     expect(searchTool?._meta).toMatchObject({
-      ui: { resourceUri: "ui://findcheap/product-cards/v18.html" },
-      "openai/outputTemplate": "ui://findcheap/product-cards/v18.html"
+      ui: { resourceUri: "ui://findcheap/product-cards/v19.html" },
+      "openai/outputTemplate": "ui://findcheap/product-cards/v19.html"
     });
     expect(renderTool?._meta).toMatchObject({
       ui: {
-        resourceUri: "ui://findcheap/product-cards/v18.html",
+        resourceUri: "ui://findcheap/product-cards/v19.html",
         visibility: ["app"]
       }
     });
@@ -181,11 +181,11 @@ describe("shopping MCP server", () => {
     const resources = await client.listResources();
     expect(resources.resources).toEqual([expect.objectContaining({
       name: "findcheap-product-cards",
-      uri: "ui://findcheap/product-cards/v18.html",
+      uri: "ui://findcheap/product-cards/v19.html",
       mimeType: "text/html;profile=mcp-app"
     })]);
 
-    const resource = await client.readResource({ uri: "ui://findcheap/product-cards/v18.html" });
+    const resource = await client.readResource({ uri: "ui://findcheap/product-cards/v19.html" });
     const content = resource.contents[0];
     const html = content !== undefined && "text" in content ? content.text : "";
     expect(html).toContain("ui/notifications/tool-result");
@@ -422,7 +422,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.8.0",
+        version: "0.8.1",
         terminalStage: "DOM_RENDERED",
         stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
       }
@@ -431,7 +431,7 @@ describe("shopping MCP server", () => {
     expect(result.structuredContent).toEqual({ status: "RECORDED" });
     expect(record).toHaveBeenCalledWith(expect.objectContaining({
       renderId,
-      version: "0.8.0",
+      version: "0.8.1",
       terminalStage: "DOM_RENDERED",
       stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
     }));
@@ -439,7 +439,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.8.0",
+        version: "0.8.1",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 14 }
       }
@@ -449,7 +449,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.8.0",
+        version: "0.8.1",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 300_001 }
       }
@@ -460,7 +460,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId: "22222222-2222-4222-8222-222222222222",
-        version: "0.8.0",
+        version: "0.8.1",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 1 }
       }
@@ -1264,7 +1264,7 @@ describe("Coupon and Watch tools", () => {
   it("asks for product identity and condition before creating a broad product watch", async () => {
     const client = await connect({ compare: async () => comparison }, shopifyPort, undefined, { now: () => current });
     const created = await client.callTool({ name: "create_watch", arguments: {
-      query: "Apple AirPods Pro", condition: "PRICE_BELOW", threshold: 17_000
+      query: "Apple AirPods Pro", condition: "PRICE_BELOW", priceBasis: "ITEM_PRICE", threshold: 17_000
     } });
 
     expect(created.structuredContent).toMatchObject({
@@ -1277,11 +1277,127 @@ describe("Coupon and Watch tools", () => {
     expect((await client.callTool({ name: "list_watches", arguments: {} })).structuredContent).toEqual({ watches: [] });
   });
 
+  it("requires an explicit price basis for price watches", async () => {
+    const client = await connect({ compare: async () => comparison }, shopifyPort, undefined, { now: () => current });
+    const created = await client.callTool({ name: "create_watch", arguments: {
+      query: "Valhalla Java pods",
+      condition: "PRICE_BELOW",
+      threshold: 2_000,
+      identity: { modelNumber: "5094SSC" },
+      conditionPreference: "ANY"
+    } });
+
+    expect(created.structuredContent).toMatchObject({
+      status: "NEEDS_CLARIFICATION",
+      questions: [expect.stringMatching(/ITEM_PRICE|DELIVERED_TOTAL/i)]
+    });
+  });
+
+  it("monitors delivered total for the exact prior Shopify variant without another title search", async () => {
+    const search = vi.fn(shopifyPort.search);
+    let deliveredCents = 2_104;
+    const quoteCart = vi.fn(async () => ({
+      status: "ESTIMATED" as const,
+      subtotal: { amountCents: deliveredCents - 605, currency: "USD" as const },
+      shipping: { amountCents: 500, currency: "USD" as const, label: "Standard" },
+      tax: {
+        status: "ZIP_ESTIMATED" as const,
+        amount: { amountCents: 105, currency: "USD" as const },
+        jurisdiction: "FL",
+        rateBasisPoints: 698,
+        source: "TAX_FOUNDATION_STATE_AVERAGE_2026" as const
+      },
+      deliveredPrice: { amountCents: deliveredCents, currency: "USD" as const },
+      totalEstimated: true,
+      checkedAt: "2026-08-20T12:00:00.000Z",
+      expiresAt: "2026-08-20T12:10:00.000Z"
+    }));
+    const client = await connect(
+      { compare: async () => comparison },
+      { search },
+      undefined,
+      { now: () => current, cartQuotes: { quote: quoteCart } }
+    );
+    const found = await client.callTool({ name: "search_products", arguments: {
+      query: "Valhalla Java pods", limit: 3
+    } });
+    const reference = (found.structuredContent as {
+      products: Array<{ quoteReference: { renderId: string; variantId: string } }>;
+    }).products[0]!.quoteReference;
+
+    const created = await client.callTool({ name: "create_watch", arguments: {
+      query: "Valhalla Java pods",
+      condition: "PRICE_BELOW",
+      priceBasis: "DELIVERED_TOTAL",
+      threshold: 2_000,
+      zipCode: "33433",
+      quoteReference: reference,
+      conditionPreference: "ANY"
+    } });
+    const watchId = (created.structuredContent as { watchId: string }).watchId;
+    expect(created.structuredContent).toMatchObject({ status: "READY_TO_SCHEDULE" });
+    await client.callTool({ name: "bind_watch_automation", arguments: {
+      watchId, automationId: "watch-delivered-total"
+    } });
+
+    expect((await client.callTool({ name: "check_watch", arguments: { watchId } })).structuredContent)
+      .toMatchObject({ status: "NOT_TRIGGERED", observation: {
+        variantId: "42797821853913",
+        priceBasis: "DELIVERED_TOTAL",
+        deliveredPrice: { amountCents: 2_104, currency: "USD" }
+      } });
+    deliveredCents = 1_900;
+    expect((await client.callTool({ name: "check_watch", arguments: { watchId } })).structuredContent)
+      .toMatchObject({ status: "TRIGGERED", observation: {
+        variantId: "42797821853913",
+        priceBasis: "DELIVERED_TOTAL",
+        deliveredPrice: { amountCents: 1_900, currency: "USD" }
+      } });
+    expect(search).toHaveBeenCalledTimes(1);
+    expect(quoteCart).toHaveBeenCalledTimes(3);
+    expect((await client.callTool({ name: "list_watches", arguments: {} })).structuredContent)
+      .toMatchObject({ watches: [{ watchId, priceBasis: "DELIVERED_TOTAL" }] });
+  });
+
+  it("does not schedule a delivered-total watch when the merchant requires a full address", async () => {
+    const client = await connect(
+      { compare: async () => comparison },
+      shopifyPort,
+      undefined,
+      { now: () => current, cartQuotes: {
+        quote: async () => { throw new ShopifyCartQuoteError("FULL_ADDRESS_REQUIRED"); }
+      } }
+    );
+    const found = await client.callTool({ name: "search_products", arguments: {
+      query: "Valhalla Java pods", limit: 3
+    } });
+    const quoteReference = (found.structuredContent as {
+      products: Array<{ quoteReference: { renderId: string; variantId: string } }>;
+    }).products[0]!.quoteReference;
+    const created = await client.callTool({ name: "create_watch", arguments: {
+      query: "Valhalla Java pods",
+      condition: "PRICE_BELOW",
+      priceBasis: "DELIVERED_TOTAL",
+      threshold: 2_000,
+      zipCode: "33433",
+      quoteReference,
+      conditionPreference: "ANY"
+    } });
+
+    expect(created.structuredContent).toMatchObject({
+      status: "DATA_SOURCE_UNAVAILABLE",
+      message: expect.stringMatching(/FULL_ADDRESS_REQUIRED.*ZIP only/i)
+    });
+    expect((await client.callTool({ name: "list_watches", arguments: {} })).structuredContent)
+      .toEqual({ watches: [] });
+  });
+
   it("requires a merchant for a generation-only product watch", async () => {
     const client = await connect({ compare: async () => comparison }, shopifyPort, undefined, { now: () => current });
     const created = await client.callTool({ name: "create_watch", arguments: {
       query: "Rhodia Dress Narcissus Bloom",
       condition: "PRICE_BELOW",
+      priceBasis: "ITEM_PRICE",
       threshold: 20_000,
       identity: { generation: "Rhodia Dress Narcissus Bloom", variantDimensions: { Size: "XXS" } },
       conditionPreference: "ANY"
@@ -1311,6 +1427,7 @@ describe("Coupon and Watch tools", () => {
       query: "Valhalla Java pods",
       merchant: "Death Wish Coffee",
       condition: "PRICE_BELOW",
+      priceBasis: "ITEM_PRICE",
       threshold: 1_700,
       identity: { generation: "Valhalla Java", variantDimensions: { "Pack Size": "10 count" } },
       conditionPreference: "ANY"
@@ -1325,7 +1442,7 @@ describe("Coupon and Watch tools", () => {
   it("fails closed before source lookup for a legacy broad product watch", async () => {
     const watches = createMemoryWatchStore();
     const legacy = await watches.create({
-      query: "Apple AirPods Pro", condition: "PRICE_BELOW", threshold: 17_000, membershipIds: [], intervalMinutes: 60
+      query: "Apple AirPods Pro", condition: "PRICE_BELOW", priceBasis: "ITEM_PRICE", threshold: 17_000, membershipIds: [], intervalMinutes: 60
     }, current.toISOString());
     const search = vi.fn(shopifyPort.search);
     const client = await connect({ compare: async () => comparison }, { search }, undefined, { now: () => current, watches });
@@ -1340,7 +1457,7 @@ describe("Coupon and Watch tools", () => {
     const search = vi.fn(shopifyPort.search);
     const client = await connect({ compare: async () => comparison }, { search }, undefined, { now: () => current });
     const created = await client.callTool({ name: "create_watch", arguments: {
-      query: "Valhalla Java pods", condition: "PRICE_BELOW", threshold: 1_700,
+      query: "Valhalla Java pods", condition: "PRICE_BELOW", priceBasis: "ITEM_PRICE", threshold: 1_700,
       identity: { modelNumber: "5094SSC", gtin: "810063341254", variantDimensions: { "Pack Size": "10 count" } },
       conditionPreference: "NEW"
     } });
@@ -1390,6 +1507,7 @@ describe("Coupon and Watch tools", () => {
     const created = await client.callTool({ name: "create_watch", arguments: {
       query: "Sony WH-1000XM5",
       condition: "PRICE_BELOW",
+      priceBasis: "ITEM_PRICE",
       threshold: 25_000,
       identity: { modelNumber: "WH-1000XM5" },
       conditionPreference: "NEW"
@@ -1404,7 +1522,7 @@ describe("Coupon and Watch tools", () => {
   it("activates a price watch only after its Codex Automation is bound", async () => {
     const client = await connect({ compare: async () => comparison }, shopifyPort, undefined, { now: () => current });
     const created = await client.callTool({ name: "create_watch", arguments: {
-      query: "Valhalla Java pods", condition: "PRICE_BELOW", threshold: 1_700, intervalMinutes: 60,
+      query: "Valhalla Java pods", condition: "PRICE_BELOW", priceBasis: "ITEM_PRICE", threshold: 1_700, intervalMinutes: 60,
       identity: { modelNumber: "5094SSC", variantDimensions: { "Pack Size": "10 count" } }, conditionPreference: "ANY"
     } });
     const watchId = (created.structuredContent as { watchId: string }).watchId;
@@ -1460,7 +1578,7 @@ describe("Coupon and Watch tools", () => {
   it("serializes concurrent checks so one threshold crossing sends one alert", async () => {
     const client = await connect({ compare: async () => comparison }, shopifyPort, undefined, { now: () => current });
     const created = await client.callTool({ name: "create_watch", arguments: {
-      query: "Valhalla Java pods", condition: "PRICE_BELOW", threshold: 1_700,
+      query: "Valhalla Java pods", condition: "PRICE_BELOW", priceBasis: "ITEM_PRICE", threshold: 1_700,
       identity: { modelNumber: "5094SSC" }, conditionPreference: "ANY"
     } });
     const watchId = (created.structuredContent as { watchId: string }).watchId;
@@ -1544,7 +1662,7 @@ describe("Coupon and Watch tools", () => {
     };
     const client = await connect({ compare: async () => comparison }, boundaryShopifyPort, undefined, { now: () => current });
     const created = await client.callTool({ name: "create_watch", arguments: {
-      query: "Valhalla Java pods", condition: "PRICE_BELOW", threshold: 4_000,
+      query: "Valhalla Java pods", condition: "PRICE_BELOW", priceBasis: "ITEM_PRICE", threshold: 4_000,
       identity: { modelNumber: "5094SSC" }, conditionPreference: "ANY"
     } });
     const watchId = (created.structuredContent as { watchId: string }).watchId;
@@ -1560,11 +1678,11 @@ describe("Coupon and Watch tools", () => {
   it("never binds one Codex Automation to two watches", async () => {
     const client = await connect({ compare: async () => comparison }, shopifyPort, undefined, { now: () => current });
     const first = await client.callTool({ name: "create_watch", arguments: {
-      query: "Valhalla Java pods", condition: "PRICE_BELOW", threshold: 1_700,
+      query: "Valhalla Java pods", condition: "PRICE_BELOW", priceBasis: "ITEM_PRICE", threshold: 1_700,
       identity: { modelNumber: "5094SSC" }, conditionPreference: "ANY"
     } });
     const second = await client.callTool({ name: "create_watch", arguments: {
-      query: "Valhalla Java pods", condition: "PRICE_BELOW", threshold: 1_600,
+      query: "Valhalla Java pods", condition: "PRICE_BELOW", priceBasis: "ITEM_PRICE", threshold: 1_600,
       identity: { modelNumber: "5094SSC" }, conditionPreference: "ANY"
     } });
     const firstWatchId = (first.structuredContent as { watchId: string }).watchId;
@@ -1590,6 +1708,7 @@ describe("Coupon and Watch tools", () => {
     const created = await client.callTool({ name: "create_watch", arguments: {
       query: "Valhalla Java pods",
       condition: "PRICE_BELOW",
+      priceBasis: "ITEM_PRICE",
       threshold: 1_700,
       identity: { modelNumber: "5094SSC" },
       conditionPreference: "ANY",
@@ -1612,6 +1731,7 @@ describe("Coupon and Watch tools", () => {
     const created = await watches.create({
       query: "Valhalla Java pods",
       condition: "PRICE_BELOW",
+      priceBasis: "ITEM_PRICE",
       threshold: 1_700,
       membershipIds: [],
       identity: { modelNumber: "5094SSC" },

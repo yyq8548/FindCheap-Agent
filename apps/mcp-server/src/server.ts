@@ -83,7 +83,7 @@ const ProductCardStagesSchema = z.object({
 
 const ProductCardTelemetryInputSchema = z.object({
   renderId: z.string().uuid(),
-  version: z.literal("0.8.0"),
+  version: z.literal("0.8.1"),
   terminalStage: z.enum([
     "DOM_RENDERED",
     "FIRST_IMAGE_SETTLED",
@@ -1253,7 +1253,7 @@ export function createShoppingServer(
   dependencies: ShoppingServerDependencies = {}
 ): McpServer {
   void comparePort;
-  const server = new McpServer({ name: "findcheap-agent", version: "0.8.0" });
+  const server = new McpServer({ name: "findcheap-agent", version: "0.8.1" });
   const dealPort = dependencies.deals ?? createUnavailableDealPort();
   const awinPort = dependencies.awin ?? createUnavailableAwinPort();
   const toolAvailability = dependencies.toolAvailability ?? {
@@ -1780,7 +1780,7 @@ export function createShoppingServer(
     "create_watch",
     {
       title: "Create a shopping watch",
-      description: "Persist a Watch rule and return the exact Codex Automation handoff. Monitoring is not active until bind_watch_automation succeeds.",
+      description: "Persist a Watch rule and return the exact Codex Automation handoff. PRICE_BELOW requires an explicit ITEM_PRICE or DELIVERED_TOTAL priceBasis. DELIVERED_TOTAL also requires ZIP and the exact prior Shopify quoteReference, which is reused without a title search. Monitoring is not active until bind_watch_automation succeeds.",
       inputSchema: WatchSpecInputSchema,
       outputSchema: {
         status: z.enum(["READY_TO_SCHEDULE", "ACTIVE", "PAUSED", "LEGACY_UNVERIFIED", "NEEDS_CLARIFICATION", "DATA_SOURCE_UNAVAILABLE"]),
@@ -1795,10 +1795,10 @@ export function createShoppingServer(
     },
     async (input) => {
       const createdAt = now();
-      const spec = WatchSpecSchema.parse(input);
+      const requested = WatchSpecInputSchema.parse(input);
       if (
         !toolAvailability.verifiedDeals &&
-        ["DISCOUNT_AT_LEAST", "COUPON_AVAILABLE", "CASHBACK_AT_LEAST"].includes(spec.condition)
+        ["DISCOUNT_AT_LEAST", "COUPON_AVAILABLE", "CASHBACK_AT_LEAST"].includes(requested.condition)
       ) {
         return { content: [{ type: "text" as const, text: dealUnavailableMessage }], structuredContent: {
           status: "DATA_SOURCE_UNAVAILABLE" as const,
@@ -1806,7 +1806,7 @@ export function createShoppingServer(
           questions: []
         } };
       }
-      const questions = productWatchClarificationQuestions(spec);
+      const questions = productWatchClarificationQuestions(requested);
       if (questions.length > 0) {
         const message = `More product detail is required before this watch can be created. ${questions.join(" ")}`;
         return { content: [{ type: "text" as const, text: message }], structuredContent: {
@@ -1814,6 +1814,77 @@ export function createShoppingServer(
           questions
         } };
       }
+      const { quoteReference, ...persistedInput } = requested;
+      let selectedProduct: z.infer<typeof WatchSpecSchema>["selectedProduct"];
+      if (requested.priceBasis === "DELIVERED_TOTAL") {
+        const snapshot = quoteReference === undefined ? undefined : renderSnapshots.get(quoteReference.renderId);
+        if (snapshot === undefined || snapshot.expiresAt <= Date.now()) {
+          if (quoteReference !== undefined) renderSnapshots.delete(quoteReference.renderId);
+          const message = "The selected product reference expired. Run one new product search, then create the delivered-total watch from that exact card.";
+          return { content: [{ type: "text" as const, text: message }], structuredContent: {
+            status: "DATA_SOURCE_UNAVAILABLE" as const,
+            message,
+            questions: []
+          } };
+        }
+        const selected = snapshot.sourceResult.products.find((product) => product.handle === quoteReference?.variantId);
+        if (selected === undefined) {
+          const message = "The selected Shopify variant does not belong to that product result. No watch was created.";
+          return { content: [{ type: "text" as const, text: message }], structuredContent: {
+            status: "DATA_SOURCE_UNAVAILABLE" as const,
+            message,
+            questions: []
+          } };
+        }
+        if (requested.conditionPreference !== "ANY" && selected.condition !== requested.conditionPreference) {
+          const question = `The selected product condition is ${selected.condition}; choose a matching product or explicitly accept ANY condition.`;
+          return { content: [{ type: "text" as const, text: question }], structuredContent: {
+            status: "NEEDS_CLARIFICATION" as const,
+            message: question,
+            questions: [question]
+          } };
+        }
+        if (cartQuotes === undefined) {
+          const message = "Shopify Cart quote provider is unavailable; a delivered-total watch was not created.";
+          return { content: [{ type: "text" as const, text: message }], structuredContent: {
+            status: "DATA_SOURCE_UNAVAILABLE" as const,
+            message,
+            questions: []
+          } };
+        }
+        try {
+          await cartQuotes.quote(selected, requested.zipCode!);
+        } catch (error) {
+          const failure = error instanceof ShopifyCartQuoteError
+            ? error
+            : new ShopifyCartQuoteError("MERCHANT_CART_UNAVAILABLE", { cause: error });
+          const reason = failure.code === "FULL_ADDRESS_REQUIRED"
+            ? "[FULL_ADDRESS_REQUIRED] This merchant requires a full address, but recurring delivered-total Watch rules store ZIP only. Use ITEM_PRICE or choose another merchant."
+            : quoteFailureMessage(failure.code);
+          const message = `${reason} A delivered-total watch was not created.`;
+          return { content: [{ type: "text" as const, text: message }], structuredContent: {
+            status: "DATA_SOURCE_UNAVAILABLE" as const,
+            message,
+            questions: []
+          } };
+        }
+        selectedProduct = {
+          sourceKind: "SHOPIFY_GLOBAL_CATALOG",
+          merchantId: selected.merchantId,
+          merchant: selected.merchant,
+          sourceHost: selected.sourceHost,
+          variantId: selected.handle,
+          title: selected.title,
+          merchantUrl: selected.merchantUrl,
+          condition: selected.condition,
+          variantDimensions: selected.variantDimensions,
+          selectedAt: createdAt.toISOString()
+        };
+      }
+      const spec = WatchSpecSchema.parse({
+        ...persistedInput,
+        ...(selectedProduct === undefined ? {} : { selectedProduct })
+      });
       if (spec.expiresAt !== undefined && Date.parse(spec.expiresAt) <= createdAt.getTime()) {
         throw new Error("expiresAt must be in the future");
       }
@@ -1926,7 +1997,7 @@ export function createShoppingServer(
       const check = ready.then(async () => {
         const latest = await watchStore.get(watchId);
         if (latest === undefined) throw new Error("Watch not found");
-        return evaluateWatch(latest, watchStore, shopifyPort, dealPort, now());
+        return evaluateWatch(latest, watchStore, shopifyPort, dealPort, cartQuotes, now());
       });
       watchChecks.set(watchId, check);
       const result = await check.finally(() => {
@@ -1954,6 +2025,7 @@ export function createShoppingServer(
         automationId: WatchAutomationIdSchema.optional(),
         query: z.string(),
         condition: z.string(),
+        priceBasis: z.enum(["ITEM_PRICE", "DELIVERED_TOTAL"]).optional(),
         intervalMinutes: z.number().int()
       })) },
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
@@ -1968,6 +2040,7 @@ export function createShoppingServer(
       ...(watch.automationId === undefined ? {} : { automationId: watch.automationId }),
       query: watch.spec.query,
       condition: watch.spec.condition,
+      ...(watch.spec.priceBasis === undefined ? {} : { priceBasis: watch.spec.priceBasis }),
       intervalMinutes: watch.spec.intervalMinutes
     })) } })
   );

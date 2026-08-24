@@ -3,7 +3,7 @@ name: compare-products
 description: Search products through one constrained router that considers approved Awin affiliate products, fills from Shopify Global Catalog, verifies identity, and renders MCP UI cards before authorized Chrome fallback. Use deals-and-watch for Coupon and monitoring requests.
 ---
 
-# FindCheap Agent v0.8.0 Product Search
+# FindCheap Agent v0.8.1 Product Search
 
 Risk tier: `R0` for search and authorized Chrome fallback. ZIP quoting is `R1` because it creates anonymous short-lived Shopify carts. Never checkout, reserve, purchase, or pay. Do not persist a delivery address or browser data.
 

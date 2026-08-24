@@ -25,6 +25,11 @@ export const ProductWatchConditionPreferenceSchema = z.enum([
   "ANY"
 ]);
 
+export const ProductWatchPriceBasisSchema = z.enum([
+  "ITEM_PRICE",
+  "DELIVERED_TOTAL"
+]);
+
 export const ProductWatchIdentitySchema = z.object({
   generation: z.string().trim().min(1).max(80).regex(/[\p{L}\p{N}]/u).optional(),
   modelNumber: z.string().trim().min(1).max(120).regex(/[\p{L}\p{N}]/u).optional(),
@@ -36,40 +41,92 @@ export const ProductWatchIdentitySchema = z.object({
   }
 });
 
-export const WatchSpecInputSchema = z.object({
+const WatchSpecShape = {
   query: z.string().trim().min(2).max(300),
   merchant: z.string().trim().min(2).max(160).optional(),
   condition: WatchConditionSchema,
   threshold: z.number().nonnegative().max(100_000_000).optional()
     .describe("PRICE_BELOW is an exclusive ceiling in integer USD cents: for 'below $40', send 4000 so $39.99 triggers; never subtract one cent. DISCOUNT_AT_LEAST and CASHBACK_AT_LEAST use percentage points."),
+  priceBasis: ProductWatchPriceBasisSchema.optional()
+    .describe("Required for PRICE_BELOW. ITEM_PRICE compares the public item price. DELIVERED_TOTAL compares the stable selected Shopify variant's quoted item price plus shipping and tax."),
   zipCode: z.string().regex(/^\d{5}(?:-\d{4})?$/u).optional(),
   membershipIds: z.array(z.string().trim().min(1).max(80)).max(20).default([]),
   identity: ProductWatchIdentitySchema.optional(),
   conditionPreference: ProductWatchConditionPreferenceSchema.optional(),
   intervalMinutes: z.number().int().min(15).max(1_440).default(60),
   expiresAt: z.string().datetime({ offset: true }).optional()
+};
+
+export const WatchQuoteReferenceSchema = z.object({
+  renderId: z.string().uuid(),
+  variantId: z.string().regex(/^\d{1,30}$/u)
 }).strict();
 
-export const WatchSpecSchema = WatchSpecInputSchema.superRefine((spec, context) => {
+export const WatchSelectedProductSchema = z.object({
+  sourceKind: z.literal("SHOPIFY_GLOBAL_CATALOG"),
+  merchantId: z.string().trim().min(1).max(160),
+  merchant: z.string().trim().min(1).max(160),
+  sourceHost: z.string().trim().min(1).max(253),
+  variantId: z.string().regex(/^\d{1,30}$/u),
+  title: z.string().trim().min(1).max(500),
+  merchantUrl: z.string().url(),
+  condition: z.enum(["NEW", "USED", "REFURBISHED", "OPEN_BOX", "UNKNOWN"]),
+  variantDimensions: z.record(z.string(), z.string()),
+  selectedAt: z.string().datetime({ offset: true })
+}).strict();
+
+export const WatchSpecInputSchema = z.object({
+  ...WatchSpecShape,
+  quoteReference: WatchQuoteReferenceSchema.optional()
+}).strict();
+
+const PersistedWatchSpecSchema = z.object({
+  ...WatchSpecShape,
+  selectedProduct: WatchSelectedProductSchema.optional()
+}).strict();
+
+export const WatchSpecSchema = PersistedWatchSpecSchema.superRefine((spec, context) => {
   if (["PRICE_BELOW", "DISCOUNT_AT_LEAST", "CASHBACK_AT_LEAST"].includes(spec.condition) && spec.threshold === undefined) {
     context.addIssue({ code: z.ZodIssueCode.custom, message: `${spec.condition} requires threshold` });
   }
   if (["DISCOUNT_AT_LEAST", "COUPON_AVAILABLE", "CASHBACK_AT_LEAST"].includes(spec.condition) && spec.merchant === undefined) {
     context.addIssue({ code: z.ZodIssueCode.custom, message: `${spec.condition} requires merchant` });
   }
+  if (spec.priceBasis === "DELIVERED_TOTAL" && spec.zipCode === undefined) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "DELIVERED_TOTAL requires zipCode" });
+  }
+  if (spec.priceBasis === "DELIVERED_TOTAL" && spec.selectedProduct === undefined) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "DELIVERED_TOTAL requires selectedProduct" });
+  }
 });
 
 export type WatchSpec = z.infer<typeof WatchSpecSchema>;
 
-export function productWatchClarificationQuestions(spec: WatchSpec): string[] {
+type ProductWatchClarificationSpec = z.infer<typeof WatchSpecInputSchema> | WatchSpec;
+
+export function productWatchClarificationQuestions(spec: ProductWatchClarificationSpec): string[] {
   if (!["PRICE_BELOW", "IN_STOCK", "RESTOCKED"].includes(spec.condition)) return [];
   const questions: string[] = [];
-  if (spec.identity === undefined) {
+  const selectedProduct = "selectedProduct" in spec ? spec.selectedProduct : undefined;
+  const quoteReference = "quoteReference" in spec ? spec.quoteReference : undefined;
+  const stableSelectionProvided = selectedProduct !== undefined ||
+    (spec.priceBasis === "DELIVERED_TOTAL" && quoteReference !== undefined);
+  const identity = spec.identity;
+  if (spec.condition === "PRICE_BELOW" && spec.priceBasis === undefined) {
+    questions.push("Should this watch compare ITEM_PRICE or DELIVERED_TOTAL (item price plus shipping and tax)?");
+  }
+  if (spec.priceBasis === "DELIVERED_TOTAL" && spec.zipCode === undefined) {
+    questions.push("Which US ZIP code should be used for shipping and tax estimates?");
+  }
+  if (spec.priceBasis === "DELIVERED_TOTAL" && !stableSelectionProvided) {
+    questions.push("Which previously returned Shopify product should be monitored? Provide its quoteReference.");
+  }
+  if (spec.priceBasis !== "DELIVERED_TOTAL" && !stableSelectionProvided && identity === undefined) {
     questions.push("Which generation, exact model number, or GTIN should this watch monitor?");
-  } else if (
-    spec.identity.generation !== undefined &&
-    spec.identity.modelNumber === undefined &&
-    spec.identity.gtin === undefined &&
+  } else if (spec.priceBasis !== "DELIVERED_TOTAL" && !stableSelectionProvided &&
+    identity?.generation !== undefined &&
+    identity.modelNumber === undefined &&
+    identity.gtin === undefined &&
     spec.merchant === undefined
   ) {
     questions.push("Which merchant should this generation or named style watch monitor?");

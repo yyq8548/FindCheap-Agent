@@ -39,15 +39,18 @@ function nodes(node: FakeNode): FakeNode[] {
 
 describe("product-card MCP Apps UI", () => {
   it("uses an embedded Codex-native surface with responsive cards", () => {
-    expect(PRODUCT_CARD_UI_URI).toBe("ui://findcheap/product-cards/v18.html");
+    expect(PRODUCT_CARD_UI_URI).toBe("ui://findcheap/product-cards/v19.html");
     expect(PRODUCT_CARD_HTML).toContain("--fc-surface:");
     expect(PRODUCT_CARD_HTML).toContain("background: var(--fc-action);");
     expect(PRODUCT_CARD_HTML).toContain("@media (max-width: 640px)");
     expect(PRODUCT_CARD_HTML).toContain("@media (prefers-reduced-motion: reduce)");
     expect(PRODUCT_CARD_HTML).not.toContain("#177245");
     expect(PRODUCT_CARD_HTML).not.toContain("0 8px 28px");
+    expect(PRODUCT_CARD_HTML).toContain("grid-template-columns: 1fr;");
     expect(PRODUCT_CARD_HTML).toContain("box-shadow: none;");
     expect(PRODUCT_CARD_HTML).toContain("border: 1px solid var(--fc-border-strong);");
+    expect(PRODUCT_CARD_HTML).toContain("a:active { transform: translateY(1px); }");
+    expect(PRODUCT_CARD_HTML).toContain("replace(/[—–]/gu, \"-\")");
   });
 
   it("reports size only after rendered DOM, without ResizeObserver, and persists app-only metrics", async () => {
@@ -113,7 +116,7 @@ describe("product-card MCP Apps UI", () => {
       params: expect.objectContaining({
         name: "report_product_card_metrics",
         arguments: expect.objectContaining({
-          version: "0.8.0",
+          version: "0.8.1",
           terminalStage: "DOM_RENDERED",
           stages: expect.objectContaining({ DOM_RENDERED: expect.any(Number) })
         })
@@ -391,7 +394,7 @@ describe("product-card MCP Apps UI", () => {
       method: "ui/initialize",
       params: {
         protocolVersion: "2026-01-26",
-        appInfo: { name: "FindCheap Agent product cards", version: "0.8.0" },
+        appInfo: { name: "FindCheap Agent product cards", version: "0.8.1" },
         appCapabilities: { availableDisplayModes: ["inline"] }
       }
     });
