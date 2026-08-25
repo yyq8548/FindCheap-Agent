@@ -45,6 +45,10 @@ For a follow-up quote, refer to a result by its number or choose it from the car
 
 The plugin uses one constrained search request across its eligible sources. Approved Awin products are considered first for supported categories only when they satisfy the requested identity, condition, required features, availability, and price limits. Shopify Global Catalog fills remaining slots. Supported Chinese product terms are translated while identity and variant details remain unchanged.
 
+Explicit non-price requirements are hard filters, not ranking hints. The matcher normalizes display size, memory, storage, package count, volume, weight, resolution, refresh rate, power, apparel and shoe size, color, model generation, and compatibility wording. It understands common metric, US customary, and Chinese forms, including equivalent expressions such as `14-inch`, `14"`, and `35.56 cm`, along with minimum, maximum, and approximate requirements. Memory, storage, physical dimensions, quantity, and marketing refresh-rate labels remain separate so that a shared number does not create a false match.
+
+Product searches reject common accessories such as sleeves, hubs, mounts, screen protectors, and replacement earpads when the user asks for the main product. Accessories remain eligible when the request explicitly asks for one. Model and generation tokens must match at their boundaries, so a longer model number cannot pass as a shorter requested model.
+
 Clear product families such as `MacBook Pro` count as identity evidence during category checks. When a query already includes a product family or model, translation does not add a generic category such as `laptop`, `phone`, or `headphones`. A matching product is not rejected simply because its title omits that generic word. The router does not assume that an item is new when the user has not stated a condition. Each result keeps its observed condition label, and `UNKNOWN` remains eligible. An explicit request for new, used, refurbished, open-box, or unknown condition becomes a filter.
 
 Results use three match labels:
