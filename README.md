@@ -125,8 +125,6 @@ Tell me when this jacket is back in stock in black, size M.
 
 ## Affiliate status
 
-Amazonliss (US), Awin merchant `20282`, is approved for publisher `3047955`. In production, the unified `search_products` router reads the authenticated HTTPS Feed service configured by `AWIN_PRODUCT_FEED_URL` and `AWIN_PRODUCT_FEED_TOKEN`. For local development it falls back to `datafeed_3047955.csv.gz` in Downloads, or `AWIN_PRODUCT_FEED_PATH`. Returned Awin deep links include disclosure and use the same product-card contract as Shopify results.
-
 This Feed has item price, availability, and merchant product ID, but no GTIN, MPN, brand, or condition. Results therefore remain `DISCOVERY_MATCH`, `DISCOVERY_ONLY`, and `condition: UNKNOWN`; they are not exact or same-product comparisons. When an exact prior merchant product path safely resolves to one supported Shopify Variant, a ZIP follow-up can show selected shipping, tax, and estimated total. Otherwise the result remains item-price-only. Coupons and member price remain unavailable unless separately verified. Other product sources keep canonical merchant links unless their own approved relationship is configured. Commission never affects ranking.
 
 See [Awin Product Feed production deployment](docs/product/awin-feed-deployment.md) for the scheduled downloader, persistent volume, authenticated endpoint, and required secrets.
