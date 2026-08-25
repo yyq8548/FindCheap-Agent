@@ -1,6 +1,6 @@
 {
   "name": "findcheap-agent",
-  "version": "0.8.3+codex.20260824205253",
+  "version": "0.8.4+codex.20260824213000",
   "description": "Search Shopify Global Catalog and an approved Awin Feed, find verified deals, and monitor prices, promotions, and stock.",
   "author": {
     "name": "yyq8548"
@@ -12,14 +12,14 @@
   "interface": {
     "displayName": "FindCheap Agent",
     "shortDescription": "Verified cards, pricing, coupons, and safe links.",
-    "longDescription": "FindCheap Agent is a Codex Plugin Agent. v0.8.3 exposes one product-search entrypoint across configured product sources plus an authorized bounded Chrome fallback. Commercial relationships never affect relevance or ranking. Every card has an explicit ZIP-quote capability and a stable selectionId for follow-up inspection, delivered-total quotes, and Watch rules. Street addresses are never requested or persisted in chat; unsupported ZIP quotes recover to merchant checkout or another existing card. The agent never checks out, reserves inventory, purchases, or pays.",
+    "longDescription": "FindCheap Agent is a Codex Plugin Agent. v0.8.4 uses a low-latency direct-call path for product search, selected-product ZIP quotes, verified deals, and Watch rules. Commercial relationships never affect relevance or ranking. Every card has a stable selectionId. Authorized Chrome remains a bounded fallback after complete API zero results. The agent never checks out, reserves inventory, purchases, or pays.",
     "developerName": "yyq8548",
     "category": "Productivity",
     "capabilities": [
       "Interactive"
     ],
     "defaultPrompt": [
-      "Search products, find verified deals, or create and bind a Watch to Codex Automation. Never launch MCP."
+      "Clear shopping request: call matching tool now. No Memory, repo scan, plan narration, or manual MCP launch."
     ]
   }
 }

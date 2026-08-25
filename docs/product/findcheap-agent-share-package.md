@@ -24,7 +24,7 @@ Open the Plugins Directory and confirm:
 - marketplace: `FindCheap Agent`
 - plugin: `FindCheap Agent`
 - plugin ID: `findcheap-agent`
-- version: `0.8.3`
+- version: `0.8.4`
 
 Test prompt:
 
@@ -32,8 +32,8 @@ Test prompt:
 FindCheap Agent 搜索 DÔEN dress，显示三个商品卡片
 ```
 
-Expected behavior: one Shopify Global Catalog search, one immutable product-card render, at most
-three product cards, and no Chrome fallback when API results exist.
+Expected behavior: one unified product search, one immutable product-card render, at most three
+cards, no Memory or repository scan, and no Chrome fallback when API results exist.
 
 Approved Awin Feed test prompt:
 
@@ -41,10 +41,9 @@ Approved Awin Feed test prompt:
 FindCheap Agent 搜索 Amazonliss keratin mask
 ```
 
-Expected behavior: one `search_awin_products` call reading the authenticated remote Feed when
-`AWIN_PRODUCT_FEED_URL` is configured, otherwise `datafeed_3047955.csv.gz` from Downloads; up to
-three `DISCOVERY_MATCH` results with `condition: UNKNOWN`, disclosed approved Awin links, and no
-Shopify or Chrome call. See `docs/product/awin-feed-deployment.md` for production setup.
+Expected behavior: one `search_products` call reading configured sources; up to three relevant
+cards with explicit identity and condition labels. See `docs/product/awin-feed-deployment.md` for
+production Feed setup.
 
 Haircare category routing test prompt:
 
@@ -52,9 +51,8 @@ Haircare category routing test prompt:
 FindCheap Agent 搜索角蛋白发膜
 ```
 
-Expected behavior: translate the hair-specific category into a concise English Feed query and call
-`search_awin_products` first. Return only relevant Awin results when present; use Shopify once only
-after a complete zero-result Feed response. Never merge the two sources or rank by commission.
+Expected behavior: translate the category into concise English and call `search_products` once.
+Source routing stays internal; commercial relationships never affect ranking.
 
 ## Update
 

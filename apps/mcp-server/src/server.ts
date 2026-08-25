@@ -87,7 +87,7 @@ const ProductCardStagesSchema = z.object({
 
 const ProductCardTelemetryInputSchema = z.object({
   renderId: z.string().uuid(),
-  version: z.literal("0.8.3"),
+  version: z.literal("0.8.4"),
   terminalStage: z.enum([
     "DOM_RENDERED",
     "FIRST_IMAGE_SETTLED",
@@ -820,12 +820,9 @@ function unifiedResult(
   const chromeAdvice = execution.chromeFallbackEligible
     ? "No configured source returned a qualifying product. The user may authorize one bounded Chrome whole-web fallback."
     : "";
-  const message = [
-    `Found ${products.length} qualifying product recommendation(s).`,
-    input.selectionMode === "LOWEST_PRICE" ? "Results are ordered by qualifying item price." : "Results preserve merchant diversity.",
-    chromeAdvice,
-    "Condition, required feature, availability, identity, and price constraints are applied before ranking."
-  ].filter(Boolean).join(" ");
+  const message = products.length === 0
+    ? chromeAdvice || "No qualifying product returned."
+    : `Returned ${products.length} ranked product card(s). Use the cards; do not repeat every field.`;
   const dataUnavailable = products.length === 0 && (
     execution.sourceStatus.shopify === "UNAVAILABLE" ||
     (execution.sourceStatus.awin === "UNAVAILABLE" && execution.sourceStatus.shopify === "SKIPPED")
@@ -1338,7 +1335,7 @@ export function createShoppingServer(
   dependencies: ShoppingServerDependencies = {}
 ): McpServer {
   void comparePort;
-  const server = new McpServer({ name: "findcheap-agent", version: "0.8.3" });
+  const server = new McpServer({ name: "findcheap-agent", version: "0.8.4" });
   const dealPort = dependencies.deals ?? createUnavailableDealPort();
   const awinPort = dependencies.awin ?? createUnavailableAwinPort();
   const toolAvailability = dependencies.toolAvailability ?? {
@@ -1506,7 +1503,7 @@ export function createShoppingServer(
     "search_products",
     {
       title: "Search products",
-      description: "The single public product-search entrypoint. Search once through FindCheap's configured product sources. Use selectionMode=LOWEST_PRICE only when the user explicitly asks for the cheapest qualifying item, and pass maxItemPriceCents for a stated ceiling. Commercial relationships never affect relevance or ranking. Reuse the returned quoteReference for every selected-product delivery quote; never search a selected title again.",
+      description: "For a clear product request, call immediately without Memory, repo scans, or plan narration. This is the single public product-search entrypoint; call once. Use selectionMode=LOWEST_PRICE only when explicitly requested; pass maxItemPriceCents for a ceiling. Commercial relationships never affect relevance or ranking. Reuse selectionId for every follow-up; never search a selected title again.",
       inputSchema: SearchProductsInputSchema,
       outputSchema: ShopifyProductsOutputShape,
       annotations: {
@@ -1582,7 +1579,7 @@ export function createShoppingServer(
         ...response,
         content: [{
           type: "text" as const,
-          text: `${response.content[0]!.text}\nInternal follow-up selection references: ${selectionReferences}. Use selectionId directly; never scan task history or session files.`
+          text: `${response.content[0]!.text}\nSelections: ${selectionReferences}. Reuse selectionId; never search titles.`
         }],
         structuredContent: content
       };
@@ -1833,7 +1830,7 @@ export function createShoppingServer(
     "quote_selected_shopify_product",
     {
       title: "Quote a selected product",
-      description: "Get a ZIP-based shipping, tax, and estimated total for exactly one product returned by search_products. Pass selectionId directly; never scan task history or session files. Never request or send a street address in chat. If ZIP quoting is unsupported, keep the existing cards visible so the user can choose another result or continue to merchant checkout.",
+      description: "For a selected-card ZIP request, call immediately without Memory, repo scans, or plan narration. Quote exactly one prior selectionId; never search its title or request a street address. Unsupported ZIP quotes keep existing cards available.",
       inputSchema: ShopifySelectedQuoteInputSchema,
       outputSchema: ShopifyProductsOutputShape,
       annotations: {
@@ -1991,7 +1988,7 @@ export function createShoppingServer(
     "create_watch",
     {
       title: "Create a shopping watch",
-      description: "Persist a Watch rule and return the exact Codex Automation handoff. PRICE_BELOW requires an explicit ITEM_PRICE or DELIVERED_TOTAL priceBasis. DELIVERED_TOTAL also requires ZIP and the exact prior Shopify quoteReference, which is reused without a title search. Monitoring is not active until bind_watch_automation succeeds.",
+      description: "For a clear Watch request, call immediately without Memory, repo scans, or sequence narration. Persist one rule and return exact Automation handoff. PRICE_BELOW needs explicit priceBasis. DELIVERED_TOTAL needs ZIP and prior selectionId. Active only after bind_watch_automation succeeds.",
       inputSchema: WatchSpecInputSchema,
       outputSchema: {
         status: z.enum(["READY_TO_SCHEDULE", "ACTIVE", "PAUSED", "LEGACY_UNVERIFIED", "NEEDS_CLARIFICATION", "DATA_SOURCE_UNAVAILABLE"]),
