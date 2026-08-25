@@ -45,15 +45,25 @@ For a follow-up quote, refer to a result by its number or choose it from the car
 
 The plugin uses one constrained search request across its eligible sources. Approved Awin products are considered first for supported categories only when they satisfy the requested identity, condition, required features, availability, and price limits. Shopify Global Catalog fills remaining slots. Supported Chinese product terms are translated while identity and variant details remain unchanged.
 
+Clear product families such as `MacBook Pro` count as identity evidence during category checks. When a query already includes a product family or model, translation does not add a generic category such as `laptop`, `phone`, or `headphones`. A matching product is not rejected simply because its title omits that generic word. The router does not assume that an item is new when the user has not stated a condition. Each result keeps its observed condition label, and `UNKNOWN` remains eligible. An explicit request for new, used, refurbished, open-box, or unknown condition becomes a filter.
+
 Results use three match labels:
 
 - `EXACT` requires strong UPID, GTIN, or brand plus MPN/SKU evidence for the requested variant.
 - `DISCOVERY_MATCH` is relevant but does not have enough evidence for a same-product claim.
 - `SIMILAR` is an alternative, not the same item.
 
-Exact merchant domains can be labeled `OFFICIAL`, `AUTHORIZED_RETAILER`, `ESTABLISHED_RETAILER`, `UNKNOWN`, or `RISKY` when checked-in evidence supports the label. Only independently verified Shopify merchants and merchants supplied by an approved Awin Advertiser Feed can enter recommendation cards. Unknown and risky merchants are excluded before ranking. Affiliate status never affects ranking.
+### Result reliability
 
-Affiliate commission never affects routing or ranking. `LOWEST_PRICE` compares qualifying item prices across sources; normal discovery preserves merchant diversity. If the first routed pass cannot fill the requested cards, the plugin runs one feature-enriched, larger-pool API search and reapplies the original hard constraints and merchant verification. Expanded results remain `DISCOVERY_MATCH` unless exact identity evidence exists. Chrome is offered only after the expanded pass also returns no usable verified product; partial coverage and source errors fail closed.
+FindCheap Agent keeps product identity, merchant trust, condition, and price evidence separate:
+
+- Match labels describe product identity only. `EXACT` requires strong identity evidence. `DISCOVERY_MATCH` and `SIMILAR` do not prove that two listings are the same product.
+- Normal discovery orders merchants in three tiers. Independently reviewed official, authorized, or established retailers and approved Awin programs come first. Shopify products rated above `3.8` with at least `2` reviews come next when the merchant has not been independently verified. Other relevant merchants may appear last with a limited-trust warning. A product rating does not verify the merchant. Domains classified as `RISKY` are excluded.
+- Awin approval confirms the configured affiliate program and link path. It is not an independent endorsement of the merchant or product. Commission does not affect relevance or ranking.
+- A displayed item price is the value returned by the configured source at observation time. Shipping, tax, mandatory fees, member price, coupons, and delivered total stay unavailable until the relevant merchant evidence or a successful quote provides them. ZIP tax may be labeled as an estimate, and checkout can change the final amount.
+- `UNKNOWN` condition means the source did not verify condition. It must not be described as new. For merchants with limited trust evidence, users should check seller identity, returns, and payment protection before buying.
+
+Affiliate commission never affects routing or ranking. `LOWEST_PRICE` compares qualifying item prices across sources; normal discovery preserves merchant diversity. If the first routed pass cannot fill the requested cards, the plugin runs one feature-enriched, larger-pool API search and reapplies the original hard constraints and merchant checks. Expanded results remain `DISCOVERY_MATCH` unless exact identity evidence exists. Chrome is offered only after the expanded pass also returns no usable product; partial coverage and source errors fail closed.
 
 ## Offer comparison and delivery estimates
 
