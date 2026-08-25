@@ -213,6 +213,81 @@ describe("unified product search", () => {
     expect(result.candidates).toHaveLength(1);
   });
 
+  it("keeps missing hard-feature evidence as a limited DISCOVERY_MATCH", async () => {
+    const result = await searchProducts(SearchProductsInputSchema.parse({
+      query: "women shoes",
+      productType: "ballet flats",
+      requiredFeatures: ["leather"],
+      preferences: ["日常穿"]
+    }), {
+      awin: awin([]),
+      shopify: shopify([shopifyProduct("flat-unknown", 7900, "UNKNOWN", {
+        title: "Classic ballet flat",
+        productType: "Women's flats",
+        description: "Simple slip-on design"
+      })])
+    });
+
+    expect(result.candidates).toHaveLength(1);
+    expect(result.candidates[0]?.shopifyProduct?.matchStatus).toBe("DISCOVERY_MATCH");
+    expect(result.candidates[0]?.requiredFeatureLimitations).toEqual(["leather"]);
+    expect(result.featureProductsExcluded).toBe(0);
+  });
+
+  it("uses title, category, description, and structured attributes as feature evidence", async () => {
+    const result = await searchProducts(SearchProductsInputSchema.parse({
+      query: "women shoes",
+      productType: "flat shoes",
+      requiredFeatures: ["皮质", "平底鞋"]
+    }), {
+      awin: awin([]),
+      shopify: shopify([shopifyProduct("leather-flat", 9900, "UNKNOWN", {
+        title: "Women's everyday shoe",
+        productType: "Ballet flats",
+        description: "Genuine leather upper",
+        variantDimensions: { Construction: "flat sole" }
+      })])
+    });
+
+    expect(result.candidates[0]?.featureEvidence).toEqual(["皮质", "平底鞋"]);
+    expect(result.candidates[0]?.requiredFeatureLimitations).toEqual([]);
+  });
+
+  it("excludes explicit conflicts but never filters on a subjective preference", async () => {
+    const result = await searchProducts(SearchProductsInputSchema.parse({
+      query: "women shoes",
+      productType: "flat shoes",
+      requiredFeatures: ["flat sole"],
+      preferences: ["日常穿"]
+    }), {
+      awin: awin([]),
+      shopify: shopify([
+        shopifyProduct("heels", 6000, "UNKNOWN", { title: "Women's high heel pump" }),
+        shopifyProduct("plain-flat", 6500, "UNKNOWN", { title: "Women's ballet flat" }),
+        shopifyProduct("daily-flat", 7000, "UNKNOWN", { title: "Women's everyday casual ballet flat" })
+      ])
+    });
+
+    expect(result.candidates.map((candidate) => candidate.shopifyProduct?.handle)).toEqual([
+      "daily-flat",
+      "plain-flat"
+    ]);
+    expect(result.candidates[0]?.preferenceEvidence).toEqual(["日常穿"]);
+    expect(result.featureProductsExcluded).toBe(1);
+  });
+
+  it("adds productType to the initial source query", async () => {
+    const shopifySearch = vi.fn(async () => shopifyResult([shopifyProduct("flat", 5000)]));
+    await searchProducts(SearchProductsInputSchema.parse({
+      query: "women black",
+      productType: "ballet flats"
+    }), { awin: awin([]), shopify: { search: shopifySearch } });
+
+    expect(shopifySearch).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      query: "women black ballet flats"
+    }));
+  });
+
   it("orders trusted, qualified high-rated, then general unverified merchants", async () => {
     const highRated = shopifyProduct("high-rated", 1000, "NEW", {
       merchantTrust: {

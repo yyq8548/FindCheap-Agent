@@ -65,6 +65,10 @@ const VariantSchema = z.object({
 const ProductSchema = z.object({
   id: z.string().regex(/^gid:\/\/shopify\/p\/[A-Za-z0-9]+$/u).max(200),
   title: z.string().trim().min(1).max(1_000),
+  description: z.string().trim().max(20_000).optional(),
+  product_type: z.string().trim().max(300).optional(),
+  productType: z.string().trim().max(300).optional(),
+  category: z.string().trim().max(300).optional(),
   options: z.array(z.object({
     name: z.string().trim().min(1).max(100),
     values: z.array(z.object({ label: z.string().trim().min(1).max(300) }).passthrough()).max(100)
@@ -111,6 +115,15 @@ const CHINESE_QUERY_REPLACEMENTS = [
   ["跑步鞋", "running shoes", "athletic shoes"],
   ["跑鞋", "running shoes", "athletic shoes"],
   ["运动鞋", "sneakers", "shoes"],
+  ["平底皮鞋", "leather flat shoes", "flat shoes"],
+  ["芭蕾平底鞋", "ballet flats", "flat shoes"],
+  ["芭蕾舞鞋", "ballet shoes", "flat shoes"],
+  ["平底鞋", "flat shoes", "shoes"],
+  ["乐福鞋", "loafers", "shoes"],
+  ["高跟鞋", "high heels", "shoes"],
+  ["皮鞋", "leather shoes", "shoes"],
+  ["靴子", "boots", "shoes"],
+  ["凉鞋", "sandals", "shoes"],
   ["连衣裙", "dress", "dress"],
   ["裙子", "dress", "dress"],
   ["咖啡豆", "coffee beans", "coffee"],
@@ -151,6 +164,17 @@ const CHINESE_QUERY_REPLACEMENTS = [
   ["保护壳", "case", "case"],
   ["男士", "men", "men"],
   ["女士", "women", "women"],
+  ["女款", "women", "women"],
+  ["男款", "men", "men"],
+  ["真皮", "genuine leather", "leather"],
+  ["皮质", "leather", ""],
+  ["皮革", "leather", ""],
+  ["人造皮", "faux leather", ""],
+  ["合成革", "synthetic leather", ""],
+  ["日常穿", "everyday", ""],
+  ["通勤", "office wear", ""],
+  ["休闲", "casual", ""],
+  ["极简", "minimalist", ""],
   ["黑色", "black", "black"],
   ["白色", "white", "white"],
   ["蓝色", "blue", "blue"],
@@ -483,6 +507,7 @@ function toCandidate(
     .find(isAllowedImageUrl);
   const merchantTrust = resolveMerchantTrust(new URL(productUrl).hostname, variant.seller.name);
   const productRating = normalizeProductRating(variant.rating ?? product.rating);
+  const productType = product.product_type ?? product.productType ?? product.category;
   return {
     catalogProductId: product.id,
     merchantId: `shopify-${shopId}`,
@@ -492,6 +517,8 @@ function toCandidate(
     recommendationTier: merchantRecommendationTier(merchantTrust, productRating),
     handle: variantId,
     title: variant.title,
+    ...(productType === undefined ? {} : { productType }),
+    description: [product.title, product.description].filter((value): value is string => value !== undefined).join(" "),
     gtins: [],
     variantDimensions: Object.fromEntries((variant.options ?? []).map((option) => [option.name, option.label])),
     matchStatus: "SIMILAR",

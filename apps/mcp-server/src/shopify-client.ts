@@ -30,6 +30,8 @@ export type ShopifyProduct = {
   recommendationTier?: MerchantRecommendationTier;
   handle: string;
   title: string;
+  productType?: string;
+  description?: string;
   brand?: string;
   sku?: string;
   gtins: string[];
