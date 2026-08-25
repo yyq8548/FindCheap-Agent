@@ -58,8 +58,9 @@ const WatchSpecShape = {
 };
 
 export const WatchQuoteReferenceSchema = z.object({
-  renderId: z.string().uuid(),
-  variantId: z.string().regex(/^\d{1,30}$/u)
+  selectionId: z.string().uuid().optional(),
+  renderId: z.string().uuid().optional(),
+  variantId: z.string().regex(/^\d{1,30}$/u).optional()
 }).strict();
 
 export const WatchSelectedProductSchema = z.object({
@@ -109,8 +110,10 @@ export function productWatchClarificationQuestions(spec: ProductWatchClarificati
   const questions: string[] = [];
   const selectedProduct = "selectedProduct" in spec ? spec.selectedProduct : undefined;
   const quoteReference = "quoteReference" in spec ? spec.quoteReference : undefined;
+  const stableQuoteReference = quoteReference?.selectionId !== undefined ||
+    (quoteReference?.renderId !== undefined && quoteReference.variantId !== undefined);
   const stableSelectionProvided = selectedProduct !== undefined ||
-    (spec.priceBasis === "DELIVERED_TOTAL" && quoteReference !== undefined);
+    (spec.priceBasis === "DELIVERED_TOTAL" && stableQuoteReference);
   const identity = spec.identity;
   if (spec.condition === "PRICE_BELOW" && spec.priceBasis === undefined) {
     questions.push("Should this watch compare ITEM_PRICE or DELIVERED_TOTAL (item price plus shipping and tax)?");
@@ -119,7 +122,7 @@ export function productWatchClarificationQuestions(spec: ProductWatchClarificati
     questions.push("Which US ZIP code should be used for shipping and tax estimates?");
   }
   if (spec.priceBasis === "DELIVERED_TOTAL" && !stableSelectionProvided) {
-    questions.push("Which previously returned Shopify product should be monitored? Provide its quoteReference.");
+    questions.push("Which previously returned product should be monitored? Provide its quoteReference or selectionId.");
   }
   if (spec.priceBasis !== "DELIVERED_TOTAL" && !stableSelectionProvided && identity === undefined) {
     questions.push("Which generation, exact model number, or GTIN should this watch monitor?");

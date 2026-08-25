@@ -191,7 +191,7 @@ describe("Shopify tokenless Cart quote", () => {
     expect(request).not.toHaveBeenCalled();
   });
 
-  it("requests a full address before declaring that no delivery option exists", async () => {
+  it("fails with FULL_ADDRESS_REQUIRED when ZIP-only delivery options are unavailable", async () => {
     const noDelivery = createShopifyCartQuotePort(
       { SHOPIFY_CART_QUOTE_MODE: "tokenless" },
       { request: async () => ({
@@ -209,13 +209,6 @@ describe("Shopify tokenless Cart quote", () => {
     );
     await expect(noDelivery.quote(product, "33433")).rejects.toMatchObject({
       code: "FULL_ADDRESS_REQUIRED"
-    });
-    await expect(noDelivery.quote(product, "33433", {
-      address1: "123 Main St",
-      city: "Boca Raton",
-      provinceCode: "FL"
-    })).rejects.toMatchObject({
-      code: "NO_DELIVERY_OPTIONS"
     });
   });
 
@@ -304,7 +297,7 @@ describe("Shopify tokenless Cart quote", () => {
     }
   });
 
-  it("classifies timeouts and sends optional one-time address fields", async () => {
+  it("classifies timeouts and sends ZIP-only delivery preferences", async () => {
     const timeout = createShopifyCartQuotePort(
       { SHOPIFY_CART_QUOTE_MODE: "tokenless" },
       { request: async () => {
@@ -316,26 +309,19 @@ describe("Shopify tokenless Cart quote", () => {
     await expect(timeout.quote(product, "33433")).rejects.toMatchObject({ code: "QUOTE_TIMEOUT" });
 
     const requests: ShopifyCartRequest[] = [];
-    const addressed = createShopifyCartQuotePort(
+    const zipOnly = createShopifyCartQuotePort(
       { SHOPIFY_CART_QUOTE_MODE: "tokenless" },
       { request: async (input) => {
         requests.push(input);
         return requests.length === 1 ? createResponse() : updateResponse();
       } }
     );
-    await addressed.quote(product, "33433", {
-      address1: "123 Main St",
-      city: "Boca Raton",
-      provinceCode: "FL"
-    });
+    await zipOnly.quote(product, "33433");
     expect(requests[0]?.variables).toMatchObject({
       input: {
         buyerIdentity: {
           deliveryAddressPreferences: [{
             deliveryAddress: {
-              address1: "123 Main St",
-              city: "Boca Raton",
-              province: "FL",
               country: "US",
               zip: "33433"
             },
@@ -344,6 +330,7 @@ describe("Shopify tokenless Cart quote", () => {
         }
       }
     });
+    expect(JSON.stringify(requests[0]?.variables)).not.toContain("address1");
   });
 
   it("rejects every DNS set containing a private address before sending Cart data", async () => {

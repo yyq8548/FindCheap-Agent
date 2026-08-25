@@ -9,6 +9,7 @@ import {
 import {
   createUnavailableShopifyPort,
   type ShopifyPort,
+  type ShopifyProduct,
   type ShopifySearchResult
 } from "./shopify-client.js";
 import { hasSpecificProductIdentity } from "./shopify-match.js";
@@ -19,7 +20,7 @@ import {
   type ShopifyQuoteFailureCode
 } from "./shopify-cart-quote.js";
 import type { ShopifySelectedProductInspector } from "./shopify-selected-product.js";
-import type { AwinShopifyQuoteResolver } from "./awin-shopify-quote.js";
+import type { AwinShopifyQuoteResolver, AwinShopifyQuoteSeed } from "./awin-shopify-quote.js";
 import {
   createAffiliateLinkResolver,
   type AffiliateLinkResolver
@@ -63,6 +64,7 @@ export type { WatchStore } from "./watch-store.js";
 export type { AwinProductPort } from "../../../packages/awin-feed/src/index.js";
 
 const CardStageDurationSchema = z.number().nonnegative().max(300_000);
+const SelectionIdSchema = z.string().uuid();
 const ProductCardStagesSchema = z.object({
   IFRAME_LOADED: CardStageDurationSchema.optional(),
   RESOURCE_EVALUATED: CardStageDurationSchema.optional(),
@@ -85,7 +87,7 @@ const ProductCardStagesSchema = z.object({
 
 const ProductCardTelemetryInputSchema = z.object({
   renderId: z.string().uuid(),
-  version: z.literal("0.8.2"),
+  version: z.literal("0.8.3"),
   terminalStage: z.enum([
     "DOM_RENDERED",
     "FIRST_IMAGE_SETTLED",
@@ -154,22 +156,18 @@ const AwinProductsToolInputSchema = z.object({
 export const ShopifyProductsInputSchema = ShopifyProductsToolInputSchema;
 
 const ShopifySelectedQuoteInputSchema = z.object({
-  renderId: z.string().uuid(),
-  variantId: z.string().regex(/^[A-Za-z0-9._:-]{1,100}$/u),
+  selectionId: SelectionIdSchema.optional(),
+  renderId: z.string().uuid().optional(),
+  variantId: z.string().regex(/^[A-Za-z0-9._:-]{1,100}$/u).optional(),
   zipCode: z.string().regex(/^\d{5}(?:-\d{4})?$/u),
-  deliveryAddress: z.object({
-    address1: z.string().trim().min(1).max(200),
-    city: z.string().trim().min(1).max(100),
-    provinceCode: z.string().regex(/^[A-Z]{2}$/u)
-  }).strict().optional()
 }).strict();
 
 function quoteFailureMessage(code: ShopifyQuoteFailureCode): string {
   switch (code) {
     case "FULL_ADDRESS_REQUIRED":
-      return "[FULL_ADDRESS_REQUIRED] This merchant requires a fuller delivery address. Ask the customer for street address, city, and two-letter state code, then retry the same renderId and variantId. FindCheap sends it once to the merchant and does not save it in FindCheap state.";
+      return "[FULL_ADDRESS_REQUIRED] ZIP-only quoting is unavailable for this merchant. Do not ask for or send a street address in chat. Use merchant checkout for the final total or choose another existing card.";
     case "NO_DELIVERY_OPTIONS":
-      return "[NO_DELIVERY_OPTIONS] This merchant returned no shipping method for this address. The item may not ship to this destination; no shipping, tax, or total was inferred.";
+      return "[NO_DELIVERY_OPTIONS] This merchant returned no shipping method for the supplied ZIP. No shipping, tax, or total was inferred. Choose another existing card or check merchant checkout.";
     case "MERCHANT_CART_UNAVAILABLE":
       return "[MERCHANT_CART_UNAVAILABLE] This merchant's Cart quote service is currently unavailable or incompatible. This does not prove the product is out of stock or invalid. Retry later or check merchant checkout.";
     case "VARIANT_REJECTED":
@@ -180,8 +178,9 @@ function quoteFailureMessage(code: ShopifyQuoteFailureCode): string {
 }
 
 const ShopifySelectedProductInputSchema = z.object({
-  renderId: z.string().uuid(),
-  variantId: z.string().regex(/^\d{1,30}$/u),
+  selectionId: SelectionIdSchema.optional(),
+  renderId: z.string().uuid().optional(),
+  variantId: z.string().regex(/^\d{1,30}$/u).optional(),
   variantDimensions: z.record(
     z.string().trim().min(1).max(100),
     z.string().trim().min(1).max(300)
@@ -217,6 +216,7 @@ const ShopifySelectedProductOutputShape = {
     merchantUrl: z.string().url(),
     checkedAt: z.string(),
     quoteReference: z.object({
+      selectionId: SelectionIdSchema,
       renderId: z.string().uuid(),
       variantId: z.string().regex(/^\d{1,30}$/u)
     }).strict()
@@ -380,9 +380,13 @@ const ShopifyProductOutputSchema = z.object({
     conditionBadge: z.enum(["NEW", "USED", "REFURBISHED", "OPEN_BOX", "UNKNOWN"]),
     availability: z.enum(["IN_STOCK", "OUT_OF_STOCK", "UNKNOWN"]),
     merchantTrustBadge: z.enum(["OFFICIAL", "AUTHORIZED_RETAILER", "ESTABLISHED_RETAILER", "MERCHANT_UNVERIFIED"]),
+    quoteCapability: z.enum(["DELIVERED_TOTAL_SUPPORTED", "ZIP_ESTIMATE_ONLY", "MERCHANT_CHECKOUT_ONLY"]),
     actionLabel: z.literal("View at merchant")
   }),
+  selectionId: SelectionIdSchema.optional(),
+  quoteCapability: z.enum(["DELIVERED_TOTAL_SUPPORTED", "ZIP_ESTIMATE_ONLY", "MERCHANT_CHECKOUT_ONLY"]),
   quoteReference: z.object({
+    selectionId: SelectionIdSchema,
     renderId: z.string().uuid(),
     variantId: z.string().regex(/^[A-Za-z0-9._:-]{1,100}$/u)
   }).strict().optional()
@@ -599,9 +603,7 @@ function shopifyResult(
   const comparison = result.comparison.status === "SAME_PRODUCT"
     ? ` Same-product comparison verified across ${result.comparison.merchantCount} merchants using ${result.comparison.evidence.join("; ")}.`
     : " No cross-merchant same-product identity was independently verified; results are discovery options, not like-for-like offers.";
-  const linkSummary = affiliateLinksApproved === 0
-    ? "Purchase actions use canonical merchant links because no affiliate relationship is active."
-    : `${affiliateLinksApproved} purchase link(s) use an approved affiliate relationship with disclosure; remaining links are canonical merchant links. Commission never affects ranking.`;
+  const linkSummary = "Purchase actions use direct merchant links. Commercial relationships never affect relevance or ranking.";
   const source = result.source;
   const sourceLabel = "Shopify Global Catalog";
   const priceScope = cartQuoteCoverage.succeeded === 0
@@ -641,8 +643,6 @@ function shopifyResult(
       `condition: ${product.condition}`,
       `match evidence: ${product.matchEvidence.join("; ")}`,
       ...(variants === "" ? [] : [`variants: ${variants}`]),
-      `purchase link kind: ${purchaseLink.kind}`,
-      ...(purchaseLink.disclosure === undefined ? [] : [`affiliate disclosure: ${purchaseLink.disclosure}`]),
       `URL: ${purchaseLink.url}`
     ].join(" | ");
   });
@@ -745,6 +745,7 @@ function shopifyResult(
         freshness: { status: "OBSERVED_AT_QUERY" as const, checkedAt: product.checkedAt },
         coupons: { status: "UNAVAILABLE" as const, verified: [] },
         purchaseLink,
+        quoteCapability: "DELIVERED_TOTAL_SUPPORTED" as const,
         card: {
           title: product.title,
           merchant: product.merchant,
@@ -776,6 +777,7 @@ function shopifyResult(
           merchantTrustBadge: product.merchantTrust.verification === "INDEPENDENT"
             ? product.merchantTrust.level as "OFFICIAL" | "AUTHORIZED_RETAILER" | "ESTABLISHED_RETAILER"
             : "MERCHANT_UNVERIFIED" as const,
+          quoteCapability: "DELIVERED_TOTAL_SUPPORTED" as const,
           actionLabel: "View at merchant" as const
         }
       }))
@@ -923,6 +925,7 @@ function awinCardProduct(candidate: UnifiedCandidate): ProductCardProduct {
       url: product.affiliateUrl,
       disclosure: "Affiliate link. FindCheap may earn a commission."
     },
+    quoteCapability: "MERCHANT_CHECKOUT_ONLY",
     card: {
       title: product.title,
       merchant: product.merchant,
@@ -934,8 +937,26 @@ function awinCardProduct(candidate: UnifiedCandidate): ProductCardProduct {
       conditionBadge: product.condition,
       availability: product.availability,
       merchantTrustBadge: "MERCHANT_UNVERIFIED",
+      quoteCapability: "MERCHANT_CHECKOUT_ONLY",
       actionLabel: "View at merchant"
     }
+  };
+}
+
+function awinQuoteSeed(product: ProductCardProduct): AwinShopifyQuoteSeed {
+  if (product.sourceKind !== "AWIN_PRODUCT_FEED" || product.itemPrice === undefined) {
+    throw new ShopifyCartQuoteError("MERCHANT_CART_UNAVAILABLE");
+  }
+  return {
+    merchantId: product.merchantId,
+    merchant: product.merchant,
+    merchantProductId: product.handle,
+    title: product.title,
+    sourceHost: product.sourceHost,
+    merchantUrl: product.merchantUrl,
+    itemPrice: product.itemPrice,
+    availability: product.availability,
+    checkedAt: product.checkedAt
   };
 }
 
@@ -1317,7 +1338,7 @@ export function createShoppingServer(
   dependencies: ShoppingServerDependencies = {}
 ): McpServer {
   void comparePort;
-  const server = new McpServer({ name: "findcheap-agent", version: "0.8.2" });
+  const server = new McpServer({ name: "findcheap-agent", version: "0.8.3" });
   const dealPort = dependencies.deals ?? createUnavailableDealPort();
   const awinPort = dependencies.awin ?? createUnavailableAwinPort();
   const toolAvailability = dependencies.toolAvailability ?? {
@@ -1335,37 +1356,125 @@ export function createShoppingServer(
     }
   };
   const watchChecks = new Map<string, Promise<WatchEvaluation>>();
+  const selections = new Map<string, { renderId: string; variantId: string }>();
   const renderSnapshots = new Map<string, {
     expiresAt: number;
     content: ProductCardContent & { renderId: string };
     sourceResult: ShopifySearchResult;
+    resolvedAwinProducts: Map<string, ShopifyProduct>;
   }>();
   const recordedCardTelemetry = new Set<string>();
+  const deleteSnapshot = (renderId: string) => {
+    const snapshot = renderSnapshots.get(renderId);
+    if (snapshot !== undefined) {
+      for (const product of snapshot.content.products) {
+        if (product.selectionId !== undefined) selections.delete(product.selectionId);
+      }
+    }
+    renderSnapshots.delete(renderId);
+  };
+  const preflightQuoteCapabilities = async (content: ProductCardContent) => {
+    const resolvedAwinProducts = new Map<string, ShopifyProduct>();
+    const products = await Promise.all(content.products.map(async (product) => {
+      if (product.sourceKind !== "AWIN_PRODUCT_FEED") {
+        const quoteCapability = cartQuotes === undefined
+          ? "MERCHANT_CHECKOUT_ONLY" as const
+          : "DELIVERED_TOTAL_SUPPORTED" as const;
+        return { ...product, quoteCapability, card: { ...product.card, quoteCapability } };
+      }
+      if (cartQuotes === undefined || awinShopifyQuotes === undefined || product.itemPrice === undefined) {
+        return product;
+      }
+      const seed = awinQuoteSeed(product);
+      if (!awinShopifyQuotes.supports(seed)) return product;
+      try {
+        const resolved = await awinShopifyQuotes.resolve(seed);
+        const quoteCapability = resolved.availability === "IN_STOCK"
+          ? "ZIP_ESTIMATE_ONLY" as const
+          : "MERCHANT_CHECKOUT_ONLY" as const;
+        if (quoteCapability === "ZIP_ESTIMATE_ONLY") resolvedAwinProducts.set(product.handle, resolved);
+        return {
+          ...product,
+          itemPrice: resolved.itemPrice,
+          availability: resolved.availability,
+          quoteCapability,
+          pricing: {
+            ...product.pricing,
+            regularItemPrice: { status: "VERIFIED" as const, amount: resolved.itemPrice }
+          },
+          card: {
+            ...product.card,
+            primaryPrice: resolved.itemPrice,
+            itemPrice: resolved.itemPrice,
+            availability: resolved.availability,
+            quoteCapability
+          }
+        };
+      } catch {
+        return product;
+      }
+    }));
+    return { content: { ...content, products }, resolvedAwinProducts };
+  };
   const rememberSnapshot = (
     content: ProductCardContent,
-    sourceResult: ShopifySearchResult
+    sourceResult: ShopifySearchResult,
+    resolvedAwinProducts = new Map<string, ShopifyProduct>()
   ): ProductCardContent & { renderId: string } => {
     const renderId = randomUUID();
     const snapshot = {
       ...content,
       renderId,
-      products: content.products.map((product) => ({
-        ...product,
-        quoteReference: { renderId, variantId: product.handle }
-      }))
+      products: content.products.map((product) => {
+        const selectionId = randomUUID();
+        selections.set(selectionId, { renderId, variantId: product.handle });
+        return {
+          ...product,
+          selectionId,
+          quoteReference: { selectionId, renderId, variantId: product.handle }
+        };
+      })
     };
     renderSnapshots.set(renderId, {
       expiresAt: Date.now() + 30 * 60_000,
       content: snapshot,
-      sourceResult
+      sourceResult,
+      resolvedAwinProducts
     });
     while (renderSnapshots.size > 32) {
       const oldest = renderSnapshots.keys().next().value as string | undefined;
       if (oldest === undefined) break;
-      renderSnapshots.delete(oldest);
+      deleteSnapshot(oldest);
     }
     return snapshot;
   };
+  const resolveSelectionReference = (reference: {
+    selectionId?: string | undefined;
+    renderId?: string | undefined;
+    variantId?: string | undefined;
+  }) => reference.selectionId !== undefined
+    ? selections.get(reference.selectionId)
+    : reference.renderId !== undefined && reference.variantId !== undefined
+      ? { renderId: reference.renderId, variantId: reference.variantId }
+      : undefined;
+  const recoverableQuoteResult = (
+    snapshot: (typeof renderSnapshots extends Map<string, infer T> ? T : never),
+    selectedHandle: string,
+    message: string
+  ) => ({
+    content: [{ type: "text" as const, text: message }],
+    structuredContent: {
+      ...snapshot.content,
+      message,
+      products: snapshot.content.products.map((product) => product.handle === selectedHandle
+        ? {
+            ...product,
+            quoteCapability: "MERCHANT_CHECKOUT_ONLY" as const,
+            card: { ...product.card, quoteCapability: "MERCHANT_CHECKOUT_ONLY" as const }
+          }
+        : product)
+    }
+  });
 
   server.registerResource(
     "findcheap-product-cards",
@@ -1464,12 +1573,16 @@ export function createShoppingServer(
         chromeFallbackEligible: execution.chromeFallbackEligible
       })}\n`);
       if (response.structuredContent.products.length === 0) return response;
-      const content = rememberSnapshot(response.structuredContent, enriched.result);
+      const preflight = await preflightQuoteCapabilities(response.structuredContent);
+      const content = rememberSnapshot(preflight.content, enriched.result, preflight.resolvedAwinProducts);
+      const selectionReferences = content.products
+        .map((product, index) => `${index + 1}=${product.selectionId}`)
+        .join(", ");
       return {
         ...response,
         content: [{
           type: "text" as const,
-          text: `${response.content[0]!.text}\nFor a selected card, reuse its quoteReference; do not search its title again.`
+          text: `${response.content[0]!.text}\nInternal follow-up selection references: ${selectionReferences}. Use selectionId directly; never scan task history or session files.`
         }],
         structuredContent: content
       };
@@ -1580,7 +1693,7 @@ export function createShoppingServer(
     "inspect_selected_shopify_product",
     {
       title: "Inspect a selected Shopify product",
-      description: "Check size, color, other variants, or current availability for exactly one native Shopify catalog product returned by search_products. Copy renderId and variantId from its quoteReference; never run another catalog search. Awin cards can be quoted when supported but cannot use this variant-inspection tool.",
+      description: "Check size, color, other variants, or current availability for exactly one native Shopify catalog product returned by search_products. Pass selectionId directly; never scan task history, session files, or run another catalog search. Awin cards can be quoted when supported but cannot use this variant-inspection tool.",
       inputSchema: ShopifySelectedProductInputSchema,
       outputSchema: ShopifySelectedProductOutputShape,
       annotations: {
@@ -1591,10 +1704,19 @@ export function createShoppingServer(
       }
     },
     async (input) => {
-      const { renderId, variantId, variantDimensions = {} } = ShopifySelectedProductInputSchema.parse(input);
+      const parsed = ShopifySelectedProductInputSchema.parse(input);
+      const reference = resolveSelectionReference(parsed);
+      if (reference === undefined) {
+        return {
+          isError: true,
+          content: [{ type: "text" as const, text: "Selected product reference is unavailable. Run one new product search." }]
+        };
+      }
+      const { renderId, variantId } = reference;
+      const { variantDimensions = {} } = parsed;
       const snapshot = renderSnapshots.get(renderId);
       if (snapshot === undefined || snapshot.expiresAt <= Date.now()) {
-        renderSnapshots.delete(renderId);
+        deleteSnapshot(renderId);
         return {
           isError: true,
           content: [{
@@ -1679,7 +1801,7 @@ export function createShoppingServer(
           availability: product.availability,
           merchantUrl: product.merchantUrl,
           checkedAt: product.checkedAt,
-          quoteReference: { renderId: remembered.renderId, variantId: product.handle }
+          quoteReference: product.quoteReference!
         }));
         const message = `Inspected ${variants.length} variant(s) from the exact previously returned product by stable Shopify product and variant identity; no title or catalog search was used.`;
         return {
@@ -1711,7 +1833,7 @@ export function createShoppingServer(
     "quote_selected_shopify_product",
     {
       title: "Quote a selected product",
-      description: "Get shipping, tax, and estimated total for exactly one product returned by search_products. Copy renderId and variantId from that product's quoteReference. Supported merchant pages are resolved to the exact Shopify variant without a title search. When FULL_ADDRESS_REQUIRED is returned, ask for street address, city, and two-letter US state code, then retry the same stable reference.",
+      description: "Get a ZIP-based shipping, tax, and estimated total for exactly one product returned by search_products. Pass selectionId directly; never scan task history or session files. Never request or send a street address in chat. If ZIP quoting is unsupported, keep the existing cards visible so the user can choose another result or continue to merchant checkout.",
       inputSchema: ShopifySelectedQuoteInputSchema,
       outputSchema: ShopifyProductsOutputShape,
       annotations: {
@@ -1728,10 +1850,19 @@ export function createShoppingServer(
       }
     },
     async (input) => {
-      const { renderId, variantId, zipCode, deliveryAddress } = ShopifySelectedQuoteInputSchema.parse(input);
+      const parsed = ShopifySelectedQuoteInputSchema.parse(input);
+      const reference = resolveSelectionReference(parsed);
+      if (reference === undefined) {
+        return {
+          isError: true,
+          content: [{ type: "text" as const, text: "Selected product reference is unavailable. Run one new product search." }]
+        };
+      }
+      const { renderId, variantId } = reference;
+      const { zipCode } = parsed;
       const snapshot = renderSnapshots.get(renderId);
       if (snapshot === undefined || snapshot.expiresAt <= Date.now()) {
-        renderSnapshots.delete(renderId);
+        deleteSnapshot(renderId);
         return {
           isError: true,
           content: [{
@@ -1750,32 +1881,28 @@ export function createShoppingServer(
           }]
         };
       }
+      if (selectedCard.quoteCapability === "MERCHANT_CHECKOUT_ONLY") {
+        return recoverableQuoteResult(
+          snapshot,
+          variantId,
+          "[MERCHANT_CHECKOUT_ONLY] This product cannot provide a ZIP delivered-total estimate. Continue at merchant checkout or choose another existing card; no new search is required."
+        );
+      }
       if (cartQuotes === undefined) {
-        return {
-          isError: true,
-          content: [{ type: "text" as const, text: "Shopify Cart quote provider is unavailable." }]
-        };
+        return recoverableQuoteResult(
+          snapshot,
+          variantId,
+          "[MERCHANT_CART_UNAVAILABLE] ZIP quoting is temporarily unavailable. Continue at merchant checkout or choose another existing card; no new search is required."
+        );
       }
       try {
         const selected = selectedCard.sourceKind === "AWIN_PRODUCT_FEED"
-          ? await awinShopifyQuotes?.resolve({
-              merchantId: selectedCard.merchantId,
-              merchant: selectedCard.merchant,
-              merchantProductId: selectedCard.handle,
-              title: selectedCard.title,
-              sourceHost: selectedCard.sourceHost,
-              merchantUrl: selectedCard.merchantUrl,
-              itemPrice: selectedCard.itemPrice!,
-              availability: selectedCard.availability,
-              checkedAt: selectedCard.checkedAt
-            })
+          ? snapshot.resolvedAwinProducts.get(selectedCard.handle)
           : snapshot.sourceResult.products.find((product) => product.handle === variantId);
         if (selected === undefined) {
           throw new ShopifyCartQuoteError("MERCHANT_CART_UNAVAILABLE");
         }
-        const cartQuote = deliveryAddress === undefined
-          ? await cartQuotes.quote(selected, zipCode)
-          : await cartQuotes.quote(selected, zipCode, deliveryAddress);
+        const cartQuote = await cartQuotes.quote(selected, zipCode);
         const quotedProduct = withCartQuote(selectedCard, cartQuote);
         const { renderId: _previousRenderId, ...previousContent } = snapshot.content;
         const message = `Estimated delivered total for the selected product is USD ${(cartQuote.deliveredPrice.amountCents / 100).toFixed(2)}. It includes item price, selected shipping, and ${cartQuote.tax.status === "ZIP_ESTIMATED" ? "ZIP state-average estimated tax" : "merchant-reported tax"}; final checkout may change.`;
@@ -1798,7 +1925,7 @@ export function createShoppingServer(
             offerCount: 1
           },
           products: [quotedProduct]
-        }, snapshot.sourceResult);
+        }, snapshot.sourceResult, snapshot.resolvedAwinProducts);
         return {
           content: [{ type: "text" as const, text: message }],
           structuredContent: content
@@ -1807,13 +1934,11 @@ export function createShoppingServer(
         const failure = error instanceof ShopifyCartQuoteError
           ? error
           : new ShopifyCartQuoteError("MERCHANT_CART_UNAVAILABLE", { cause: error });
-        return {
-          isError: true,
-          content: [{
-            type: "text" as const,
-            text: quoteFailureMessage(failure.code)
-          }]
-        };
+        return recoverableQuoteResult(
+          snapshot,
+          variantId,
+          `${quoteFailureMessage(failure.code)} Continue at merchant checkout or choose another existing card; no new search is required.`
+        );
       }
     }
   );
@@ -1903,9 +2028,10 @@ export function createShoppingServer(
       const { quoteReference, ...persistedInput } = requested;
       let selectedProduct: z.infer<typeof WatchSpecSchema>["selectedProduct"];
       if (requested.priceBasis === "DELIVERED_TOTAL") {
-        const snapshot = quoteReference === undefined ? undefined : renderSnapshots.get(quoteReference.renderId);
+        const reference = quoteReference === undefined ? undefined : resolveSelectionReference(quoteReference);
+        const snapshot = reference === undefined ? undefined : renderSnapshots.get(reference.renderId);
         if (snapshot === undefined || snapshot.expiresAt <= Date.now()) {
-          if (quoteReference !== undefined) renderSnapshots.delete(quoteReference.renderId);
+          if (reference !== undefined) deleteSnapshot(reference.renderId);
           const message = "The selected product reference expired. Run one new product search, then create the delivered-total watch from that exact card.";
           return { content: [{ type: "text" as const, text: message }], structuredContent: {
             status: "DATA_SOURCE_UNAVAILABLE" as const,
@@ -1913,17 +2039,21 @@ export function createShoppingServer(
             questions: []
           } };
         }
-        const selected = snapshot.sourceResult.products.find((product) => product.handle === quoteReference?.variantId);
+        const selectedCard = snapshot.content.products.find((product) => product.handle === reference?.variantId);
+        const selected = selectedCard?.sourceKind === "AWIN_PRODUCT_FEED"
+          ? snapshot.resolvedAwinProducts.get(selectedCard.handle)
+          : snapshot.sourceResult.products.find((product) => product.handle === reference?.variantId);
         if (selected === undefined) {
-          const message = "The selected Shopify variant does not belong to that product result. No watch was created.";
+          const message = "The selected product does not support a stable ZIP quote. Choose another existing card or use ITEM_PRICE; no new search is required.";
           return { content: [{ type: "text" as const, text: message }], structuredContent: {
             status: "DATA_SOURCE_UNAVAILABLE" as const,
             message,
             questions: []
           } };
         }
-        if (requested.conditionPreference !== "ANY" && selected.condition !== requested.conditionPreference) {
-          const question = `The selected product condition is ${selected.condition}; choose a matching product or explicitly accept ANY condition.`;
+        const selectedCondition = selectedCard?.condition ?? selected.condition;
+        if (requested.conditionPreference !== "ANY" && selectedCondition !== requested.conditionPreference) {
+          const question = `The selected product condition is ${selectedCondition}; choose a matching product or explicitly accept ANY condition.`;
           return { content: [{ type: "text" as const, text: question }], structuredContent: {
             status: "NEEDS_CLARIFICATION" as const,
             message: question,
@@ -2227,7 +2357,7 @@ export function createShoppingServer(
     async ({ renderId }) => {
       const snapshot = renderSnapshots.get(renderId);
       if (snapshot === undefined || snapshot.expiresAt <= Date.now()) {
-        renderSnapshots.delete(renderId);
+        deleteSnapshot(renderId);
         return {
           isError: true,
           content: [{
@@ -2265,7 +2395,7 @@ export function createShoppingServer(
       const telemetry = ProductCardTelemetryInputSchema.parse(input);
       const snapshot = renderSnapshots.get(telemetry.renderId);
       if (snapshot === undefined || snapshot.expiresAt <= Date.now()) {
-        renderSnapshots.delete(telemetry.renderId);
+        deleteSnapshot(telemetry.renderId);
         return {
           isError: true,
           content: [{ type: "text" as const, text: "Product-card telemetry snapshot is unavailable." }]

@@ -1,4 +1,4 @@
-export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v19.html";
+export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v20.html";
 
 export const PRODUCT_CARD_RESOURCE_DOMAINS = [
   "https://cdn.shopify.com"
@@ -169,7 +169,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     const uiStartedAt = typeof performance === "object" && typeof performance.now === "function"
       ? performance.now()
       : Date.now();
-    const cardMetrics = { version: "0.8.2", stages: {} };
+    const cardMetrics = { version: "0.8.3", stages: {} };
     window.__findcheapCardMetrics = cardMetrics;
     const notify = (method, params = {}) => {
       window.parent.postMessage({ jsonrpc: "2.0", method, params }, "*");
@@ -405,6 +405,12 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
             appendPriceLine(breakdown, "Estimated total", money(cardData.estimatedTotal), true);
           }
           if (breakdown.children.length > 0) body.append(breakdown);
+          const quoteCapability = String(cardData.quoteCapability || product.quoteCapability || "MERCHANT_CHECKOUT_ONLY");
+          body.append(make("div", "details", quoteCapability === "DELIVERED_TOTAL_SUPPORTED"
+            ? "ZIP delivered-total estimate available."
+            : quoteCapability === "ZIP_ESTIMATE_ONLY"
+              ? "ZIP estimate available; some merchants may require checkout for the final total."
+              : "Shipping, tax, and final total are available at merchant checkout."));
           if (Array.isArray(product.matchEvidence) && product.matchEvidence.length > 0) {
             body.append(make("div", "evidence", "Identity evidence: " + product.matchEvidence.join("; ")));
           }
@@ -417,9 +423,6 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
             : "Verified public item price. Shipping, tax, fees, coupons, membership and delivered price remain unavailable unless separately verified."));
           const purchaseUrl = safeHttps(product?.purchaseLink?.url || product?.merchantUrl);
           if (purchaseUrl) {
-            if (product?.purchaseLink?.kind === "APPROVED_AFFILIATE" && product.purchaseLink.disclosure) {
-              body.append(make("div", "disclosure", product.purchaseLink.disclosure));
-            }
             const link = make("a", "", cardData.actionLabel || "View at merchant");
             link.href = purchaseUrl;
             link.target = "_blank";
@@ -524,7 +527,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     warmCompatibilityBridge();
     const initializeParams = {
       protocolVersion: "2026-01-26",
-      appInfo: { name: "FindCheap Agent product cards", version: "0.8.2" },
+      appInfo: { name: "FindCheap Agent product cards", version: "0.8.3" },
       appCapabilities: { availableDisplayModes: ["inline"] }
     };
     const finishInitialization = () => {

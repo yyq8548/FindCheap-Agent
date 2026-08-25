@@ -39,7 +39,7 @@ function nodes(node: FakeNode): FakeNode[] {
 
 describe("product-card MCP Apps UI", () => {
   it("uses an embedded Codex-native surface with responsive cards", () => {
-    expect(PRODUCT_CARD_UI_URI).toBe("ui://findcheap/product-cards/v19.html");
+    expect(PRODUCT_CARD_UI_URI).toBe("ui://findcheap/product-cards/v20.html");
     expect(PRODUCT_CARD_HTML).toContain("--fc-surface:");
     expect(PRODUCT_CARD_HTML).toContain("background: var(--fc-action);");
     expect(PRODUCT_CARD_HTML).toContain("@media (max-width: 640px)");
@@ -116,7 +116,7 @@ describe("product-card MCP Apps UI", () => {
       params: expect.objectContaining({
         name: "report_product_card_metrics",
         arguments: expect.objectContaining({
-          version: "0.8.2",
+          version: "0.8.3",
           terminalStage: "DOM_RENDERED",
           stages: expect.objectContaining({ DOM_RENDERED: expect.any(Number) })
         })
@@ -394,7 +394,7 @@ describe("product-card MCP Apps UI", () => {
       method: "ui/initialize",
       params: {
         protocolVersion: "2026-01-26",
-        appInfo: { name: "FindCheap Agent product cards", version: "0.8.2" },
+        appInfo: { name: "FindCheap Agent product cards", version: "0.8.3" },
         appCapabilities: { availableDisplayModes: ["inline"] }
       }
     });
@@ -467,7 +467,8 @@ describe("product-card MCP Apps UI", () => {
     expect(text(app)).toContain("Verified Coffee");
     expect(text(app)).toContain("$14.99");
     expect(text(app)).toContain("1 product card");
-    expect(text(app)).toContain("We may earn a commission");
+    expect(text(app)).not.toContain("commission");
+    expect(text(app)).toContain("Shipping, tax, and final total are available at merchant checkout.");
 
     listeners.get("openai:set_globals")?.({
       detail: { globals: { toolInput: { renderId: "ignored" }, toolOutput: { products: [] } } }

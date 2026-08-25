@@ -159,12 +159,12 @@ describe("shopping MCP server", () => {
     const renderTool = tools.tools.find((candidate) => candidate.name === "render_product_cards");
     const metricsTool = tools.tools.find((candidate) => candidate.name === "report_product_card_metrics");
     expect(searchTool?._meta).toMatchObject({
-      ui: { resourceUri: "ui://findcheap/product-cards/v19.html" },
-      "openai/outputTemplate": "ui://findcheap/product-cards/v19.html"
+      ui: { resourceUri: "ui://findcheap/product-cards/v20.html" },
+      "openai/outputTemplate": "ui://findcheap/product-cards/v20.html"
     });
     expect(renderTool?._meta).toMatchObject({
       ui: {
-        resourceUri: "ui://findcheap/product-cards/v19.html",
+        resourceUri: "ui://findcheap/product-cards/v20.html",
         visibility: ["app"]
       }
     });
@@ -181,11 +181,11 @@ describe("shopping MCP server", () => {
     const resources = await client.listResources();
     expect(resources.resources).toEqual([expect.objectContaining({
       name: "findcheap-product-cards",
-      uri: "ui://findcheap/product-cards/v19.html",
+      uri: "ui://findcheap/product-cards/v20.html",
       mimeType: "text/html;profile=mcp-app"
     })]);
 
-    const resource = await client.readResource({ uri: "ui://findcheap/product-cards/v19.html" });
+    const resource = await client.readResource({ uri: "ui://findcheap/product-cards/v20.html" });
     const content = resource.contents[0];
     const html = content !== undefined && "text" in content ? content.text : "";
     expect(html).toContain("ui/notifications/tool-result");
@@ -261,10 +261,11 @@ describe("shopping MCP server", () => {
     const inspectTool = tools.tools.find((tool) => tool.name === "inspect_selected_shopify_product");
     expect(Object.keys(inspectTool?.inputSchema.properties ?? {}).sort()).toEqual([
       "renderId",
+      "selectionId",
       "variantDimensions",
       "variantId"
     ]);
-    expect(inspectTool?.description).toContain("never run another catalog search");
+    expect(inspectTool?.description).toContain("never scan task history");
     expect(unifiedTool?.inputSchema.properties?.selectionMode).toMatchObject({
       default: "MERCHANT_DIVERSE"
     });
@@ -422,7 +423,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.8.2",
+        version: "0.8.3",
         terminalStage: "DOM_RENDERED",
         stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
       }
@@ -431,7 +432,7 @@ describe("shopping MCP server", () => {
     expect(result.structuredContent).toEqual({ status: "RECORDED" });
     expect(record).toHaveBeenCalledWith(expect.objectContaining({
       renderId,
-      version: "0.8.2",
+      version: "0.8.3",
       terminalStage: "DOM_RENDERED",
       stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
     }));
@@ -439,7 +440,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.8.2",
+        version: "0.8.3",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 14 }
       }
@@ -449,7 +450,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.8.2",
+        version: "0.8.3",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 300_001 }
       }
@@ -460,7 +461,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId: "22222222-2222-4222-8222-222222222222",
-        version: "0.8.2",
+        version: "0.8.3",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 1 }
       }
@@ -485,7 +486,7 @@ describe("shopping MCP server", () => {
     expect(JSON.stringify(product)).not.toMatch(/utm_|couponCode/i);
   });
 
-  it("uses only injected approved affiliate links and exposes disclosure next to the CTA", async () => {
+  it("uses only injected approved affiliate links without foregrounding the commercial relationship", async () => {
     const resolve = vi.fn(() => ({
       kind: "APPROVED_AFFILIATE" as const,
       url: "https://go.fixture-affiliate.example/click?campaign=approved",
@@ -511,7 +512,9 @@ describe("shopping MCP server", () => {
         }
       }]
     });
-    expect(JSON.stringify(result.content)).toContain("Commission never affects ranking");
+    expect(JSON.stringify(result.content)).toContain("Commercial relationships never affect relevance or ranking");
+    expect(JSON.stringify(result.content)).not.toContain("Fixture Network");
+    expect(JSON.stringify(result.content)).not.toContain("commission");
     expect(resolve).toHaveBeenCalledWith({
       merchantId: "death-wish-coffee",
       merchantUrl: "https://deathwishcoffee.com/products/valhalla-java-single-serve-pods",
@@ -671,12 +674,12 @@ describe("shopping MCP server", () => {
       }
     });
     const product = (first.structuredContent as {
-      products: Array<{ quoteReference: { renderId: string; variantId: string } }>;
+      products: Array<{ quoteReference: { selectionId: string; renderId: string; variantId: string } }>;
     }).products[0]!;
 
     const quoted = await client.callTool({
       name: "quote_selected_shopify_product",
-      arguments: { ...product.quoteReference, zipCode: "33433" }
+      arguments: { selectionId: product.quoteReference.selectionId, zipCode: "33433" }
     });
 
     expect(search).toHaveBeenCalledTimes(1);
@@ -699,7 +702,7 @@ describe("shopping MCP server", () => {
     expect(JSON.stringify(quoted.content)).toContain("Estimated delivered total");
   });
 
-  it("returns safe actionable quote failure codes and forwards a one-time address", async () => {
+  it("returns safe actionable quote failure codes while retaining existing cards and rejecting address collection", async () => {
     const search = vi.fn(shopifyPort.search);
     const quoteCart = vi.fn();
     const client = await connect(
@@ -718,10 +721,10 @@ describe("shopping MCP server", () => {
       }
     });
     const reference = (first.structuredContent as {
-      products: Array<{ quoteReference: { renderId: string; variantId: string } }>;
+      products: Array<{ quoteReference: { selectionId: string; renderId: string; variantId: string } }>;
     }).products[0]!.quoteReference;
     const cases = [
-      ["FULL_ADDRESS_REQUIRED", "street address, city, and two-letter state code"],
+      ["FULL_ADDRESS_REQUIRED", "Do not ask for or send a street address"],
       ["NO_DELIVERY_OPTIONS", "no shipping method"],
       ["MERCHANT_CART_UNAVAILABLE", "does not prove the product is out of stock"],
       ["VARIANT_REJECTED", "rejected this exact Shopify variant"],
@@ -734,33 +737,12 @@ describe("shopping MCP server", () => {
         name: "quote_selected_shopify_product",
         arguments: { ...reference, zipCode: "33433" }
       });
-      expect(result.isError).toBe(true);
+      expect(result.isError).not.toBe(true);
       expect(JSON.stringify(result.content)).toContain(`[${code}]`);
       expect(JSON.stringify(result.content)).toContain(message);
+      expect(result.structuredContent).toMatchObject({ products: [{ handle: "42797821853913" }] });
     }
-
-    quoteCart.mockResolvedValueOnce({
-      status: "ESTIMATED",
-      subtotal: { amountCents: 1_499, currency: "USD" },
-      shipping: { amountCents: 0, currency: "USD", label: "Free" },
-      tax: {
-        status: "ZIP_ESTIMATED",
-        amount: { amountCents: 105, currency: "USD" },
-        jurisdiction: "FL",
-        rateBasisPoints: 698,
-        source: "TAX_FOUNDATION_STATE_AVERAGE_2026"
-      },
-      deliveredPrice: { amountCents: 1_604, currency: "USD" },
-      totalEstimated: true,
-      checkedAt: "2026-08-20T12:00:00.000Z",
-      expiresAt: "2026-08-20T12:10:00.000Z"
-    });
-    const address = { address1: "123 Main St", city: "Boca Raton", provinceCode: "FL" };
-    await client.callTool({
-      name: "quote_selected_shopify_product",
-      arguments: { ...reference, zipCode: "33433", deliveryAddress: address }
-    });
-    expect(quoteCart).toHaveBeenLastCalledWith(expect.any(Object), "33433", address);
+    expect(quoteCart).toHaveBeenCalledTimes(cases.length);
     expect(search).toHaveBeenCalledTimes(1);
   });
 
@@ -855,12 +837,12 @@ describe("shopping MCP server", () => {
       }
     });
     const reference = (first.structuredContent as {
-      products: Array<{ quoteReference: { renderId: string; variantId: string } }>;
+      products: Array<{ quoteReference: { selectionId: string; renderId: string; variantId: string } }>;
     }).products[0]!.quoteReference;
 
     const inspected = await client.callTool({
       name: "inspect_selected_shopify_product",
-      arguments: { ...reference, variantDimensions: { Size: "S" } }
+      arguments: { selectionId: reference.selectionId, variantDimensions: { Size: "S" } }
     });
 
     expect(search).toHaveBeenCalledTimes(1);
@@ -884,11 +866,11 @@ describe("shopping MCP server", () => {
     expect(JSON.stringify(inspected.content)).toContain("no title or catalog search was used");
 
     const siblingReference = (inspected.structuredContent as {
-      variants: Array<{ quoteReference: { renderId: string; variantId: string } }>;
+      variants: Array<{ quoteReference: { selectionId: string; renderId: string; variantId: string } }>;
     }).variants[0]!.quoteReference;
     await client.callTool({
       name: "quote_selected_shopify_product",
-      arguments: { ...siblingReference, zipCode: "33433" }
+      arguments: { selectionId: siblingReference.selectionId, zipCode: "33433" }
     });
     expect(quoteCart).toHaveBeenCalledWith(expect.objectContaining({
       handle: "42797821853914",
@@ -1322,7 +1304,7 @@ describe("Coupon and Watch tools", () => {
       query: "Valhalla Java pods", limit: 3
     } });
     const reference = (found.structuredContent as {
-      products: Array<{ quoteReference: { renderId: string; variantId: string } }>;
+      products: Array<{ quoteReference: { selectionId: string; renderId: string; variantId: string } }>;
     }).products[0]!.quoteReference;
 
     const created = await client.callTool({ name: "create_watch", arguments: {
@@ -1676,6 +1658,7 @@ describe("Coupon and Watch tools", () => {
         })
       },
       awinShopifyQuotes: {
+        supports: () => true,
         resolve: async () => ({
           ...(await shopifyPort.search({ query: "B24 shampoo", limit: 1 })).products[0]!,
           merchantId: "20282",
@@ -1711,13 +1694,20 @@ describe("Coupon and Watch tools", () => {
       }
     });
     const found = await client.callTool({ name: "search_products", arguments: { query: "B24 shampoo", limit: 1 } });
+    expect(found.structuredContent).toMatchObject({
+      products: [{
+        quoteCapability: "ZIP_ESTIMATE_ONLY",
+        card: { quoteCapability: "ZIP_ESTIMATE_ONLY" },
+        quoteReference: { selectionId: expect.any(String) }
+      }]
+    });
     const reference = (found.structuredContent as {
-      products: Array<{ quoteReference: { renderId: string; variantId: string } }>;
+      products: Array<{ quoteReference: { selectionId: string; renderId: string; variantId: string } }>;
     }).products[0]!.quoteReference;
 
     const quoted = await client.callTool({
       name: "quote_selected_shopify_product",
-      arguments: { ...reference, zipCode: "33065" }
+      arguments: { selectionId: reference.selectionId, zipCode: "33065" }
     });
 
     expect(quoted.structuredContent).toMatchObject({

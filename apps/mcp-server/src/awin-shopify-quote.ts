@@ -53,6 +53,7 @@ export type AwinShopifyQuoteSeed = {
 };
 
 export interface AwinShopifyQuoteResolver {
+  supports(seed: AwinShopifyQuoteSeed): boolean;
   resolve(seed: AwinShopifyQuoteSeed): Promise<ShopifyProduct>;
 }
 
@@ -74,6 +75,16 @@ export function createAwinShopifyQuoteResolver(
   const clock = dependencies.clock ?? { now: () => new Date() };
 
   return {
+    supports(seed) {
+      const hosts = APPROVED_QUOTE_HOSTS[seed.merchantId];
+      if (hosts === undefined || !hosts.includes(seed.sourceHost.toLocaleLowerCase("en-US"))) return false;
+      try {
+        productTarget(seed.merchantUrl, seed.sourceHost);
+        return true;
+      } catch {
+        return false;
+      }
+    },
     async resolve(seed) {
       try {
         const hosts = APPROVED_QUOTE_HOSTS[seed.merchantId];

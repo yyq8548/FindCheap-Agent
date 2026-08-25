@@ -87,10 +87,11 @@ describe("FindCheap Agent plugin contract", () => {
 
     expect(skill).toContain("Risk tier: `R0`");
     expect(skill).toContain("one primary web search");
-    expect(skill).toContain("up to eight merchant domains");
+    expect(skill).toContain("up to five direct product-detail URLs");
+    expect(skill).toContain("within 60 seconds");
     expect(skill).toContain("HTTPS public product pages");
     expect(skill).toContain("BROWSER_OBSERVED");
-    expect(skill).toContain("maximum of 8 visible results per discovery search");
+    expect(skill).toContain("maximum of 5 visible results");
     expect(skill).toContain("Ask for explicit permission before opening Chrome");
     expect(skill).toContain("Do not sign in");
     expect(skill).toContain("Do not add anything to a cart");
@@ -107,7 +108,7 @@ describe("FindCheap Agent plugin contract", () => {
     expect(skill).toContain("one compact JSON payload of at most 12,000 characters");
     expect(skill).toContain("Do not call `domSnapshot()` on every merchant page");
     expect(skill).toContain("one targeted locator read for that candidate only");
-    expect(skill).toContain("eight direct product-detail URLs");
+    expect(skill).toContain("five direct product-detail URLs");
     expect(skill).toContain("same browser tool call");
     expect(skill).toContain("three, then at most two");
     expect(skill).toContain("one unified extractor per merchant page");
@@ -121,8 +122,8 @@ describe("FindCheap Agent plugin contract", () => {
     expect(skill).toContain("Do not stop after the first discovery page");
     expect(skill).toContain("Run all page extractors with `Promise.all`");
     expect(skill).toContain("never use a serial `for...await` loop");
-    expect(skill).toContain("verify the first five candidates");
-    expect(skill).toContain("verify up to three reserve candidates");
+    expect(skill).toContain("verify up to five candidates");
+    expect(skill).toContain("inside the five-domain budget");
     expect(skill).toContain("Stop as soon as three condition-eligible `EXACT` offers pass");
     expect(skill).toContain("Do not open reserve candidates when the first batch already produced three");
     expect(skill).toContain("## Excluded candidates");
@@ -139,7 +140,7 @@ describe("FindCheap Agent plugin contract", () => {
     };
 
     expect(manifest.name).toBe("findcheap-agent");
-    expect(manifest.version).toMatch(/^0\.8\.2(?:\+codex\.)?/u);
+    expect(manifest.version).toMatch(/^0\.8\.3(?:\+codex\.)?/u);
     expect(manifest.interface.displayName).toBe("FindCheap Agent");
     expect(manifest.interface.longDescription).toMatch(/Codex Plugin Agent/u);
     expect(manifest.interface.longDescription).toMatch(/authorized.*Chrome/u);

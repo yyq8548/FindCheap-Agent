@@ -148,12 +148,6 @@ export const ShopifyQuoteFailureCodes = [
 
 export type ShopifyQuoteFailureCode = typeof ShopifyQuoteFailureCodes[number];
 
-export type ShopifyDeliveryAddress = {
-  address1: string;
-  city: string;
-  provinceCode: string;
-};
-
 export class ShopifyCartQuoteError extends Error {
   readonly code: ShopifyQuoteFailureCode;
 
@@ -172,8 +166,7 @@ export type ShopifyCartQuoteProduct = Pick<
 export interface ShopifyCartQuotePort {
   quote(
     product: ShopifyCartQuoteProduct,
-    zipCode: string,
-    deliveryAddress?: ShopifyDeliveryAddress
+    zipCode: string
   ): Promise<ShopifyCartEstimate>;
 }
 
@@ -194,10 +187,9 @@ export function createShopifyCartQuotePort(
   const clock = dependencies.clock ?? { now: () => new Date() };
 
   return {
-    async quote(product, zipCode, deliveryAddress) {
+    async quote(product, zipCode) {
       const target = quoteTarget(product);
       const zip = parseZip(zipCode);
-      const address = deliveryAddress === undefined ? undefined : parseDeliveryAddress(deliveryAddress);
       const variantId = parseVariantId(product.handle);
       try {
       const create = parseCreate(await request({
@@ -211,10 +203,7 @@ export function createShopifyCartQuotePort(
               deliveryAddressPreferences: [{
                 deliveryAddress: {
                   country: "US",
-                  zip,
-                  ...(address === undefined
-                    ? {}
-                    : { address1: address.address1, city: address.city, province: address.provinceCode })
+                  zip
                 },
                 oneTimeUse: true
               }]
@@ -224,14 +213,14 @@ export function createShopifyCartQuotePort(
         timeoutMs
       }));
       if (create.deliveryGroups.nodes.length === 0) {
-        throw new ShopifyCartQuoteError(address === undefined ? "FULL_ADDRESS_REQUIRED" : "NO_DELIVERY_OPTIONS");
+        throw new ShopifyCartQuoteError("FULL_ADDRESS_REQUIRED");
       }
       const selections = create.deliveryGroups.nodes.map((group) => {
         const selected = [...group.deliveryOptions].sort((left, right) =>
           cents(left.estimatedCost) - cents(right.estimatedCost) || compareText(left.title, right.title)
         )[0];
         if (selected === undefined) {
-          throw new ShopifyCartQuoteError(address === undefined ? "FULL_ADDRESS_REQUIRED" : "NO_DELIVERY_OPTIONS");
+          throw new ShopifyCartQuoteError("FULL_ADDRESS_REQUIRED");
         }
         return {
           deliveryGroupId: group.id,
@@ -344,27 +333,6 @@ function parseVariantId(value: string): string {
 function parseZip(value: string): string {
   if (!/^\d{5}(?:-\d{4})?$/u.test(value)) throw new Error("Shopify Cart ZIP is invalid");
   return value;
-}
-
-function parseDeliveryAddress(value: ShopifyDeliveryAddress): ShopifyDeliveryAddress {
-  const address1 = boundedAddressText(value.address1, "address1", 200);
-  const city = boundedAddressText(value.city, "city", 100);
-  const provinceCode = value.provinceCode.trim().toUpperCase();
-  if (!/^[A-Z]{2}$/u.test(provinceCode)) throw new Error("Shopify delivery province is invalid");
-  return { address1, city, provinceCode };
-}
-
-function boundedAddressText(value: string, field: string, maximumLength: number): string {
-  const normalized = value.trim();
-  if (normalized.length < 1 || normalized.length > maximumLength || [...normalized].some(isControlCharacter)) {
-    throw new Error(`Shopify delivery ${field} is invalid`);
-  }
-  return normalized;
-}
-
-function isControlCharacter(character: string): boolean {
-  const code = character.codePointAt(0) ?? 0;
-  return code <= 31 || code === 127;
 }
 
 function parseTimeout(value: string | undefined): number {

@@ -4183,7 +4183,7 @@
   },
   "outputs": {
     "../../plugins/findcheap-agent/dist/mcp-server.js": {
-      "bytes": 514160,
+      "bytes": 516938,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
@@ -4347,7 +4347,7 @@
           "bytesInOutput": 1536
         },
         "../../node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/types.js": {
-          "bytesInOutput": 12444
+          "bytesInOutput": 12477
         },
         "../../node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/validation/ajv-provider.js": {
           "bytesInOutput": 450
@@ -4392,7 +4392,7 @@
           "bytesInOutput": 570
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/compile/util.js": {
-          "bytesInOutput": 3599
+          "bytesInOutput": 3637
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/compile/validate/applicability.js": {
           "bytesInOutput": 480
@@ -4416,7 +4416,7 @@
           "bytesInOutput": 1979
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/core.js": {
-          "bytesInOutput": 12289
+          "bytesInOutput": 12279
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/refs/data.json": {
           "bytesInOutput": 358
@@ -4683,13 +4683,13 @@
           "bytesInOutput": 0
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/ZodError.js": {
-          "bytesInOutput": 1663
+          "bytesInOutput": 1665
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/errors.js": {
           "bytesInOutput": 54
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/external.js": {
-          "bytesInOutput": 1768
+          "bytesInOutput": 1769
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/helpers/errorUtil.js": {
           "bytesInOutput": 129
@@ -4698,13 +4698,13 @@
           "bytesInOutput": 1465
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/helpers/util.js": {
-          "bytesInOutput": 1701
+          "bytesInOutput": 1705
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/locales/en.js": {
-          "bytesInOutput": 3023
+          "bytesInOutput": 3029
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/types.js": {
-          "bytesInOutput": 49889
+          "bytesInOutput": 49911
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v4/classic/checks.js": {
           "bytesInOutput": 0
@@ -4722,7 +4722,7 @@
           "bytesInOutput": 44
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v4/classic/schemas.js": {
-          "bytesInOutput": 10375
+          "bytesInOutput": 10400
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v4/core/api.js": {
           "bytesInOutput": 4725
@@ -4758,7 +4758,7 @@
           "bytesInOutput": 11445
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v4/core/util.js": {
-          "bytesInOutput": 7590
+          "bytesInOutput": 7592
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v4/core/versions.js": {
           "bytesInOutput": 33
@@ -4773,7 +4773,7 @@
           "bytesInOutput": 0
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v4/mini/schemas.js": {
-          "bytesInOutput": 747
+          "bytesInOutput": 750
         },
         "../../packages/awin-feed/src/index.ts": {
           "bytesInOutput": 6514
@@ -4803,7 +4803,7 @@
           "bytesInOutput": 2966
         },
         "src/awin-shopify-quote.ts": {
-          "bytesInOutput": 3979
+          "bytesInOutput": 4153
         },
         "src/commerce-client.ts": {
           "bytesInOutput": 2670
@@ -4815,7 +4815,7 @@
           "bytesInOutput": 2068
         },
         "src/product-card-ui.ts": {
-          "bytesInOutput": 25550
+          "bytesInOutput": 25855
         },
         "src/sales-tax-estimator.ts": {
           "bytesInOutput": 1784
@@ -4824,10 +4824,10 @@
           "bytesInOutput": 3663
         },
         "src/server.ts": {
-          "bytesInOutput": 63125
+          "bytesInOutput": 65773
         },
         "src/shopify-cart-quote.ts": {
-          "bytesInOutput": 10891
+          "bytesInOutput": 10285
         },
         "src/shopify-client.ts": {
           "bytesInOutput": 181
@@ -4848,7 +4848,7 @@
           "bytesInOutput": 6032
         },
         "src/watch-store.ts": {
-          "bytesInOutput": 6811
+          "bytesInOutput": 6942
         }
       }
     }
