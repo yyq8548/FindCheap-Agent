@@ -4,7 +4,7 @@
 PowerShell installer from this repository over HTTPS and then:
 
 1. detects Codex Desktop or the Codex CLI;
-2. installs an official portable Node.js 22 runtime when Node 22 is unavailable;
+2. installs an official portable Node.js 24 runtime when Node 24 is unavailable;
 3. adds the runtime to the current user's `PATH`;
 4. adds or upgrades the `findcheap-agent` marketplace from `main`;
 5. installs the latest `findcheap-agent@findcheap-agent` plugin;

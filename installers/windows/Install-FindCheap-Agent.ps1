@@ -7,7 +7,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 
-$InstallerVersion = "1.0.0"
+$InstallerVersion = "1.1.0"
 $MarketplaceName = "findcheap-agent"
 $MarketplaceRepository = "yyq8548/FindCheap-Agent"
 $PluginReference = "findcheap-agent@findcheap-agent"
@@ -27,7 +27,7 @@ function Write-InstallerLog {
   }
 }
 
-function Get-Node22Command {
+function Get-Node24Command {
   $command = Get-Command node.exe -ErrorAction SilentlyContinue
   if ($null -eq $command) {
     return $null
@@ -35,7 +35,7 @@ function Get-Node22Command {
 
   try {
     $version = (& $command.Source --version 2>$null).Trim()
-    if ($version -match '^v22\.') {
+    if ($version -match '^v24\.') {
       return $command.Source
     }
   } catch {
@@ -59,20 +59,20 @@ function Add-DirectoryToUserPath {
   $env:Path = "$Directory;$env:Path"
 }
 
-function Install-PortableNode22 {
-  Write-InstallerLog "Node.js 22 was not found. Installing the official portable runtime."
+function Install-PortableNode24 {
+  Write-InstallerLog "Node.js 24 was not found. Installing the official portable runtime."
 
-  $checksumsUri = "https://nodejs.org/dist/latest-v22.x/SHASUMS256.txt"
+  $checksumsUri = "https://nodejs.org/dist/latest-v24.x/SHASUMS256.txt"
   $checksums = (Invoke-WebRequest -UseBasicParsing -Uri $checksumsUri).Content
   $archiveCandidate = $checksums -split "`n" |
-    Where-Object { $_ -match 'node-v22\.[0-9]+\.[0-9]+-win-x64\.zip$' } |
+    Where-Object { $_ -match 'node-v24\.[0-9]+\.[0-9]+-win-x64\.zip$' } |
     Select-Object -First 1
   if ([string]::IsNullOrWhiteSpace($archiveCandidate)) {
-    throw "Unable to resolve the current Node.js 22 Windows archive."
+    throw "Unable to resolve the current Node.js 24 Windows archive."
   }
   $archiveLine = $archiveCandidate.Trim()
-  if ($archiveLine -notmatch '^([a-fA-F0-9]{64})\s+(node-v22\.[0-9]+\.[0-9]+-win-x64\.zip)$') {
-    throw "Unable to resolve the current Node.js 22 Windows archive."
+  if ($archiveLine -notmatch '^([a-fA-F0-9]{64})\s+(node-v24\.[0-9]+\.[0-9]+-win-x64\.zip)$') {
+    throw "Unable to resolve the current Node.js 24 Windows archive."
   }
 
   $expectedHash = $Matches[1].ToUpperInvariant()
@@ -87,7 +87,7 @@ function Install-PortableNode22 {
     if (Test-Path -LiteralPath $runtimeDirectory) {
       $runtimeDirectory = Join-Path $runtimeRoot ("{0}-{1}" -f $runtimeName, [guid]::NewGuid().ToString("N"))
     }
-    $archiveUri = "https://nodejs.org/dist/latest-v22.x/$archiveName"
+    $archiveUri = "https://nodejs.org/dist/latest-v24.x/$archiveName"
     Write-InstallerLog "Downloading $archiveName from nodejs.org."
     Invoke-WebRequest -UseBasicParsing -Uri $archiveUri -OutFile $archivePath
 
@@ -198,7 +198,7 @@ if ($DryRun) {
   Write-Host "Installer version: $InstallerVersion"
   Write-Host "Marketplace: $MarketplaceRepository"
   Write-Host "Plugin: $PluginReference"
-  Write-Host "Planned actions: verify Codex, ensure Node.js 22, add or upgrade marketplace, install plugin, verify cache."
+  Write-Host "Planned actions: verify Codex, ensure Node.js 24, add or upgrade marketplace, install plugin, verify cache."
   exit 0
 }
 
@@ -208,9 +208,9 @@ try {
 
   Write-InstallerLog "Starting FindCheap Agent installation."
 
-  $nodeCommand = Get-Node22Command
+  $nodeCommand = Get-Node24Command
   if ($null -eq $nodeCommand) {
-    $nodeCommand = Install-PortableNode22
+    $nodeCommand = Install-PortableNode24
   } else {
     Write-InstallerLog "Using Node.js $((& $nodeCommand --version).Trim())." "OK"
   }

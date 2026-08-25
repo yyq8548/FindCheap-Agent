@@ -139,11 +139,11 @@ Awin 商家 Amazonliss (US)（merchant `20282`）已批准 publisher `3047955`�
 
 ### Windows 一键安装
 
-[下载 `Install-FindCheap-Agent.cmd`](https://github.com/yyq8548/FindCheap-Agent/raw/refs/heads/main/installers/windows/Install-FindCheap-Agent.cmd)，双击运行，然后重启 Codex 并创建新任务。安装器会自动添加或更新 marketplace、从 `main` 安装最新版插件，并在需要时配置官方便携版 Node.js 22。它不会索取联盟、商家、支付或账户凭据。
+[下载 `Install-FindCheap-Agent.cmd`](https://github.com/yyq8548/FindCheap-Agent/raw/refs/heads/main/installers/windows/Install-FindCheap-Agent.cmd)，双击运行，然后重启 Codex 并创建新任务。安装器会自动添加或更新 marketplace、从 `main` 安装最新版插件，并在需要时配置官方便携版 Node.js 24。它不会索取联盟、商家、支付或账户凭据。
 
 ### 手动安装
 
-运行要求：Codex 桌面版或 CLI，以及 Node.js 22。
+运行要求：Codex 桌面版或 CLI，以及 Node.js 24。
 
 ```powershell
 codex plugin marketplace add yyq8548/FindCheap-Agent --ref main

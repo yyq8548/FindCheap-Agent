@@ -31,7 +31,7 @@ approved relationship.
 
 ## Release checks
 
-Run Node 22:
+Run Node 24:
 
 ```text
 pnpm test
