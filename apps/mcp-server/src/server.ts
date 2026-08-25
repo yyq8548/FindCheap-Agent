@@ -87,7 +87,7 @@ const ProductCardStagesSchema = z.object({
 
 const ProductCardTelemetryInputSchema = z.object({
   renderId: z.string().uuid(),
-  version: z.literal("0.9.4"),
+  version: z.literal("0.9.5"),
   terminalStage: z.enum([
     "DOM_RENDERED",
     "FIRST_IMAGE_SETTLED",
@@ -271,6 +271,8 @@ const ShopifyProductOutputSchema = z.object({
   sourceKind: z.enum(["AWIN_PRODUCT_FEED", "SHOPIFY_GLOBAL_CATALOG"]).optional(),
   affiliateState: z.enum(["APPROVED", "NONE"]).optional(),
   featureEvidence: z.array(z.string()).optional(),
+  preferenceEvidence: z.array(z.string()).optional(),
+  requiredFeatureLimitations: z.array(z.string()).optional(),
   merchantId: z.string(),
   merchant: z.string(),
   sourceHost: z.string(),
@@ -287,6 +289,8 @@ const ShopifyProductOutputSchema = z.object({
   ]).optional(),
   handle: z.string(),
   title: z.string(),
+  productType: z.string().optional(),
+  description: z.string().optional(),
   brand: z.string().optional(),
   sku: z.string().optional(),
   gtins: z.array(z.string()),
@@ -832,6 +836,8 @@ function unifiedResult(
         ? "APPROVED" as const
         : "NONE" as const,
       featureEvidence: candidate.featureEvidence,
+      preferenceEvidence: candidate.preferenceEvidence,
+      requiredFeatureLimitations: candidate.requiredFeatureLimitations,
       recommendationTier: candidate.recommendationTier
     }];
   });
@@ -886,6 +892,7 @@ function unifiedResult(
       quality: {
         status: unavailableSource || products.some((product) =>
           product.condition === "UNKNOWN" || product.recommendationTier !== "TRUSTED_OR_AFFILIATE"
+          || (product.requiredFeatureLimitations?.length ?? 0) > 0
         )
           ? "PASS_WITH_LIMITATIONS" as const
           : "PASS" as const,
@@ -897,6 +904,9 @@ function unifiedResult(
           ...(unavailableSource ? ["one configured source was unavailable"] : []),
           ...(products.some((product) => product.condition === "UNKNOWN")
             ? ["one or more product conditions are unverified"]
+            : []),
+          ...(products.some((product) => (product.requiredFeatureLimitations?.length ?? 0) > 0)
+            ? ["one or more required product attributes lack enough evidence and are labeled DISCOVERY_MATCH"]
             : []),
           ...(products.some((product) => product.sourceKind === "AWIN_PRODUCT_FEED")
             ? ["Awin cards contain verified item price and feed availability only; shipping, tax, and delivered price are unavailable"]
@@ -936,6 +946,8 @@ function awinCardProduct(candidate: UnifiedCandidate): ProductCardProduct {
     affiliateState: "APPROVED",
     recommendationTier: "TRUSTED_OR_AFFILIATE",
     featureEvidence: candidate.featureEvidence,
+    preferenceEvidence: candidate.preferenceEvidence,
+    requiredFeatureLimitations: candidate.requiredFeatureLimitations,
     merchantId: product.merchantId,
     merchant: product.merchant,
     sourceHost,
@@ -1386,7 +1398,7 @@ export function createShoppingServer(
   dependencies: ShoppingServerDependencies = {}
 ): McpServer {
   void comparePort;
-  const server = new McpServer({ name: "findcheap-agent", version: "0.9.4" });
+  const server = new McpServer({ name: "findcheap-agent", version: "0.9.5" });
   const dealPort = dependencies.deals ?? createUnavailableDealPort();
   const awinPort = dependencies.awin ?? createUnavailableAwinPort();
   const toolAvailability = dependencies.toolAvailability ?? {
@@ -1554,7 +1566,7 @@ export function createShoppingServer(
     "search_products",
     {
       title: "Search products",
-      description: "For any live shopping request, never read Memory or repo files. Never explain Skill reads or internal rules. Before calling, use only one neutral progress sentence: '正在搜索合适商品。' If the host requires naming the Skill, use only '正在使用 FindCheap 搜索合适商品。' Ask one direct clarification only when product type or a decision-critical constraint is missing. Before results, never promise count, merchant diversity, availability, trust, or exact matches. This is the single public product-search entrypoint; call once. Put every explicit non-price constraint in features with featureMode=REQUIRED, preserving wording; this includes size, memory, storage, pack count, volume, weight, resolution, refresh rate, power, apparel or shoe size, color, generation, and compatibility. Never infer product condition: omit conditionPreference or use ANY unless the user explicitly states new, used, refurbished, open-box, or unknown condition, and preserve that condition wording in query. Use selectionMode=LOWEST_PRICE only when explicitly requested; pass maxItemPriceCents for a ceiling. Commercial relationships never affect relevance or ranking. Trust labels do not prove manufacturer authorization. Reuse selectionId for every follow-up; never search a selected title again.",
+      description: "For live shopping, use only the user request and this tool contract. Do not read Memory, Skill files, repository files, logs, or plugin caches, and do not narrate internal rules. Say at most one neutral progress sentence before calling: '正在搜索合适商品。' This is the single product-search entrypoint; call once. Put the product family in productType. Put only objective must-have attributes in requiredFeatures: dimensions, capacity, quantity, resolution, power, exact size, color, generation, compatibility, or explicitly required material/construction. Put subjective intent such as everyday, casual, stylish, versatile, comfortable, or office wear in preferences; preferences rank and never exclude. Never invent a required feature. Evidence may come from title, product type/category, description, and structured variant attributes. Missing evidence remains a limitation-labeled DISCOVERY_MATCH; only explicit contradiction is excluded. Never infer condition. Use selectionMode=LOWEST_PRICE only when requested; pass a price ceiling as maxItemPriceCents. Commercial relationships never affect relevance or ranking. Reuse selectionId for follow-ups; never search a selected title again.",
       inputSchema: SearchProductsInputSchema,
       outputSchema: ShopifyProductsOutputShape,
       annotations: {

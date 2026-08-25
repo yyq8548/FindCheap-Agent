@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { featureMatches, matchFeatures } from "../src/product-constraint-matcher.js";
+import { evaluateFeature, featureMatches, matchFeatures } from "../src/product-constraint-matcher.js";
 
 describe("product constraint matcher", () => {
   it.each([
@@ -92,5 +92,21 @@ describe("product constraint matcher", () => {
       .toEqual(["14寸屏幕", "至少16G内存", "1T存储", "深空黑色"]);
     expect(featureMatches("洗发水 355毫升 两瓶装", "12液体盎司")).toBe(true);
     expect(featureMatches("男款跑鞋 US 9", "男款 US 9")).toBe(true);
+  });
+
+  it("matches Chinese and English material and shoe-style synonyms", () => {
+    expect(evaluateFeature("Ballerina flat with genuine leather upper", "平底鞋")).toBe("MATCHED");
+    expect(evaluateFeature("Ballerina flat with genuine leather upper", "皮质")).toBe("MATCHED");
+    expect(evaluateFeature("Women's high-heel pump", "flat sole")).toBe("CONTRADICTED");
+    expect(evaluateFeature("Women's ballet flat", "leather")).toBe("UNKNOWN");
+  });
+
+  it("does not treat faux leather as genuine leather", () => {
+    expect(evaluateFeature("Women's flat in vegan faux leather", "真皮")).toBe("CONTRADICTED");
+  });
+
+  it("distinguishes missing evidence from an explicit numeric conflict", () => {
+    expect(evaluateFeature("MacBook Pro laptop", "14-inch display")).toBe("UNKNOWN");
+    expect(evaluateFeature("MacBook Pro 13-inch display", "14-inch display")).toBe("CONTRADICTED");
   });
 });

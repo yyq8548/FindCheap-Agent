@@ -1,4 +1,4 @@
-export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v21.html";
+export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v22.html";
 
 export const PRODUCT_CARD_RESOURCE_DOMAINS = [
   "https://cdn.shopify.com"
@@ -169,7 +169,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     const uiStartedAt = typeof performance === "object" && typeof performance.now === "function"
       ? performance.now()
       : Date.now();
-    const cardMetrics = { version: "0.9.4", stages: {} };
+    const cardMetrics = { version: "0.9.5", stages: {} };
     window.__findcheapCardMetrics = cardMetrics;
     const notify = (method, params = {}) => {
       window.parent.postMessage({ jsonrpc: "2.0", method, params }, "*");
@@ -432,6 +432,12 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
           if (Array.isArray(product.matchEvidence) && product.matchEvidence.length > 0) {
             body.append(make("div", "evidence", "Identity evidence: " + product.matchEvidence.join("; ")));
           }
+          if (Array.isArray(product.requiredFeatureLimitations) && product.requiredFeatureLimitations.length > 0) {
+            body.append(make("div", "limitations notice", "Not verified: " + product.requiredFeatureLimitations.join(", ") + ". Confirm on the merchant page before purchase."));
+          }
+          if (Array.isArray(product.preferenceEvidence) && product.preferenceEvidence.length > 0) {
+            body.append(make("div", "evidence", "Preference match: " + product.preferenceEvidence.join(", ")));
+          }
           if (Array.isArray(product?.merchantTrust?.evidence) && product.merchantTrust.evidence.length > 0) {
             body.append(make("div", "evidence", "Merchant evidence: " + product.merchantTrust.evidence.join("; ")));
           }
@@ -545,7 +551,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     warmCompatibilityBridge();
     const initializeParams = {
       protocolVersion: "2026-01-26",
-      appInfo: { name: "FindCheap Agent product cards", version: "0.9.4" },
+      appInfo: { name: "FindCheap Agent product cards", version: "0.9.5" },
       appCapabilities: { availableDisplayModes: ["inline"] }
     };
     const finishInitialization = () => {

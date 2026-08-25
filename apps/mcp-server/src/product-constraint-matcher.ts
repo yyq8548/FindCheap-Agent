@@ -1,6 +1,7 @@
 type Comparator = "EXACT" | "MIN" | "MAX" | "APPROX";
 type QuantityKind = "LENGTH" | "MEMORY" | "STORAGE" | "DATA" | "VOLUME" | "MASS" | "COUNT" | "FREQUENCY" | "POWER";
 type Quantity = { kind: QuantityKind; value: number; comparator: Comparator; displayContext?: boolean };
+export type FeatureMatchStatus = "MATCHED" | "CONTRADICTED" | "UNKNOWN";
 
 const FEATURE_STOP_WORDS = new Set([
   "at", "least", "minimum", "min", "maximum", "max", "with", "for", "and", "or", "of", "the",
@@ -26,38 +27,110 @@ export function matchFeatures(searchable: string, features: readonly string[]): 
 }
 
 export function featureMatches(searchable: string, feature: string): boolean {
+  return evaluateFeature(searchable, feature) === "MATCHED";
+}
+
+export function evaluateFeature(searchable: string, feature: string): FeatureMatchStatus {
   const normalizedSearchable = normalize(searchable);
   const normalizedFeature = normalize(feature);
 
   const requestedResolution = resolution(normalizedFeature);
-  if (requestedResolution !== undefined) return resolution(normalizedSearchable) === requestedResolution;
+  if (requestedResolution !== undefined) {
+    const observed = resolution(normalizedSearchable);
+    return observed === undefined ? "UNKNOWN" : observed === requestedResolution ? "MATCHED" : "CONTRADICTED";
+  }
 
   const requestedColor = requestedColorName(normalizedFeature);
-  if (requestedColor !== undefined) return observedColors(normalizedSearchable).has(requestedColor);
+  if (requestedColor !== undefined) {
+    const observed = observedColors(normalizedSearchable);
+    return observed.has(requestedColor) ? "MATCHED" : observed.size > 0 ? "CONTRADICTED" : "UNKNOWN";
+  }
 
   const requestedSize = apparelSize(normalizedFeature);
   if (requestedSize !== undefined) {
-    return apparelSizes(normalizedSearchable).some((observed) =>
+    const observedSizes = apparelSizes(normalizedSearchable);
+    const matched = observedSizes.some((observed) =>
       observed.system === requestedSize.system &&
       observed.audience === requestedSize.audience &&
       observed.value === requestedSize.value
     );
+    return matched ? "MATCHED" : observedSizes.length > 0 ? "CONTRADICTED" : "UNKNOWN";
   }
 
   const requestedQuantity = firstQuantity(normalizedFeature, true);
   if (requestedQuantity !== undefined) {
-    return quantities(normalizedSearchable, false).some((observed) => quantityMatches(requestedQuantity, observed));
+    const observed = quantities(normalizedSearchable, false)
+      .filter((entry) => quantityKindsCompatible(requestedQuantity.kind, entry.kind));
+    return observed.some((entry) => quantityMatches(requestedQuantity, entry))
+      ? "MATCHED"
+      : observed.length > 0 ? "CONTRADICTED" : "UNKNOWN";
   }
 
-  const requestedModel = compactModel(normalizedFeature);
-  if (isModelLike(requestedModel)) return compactModel(normalizedSearchable).includes(requestedModel);
+  const semantic = semanticFeatureStatus(normalizedSearchable, normalizedFeature);
+  if (semantic !== undefined) return semantic;
 
-  if (normalizedSearchable.includes(normalizedFeature)) return true;
+  const requestedModel = compactModel(normalizedFeature);
+  if (isModelLike(requestedModel)) {
+    return compactModel(normalizedSearchable).includes(requestedModel) ? "MATCHED" : "UNKNOWN";
+  }
+
+  if (normalizedSearchable.includes(normalizedFeature)) return "MATCHED";
 
   const requestedTokens = meaningfulTokens(normalizedFeature);
-  if (requestedTokens.length === 0) return false;
+  if (requestedTokens.length === 0) return "UNKNOWN";
   const observedTokens = new Set(meaningfulTokens(normalizedSearchable));
-  return requestedTokens.every((token) => observedTokens.has(token));
+  return requestedTokens.every((token) => observedTokens.has(token)) ? "MATCHED" : "UNKNOWN";
+}
+
+type SemanticFeature = {
+  aliases: readonly string[];
+  conflicts?: readonly string[];
+};
+
+const SEMANTIC_FEATURES: Readonly<Record<string, SemanticFeature>> = {
+  leather: {
+    aliases: ["leather", "genuine leather", "real leather", "full grain", "top grain", "cowhide", "calfskin", "suede"],
+    conflicts: ["faux leather", "vegan leather", "pu leather", "synthetic leather", "leatherette"]
+  },
+  "genuine leather": {
+    aliases: ["genuine leather", "real leather", "full grain", "top grain", "cowhide", "calfskin"],
+    conflicts: ["faux leather", "vegan leather", "pu leather", "synthetic leather", "leatherette"]
+  },
+  flat: {
+    aliases: ["flat", "flat shoe", "flat shoes", "flat sole", "ballet flat", "ballet flats", "loafer", "loafers"],
+    conflicts: ["high heel", "high heels", "heeled", "stiletto", "platform heel"]
+  },
+  "ballet flat": {
+    aliases: ["ballet flat", "ballet flats", "ballet shoe", "ballet shoes", "ballerina flat", "ballerina flats"],
+    conflicts: ["high heel", "high heels", "stiletto"]
+  },
+  loafer: { aliases: ["loafer", "loafers", "slip on", "slip-on"] },
+  sneaker: { aliases: ["sneaker", "sneakers", "trainer", "trainers", "athletic shoe", "running shoe"] },
+  boot: { aliases: ["boot", "boots", "ankle boot", "chelsea boot"] },
+  sandal: { aliases: ["sandal", "sandals", "slide", "slides"] },
+  casual: { aliases: ["casual", "everyday", "daily wear", "day to day", "versatile"] },
+  formal: { aliases: ["formal", "dress shoe", "dress shoes", "office wear", "business"] },
+  minimalist: { aliases: ["minimalist", "minimal", "clean design", "simple style"] }
+};
+
+function semanticFeatureStatus(searchable: string, feature: string): FeatureMatchStatus | undefined {
+  const semanticSearchable = searchable.replace(/[-_/]+/gu, " ");
+  const semanticFeature = feature.replace(/[-_/]+/gu, " ");
+  const key = Object.keys(SEMANTIC_FEATURES).find((candidate) =>
+    phrasePresent(semanticFeature, candidate) || SEMANTIC_FEATURES[candidate]!.aliases.some((alias) => phrasePresent(semanticFeature, alias))
+  );
+  if (key === undefined) return undefined;
+  const definition = SEMANTIC_FEATURES[key]!;
+  if ((definition.conflicts ?? []).some((phrase) => phrasePresent(semanticSearchable, phrase))) return "CONTRADICTED";
+  return definition.aliases.some((phrase) => phrasePresent(semanticSearchable, phrase)) ? "MATCHED" : "UNKNOWN";
+}
+
+function phrasePresent(value: string, phrase: string): boolean {
+  return new RegExp(`(?:^|[^\\p{L}\\p{N}])${escapeRegExp(phrase).replaceAll("\\ ", "\\s+")}(?:$|[^\\p{L}\\p{N}])`, "u").test(value);
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 }
 
 function firstQuantity(value: string, requested: boolean): Quantity | undefined {
@@ -296,6 +369,25 @@ function normalize(value: string): string {
     .replaceAll("一对", " pair ")
     .replaceAll("一打", " dozen ")
     .replaceAll("适用于", " compatible with ")
+    .replaceAll("真皮", " genuine leather ")
+    .replaceAll("皮质", " leather ")
+    .replaceAll("皮革", " leather ")
+    .replaceAll("人造皮", " faux leather ")
+    .replaceAll("合成革", " synthetic leather ")
+    .replaceAll("平底皮鞋", " leather flat shoes ")
+    .replaceAll("芭蕾平底鞋", " ballet flats ")
+    .replaceAll("芭蕾舞鞋", " ballet shoes ")
+    .replaceAll("平底鞋", " flat shoes ")
+    .replaceAll("乐福鞋", " loafers ")
+    .replaceAll("运动鞋", " sneakers ")
+    .replaceAll("跑鞋", " running shoes ")
+    .replaceAll("靴子", " boots ")
+    .replaceAll("凉鞋", " sandals ")
+    .replaceAll("高跟鞋", " high heels ")
+    .replaceAll("日常穿", " daily wear ")
+    .replaceAll("通勤", " office wear ")
+    .replaceAll("休闲", " casual ")
+    .replaceAll("极简", " minimalist ")
     .replace(/\s+/gu, " ")
     .trim();
 }

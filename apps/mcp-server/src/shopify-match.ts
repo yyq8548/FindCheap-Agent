@@ -19,7 +19,12 @@ export type ShopifyMatchResult = {
 
 const CATEGORY_GROUPS = [
   { terms: ["shirt", "shirts", "tee", "tees", "tshirt", "tshirts"] },
-  { terms: ["shoe", "shoes", "sneaker", "sneakers"] },
+  {
+    terms: [
+      "shoe", "shoes", "sneaker", "sneakers", "trainer", "trainers", "flat", "flats",
+      "loafer", "loafers", "boot", "boots", "sandal", "sandals", "heel", "heels"
+    ]
+  },
   { terms: ["headphone", "headphones", "headset", "headsets", "earbud", "earbuds"] },
   { terms: ["sofa", "sofas", "couch", "couches"] },
   { terms: ["tv", "television", "televisions"] },
