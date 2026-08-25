@@ -11,6 +11,7 @@ import type {
   ShopifyProduct,
   ShopifySearchResult
 } from "./shopify-client.js";
+import { isTrustedMerchant } from "./merchant-trust.js";
 
 const QuerySchema = z.string().trim().min(2).max(300)
   .regex(/^[\p{L}\p{N}\s._+'-]+$/u)
@@ -52,6 +53,7 @@ export type UnifiedSearchExecution = {
     awin: "SKIPPED" | "COMPLETE" | "UNAVAILABLE";
     shopify: "SKIPPED" | "COMPLETE" | "PARTIAL" | "UNAVAILABLE";
   };
+  searchPasses: 1 | 2;
   chromeFallbackEligible: boolean;
 };
 
@@ -120,6 +122,57 @@ export async function searchProducts(
     }
   }
 
+  let searchPasses: 1 | 2 = 1;
+  const expandedQuery = buildExpandedQuery(input);
+  if (affiliateCandidates.length + shopifyCandidates.length < input.limit) {
+    searchPasses = 2;
+    if (affiliateEligible && expandedQuery !== input.query) {
+      try {
+        const expandedAwinResult = await ports.awin.search({
+          query: expandedQuery,
+          limit: 24,
+          ...(input.maxItemPriceCents === undefined
+            ? {}
+            : { maxItemPriceCents: input.maxItemPriceCents })
+        });
+        awinResult = expandedAwinResult;
+        awinStatus = "COMPLETE";
+        affiliateCandidates = mergeCandidates(
+          affiliateCandidates,
+          expandedAwinResult.products
+            .map((product) => awinCandidate(product, input))
+            .filter((candidate): candidate is UnifiedCandidate => candidate !== undefined)
+        );
+      } catch {
+        if (awinStatus !== "COMPLETE") awinStatus = "UNAVAILABLE";
+      }
+    }
+
+    try {
+      const expandedShopifyResult = await ports.shopify.search({
+        query: expandedQuery,
+        limit: 12,
+        comparisonMode: input.comparisonMode,
+        selectionMode: input.selectionMode,
+        ...(input.maxItemPriceCents === undefined
+          ? {}
+          : { maxItemPriceCents: input.maxItemPriceCents }),
+        ...(input.zipCode === undefined ? {} : { zipCode: input.zipCode }),
+        membershipIds: input.membershipIds ?? []
+      });
+      shopifyResult = expandedShopifyResult;
+      shopifyStatus = expandedShopifyResult.coverage;
+      shopifyCandidates = mergeCandidates(
+        shopifyCandidates,
+        expandedShopifyResult.products
+          .map((product) => shopifyCandidate(product, input))
+          .filter((candidate): candidate is UnifiedCandidate => candidate !== undefined)
+      );
+    } catch {
+      shopifyStatus = shopifyStatus === "COMPLETE" ? "PARTIAL" : "UNAVAILABLE";
+    }
+  }
+
   const candidates = input.selectionMode === "LOWEST_PRICE"
     ? [...affiliateCandidates, ...shopifyCandidates]
         .sort(compareCandidates)
@@ -132,13 +185,14 @@ export async function searchProducts(
   const chromeFallbackEligible =
     candidates.length === 0 &&
     queriedSourcesComplete &&
-    shopifyResult?.diagnostics.chromeFallbackEligible === true;
+    searchPasses === 2;
 
   return {
     candidates,
     ...(awinResult === undefined ? {} : { awinResult }),
     ...(shopifyResult === undefined ? {} : { shopifyResult }),
     sourceStatus: { awin: awinStatus, shopify: shopifyStatus },
+    searchPasses,
     chromeFallbackEligible
   };
 }
@@ -167,6 +221,7 @@ function shopifyCandidate(
   product: ShopifyProduct,
   input: SearchProductsInput
 ): UnifiedCandidate | undefined {
+  if (!isTrustedMerchant(product.merchantTrust)) return undefined;
   if (!conditionMatches(product.condition, input.conditionPreference)) return undefined;
   const featureEvidence = matchFeatures(
     [
@@ -196,8 +251,95 @@ function conditionMatches(
 }
 
 function matchFeatures(searchable: string, features: readonly string[]): string[] {
-  const normalized = normalize(searchable);
-  return features.filter((feature) => normalized.includes(normalize(feature)));
+  return features.filter((feature) => featureMatches(searchable, feature));
+}
+
+function featureMatches(searchable: string, feature: string): boolean {
+  const normalizedSearchable = normalize(searchable);
+  const normalizedFeature = normalize(feature);
+  if (normalizedSearchable.includes(normalizedFeature)) return true;
+
+  const requestedMeasurement = parseRequestedMeasurement(normalizedFeature);
+  if (requestedMeasurement !== undefined) {
+    const observed = parseMeasurements(normalizedSearchable)
+      .filter((measurement) => measurement.unit === requestedMeasurement.unit);
+    return observed.some((measurement) => requestedMeasurement.minimum
+      ? measurement.value >= requestedMeasurement.value
+      : requestedMeasurement.unit === "IN"
+        ? Math.abs(measurement.value - requestedMeasurement.value) <= 0.5
+        : measurement.value === requestedMeasurement.value
+    );
+  }
+
+  const requestedTokens = meaningfulTokens(normalizedFeature);
+  if (requestedTokens.length === 0) return false;
+  const observedTokens = new Set(meaningfulTokens(normalizedSearchable));
+  return requestedTokens.every((token) => observedTokens.has(token));
+}
+
+type Measurement = { value: number; unit: "GB" | "IN"; minimum?: boolean };
+
+function parseRequestedMeasurement(value: string): Measurement | undefined {
+  const match = value.match(/\b(at least|minimum|min|>=)?\s*(\d+(?:\.\d+)?)\s*(tb|gb|inches|inch|in)\b/u);
+  if (match === null) return undefined;
+  const numeric = Number(match[2]);
+  const unit = match[3];
+  return {
+    value: unit === "tb" ? numeric * 1024 : numeric,
+    unit: unit === "tb" || unit === "gb" ? "GB" : "IN",
+    minimum: match[1] !== undefined
+  };
+}
+
+function parseMeasurements(value: string): Measurement[] {
+  return [...value.matchAll(/\b(\d+(?:\.\d+)?)\s*(tb|gb|inches|inch|in)\b/gu)].map((match) => {
+    const numeric = Number(match[1]);
+    const unit = match[2];
+    return {
+      value: unit === "tb" ? numeric * 1024 : numeric,
+      unit: unit === "tb" || unit === "gb" ? "GB" as const : "IN" as const
+    };
+  });
+}
+
+const FEATURE_STOP_WORDS = new Set(["at", "least", "minimum", "min", "with", "for", "and", "or", "of", "the"]);
+
+function meaningfulTokens(value: string): string[] {
+  return (value.match(/[\p{L}\p{N}]+/gu) ?? [])
+    .map(canonicalToken)
+    .filter((token) => token.length > 1 && !FEATURE_STOP_WORDS.has(token));
+}
+
+function canonicalToken(value: string): string {
+  let token = value;
+  if (token.length > 5 && token.endsWith("ing")) token = token.slice(0, -3);
+  else if (token.length > 4 && token.endsWith("ed")) token = token.slice(0, -2);
+  else if (token.length > 4 && token.endsWith("es")) token = token.slice(0, -2);
+  else if (token.length > 3 && token.endsWith("s")) token = token.slice(0, -1);
+  if (token.length > 4 && token.endsWith("e")) token = token.slice(0, -1);
+  return token;
+}
+
+function buildExpandedQuery(input: SearchProductsInput): string {
+  const parts = [input.query, ...input.features]
+    .map((part) => part.normalize("NFKC").trim())
+    .filter((part, index, values) => part !== "" && values.indexOf(part) === index);
+  return parts.join(" ").slice(0, 300).trim();
+}
+
+function mergeCandidates(
+  current: UnifiedCandidate[],
+  incoming: UnifiedCandidate[]
+): UnifiedCandidate[] {
+  const merged = new Map<string, UnifiedCandidate>();
+  for (const candidate of [...current, ...incoming]) {
+    const key = candidate.source === "AWIN_PRODUCT_FEED"
+      ? `${candidate.source}:${candidate.awinProduct?.merchantId}:${candidate.awinProduct?.merchantProductId}`
+      : `${candidate.source}:${candidate.shopifyProduct?.merchantId}:${candidate.shopifyProduct?.handle}`;
+    const existing = merged.get(key);
+    if (existing === undefined || compareCandidates(candidate, existing) < 0) merged.set(key, candidate);
+  }
+  return [...merged.values()].sort(compareCandidates);
 }
 
 function compareCandidates(

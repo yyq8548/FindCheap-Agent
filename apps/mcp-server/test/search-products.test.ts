@@ -110,6 +110,75 @@ describe("unified product search", () => {
     expect(result.chromeFallbackEligible).toBe(false);
   });
 
+  it("runs one feature-enriched expansion before Chrome and accepts minimum capacity", async () => {
+    const shopifySearch = vi.fn()
+      .mockResolvedValueOnce(shopifyResult([]))
+      .mockResolvedValueOnce(shopifyResult([
+        shopifyProduct("macbook-36", 329_900, "NEW", {
+          title: "Apple MacBook Pro M5 Pro 16.2-inch 36GB",
+          variantDimensions: { Memory: "36GB", Display: "16.2 inch" }
+        })
+      ]));
+
+    const result = await searchProducts(SearchProductsInputSchema.parse({
+      query: "Apple MacBook Pro M5 Pro",
+      limit: 3,
+      conditionPreference: "NEW",
+      features: ["at least 32GB", "16 inch", "M5 Pro"],
+      featureMode: "REQUIRED"
+    }), { awin: awin([]), shopify: { search: shopifySearch } });
+
+    expect(shopifySearch).toHaveBeenCalledTimes(2);
+    expect(shopifySearch.mock.calls[1]?.[0]).toMatchObject({
+      query: "Apple MacBook Pro M5 Pro at least 32GB 16 inch M5 Pro",
+      limit: 12
+    });
+    expect(result.searchPasses).toBe(2);
+    expect(result.candidates).toHaveLength(1);
+    expect(result.candidates[0]?.featureEvidence).toEqual(["at least 32GB", "16 inch", "M5 Pro"]);
+    expect(result.chromeFallbackEligible).toBe(false);
+  });
+
+  it("uses a broader feature query for paraphrased product needs", async () => {
+    const shopifySearch = vi.fn()
+      .mockResolvedValueOnce(shopifyResult([]))
+      .mockResolvedValueOnce(shopifyResult([
+        shopifyProduct("repair-conditioner", 2200, "NEW", {
+          title: "Repair Conditioner for Dry Damaged Hair"
+        })
+      ]));
+
+    const result = await searchProducts(SearchProductsInputSchema.parse({
+      query: "conditioner",
+      features: ["repair dry damaged hair"],
+      featureMode: "REQUIRED"
+    }), { awin: awin([]), shopify: { search: shopifySearch } });
+
+    expect(shopifySearch.mock.calls[1]?.[0].query).toBe("conditioner repair dry damaged hair");
+    expect(result.candidates).toHaveLength(1);
+  });
+
+  it("excludes unverified merchants before ranking and offers Chrome only after expansion", async () => {
+    const unverified = shopifyProduct("unknown", 1000, "NEW", {
+      merchantTrust: {
+        level: "UNKNOWN",
+        verification: "UNVERIFIED",
+        evidence: ["no independent merchant trust evidence"]
+      }
+    });
+    const shopifySearch = vi.fn(async () => shopifyResult([unverified]));
+
+    const result = await searchProducts(SearchProductsInputSchema.parse({
+      query: "cat toy",
+      limit: 3
+    }), { awin: awin([]), shopify: { search: shopifySearch } });
+
+    expect(shopifySearch).toHaveBeenCalledTimes(2);
+    expect(result.candidates).toEqual([]);
+    expect(result.searchPasses).toBe(2);
+    expect(result.chromeFallbackEligible).toBe(true);
+  });
+
   it("recognizes only approved affiliate category signals", () => {
     expect(isApprovedAffiliateQuery("角蛋白发膜")).toBe(true);
     expect(isApprovedAffiliateQuery("Sony headphones")).toBe(false);
@@ -137,7 +206,8 @@ function awinProduct(id: string, amountCents: number) {
 function shopifyProduct(
   handle: string,
   amountCents: number,
-  condition: "NEW" | "UNKNOWN" = "UNKNOWN"
+  condition: "NEW" | "UNKNOWN" = "UNKNOWN",
+  overrides: Record<string, unknown> = {}
 ) {
   return {
     merchantId: `merchant-${handle}`,
@@ -158,7 +228,8 @@ function shopifyProduct(
     itemPrice: { amountCents, currency: "USD" as const },
     availability: "IN_STOCK" as const,
     merchantUrl: `https://merchant-${handle}.example/products/${handle}`,
-    checkedAt: now
+    checkedAt: now,
+    ...overrides
   };
 }
 

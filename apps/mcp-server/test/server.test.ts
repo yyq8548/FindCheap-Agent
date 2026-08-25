@@ -423,7 +423,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.8.4",
+        version: "0.8.5",
         terminalStage: "DOM_RENDERED",
         stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
       }
@@ -432,7 +432,7 @@ describe("shopping MCP server", () => {
     expect(result.structuredContent).toEqual({ status: "RECORDED" });
     expect(record).toHaveBeenCalledWith(expect.objectContaining({
       renderId,
-      version: "0.8.4",
+      version: "0.8.5",
       terminalStage: "DOM_RENDERED",
       stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
     }));
@@ -440,7 +440,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.8.4",
+        version: "0.8.5",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 14 }
       }
@@ -450,7 +450,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.8.4",
+        version: "0.8.5",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 300_001 }
       }
@@ -461,7 +461,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId: "22222222-2222-4222-8222-222222222222",
-        version: "0.8.4",
+        version: "0.8.5",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 1 }
       }
@@ -1335,7 +1335,7 @@ describe("Coupon and Watch tools", () => {
         priceBasis: "DELIVERED_TOTAL",
         deliveredPrice: { amountCents: 1_900, currency: "USD" }
       } });
-    expect(search).toHaveBeenCalledTimes(1);
+    expect(search).toHaveBeenCalledTimes(2);
     expect(quoteCart).toHaveBeenCalledTimes(3);
     expect((await client.callTool({ name: "list_watches", arguments: {} })).structuredContent)
       .toMatchObject({ watches: [{ watchId, priceBasis: "DELIVERED_TOTAL" }] });
@@ -1701,8 +1701,15 @@ describe("Coupon and Watch tools", () => {
     const found = await client.callTool({ name: "search_products", arguments: { query: "B24 shampoo", limit: 1 } });
     expect(found.structuredContent).toMatchObject({
       products: [{
+        merchantTrust: {
+          level: "ESTABLISHED_RETAILER",
+          verification: "INDEPENDENT"
+        },
         quoteCapability: "ZIP_ESTIMATE_ONLY",
-        card: { quoteCapability: "ZIP_ESTIMATE_ONLY" },
+        card: {
+          merchantTrustBadge: "ESTABLISHED_RETAILER",
+          quoteCapability: "ZIP_ESTIMATE_ONLY"
+        },
         quoteReference: { selectionId: expect.any(String) }
       }]
     });

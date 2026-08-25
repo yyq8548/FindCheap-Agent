@@ -9,7 +9,7 @@ Product form: **Codex Plugin Agent**.
 
 FindCheap Agent is a read-only Codex plugin for product search, offer matching, price checks, product cards, verified deals, and shopping watches. It returns up to three products with images, merchant links, price evidence, match labels, condition, and availability.
 
-Codex calls one public `search_products` tool through a local stdio MCP server. The router considers relevant products from approved affiliate programs first, fills remaining slots from Shopify Global Catalog, and offers an authorized bounded Chrome search only after complete API coverage returns no usable product.
+Codex calls one public `search_products` tool through a local stdio MCP server. The router considers relevant products from approved affiliate programs first, fills remaining slots from Shopify Global Catalog, and automatically runs one broader internal search when the first pass cannot fill the requested cards. It offers an authorized bounded Chrome search only after both API passes return no usable verified product.
 
 The plugin does not order, check out, or submit payment. It also does not reserve inventory.
 
@@ -51,9 +51,9 @@ Results use three match labels:
 - `DISCOVERY_MATCH` is relevant but does not have enough evidence for a same-product claim.
 - `SIMILAR` is an alternative, not the same item.
 
-Exact merchant domains can be labeled `OFFICIAL`, `AUTHORIZED_RETAILER`, `ESTABLISHED_RETAILER`, `UNKNOWN`, or `RISKY` when checked-in evidence supports the label. Trusted merchants rank before price. Unknown merchants are shown separately and do not fill the top three when trusted results are available. Risky hosts are excluded. Affiliate status never affects ranking.
+Exact merchant domains can be labeled `OFFICIAL`, `AUTHORIZED_RETAILER`, `ESTABLISHED_RETAILER`, `UNKNOWN`, or `RISKY` when checked-in evidence supports the label. Only independently verified Shopify merchants and merchants supplied by an approved Awin Advertiser Feed can enter recommendation cards. Unknown and risky merchants are excluded before ranking. Affiliate status never affects ranking.
 
-Affiliate commission never affects routing or ranking. `LOWEST_PRICE` compares qualifying item prices across sources; normal discovery preserves merchant diversity. If the first catalog request returns no usable product, the plugin may run one bounded relaxed request. Relaxed results remain `DISCOVERY_MATCH`. Chrome is offered only after every attempted API source reports complete zero-result coverage; partial coverage and source errors fail closed.
+Affiliate commission never affects routing or ranking. `LOWEST_PRICE` compares qualifying item prices across sources; normal discovery preserves merchant diversity. If the first routed pass cannot fill the requested cards, the plugin runs one feature-enriched, larger-pool API search and reapplies the original hard constraints and merchant verification. Expanded results remain `DISCOVERY_MATCH` unless exact identity evidence exists. Chrome is offered only after the expanded pass also returns no usable verified product; partial coverage and source errors fail closed.
 
 ## Offer comparison and delivery estimates
 

@@ -3898,6 +3898,11 @@
           "kind": "import-statement",
           "original": "zod",
           "path": "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/index.js"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./merchant-trust.js",
+          "path": "src/merchant-trust.ts"
         }
       ]
     },
@@ -4183,7 +4188,7 @@
   },
   "outputs": {
     "../../plugins/findcheap-agent/dist/mcp-server.js": {
-      "bytes": 516520,
+      "bytes": 519101,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
@@ -4368,7 +4373,7 @@
           "bytesInOutput": 2584
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/compile/codegen/index.js": {
-          "bytesInOutput": 11794
+          "bytesInOutput": 11833
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/compile/codegen/scope.js": {
           "bytesInOutput": 2585
@@ -4416,7 +4421,7 @@
           "bytesInOutput": 1979
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/core.js": {
-          "bytesInOutput": 12279
+          "bytesInOutput": 12277
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/refs/data.json": {
           "bytesInOutput": 358
@@ -4821,10 +4826,10 @@
           "bytesInOutput": 1784
         },
         "src/search-products.ts": {
-          "bytesInOutput": 3663
+          "bytesInOutput": 5982
         },
         "src/server.ts": {
-          "bytesInOutput": 65355
+          "bytesInOutput": 65580
         },
         "src/shopify-cart-quote.ts": {
           "bytesInOutput": 10285

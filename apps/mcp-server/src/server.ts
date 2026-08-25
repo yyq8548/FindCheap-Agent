@@ -87,7 +87,7 @@ const ProductCardStagesSchema = z.object({
 
 const ProductCardTelemetryInputSchema = z.object({
   renderId: z.string().uuid(),
-  version: z.literal("0.8.4"),
+  version: z.literal("0.8.5"),
   terminalStage: z.enum([
     "DOM_RENDERED",
     "FIRST_IMAGE_SETTLED",
@@ -889,9 +889,9 @@ function awinCardProduct(candidate: UnifiedCandidate): ProductCardProduct {
     merchant: product.merchant,
     sourceHost,
     merchantTrust: {
-      level: "UNKNOWN",
-      verification: "UNVERIFIED",
-      evidence: ["merchant trust not independently reviewed"]
+      level: "ESTABLISHED_RETAILER",
+      verification: "INDEPENDENT",
+      evidence: ["merchant supplied through an approved Awin Advertiser Product Feed"]
     },
     handle: product.merchantProductId,
     title: product.title,
@@ -933,7 +933,7 @@ function awinCardProduct(candidate: UnifiedCandidate): ProductCardProduct {
       matchBadge: product.matchStatus,
       conditionBadge: product.condition,
       availability: product.availability,
-      merchantTrustBadge: "MERCHANT_UNVERIFIED",
+      merchantTrustBadge: "ESTABLISHED_RETAILER",
       quoteCapability: "MERCHANT_CHECKOUT_ONLY",
       actionLabel: "View at merchant"
     }
@@ -1335,7 +1335,7 @@ export function createShoppingServer(
   dependencies: ShoppingServerDependencies = {}
 ): McpServer {
   void comparePort;
-  const server = new McpServer({ name: "findcheap-agent", version: "0.8.4" });
+  const server = new McpServer({ name: "findcheap-agent", version: "0.8.5" });
   const dealPort = dependencies.deals ?? createUnavailableDealPort();
   const awinPort = dependencies.awin ?? createUnavailableAwinPort();
   const toolAvailability = dependencies.toolAvailability ?? {
@@ -1528,7 +1528,17 @@ export function createShoppingServer(
         return shopifyClarificationResult(input.selectionMode, input);
       }
       const execution = await searchProducts(input, { awin: awinPort, shopify: shopifyPort });
-      const initialShopify = execution.shopifyResult ?? emptyShopifySearchResult(input);
+      const selectedShopifyHandles = new Set(execution.candidates.flatMap((candidate) =>
+        candidate.shopifyProduct === undefined ? [] : [candidate.shopifyProduct.handle]
+      ));
+      const initialShopify = execution.shopifyResult === undefined
+        ? emptyShopifySearchResult(input)
+        : {
+            ...execution.shopifyResult,
+            products: execution.shopifyResult.products.filter((product) =>
+              selectedShopifyHandles.has(product.handle)
+            )
+          };
       const enriched = execution.shopifyResult === undefined
         ? { result: initialShopify, attempted: 0, succeeded: 0 }
         : await enrichShopifyCartQuotes(initialShopify, input.zipCode, cartQuotes);
@@ -1558,6 +1568,7 @@ export function createShoppingServer(
       process.stderr.write(`[findcheap-search-debug] ${JSON.stringify({
         recordedAt: now().toISOString(),
         sourceStatus: execution.sourceStatus,
+        searchPasses: execution.searchPasses,
         awin: execution.awinResult?.diagnostics,
         shopify: enriched.result.diagnostics,
         cardsReturned: response.structuredContent.products.length,
