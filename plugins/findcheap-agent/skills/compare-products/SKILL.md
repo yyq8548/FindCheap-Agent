@@ -1,9 +1,9 @@
 ---
 name: compare-products
-description: Search products through one constrained router, render verified cards, quote one selected item by ZIP, and use authorized Chrome only after complete API zero results.
+description: Search products through one constrained router, render evidence-labeled cards, quote one selected item by ZIP, and use authorized Chrome only after complete API zero results.
 ---
 
-# FindCheap Agent v0.8.5 Product Search
+# FindCheap Agent v0.8.6 Product Search
 
 Risk tier: search and authorized Chrome fallback are `R0`; ZIP quote is `R1` because it creates one anonymous short-lived Shopify cart. Never checkout, reserve, purchase, pay, persist an address, or request a street address.
 
@@ -13,7 +13,7 @@ Risk tier: search and authorized Chrome fallback are `R0`; ZIP quote is `R1` bec
 2. Before a tool call, send at most one short progress sentence. Do not explain the plan, routing, safety policy, or Skill. Call `search_products` exactly once; its result renders cards directly. Never call `render_product_cards`, source-specific legacy tools, or repeat a successful search.
 3. Always pass `limit: 3`. Preserve brand, model, SKU/GTIN, size, color, capacity, count, condition, required features, and price ceiling. Translate generic Chinese product terms to concise English. Use `comparisonMode: SAME_PRODUCT` only for explicit like-for-like comparison; otherwise `DISCOVERY`. Use `selectionMode: LOWEST_PRICE` only when explicitly requested; otherwise `MERCHANT_DIVERSE`. Pass price ceilings in integer cents and required capabilities in `features` with `featureMode: REQUIRED`.
 4. Router owns Awin, Shopify, the automatic second-pass expansion, and fallback order. Commercial relationship or commission never changes eligibility, relevance, features, or ranking. Preserve returned order. Do not expose affiliate status, provider, commission, source routing, or internal diagnostics to customer.
-5. Recommend only independently verified Shopify merchants or merchants supplied through an approved Awin Advertiser Feed. Verification happens before ranking and cards. Preserve labels: `EXACT`, `DISCOVERY_MATCH`, `SIMILAR`, condition, availability, merchant trust, verified price scope, and `matchEvidence`. Keyword overlap alone is `DISCOVERY_MATCH`. Keep `IRRELEVANT`, condition-conflicting, over-budget, unavailable, unknown-merchant, and risky results excluded. Never describe `UNKNOWN` condition as new or pad three cards with rejected products.
+5. After product identity, required features, condition, price, and availability gates, preserve the returned merchant tiers: (1) independently reviewed registry merchants and approved Awin programs; (2) Shopify products rated above `3.8` with at least `2` reviews; (3) other relevant Shopify merchants with an explicit limited-trust warning. A product rating never verifies the merchant. Preserve labels: `EXACT`, `DISCOVERY_MATCH`, `SIMILAR`, condition, availability, merchant trust, verified price scope, and `matchEvidence`. Keyword overlap alone is `DISCOVERY_MATCH`. Keep `IRRELEVANT`, condition-conflicting, over-budget, unavailable, and risky results excluded. Never describe `UNKNOWN` condition as new or pad three cards with rejected products.
 6. `SAME_PRODUCT` requires returned identity evidence; `DISCOVERY_ONLY` means relevant choices, not like-for-like offers. Ask returned `NEEDS_CLARIFICATION` question once and stop.
 
 ## Selected product

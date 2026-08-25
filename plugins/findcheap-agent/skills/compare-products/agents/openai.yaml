@@ -1,4 +1,4 @@
 interface:
-  display_name: "FindCheap Agent v0.8.5"
+  display_name: "FindCheap Agent v0.8.6"
   short_description: "Trusted merchants, products, deals, and watches"
   default_prompt: "Use $compare-products. For clear requests, skip Memory and repo reads; call the matching tool immediately."

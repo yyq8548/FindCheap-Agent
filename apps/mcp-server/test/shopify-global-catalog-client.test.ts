@@ -172,7 +172,7 @@ describe("Shopify Global Catalog client", () => {
     expect(result.products[0]?.matchEvidence).toContain("Shopify Universal Product ID exact");
   });
 
-  it("returns reviewed official merchants before price and does not pad with unknown sellers", async () => {
+  it("returns reviewed merchants before unknown sellers without discarding relevant products", async () => {
     const port = createShopifyGlobalCatalogPort(
       { SHOPIFY_AGENT_PROFILE_URL: profileUrl },
       {
@@ -197,14 +197,45 @@ describe("Shopify Global Catalog client", () => {
           level: "OFFICIAL",
           verification: "INDEPENDENT"
         })
+      }),
+      expect.objectContaining({
+        merchant: "Tiny Cheap Shop",
+        merchantTrust: expect.objectContaining({
+          level: "UNKNOWN",
+          verification: "UNVERIFIED"
+        }),
+        recommendationTier: "GENERAL_UNVERIFIED"
       })
     ]);
     expect(result.diagnostics).toMatchObject({
       trustedMerchantProductsReturned: 1,
-      unverifiedMerchantProductsReturned: 0,
-      unverifiedMerchantProductsExcluded: 1,
+      unverifiedMerchantProductsReturned: 1,
+      unverifiedMerchantProductsExcluded: 0,
       riskyMerchantProductsExcluded: 0
     });
+  });
+
+  it("requires rating above 3.8 and at least two reviews for the high-rated tier", async () => {
+    const port = createShopifyGlobalCatalogPort(
+      { SHOPIFY_AGENT_PROFILE_URL: profileUrl },
+      {
+        fetch: vi.fn(async () => catalogResponse([
+          product({ shopId: "95", merchant: "One Review", host: "one-review.example", price: 8_000, title: "DÔEN Quinn Dress", rating: { value: 5, count: 1 } }),
+          product({ shopId: "96", merchant: "At Threshold", host: "threshold.example", price: 7_000, title: "DÔEN Quinn Dress", rating: { value: 3.8, count: 100 } }),
+          product({ shopId: "97", merchant: "Qualified Rating", host: "qualified.example", price: 9_000, title: "DÔEN Quinn Dress", rating: { value: 3.9, count: 2 } })
+        ])),
+        clock: { now: () => new Date(now) }
+      }
+    );
+
+    const result = await port.search({ query: "DÔEN Quinn Dress", limit: 3 });
+
+    expect(result.products.map((entry) => [entry.merchant, entry.recommendationTier])).toEqual([
+      ["Qualified Rating", "HIGH_RATED_UNVERIFIED"],
+      ["One Review", "GENERAL_UNVERIFIED"],
+      ["At Threshold", "GENERAL_UNVERIFIED"]
+    ]);
+    expect(result.products[0]?.productRating).toEqual({ value: 3.9, count: 2, scaleMax: 5 });
   });
 
   it("keeps unknown merchants as explicitly unverified discovery only when no trusted seller exists", async () => {
@@ -460,6 +491,7 @@ function product(input: {
   condition?: string[];
   available?: boolean;
   title?: string;
+  rating?: { value: number; count: number };
 }) {
   const variantId = input.shopId === "11236098" ? "42797821853913" : `${input.shopId}42797821853913`;
   return {
@@ -482,7 +514,10 @@ function product(input: {
         url: `https://${input.host}`,
         domain: `${input.shopId}.myshopify.com`
       },
-      condition: input.condition ?? ["new"]
+      condition: input.condition ?? ["new"],
+      rating: input.rating === undefined
+        ? undefined
+        : { value: input.rating.value, scale_min: 1, scale_max: 5, count: input.rating.count }
     }]
   };
 }

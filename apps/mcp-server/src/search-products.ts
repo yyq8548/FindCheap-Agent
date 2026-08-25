@@ -11,7 +11,11 @@ import type {
   ShopifyProduct,
   ShopifySearchResult
 } from "./shopify-client.js";
-import { isTrustedMerchant } from "./merchant-trust.js";
+import {
+  merchantRecommendationRank,
+  merchantRecommendationTier
+} from "./merchant-trust.js";
+import type { MerchantRecommendationTier } from "./merchant-trust.js";
 
 const QuerySchema = z.string().trim().min(2).max(300)
   .regex(/^[\p{L}\p{N}\s._+'-]+$/u)
@@ -40,6 +44,7 @@ export type SearchProductsInput = z.infer<typeof SearchProductsInputSchema>;
 export type UnifiedCandidate = {
   source: "AWIN_PRODUCT_FEED" | "SHOPIFY_GLOBAL_CATALOG";
   affiliateState: "APPROVED" | "NONE";
+  recommendationTier: MerchantRecommendationTier;
   featureEvidence: string[];
   awinProduct?: AwinProduct;
   shopifyProduct?: ShopifyProduct;
@@ -173,11 +178,9 @@ export async function searchProducts(
     }
   }
 
-  const candidates = input.selectionMode === "LOWEST_PRICE"
-    ? [...affiliateCandidates, ...shopifyCandidates]
-        .sort(compareCandidates)
-        .slice(0, input.limit)
-    : [...affiliateCandidates, ...shopifyCandidates].slice(0, input.limit);
+  const candidates = [...affiliateCandidates, ...shopifyCandidates]
+    .sort(input.selectionMode === "LOWEST_PRICE" ? compareCandidates : compareRecommendationTiers)
+    .slice(0, input.limit);
   const queriedSourcesComplete =
     awinStatus !== "UNAVAILABLE" &&
     shopifyStatus !== "UNAVAILABLE" &&
@@ -212,6 +215,7 @@ function awinCandidate(
   return {
     source: "AWIN_PRODUCT_FEED",
     affiliateState: "APPROVED",
+    recommendationTier: "TRUSTED_OR_AFFILIATE",
     featureEvidence,
     awinProduct: product
   };
@@ -221,7 +225,7 @@ function shopifyCandidate(
   product: ShopifyProduct,
   input: SearchProductsInput
 ): UnifiedCandidate | undefined {
-  if (!isTrustedMerchant(product.merchantTrust)) return undefined;
+  if (product.merchantTrust.level === "RISKY") return undefined;
   if (!conditionMatches(product.condition, input.conditionPreference)) return undefined;
   const featureEvidence = matchFeatures(
     [
@@ -238,6 +242,7 @@ function shopifyCandidate(
   return {
     source: "SHOPIFY_GLOBAL_CATALOG",
     affiliateState: "NONE",
+    recommendationTier: merchantRecommendationTier(product.merchantTrust, product.productRating),
     featureEvidence,
     shopifyProduct: product
   };
@@ -346,13 +351,30 @@ function compareCandidates(
   left: UnifiedCandidate,
   right: UnifiedCandidate
 ): number {
+  const tierDifference = merchantRecommendationRank(left.recommendationTier) -
+    merchantRecommendationRank(right.recommendationTier);
+  if (tierDifference !== 0) return tierDifference;
   const featureDifference = right.featureEvidence.length - left.featureEvidence.length;
   if (featureDifference !== 0) return featureDifference;
   const matchDifference = matchRank(right) - matchRank(left);
   if (matchDifference !== 0) return matchDifference;
+  const ratingDifference = productRating(right) - productRating(left);
+  if (ratingDifference !== 0) return ratingDifference;
   const priceDifference = price(left) - price(right);
   if (priceDifference !== 0) return priceDifference;
   return title(left).localeCompare(title(right));
+}
+
+function compareRecommendationTiers(
+  left: UnifiedCandidate,
+  right: UnifiedCandidate
+): number {
+  return merchantRecommendationRank(left.recommendationTier) -
+    merchantRecommendationRank(right.recommendationTier);
+}
+
+function productRating(candidate: UnifiedCandidate): number {
+  return candidate.shopifyProduct?.productRating?.value ?? 0;
 }
 
 function matchRank(candidate: UnifiedCandidate): number {

@@ -1,7 +1,11 @@
 import { createShopifyGlobalCatalogPort } from "./shopify-global-catalog-client.js";
 import type { ShopifyMatchStatus } from "./shopify-match.js";
 import type { ShopifyCartEstimate } from "./shopify-cart-quote.js";
-import type { MerchantTrustEvidence } from "./merchant-trust.js";
+import type {
+  MerchantRecommendationTier,
+  MerchantTrustEvidence,
+  ProductRating
+} from "./merchant-trust.js";
 
 export type ShopifySearchInput = {
   query?: string | undefined;
@@ -23,6 +27,7 @@ export type ShopifyProduct = {
   merchant: string;
   sourceHost: string;
   merchantTrust: MerchantTrustEvidence;
+  recommendationTier?: MerchantRecommendationTier;
   handle: string;
   title: string;
   brand?: string;
@@ -37,6 +42,7 @@ export type ShopifyProduct = {
   availability: "IN_STOCK" | "OUT_OF_STOCK" | "UNKNOWN";
   merchantUrl: string;
   checkedAt: string;
+  productRating?: ProductRating;
   cartQuote?: ShopifyCartEstimate;
 };
 

@@ -1,4 +1,4 @@
-export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v20.html";
+export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v21.html";
 
 export const PRODUCT_CARD_RESOURCE_DOMAINS = [
   "https://cdn.shopify.com"
@@ -169,7 +169,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     const uiStartedAt = typeof performance === "object" && typeof performance.now === "function"
       ? performance.now()
       : Date.now();
-    const cardMetrics = { version: "0.8.5", stages: {} };
+    const cardMetrics = { version: "0.8.6", stages: {} };
     window.__findcheapCardMetrics = cardMetrics;
     const notify = (method, params = {}) => {
       window.parent.postMessage({ jsonrpc: "2.0", method, params }, "*");
@@ -290,11 +290,28 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       container.append(line);
     };
     const groupDefinitions = [
-      { status: "EXACT", trusted: true, title: "Trusted exact matches" },
-      { status: "DISCOVERY_MATCH", trusted: true, title: "Trusted discovery matches" },
-      { status: "SIMILAR", trusted: true, title: "Trusted similar options" },
-      { trusted: false, title: "Unverified merchant candidates" }
+      { tier: "TRUSTED_OR_AFFILIATE", title: "Trusted merchants and approved affiliate programs" },
+      {
+        tier: "HIGH_RATED_UNVERIFIED",
+        title: "Highly rated products - merchant not independently verified",
+        notice: "Product rating is above 3.8 with at least 2 reviews. Product feedback does not verify merchant trust."
+      },
+      {
+        tier: "GENERAL_UNVERIFIED",
+        title: "Other relevant products - review merchant carefully",
+        notice: "Merchant trust evidence is limited. Verify seller identity, returns, and payment protection before purchasing."
+      }
     ];
+    const recommendationTier = (product) => {
+      if (typeof product?.recommendationTier === "string") return product.recommendationTier;
+      if (product?.merchantTrust?.verification === "INDEPENDENT" || product?.affiliateState === "APPROVED") {
+        return "TRUSTED_OR_AFFILIATE";
+      }
+      const rating = product?.productRating;
+      return rating && Number(rating.value) > 3.8 && Number(rating.count) >= 2
+        ? "HIGH_RATED_UNVERIFIED"
+        : "GENERAL_UNVERIFIED";
+    };
     function render(output) {
       hasResult = true;
       if (typeof output?.renderId === "string") currentRenderId = output.renderId;
@@ -330,13 +347,11 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
         app.append(quoteSummary);
       }
       for (const definition of groupDefinitions) {
-        const grouped = products.filter((product) => {
-          const verified = product?.merchantTrust?.verification === "INDEPENDENT";
-          return definition.trusted ? verified && product?.matchStatus === definition.status : !verified;
-        });
+        const grouped = products.filter((product) => recommendationTier(product) === definition.tier);
         if (grouped.length === 0) continue;
         const group = make("section", "group");
         group.append(make("h2", "", definition.title));
+        if (definition.notice) group.append(make("div", "limitations notice", definition.notice));
         const cards = make("div", "cards");
         for (const product of grouped) {
           const cardData = product && typeof product.card === "object" ? product.card : {};
@@ -376,6 +391,9 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
           if (identity) body.append(make("div", "details", identity));
           const variants = Object.entries(product.variantDimensions || {}).map(([name, value]) => name + ": " + value).join(" / ");
           if (variants) body.append(make("div", "details", variants));
+          if (product?.productRating && Number.isFinite(Number(product.productRating.value)) && Number.isInteger(Number(product.productRating.count))) {
+            body.append(make("div", "details", "Product rating: " + Number(product.productRating.value).toFixed(1) + "/5 (" + Number(product.productRating.count) + " reviews)"));
+          }
           const row = make("div", "row");
           const priceBlock = make("div", "");
           priceBlock.append(make("div", "price", money(cardData.primaryPrice)));
@@ -527,7 +545,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     warmCompatibilityBridge();
     const initializeParams = {
       protocolVersion: "2026-01-26",
-      appInfo: { name: "FindCheap Agent product cards", version: "0.8.5" },
+      appInfo: { name: "FindCheap Agent product cards", version: "0.8.6" },
       appCapabilities: { availableDisplayModes: ["inline"] }
     };
     const finishInitialization = () => {

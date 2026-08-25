@@ -11,6 +11,8 @@ import type {
 import {
   MERCHANT_TRUST_REGISTRY_VERSION,
   isTrustedMerchant,
+  merchantRecommendationRank,
+  merchantRecommendationTier,
   merchantTrustRank,
   resolveMerchantTrust
 } from "./merchant-trust.js";
@@ -27,6 +29,16 @@ const MediaSchema = z.object({
   type: z.string().max(40),
   url: HttpsUrlSchema
 }).passthrough();
+const RatingSchema = z.object({
+  value: z.number().finite().nonnegative().max(100),
+  scale_min: z.number().finite().nonnegative().max(100),
+  scale_max: z.number().finite().positive().max(100),
+  count: z.number().int().nonnegative().max(1_000_000_000)
+}).passthrough().refine((rating) =>
+  rating.scale_max > rating.scale_min &&
+  rating.value >= rating.scale_min &&
+  rating.value <= rating.scale_max
+);
 const VariantSchema = z.object({
   id: z.string().regex(/^gid:\/\/shopify\/ProductVariant\/\d+$/u).max(200),
   title: z.string().trim().min(1).max(1_000),
@@ -47,7 +59,8 @@ const VariantSchema = z.object({
     url: HttpsUrlSchema,
     domain: z.string().trim().min(1).max(253)
   }).passthrough(),
-  condition: z.array(z.string().trim().min(1).max(80)).max(10).optional()
+  condition: z.array(z.string().trim().min(1).max(80)).max(10).optional(),
+  rating: RatingSchema.nullish()
 }).passthrough();
 const ProductSchema = z.object({
   id: z.string().regex(/^gid:\/\/shopify\/p\/[A-Za-z0-9]+$/u).max(200),
@@ -57,6 +70,7 @@ const ProductSchema = z.object({
     values: z.array(z.object({ label: z.string().trim().min(1).max(300) }).passthrough()).max(100)
   }).passthrough()).max(30).optional(),
   media: z.array(MediaSchema).max(20).optional(),
+  rating: RatingSchema.nullish(),
   variants: z.array(VariantSchema).max(100)
 }).passthrough();
 const CatalogEnvelopeSchema = z.object({
@@ -340,13 +354,11 @@ function buildResult(
     matchEvidence: [...new Set([...candidate.matchEvidence, "Shopify Universal Product ID exact"])]
   }));
   const pool = sameProduct ?? ranked;
-  const trustedPool = pool.filter((candidate) => isTrustedMerchant(candidate.merchantTrust));
   const unverifiedPool = pool.filter((candidate) => candidate.merchantTrust.level === "UNKNOWN");
-  const selectionPool = trustedPool.length > 0 ? trustedPool : unverifiedPool;
   const selectionMode = input.selectionMode ?? "MERCHANT_DIVERSE";
   const selected = selectionMode === "LOWEST_PRICE"
-    ? selectionPool.slice(0, input.limit)
-    : selectDiverseThenFill(selectionPool, input.limit);
+    ? pool.slice(0, input.limit)
+    : selectDiverseThenFill(pool, input.limit);
   const merchantCount = new Set(raw.map((candidate) => candidate.merchantId)).size;
 
   return {
@@ -385,7 +397,10 @@ function buildResult(
       priceProductsExcluded: availabilityEligible.length - priceEligible.length,
       trustedMerchantProductsReturned: selected.filter((candidate) => isTrustedMerchant(candidate.merchantTrust)).length,
       unverifiedMerchantProductsReturned: selected.filter((candidate) => candidate.merchantTrust.level === "UNKNOWN").length,
-      unverifiedMerchantProductsExcluded: trustedPool.length > 0 ? unverifiedPool.length : 0,
+      unverifiedMerchantProductsExcluded: Math.max(
+        0,
+        unverifiedPool.length - selected.filter((candidate) => candidate.merchantTrust.level === "UNKNOWN").length
+      ),
       riskyMerchantProductsExcluded,
       merchantTrustRegistryVersion: MERCHANT_TRUST_REGISTRY_VERSION,
       merchantsFailed: 0,
@@ -466,12 +481,15 @@ function toCandidate(
   const imageUrl = [...(variant.media ?? []), ...(product.media ?? [])]
     .map((entry) => entry.url)
     .find(isAllowedImageUrl);
+  const merchantTrust = resolveMerchantTrust(new URL(productUrl).hostname, variant.seller.name);
+  const productRating = normalizeProductRating(variant.rating ?? product.rating);
   return {
     catalogProductId: product.id,
     merchantId: `shopify-${shopId}`,
     merchant: variant.seller.name,
     sourceHost: new URL(productUrl).hostname,
-    merchantTrust: resolveMerchantTrust(new URL(productUrl).hostname, variant.seller.name),
+    merchantTrust,
+    recommendationTier: merchantRecommendationTier(merchantTrust, productRating),
     handle: variantId,
     title: variant.title,
     gtins: [],
@@ -483,7 +501,20 @@ function toCandidate(
     itemPrice: { amountCents: variant.price.amount, currency: "USD" },
     availability: variant.availability.available ? "IN_STOCK" : "OUT_OF_STOCK",
     merchantUrl: productUrl,
-    checkedAt
+    checkedAt,
+    ...(productRating === undefined ? {} : { productRating })
+  };
+}
+
+function normalizeProductRating(
+  rating: z.infer<typeof RatingSchema> | null | undefined
+): ShopifyProduct["productRating"] {
+  if (rating === null || rating === undefined) return undefined;
+  const normalized = Math.min(5, Math.max(0, rating.value * 5 / rating.scale_max));
+  return {
+    value: Math.round(normalized * 100) / 100,
+    count: rating.count,
+    scaleMax: 5
   };
 }
 
@@ -528,8 +559,12 @@ function rankAndDeduplicate(products: GlobalCandidate[]): GlobalCandidate[] {
   const unique = new Map<string, GlobalCandidate>();
   for (const product of products) if (!unique.has(product.merchantUrl)) unique.set(product.merchantUrl, product);
   return [...unique.values()].sort((left, right) =>
-    matchRank(left.matchStatus) - matchRank(right.matchStatus)
+    merchantRecommendationRank(merchantRecommendationTier(left.merchantTrust, left.productRating)) -
+      merchantRecommendationRank(merchantRecommendationTier(right.merchantTrust, right.productRating))
+    || matchRank(left.matchStatus) - matchRank(right.matchStatus)
     || merchantTrustRank(left.merchantTrust.level) - merchantTrustRank(right.merchantTrust.level)
+    || (right.productRating?.value ?? 0) - (left.productRating?.value ?? 0)
+    || (right.productRating?.count ?? 0) - (left.productRating?.count ?? 0)
     || availabilityRank(left.availability) - availabilityRank(right.availability)
     || (left.itemPrice?.amountCents ?? Number.MAX_SAFE_INTEGER) - (right.itemPrice?.amountCents ?? Number.MAX_SAFE_INTEGER)
     || compareText(left.merchant, right.merchant)

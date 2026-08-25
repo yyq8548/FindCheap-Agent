@@ -10,18 +10,18 @@ Shopify Global Catalog supplies seller identity and URLs but does not supply a m
 - `UNKNOWN`: no independent evidence. Merchant names containing “official” do not qualify.
 - `RISKY`: IP literal, localhost, or punycode host; excluded before ranking.
 
-Trust records affect ranking only; they never restrict Shopify Global Catalog search coverage. Product identity remains a separate gate. Affiliate status and commission never affect ranking.
+Product identity, required features, condition, availability, and price remain hard gates. Affiliate commission never changes eligibility or relevance.
 
-If at least one trusted candidate exists, unverified candidates are excluded rather than used to fill three cards. If no trusted candidate exists, a bounded set of `UNKNOWN` candidates may be shown in a separate unverified section.
+Eligible customer-facing results are ordered in three merchant tiers:
 
-## Initial official-domain evidence
+1. Reviewed `OFFICIAL`, `AUTHORIZED_RETAILER`, and `ESTABLISHED_RETAILER` merchants, together with approved Affiliate Program merchants.
+2. `UNKNOWN` Shopify merchants whose product rating is strictly above `3.8` with at least `2` reviews. Product rating is not merchant verification.
+3. Other relevant `UNKNOWN` Shopify merchants with a prominent limited-trust warning.
 
-- https://electronics.sony.com/
-- https://www.shopdoen.com/
-- https://www.deathwishcoffee.com/
-- https://blkandbold.com/
-- https://www.vervecoffee.com/
-- https://www.fashionnova.com/
-- https://www.stevemadden.com/
+`RISKY` candidates remain excluded. Within each tier, match evidence, requested features, rating, availability, and price determine order.
 
-Registry version: `merchant-trust-2026-08-20`.
+## Reviewed merchant-domain evidence
+
+Registry contains 46 exact domains across official brand stores, authorized Apple retailers, electronics, general retail, home, apparel, beauty, pets, outdoor, office, and books. Open marketplace domains remain excluded until individual seller identity can be verified.
+
+Registry version: `merchant-trust-2026-08-24`.

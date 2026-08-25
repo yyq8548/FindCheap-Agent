@@ -158,25 +158,66 @@ describe("unified product search", () => {
     expect(result.candidates).toHaveLength(1);
   });
 
-  it("excludes unverified merchants before ranking and offers Chrome only after expansion", async () => {
-    const unverified = shopifyProduct("unknown", 1000, "NEW", {
+  it("orders trusted, qualified high-rated, then general unverified merchants", async () => {
+    const highRated = shopifyProduct("high-rated", 1000, "NEW", {
       merchantTrust: {
         level: "UNKNOWN",
         verification: "UNVERIFIED",
         evidence: ["no independent merchant trust evidence"]
-      }
+      },
+      productRating: { value: 3.9, count: 2, scaleMax: 5 }
     });
-    const shopifySearch = vi.fn(async () => shopifyResult([unverified]));
+    const general = shopifyProduct("general", 900, "NEW", {
+      merchantTrust: {
+        level: "UNKNOWN",
+        verification: "UNVERIFIED",
+        evidence: ["no independent merchant trust evidence"]
+      },
+      productRating: { value: 5, count: 1, scaleMax: 5 }
+    });
+    const trusted = shopifyProduct("trusted", 3000, "NEW");
+    const shopifySearch = vi.fn(async () => shopifyResult([general, highRated, trusted]));
 
     const result = await searchProducts(SearchProductsInputSchema.parse({
       query: "cat toy",
       limit: 3
     }), { awin: awin([]), shopify: { search: shopifySearch } });
 
-    expect(shopifySearch).toHaveBeenCalledTimes(2);
-    expect(result.candidates).toEqual([]);
-    expect(result.searchPasses).toBe(2);
-    expect(result.chromeFallbackEligible).toBe(true);
+    expect(shopifySearch).toHaveBeenCalledTimes(1);
+    expect(result.candidates.map((candidate) => candidate.recommendationTier)).toEqual([
+      "TRUSTED_OR_AFFILIATE",
+      "HIGH_RATED_UNVERIFIED",
+      "GENERAL_UNVERIFIED"
+    ]);
+    expect(result.chromeFallbackEligible).toBe(false);
+  });
+
+  it("does not promote a 3.8 rating or a product with only one review", async () => {
+    const unknown = (handle: string, value: number, count: number) => shopifyProduct(handle, 1000, "NEW", {
+      merchantTrust: {
+        level: "UNKNOWN",
+        verification: "UNVERIFIED",
+        evidence: ["no independent merchant trust evidence"]
+      },
+      productRating: { value, count, scaleMax: 5 }
+    });
+    const result = await searchProducts(SearchProductsInputSchema.parse({
+      query: "cat toy",
+      limit: 3
+    }), {
+      awin: awin([]),
+      shopify: shopify([
+        unknown("qualified", 3.81, 2),
+        unknown("threshold", 3.8, 50),
+        unknown("one-review", 5, 1)
+      ])
+    });
+
+    expect(result.candidates.map((candidate) => candidate.recommendationTier)).toEqual([
+      "HIGH_RATED_UNVERIFIED",
+      "GENERAL_UNVERIFIED",
+      "GENERAL_UNVERIFIED"
+    ]);
   });
 
   it("recognizes only approved affiliate category signals", () => {

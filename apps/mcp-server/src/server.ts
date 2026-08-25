@@ -87,7 +87,7 @@ const ProductCardStagesSchema = z.object({
 
 const ProductCardTelemetryInputSchema = z.object({
   renderId: z.string().uuid(),
-  version: z.literal("0.8.5"),
+  version: z.literal("0.8.6"),
   terminalStage: z.enum([
     "DOM_RENDERED",
     "FIRST_IMAGE_SETTLED",
@@ -280,6 +280,11 @@ const ShopifyProductOutputSchema = z.object({
     evidence: z.array(z.string()),
     reviewedAt: z.string().optional()
   }),
+  recommendationTier: z.enum([
+    "TRUSTED_OR_AFFILIATE",
+    "HIGH_RATED_UNVERIFIED",
+    "GENERAL_UNVERIFIED"
+  ]).optional(),
   handle: z.string(),
   title: z.string(),
   brand: z.string().optional(),
@@ -294,6 +299,11 @@ const ShopifyProductOutputSchema = z.object({
   availability: z.enum(["IN_STOCK", "OUT_OF_STOCK", "UNKNOWN"]),
   merchantUrl: z.string().url(),
   checkedAt: z.string(),
+  productRating: z.object({
+    value: z.number().min(0).max(5),
+    count: z.number().int().nonnegative(),
+    scaleMax: z.literal(5)
+  }).optional(),
   cartQuote: z.object({
     status: z.literal("ESTIMATED"),
     subtotal: MoneyOutputSchema,
@@ -596,7 +606,12 @@ function shopifyResult(
   const discoveryCount = result.products.filter((product) => product.matchStatus === "DISCOVERY_MATCH").length;
   const similarCount = result.products.filter((product) => product.matchStatus === "SIMILAR").length;
   const trustedCount = result.products.filter((product) => product.merchantTrust.verification === "INDEPENDENT").length;
-  const unverifiedCount = result.products.filter((product) => product.merchantTrust.verification === "UNVERIFIED").length;
+  const highRatedUnverifiedCount = result.products.filter((product) =>
+    product.recommendationTier === "HIGH_RATED_UNVERIFIED"
+  ).length;
+  const generalUnverifiedCount = result.products.filter((product) =>
+    product.recommendationTier === "GENERAL_UNVERIFIED"
+  ).length;
   const priceLimit = result.maxItemPriceCents === undefined
     ? ""
     : ` Maximum item price: USD ${(result.maxItemPriceCents / 100).toFixed(2)}.`;
@@ -615,9 +630,7 @@ function shopifyResult(
     ? "Prices are public item prices only; shipping, tax, mandatory fees, member price, delivered price, and verified coupons are unavailable without merchant evidence."
     : `${cartQuoteCoverage.succeeded}/${cartQuoteCoverage.attempted} products received a ZIP-specific Shopify Cart estimate. Tax uses Shopify totalTaxAmount only when explicitly returned; otherwise it is a labeled ZIP state-average estimate. Some merchants require a full address or checkout before calculating tax.`;
   const searchDiagnostics = `Search attempts: ${result.diagnostics.queryAttempts}; relaxed fallback: ${result.diagnostics.fallbackQueryUsed ? "USED" : "NOT_USED"}; Catalog products/variants: ${result.diagnostics.catalogProductsReturned}/${result.diagnostics.catalogVariantsReturned}; zero-result attempts: ${result.diagnostics.catalogZeroResultAttempts}; excluded out-of-stock/identity/condition/price/unverified/risky: ${result.diagnostics.outOfStockProductsExcluded}/${result.diagnostics.identityProductsExcluded}/${result.diagnostics.conditionProductsExcluded}/${result.diagnostics.priceProductsExcluded}/${result.diagnostics.unverifiedMerchantProductsExcluded}/${result.diagnostics.riskyMerchantProductsExcluded}.`;
-  const trustSummary = trustedCount > 0
-    ? `${trustedCount} independently verified merchant card(s); unknown merchants were not used to pad the result.`
-    : `${unverifiedCount} merchant card(s) lack independent trust evidence and are discovery candidates, not merchant recommendations.`;
+  const trustSummary = `${trustedCount} trusted merchant card(s); ${highRatedUnverifiedCount} product card(s) qualify by a product rating above 3.8 with at least 2 reviews; ${generalUnverifiedCount} product card(s) come from merchants with limited trust evidence. Product ratings do not verify merchant trust.`;
   const chromeAdvice = result.products.length === 0 && result.diagnostics.chromeFallbackEligible
     ? " Shopify still returned no usable product; the user may authorize one bounded Chrome whole-web fallback."
     : "";
@@ -635,6 +648,9 @@ function shopifyResult(
       `merchant: ${product.merchant} (${product.sourceHost})`,
       `merchant trust: ${product.merchantTrust.level} (${product.merchantTrust.verification})`,
       `merchant trust evidence: ${product.merchantTrust.evidence.join("; ")}`,
+      ...(product.productRating === undefined
+        ? []
+        : [`product rating: ${product.productRating.value}/5 (${product.productRating.count} reviews)`]),
       `regular item price: ${price}`,
       cartQuote === undefined
         ? "shipping: unavailable | tax: unavailable | mandatory fees: unavailable | member price: unavailable | delivered price unavailable"
@@ -677,7 +693,12 @@ function shopifyResult(
           ...(affiliateLinksApproved === result.products.length
             ? []
             : ["one or more purchase links remain canonical merchant links"]),
-          ...(unverifiedCount === 0 ? [] : ["one or more merchants lack independent trust evidence"])
+          ...(highRatedUnverifiedCount === 0
+            ? []
+            : ["one or more products qualify by product rating above 3.8 with at least 2 reviews; this does not verify merchant trust"]),
+          ...(generalUnverifiedCount === 0
+            ? []
+            : ["one or more merchants have limited trust evidence; verify seller identity, returns, and payment protection"])
         ]
       },
       coverage: result.coverage,
@@ -809,20 +830,36 @@ function unifiedResult(
       affiliateState: card.purchaseLink.kind === "APPROVED_AFFILIATE"
         ? "APPROVED" as const
         : "NONE" as const,
-      featureEvidence: candidate.featureEvidence
+      featureEvidence: candidate.featureEvidence,
+      recommendationTier: candidate.recommendationTier
     }];
   });
   const affiliateCount = products.filter((product) => product.affiliateState === "APPROVED").length;
   const itemPriceCount = products.filter((product) => product.itemPrice !== undefined).length;
   const unavailableSource = Object.values(execution.sourceStatus).includes("UNAVAILABLE");
   const partialSource = execution.sourceStatus.shopify === "PARTIAL";
+  const highRatedUnverifiedCount = products.filter((product) =>
+    product.recommendationTier === "HIGH_RATED_UNVERIFIED"
+  ).length;
+  const generalUnverifiedCount = products.filter((product) =>
+    product.recommendationTier === "GENERAL_UNVERIFIED"
+  ).length;
   const coverage = unavailableSource || partialSource ? "PARTIAL" as const : "COMPLETE" as const;
   const chromeAdvice = execution.chromeFallbackEligible
     ? "No configured source returned a qualifying product. The user may authorize one bounded Chrome whole-web fallback."
     : "";
   const message = products.length === 0
     ? chromeAdvice || "No qualifying product returned."
-    : `Returned ${products.length} ranked product card(s). Use the cards; do not repeat every field.`;
+    : [
+        `Returned ${products.length} ranked product card(s).`,
+        ...(highRatedUnverifiedCount === 0
+          ? []
+          : [`${highRatedUnverifiedCount} later result(s) qualify by product rating above 3.8 with at least 2 reviews; product ratings do not verify merchant trust.`]),
+        ...(generalUnverifiedCount === 0
+          ? []
+          : [`${generalUnverifiedCount} later result(s) come from merchants with limited trust evidence; verify seller identity, returns, and payment protection.`]),
+        "Use the cards; do not repeat every field."
+      ].join(" ");
   const dataUnavailable = products.length === 0 && (
     execution.sourceStatus.shopify === "UNAVAILABLE" ||
     (execution.sourceStatus.awin === "UNAVAILABLE" && execution.sourceStatus.shopify === "SKIPPED")
@@ -843,7 +880,9 @@ function unifiedResult(
           : "MIXED" as const,
       cartQuoteCoverage,
       quality: {
-        status: unavailableSource || products.some((product) => product.condition === "UNKNOWN")
+        status: unavailableSource || products.some((product) =>
+          product.condition === "UNKNOWN" || product.recommendationTier !== "TRUSTED_OR_AFFILIATE"
+        )
           ? "PASS_WITH_LIMITATIONS" as const
           : "PASS" as const,
         cardsReturned: products.length,
@@ -857,7 +896,13 @@ function unifiedResult(
             : []),
           ...(products.some((product) => product.sourceKind === "AWIN_PRODUCT_FEED")
             ? ["Awin cards contain verified item price and feed availability only; shipping, tax, and delivered price are unavailable"]
-            : [])
+            : []),
+          ...(highRatedUnverifiedCount === 0
+            ? []
+            : ["one or more products qualify by product rating above 3.8 with at least 2 reviews; this does not verify merchant trust"]),
+          ...(generalUnverifiedCount === 0
+            ? []
+            : ["one or more merchants have limited trust evidence; verify seller identity, returns, and payment protection"])
         ]
       },
       comparison: execution.candidates.some((candidate) => candidate.source === "AWIN_PRODUCT_FEED")
@@ -884,6 +929,7 @@ function awinCardProduct(candidate: UnifiedCandidate): ProductCardProduct {
   return {
     sourceKind: "AWIN_PRODUCT_FEED",
     affiliateState: "APPROVED",
+    recommendationTier: "TRUSTED_OR_AFFILIATE",
     featureEvidence: candidate.featureEvidence,
     merchantId: product.merchantId,
     merchant: product.merchant,
@@ -1335,7 +1381,7 @@ export function createShoppingServer(
   dependencies: ShoppingServerDependencies = {}
 ): McpServer {
   void comparePort;
-  const server = new McpServer({ name: "findcheap-agent", version: "0.8.5" });
+  const server = new McpServer({ name: "findcheap-agent", version: "0.8.6" });
   const dealPort = dependencies.deals ?? createUnavailableDealPort();
   const awinPort = dependencies.awin ?? createUnavailableAwinPort();
   const toolAvailability = dependencies.toolAvailability ?? {

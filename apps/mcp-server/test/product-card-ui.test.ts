@@ -39,7 +39,7 @@ function nodes(node: FakeNode): FakeNode[] {
 
 describe("product-card MCP Apps UI", () => {
   it("uses an embedded Codex-native surface with responsive cards", () => {
-    expect(PRODUCT_CARD_UI_URI).toBe("ui://findcheap/product-cards/v20.html");
+    expect(PRODUCT_CARD_UI_URI).toBe("ui://findcheap/product-cards/v21.html");
     expect(PRODUCT_CARD_HTML).toContain("--fc-surface:");
     expect(PRODUCT_CARD_HTML).toContain("background: var(--fc-action);");
     expect(PRODUCT_CARD_HTML).toContain("@media (max-width: 640px)");
@@ -116,7 +116,7 @@ describe("product-card MCP Apps UI", () => {
       params: expect.objectContaining({
         name: "report_product_card_metrics",
         arguments: expect.objectContaining({
-          version: "0.8.5",
+          version: "0.8.6",
           terminalStage: "DOM_RENDERED",
           stages: expect.objectContaining({ DOM_RENDERED: expect.any(Number) })
         })
@@ -293,11 +293,16 @@ describe("product-card MCP Apps UI", () => {
     expect(window.__findcheapCardMetrics?.stages.COMPAT_OUTPUT_RECEIVED).toBeDefined();
   });
 
-  it("separates exact, discovery, and similar cards with identity evidence", () => {
+  it("separates trusted, high-rated unverified, and general unverified cards", () => {
     const script = PRODUCT_CARD_HTML.match(/<script>([\s\S]*)<\/script>/u)?.[1];
     const app = new FakeNode();
     const parent = { postMessage: () => undefined };
-    const product = (matchStatus: "EXACT" | "DISCOVERY_MATCH" | "SIMILAR", title: string) => ({
+    const product = (
+      matchStatus: "EXACT" | "DISCOVERY_MATCH" | "SIMILAR",
+      title: string,
+      recommendationTier: "TRUSTED_OR_AFFILIATE" | "HIGH_RATED_UNVERIFIED" | "GENERAL_UNVERIFIED",
+      productRating?: { value: number; count: number; scaleMax: 5 }
+    ) => ({
       merchant: "Merchant",
       title,
       brand: "Sony",
@@ -306,11 +311,19 @@ describe("product-card MCP Apps UI", () => {
       variantDimensions: { Color: "Black" },
       matchStatus,
       matchEvidence: [matchStatus === "EXACT" ? "brand and MPN exact" : "matched query terms"],
-      merchantTrust: {
-        level: "OFFICIAL",
-        verification: "INDEPENDENT",
-        evidence: ["Official merchant domain independently reviewed"]
-      },
+      merchantTrust: recommendationTier === "TRUSTED_OR_AFFILIATE"
+        ? {
+            level: "OFFICIAL",
+            verification: "INDEPENDENT",
+            evidence: ["Official merchant domain independently reviewed"]
+          }
+        : {
+            level: "UNKNOWN",
+            verification: "UNVERIFIED",
+            evidence: ["No independent merchant trust evidence"]
+          },
+      recommendationTier,
+      ...(productRating === undefined ? {} : { productRating }),
       condition: "UNKNOWN",
       availability: "IN_STOCK",
       checkedAt: "2026-08-19T12:00:00.000Z",
@@ -328,9 +341,9 @@ describe("product-card MCP Apps UI", () => {
     const window = {
       parent,
       openai: { toolOutput: { products: [
-        product("SIMILAR", "Similar Product"),
-        product("DISCOVERY_MATCH", "Discovery Product"),
-        product("EXACT", "Exact Product")
+        product("EXACT", "Exact Product", "TRUSTED_OR_AFFILIATE"),
+        product("DISCOVERY_MATCH", "Discovery Product", "HIGH_RATED_UNVERIFIED", { value: 3.9, count: 2, scaleMax: 5 }),
+        product("SIMILAR", "Similar Product", "GENERAL_UNVERIFIED")
       ] } },
       addEventListener: () => undefined,
       setTimeout: () => 1,
@@ -346,11 +359,14 @@ describe("product-card MCP Apps UI", () => {
     vm.runInNewContext(script!, { window, document, URL, Intl, Number, String, Array, Object, Promise, Map, Math, Date });
 
     const output = text(app);
-    expect(output).toContain("Trusted exact matches");
-    expect(output).toContain("Trusted discovery matches");
-    expect(output).toContain("Trusted similar options");
+    expect(output).toContain("Trusted merchants and approved affiliate programs");
+    expect(output).toContain("Highly rated products - merchant not independently verified");
+    expect(output).toContain("Other relevant products - review merchant carefully");
     expect(output.indexOf("Exact Product")).toBeLessThan(output.indexOf("Discovery Product"));
     expect(output.indexOf("Discovery Product")).toBeLessThan(output.indexOf("Similar Product"));
+    expect(output).toContain("Product rating: 3.9/5 (2 reviews)");
+    expect(output).toContain("Product feedback does not verify merchant trust");
+    expect(output).toContain("Verify seller identity, returns, and payment protection");
     expect(output).toContain("Sony");
     expect(output).toContain("WH1000XM5");
     expect(output).toContain("Color: Black");
@@ -394,7 +410,7 @@ describe("product-card MCP Apps UI", () => {
       method: "ui/initialize",
       params: {
         protocolVersion: "2026-01-26",
-        appInfo: { name: "FindCheap Agent product cards", version: "0.8.5" },
+        appInfo: { name: "FindCheap Agent product cards", version: "0.8.6" },
         appCapabilities: { availableDisplayModes: ["inline"] }
       }
     });

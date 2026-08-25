@@ -14,7 +14,21 @@ export type MerchantTrustEvidence = {
   reviewedAt?: string;
 };
 
-export const MERCHANT_TRUST_REGISTRY_VERSION = "merchant-trust-2026-08-20";
+export type ProductRating = {
+  value: number;
+  count: number;
+  scaleMax: 5;
+};
+
+export type MerchantRecommendationTier =
+  | "TRUSTED_OR_AFFILIATE"
+  | "HIGH_RATED_UNVERIFIED"
+  | "GENERAL_UNVERIFIED";
+
+export const HIGH_PRODUCT_RATING_THRESHOLD = 3.8;
+export const HIGH_PRODUCT_RATING_MIN_COUNT = 2;
+
+export const MERCHANT_TRUST_REGISTRY_VERSION = "merchant-trust-2026-08-24";
 
 type MerchantTrustRecord = {
   host: string;
@@ -23,16 +37,60 @@ type MerchantTrustRecord = {
   reviewedAt: string;
 };
 
-// Trust records affect ranking only. They never limit Shopify Global Catalog search coverage.
-// Every entry is an exact registrable host reviewed from the brand's own public website.
+// Every entry is an exact registrable host with manually reviewed merchant-identity evidence.
+// Open marketplaces stay excluded until their individual seller identity can be verified.
 const MERCHANT_TRUST_RECORDS: readonly MerchantTrustRecord[] = [
+  // Official brand stores.
   { host: "electronics.sony.com", level: "OFFICIAL", evidenceUrl: "https://electronics.sony.com/", reviewedAt: "2026-08-20" },
   { host: "shopdoen.com", level: "OFFICIAL", evidenceUrl: "https://www.shopdoen.com/", reviewedAt: "2026-08-20" },
   { host: "deathwishcoffee.com", level: "OFFICIAL", evidenceUrl: "https://www.deathwishcoffee.com/", reviewedAt: "2026-08-20" },
   { host: "blkandbold.com", level: "OFFICIAL", evidenceUrl: "https://blkandbold.com/", reviewedAt: "2026-08-20" },
   { host: "vervecoffee.com", level: "OFFICIAL", evidenceUrl: "https://www.vervecoffee.com/", reviewedAt: "2026-08-20" },
   { host: "fashionnova.com", level: "OFFICIAL", evidenceUrl: "https://www.fashionnova.com/", reviewedAt: "2026-08-20" },
-  { host: "stevemadden.com", level: "OFFICIAL", evidenceUrl: "https://www.stevemadden.com/", reviewedAt: "2026-08-20" }
+  { host: "stevemadden.com", level: "OFFICIAL", evidenceUrl: "https://www.stevemadden.com/", reviewedAt: "2026-08-20" },
+  { host: "apple.com", level: "OFFICIAL", evidenceUrl: "https://www.apple.com/", reviewedAt: "2026-08-24" },
+  { host: "samsung.com", level: "OFFICIAL", evidenceUrl: "https://www.samsung.com/us/", reviewedAt: "2026-08-24" },
+  { host: "microsoft.com", level: "OFFICIAL", evidenceUrl: "https://www.microsoft.com/en-us/store/b/home", reviewedAt: "2026-08-24" },
+  { host: "dell.com", level: "OFFICIAL", evidenceUrl: "https://www.dell.com/en-us", reviewedAt: "2026-08-24" },
+  { host: "hp.com", level: "OFFICIAL", evidenceUrl: "https://www.hp.com/us-en/shop", reviewedAt: "2026-08-24" },
+  { host: "lenovo.com", level: "OFFICIAL", evidenceUrl: "https://www.lenovo.com/us/en/", reviewedAt: "2026-08-24" },
+  { host: "nike.com", level: "OFFICIAL", evidenceUrl: "https://www.nike.com/", reviewedAt: "2026-08-24" },
+  { host: "adidas.com", level: "OFFICIAL", evidenceUrl: "https://www.adidas.com/us/", reviewedAt: "2026-08-24" },
+  { host: "patagonia.com", level: "OFFICIAL", evidenceUrl: "https://www.patagonia.com/", reviewedAt: "2026-08-24" },
+  { host: "thenorthface.com", level: "OFFICIAL", evidenceUrl: "https://www.thenorthface.com/", reviewedAt: "2026-08-24" },
+  { host: "allbirds.com", level: "OFFICIAL", evidenceUrl: "https://www.allbirds.com/", reviewedAt: "2026-08-24" },
+  { host: "bombas.com", level: "OFFICIAL", evidenceUrl: "https://bombas.com/", reviewedAt: "2026-08-24" },
+  { host: "brooklinen.com", level: "OFFICIAL", evidenceUrl: "https://www.brooklinen.com/", reviewedAt: "2026-08-24" },
+  { host: "gymshark.com", level: "OFFICIAL", evidenceUrl: "https://www.gymshark.com/", reviewedAt: "2026-08-24" },
+  { host: "glossier.com", level: "OFFICIAL", evidenceUrl: "https://www.glossier.com/", reviewedAt: "2026-08-24" },
+  { host: "colourpop.com", level: "OFFICIAL", evidenceUrl: "https://colourpop.com/", reviewedAt: "2026-08-24" },
+
+  // Retailers with reviewed authorization evidence.
+  { host: "expercom.com", level: "AUTHORIZED_RETAILER", evidenceUrl: "https://expercom.com/", reviewedAt: "2026-08-24" },
+  { host: "clemsontigertechshop.com", level: "AUTHORIZED_RETAILER", evidenceUrl: "https://hdkb.clemson.edu/phpkb/article.php?id=1730", reviewedAt: "2026-08-24" },
+  { host: "svacampusstore.com", level: "AUTHORIZED_RETAILER", evidenceUrl: "https://assets.sva.edu/download/welcome-week-schedule-sp22-v9-1639607385.pdf", reviewedAt: "2026-08-24" },
+
+  // Established direct retailers. Marketplace-only domains are intentionally absent.
+  { host: "bestbuy.com", level: "ESTABLISHED_RETAILER", evidenceUrl: "https://www.bestbuy.com/", reviewedAt: "2026-08-24" },
+  { host: "target.com", level: "ESTABLISHED_RETAILER", evidenceUrl: "https://www.target.com/", reviewedAt: "2026-08-24" },
+  { host: "walmart.com", level: "ESTABLISHED_RETAILER", evidenceUrl: "https://www.walmart.com/", reviewedAt: "2026-08-24" },
+  { host: "costco.com", level: "ESTABLISHED_RETAILER", evidenceUrl: "https://www.costco.com/", reviewedAt: "2026-08-24" },
+  { host: "bhphotovideo.com", level: "ESTABLISHED_RETAILER", evidenceUrl: "https://www.bhphotovideo.com/find/b2b/AboutUs.jsp", reviewedAt: "2026-08-24" },
+  { host: "adorama.com", level: "ESTABLISHED_RETAILER", evidenceUrl: "https://www.adorama.com/g/about-adorama", reviewedAt: "2026-08-24" },
+  { host: "microcenter.com", level: "ESTABLISHED_RETAILER", evidenceUrl: "https://www.microcenter.com/", reviewedAt: "2026-08-24" },
+  { host: "homedepot.com", level: "ESTABLISHED_RETAILER", evidenceUrl: "https://www.homedepot.com/", reviewedAt: "2026-08-24" },
+  { host: "lowes.com", level: "ESTABLISHED_RETAILER", evidenceUrl: "https://www.lowes.com/", reviewedAt: "2026-08-24" },
+  { host: "wayfair.com", level: "ESTABLISHED_RETAILER", evidenceUrl: "https://www.wayfair.com/", reviewedAt: "2026-08-24" },
+  { host: "nordstrom.com", level: "ESTABLISHED_RETAILER", evidenceUrl: "https://www.nordstrom.com/", reviewedAt: "2026-08-24" },
+  { host: "macys.com", level: "ESTABLISHED_RETAILER", evidenceUrl: "https://www.macys.com/", reviewedAt: "2026-08-24" },
+  { host: "rei.com", level: "ESTABLISHED_RETAILER", evidenceUrl: "https://www.rei.com/", reviewedAt: "2026-08-24" },
+  { host: "chewy.com", level: "ESTABLISHED_RETAILER", evidenceUrl: "https://www.chewy.com/", reviewedAt: "2026-08-24" },
+  { host: "petsmart.com", level: "ESTABLISHED_RETAILER", evidenceUrl: "https://www.petsmart.com/", reviewedAt: "2026-08-24" },
+  { host: "sephora.com", level: "ESTABLISHED_RETAILER", evidenceUrl: "https://www.sephora.com/", reviewedAt: "2026-08-24" },
+  { host: "ulta.com", level: "ESTABLISHED_RETAILER", evidenceUrl: "https://www.ulta.com/", reviewedAt: "2026-08-24" },
+  { host: "staples.com", level: "ESTABLISHED_RETAILER", evidenceUrl: "https://www.staples.com/", reviewedAt: "2026-08-24" },
+  { host: "officedepot.com", level: "ESTABLISHED_RETAILER", evidenceUrl: "https://www.officedepot.com/", reviewedAt: "2026-08-24" },
+  { host: "barnesandnoble.com", level: "ESTABLISHED_RETAILER", evidenceUrl: "https://www.barnesandnoble.com/", reviewedAt: "2026-08-24" }
 ];
 
 export function resolveMerchantTrust(host: string, merchantName = ""): MerchantTrustEvidence {
@@ -49,7 +107,7 @@ export function resolveMerchantTrust(host: string, merchantName = ""): MerchantT
     return {
       level: record.level,
       verification: "INDEPENDENT",
-      evidence: [`independently reviewed official domain: ${record.evidenceUrl}`],
+      evidence: [`independently reviewed ${record.level.toLocaleLowerCase("en-US").replaceAll("_", " ")} domain: ${record.evidenceUrl}`],
       reviewedAt: record.reviewedAt
     };
   }
@@ -77,6 +135,29 @@ export function merchantTrustRank(value: MerchantTrustLevel): number {
     case "ESTABLISHED_RETAILER": return 2;
     case "UNKNOWN": return 3;
     case "RISKY": return 4;
+  }
+}
+
+export function isHighRatedProduct(rating: ProductRating | undefined): boolean {
+  return rating !== undefined &&
+    rating.value > HIGH_PRODUCT_RATING_THRESHOLD &&
+    rating.count >= HIGH_PRODUCT_RATING_MIN_COUNT;
+}
+
+export function merchantRecommendationTier(
+  trust: MerchantTrustEvidence,
+  rating: ProductRating | undefined,
+  affiliateApproved = false
+): MerchantRecommendationTier {
+  if (affiliateApproved || isTrustedMerchant(trust)) return "TRUSTED_OR_AFFILIATE";
+  return isHighRatedProduct(rating) ? "HIGH_RATED_UNVERIFIED" : "GENERAL_UNVERIFIED";
+}
+
+export function merchantRecommendationRank(tier: MerchantRecommendationTier): number {
+  switch (tier) {
+    case "TRUSTED_OR_AFFILIATE": return 0;
+    case "HIGH_RATED_UNVERIFIED": return 1;
+    case "GENERAL_UNVERIFIED": return 2;
   }
 }
 
