@@ -8,14 +8,14 @@ For Windows PM and beta testing, download and double-click:
 
 [`Install-FindCheap-Agent.cmd`](https://github.com/yyq8548/FindCheap-Agent/raw/refs/heads/main/installers/windows/Install-FindCheap-Agent.cmd)
 
-The one-click installer detects Codex, configures an official portable Node.js 22 runtime when
+The one-click installer detects Codex, configures an official portable Node.js 24 runtime when
 required, installs or upgrades the GitHub marketplace, installs the latest plugin, and writes a
 local log under `%LOCALAPPDATA%\FindCheapAgent`. Restart Codex and create a new task afterward.
 
 Requirements:
 
 - Codex desktop or Codex CLI
-- Node.js 22 available as `node`
+- Node.js 24 available as `node`
 - Internet access for Shopify Global Catalog and product images
 
 ```powershell
@@ -32,7 +32,7 @@ Open the Plugins Directory and confirm:
 - marketplace: `FindCheap Agent`
 - plugin: `FindCheap Agent`
 - plugin ID: `findcheap-agent`
-- version: `0.9.5`
+- version: `0.9.6`
 
 Test prompt:
 

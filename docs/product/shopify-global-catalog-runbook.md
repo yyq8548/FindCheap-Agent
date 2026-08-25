@@ -34,7 +34,7 @@ and Shopify Global Catalog capabilities; it does not advertise cart, checkout, p
 
 ## Validation
 
-Run with Node 22:
+Run with Node 24:
 
 ```text
 pnpm typecheck

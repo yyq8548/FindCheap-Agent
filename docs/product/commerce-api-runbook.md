@@ -29,7 +29,7 @@ deployable image with:
 docker build -f infra/docker/commerce-api.Dockerfile -t shopping-commerce-api .
 ```
 
-The image is digest-pinned to Node.js 22, runs as the non-root `node` user, includes a health
+The image is digest-pinned to Node.js 24, runs as the non-root `node` user, includes a health
 check, and supports a read-only root filesystem. Mount the approved `config/merchants` and
 `docs/product/merchant-decisions` directories read-only at their matching `/app` paths. The
 `commerce` Compose profile is a development convenience, not a production deployment template.
