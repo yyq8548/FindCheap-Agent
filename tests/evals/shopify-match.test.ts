@@ -74,6 +74,26 @@ describe("FindCheap v0.5.4 Shopify product matching gate", () => {
     })).toMatchObject({ status: "EXACT", evidence: expect.arrayContaining(["brand and MPN exact"]) });
   });
 
+  it("accepts a MacBook product-family title when the translated query adds laptop", () => {
+    expect(classifyShopifyCandidate("Apple MacBook Pro laptop", {
+      title: "Apple MacBook Pro 14-inch",
+      brand: "Apple",
+      productType: "Computers"
+    })).toMatchObject({
+      status: "DISCOVERY_MATCH",
+      missingTerms: [],
+      evidence: expect.arrayContaining(["product category exact"])
+    });
+  });
+
+  it("still rejects a non-laptop Apple product from a MacBook laptop query", () => {
+    expect(classifyShopifyCandidate("Apple MacBook Pro laptop", {
+      title: "Apple iPad Pro 14-inch",
+      brand: "Apple",
+      productType: "Tablets"
+    })).toMatchObject({ status: "IRRELEVANT" });
+  });
+
   it("does not call a keyword-only match exact", () => {
     expect(classifyShopifyCandidate("blue jeans", {
       title: "High Rise Blue Jeans",

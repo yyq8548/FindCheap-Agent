@@ -25,7 +25,10 @@ const CATEGORY_GROUPS = [
   { terms: ["tv", "television", "televisions"] },
   { terms: ["fridge", "fridges", "refrigerator", "refrigerators"] },
   { terms: ["phone", "phones", "smartphone", "smartphones"] },
-  { terms: ["laptop", "laptops", "notebook", "notebooks"] },
+  {
+    terms: ["laptop", "laptops", "notebook", "notebooks"],
+    candidateEvidenceTerms: ["macbook", "macbooks", "chromebook", "chromebooks"]
+  },
   { terms: ["lipstick", "lipsticks", "lipgloss", "gloss"], productTypeOnly: true },
   { terms: ["coffee", "coffees"], productTypeOnly: true },
   { terms: ["water", "waters"], productTypeOnly: true },
@@ -103,7 +106,11 @@ export function classifyShopifyCandidate(
     const evidenceTokens = "productTypeOnly" in category && category.productTypeOnly
       ? productTypeTokens
       : candidateTokens;
-    if (!category.terms.some((term) => evidenceTokens.has(term))) {
+    const categoryEvidenceTerms = [
+      ...category.terms,
+      ...("candidateEvidenceTerms" in category ? category.candidateEvidenceTerms : [])
+    ];
+    if (!categoryEvidenceTerms.some((term) => evidenceTokens.has(term))) {
       return irrelevant("requested product category does not match");
     }
   }

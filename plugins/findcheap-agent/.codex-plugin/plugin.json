@@ -1,6 +1,6 @@
 {
   "name": "findcheap-agent",
-  "version": "0.8.7+codex.20260824230948",
+  "version": "0.8.8+codex.20260824231807",
   "description": "Search Shopify Global Catalog and an approved Awin Feed, find verified deals, and monitor prices, promotions, and stock.",
   "author": {
     "name": "yyq8548"
@@ -12,7 +12,7 @@
   "interface": {
     "displayName": "FindCheap Agent",
     "shortDescription": "Verified cards, pricing, coupons, and safe links.",
-    "longDescription": "FindCheap Agent is a Codex Plugin Agent. v0.8.7 never infers product condition: searches accept UNKNOWN condition unless the user explicitly requests new, used, refurbished, or open-box. It ranks trusted registry and approved Affiliate Program merchants first, then qualified high-rated Shopify products, then other relevant merchants with a clear trust warning. Risky domains remain excluded. Authorized Chrome remains a bounded fallback after API search returns no usable product. Commercial relationships never affect relevance or ranking. The agent never checks out, reserves inventory, purchases, or pays.",
+    "longDescription": "FindCheap Agent is a Codex Plugin Agent. v0.8.8 recognizes clear product-family evidence such as MacBook during category validation and avoids adding generic categories to already specific product queries. It never infers product condition: searches accept UNKNOWN condition unless the user explicitly requests new, used, refurbished, or open-box. It ranks trusted registry and approved Affiliate Program merchants first, then qualified high-rated Shopify products, then other relevant merchants with a clear trust warning. Risky domains remain excluded. Authorized Chrome remains a bounded fallback after API search returns no usable product. Commercial relationships never affect relevance or ranking. The agent never checks out, reserves inventory, purchases, or pays.",
     "developerName": "yyq8548",
     "category": "Productivity",
     "capabilities": [

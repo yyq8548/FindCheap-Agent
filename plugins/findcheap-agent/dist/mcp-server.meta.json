@@ -4188,7 +4188,7 @@
   },
   "outputs": {
     "../../plugins/findcheap-agent/dist/mcp-server.js": {
-      "bytes": 528336,
+      "bytes": 528474,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
@@ -4841,7 +4841,7 @@
           "bytesInOutput": 15770
         },
         "src/shopify-match.ts": {
-          "bytesInOutput": 4585
+          "bytesInOutput": 4723
         },
         "src/shopify-selected-product.ts": {
           "bytesInOutput": 3250
