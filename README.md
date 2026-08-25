@@ -133,6 +133,12 @@ See [Awin Product Feed production deployment](docs/product/awin-feed-deployment.
 
 ## Install
 
+### Windows one-click installer
+
+[Download `Install-FindCheap-Agent.cmd`](https://github.com/yyq8548/FindCheap-Agent/raw/refs/heads/main/installers/windows/Install-FindCheap-Agent.cmd), double-click it, then restart Codex and open a new task. The installer adds or updates the marketplace, installs the latest plugin from `main`, and configures an official portable Node.js 22 runtime when required. It never requests affiliate, merchant, payment, or account credentials.
+
+### Manual install
+
 Requirements: Codex desktop or CLI and Node.js 22.
 
 ```powershell

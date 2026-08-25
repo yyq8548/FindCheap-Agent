@@ -252,7 +252,12 @@ describe("shopping MCP server", () => {
     expect(unifiedTool?.description).toContain("selectionMode=LOWEST_PRICE");
     expect(unifiedTool?.description).toContain("Commercial relationships never affect relevance or ranking");
     expect(unifiedTool?.description).toContain("maxItemPriceCents");
+    expect(unifiedTool?.description).toContain("every explicit non-price constraint in features");
     expect(unifiedTool?.description).toContain("single public product-search entrypoint");
+    expect(unifiedTool?.description).toContain("正在搜索合适商品。");
+    expect(unifiedTool?.description).toContain("Never explain Skill reads or internal rules");
+    expect(unifiedTool?.description).toContain("never promise count, merchant diversity");
+    expect(unifiedTool?.description).toContain("Trust labels do not prove manufacturer authorization");
     expect(unifiedTool?.description).not.toContain("call render_product_cards");
     expect(tools.tools.find((tool) => tool.name === "compare_products")?._meta)
       .toMatchObject({ ui: { visibility: ["app"] } });
@@ -266,6 +271,8 @@ describe("shopping MCP server", () => {
       "variantId"
     ]);
     expect(inspectTool?.description).toContain("never scan task history");
+    const quoteTool = tools.tools.find((tool) => tool.name === "quote_selected_shopify_product");
+    expect(quoteTool?.description).toContain("For MERCHANT_CHECKOUT_ONLY, do not ask for ZIP");
     expect(unifiedTool?.inputSchema.properties?.selectionMode).toMatchObject({
       default: "MERCHANT_DIVERSE"
     });
@@ -423,7 +430,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.8.8",
+        version: "0.9.4",
         terminalStage: "DOM_RENDERED",
         stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
       }
@@ -432,7 +439,7 @@ describe("shopping MCP server", () => {
     expect(result.structuredContent).toEqual({ status: "RECORDED" });
     expect(record).toHaveBeenCalledWith(expect.objectContaining({
       renderId,
-      version: "0.8.8",
+      version: "0.9.4",
       terminalStage: "DOM_RENDERED",
       stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
     }));
@@ -440,7 +447,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.8.8",
+        version: "0.9.4",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 14 }
       }
@@ -450,7 +457,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.8.8",
+        version: "0.9.4",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 300_001 }
       }
@@ -461,7 +468,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId: "22222222-2222-4222-8222-222222222222",
-        version: "0.8.8",
+        version: "0.9.4",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 1 }
       }
@@ -1615,7 +1622,8 @@ describe("Coupon and Watch tools", () => {
       status: "OK",
       source: "UNIFIED_PRODUCT_SEARCH",
       sources: { awin: "COMPLETE", shopify: "COMPLETE" },
-      comparison: { status: "DISCOVERY_ONLY" }
+      comparison: { status: "DISCOVERY_ONLY" },
+      diagnostics: { featureProductsExcluded: 0 }
     });
     expect((result.structuredContent as { products: unknown[] }).products[0]).toMatchObject({
         matchStatus: "DISCOVERY_MATCH",
@@ -1633,6 +1641,9 @@ describe("Coupon and Watch tools", () => {
     const modelText = (result.content as Array<{ text?: string }> | undefined)?.[0]?.text ?? "";
     expect(modelText.length).toBeLessThanOrEqual(700);
     expect(modelText).toContain("ranked product card");
+    expect(modelText).toContain("from 2 merchant(s)");
+    expect(modelText).toContain("never call a merchant authorized");
+    expect(modelText).toContain("MERCHANT_CHECKOUT_ONLY requires checkout and no ZIP request");
     expect(modelText).toContain("Reuse selectionId; never search titles");
     expect(modelText).not.toMatch(/coverage|diagnostic|feedRows|registry/iu);
   });

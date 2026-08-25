@@ -87,7 +87,7 @@ const ProductCardStagesSchema = z.object({
 
 const ProductCardTelemetryInputSchema = z.object({
   renderId: z.string().uuid(),
-  version: z.literal("0.8.8"),
+  version: z.literal("0.9.4"),
   terminalStage: z.enum([
     "DOM_RENDERED",
     "FIRST_IMAGE_SETTLED",
@@ -453,6 +453,7 @@ const ShopifyProductsOutputShape = {
     irrelevantProductsExcluded: z.number().int().nonnegative(),
     conditionProductsExcluded: z.number().int().nonnegative(),
     priceProductsExcluded: z.number().int().nonnegative(),
+    featureProductsExcluded: z.number().int().nonnegative().optional(),
     trustedMerchantProductsReturned: z.number().int().nonnegative(),
     unverifiedMerchantProductsReturned: z.number().int().nonnegative(),
     unverifiedMerchantProductsExcluded: z.number().int().nonnegative(),
@@ -629,7 +630,7 @@ function shopifyResult(
   const quoteSummary = cartQuoteCoverage.attempted === 0
     ? "Prices are public item prices only; shipping, tax, mandatory fees, member price, delivered price, and verified coupons are unavailable without merchant evidence."
     : `${cartQuoteCoverage.succeeded}/${cartQuoteCoverage.attempted} products received a ZIP-specific Shopify Cart estimate. Tax uses Shopify totalTaxAmount only when explicitly returned; otherwise it is a labeled ZIP state-average estimate. Some merchants require a full address or checkout before calculating tax.`;
-  const searchDiagnostics = `Search attempts: ${result.diagnostics.queryAttempts}; relaxed fallback: ${result.diagnostics.fallbackQueryUsed ? "USED" : "NOT_USED"}; Catalog products/variants: ${result.diagnostics.catalogProductsReturned}/${result.diagnostics.catalogVariantsReturned}; zero-result attempts: ${result.diagnostics.catalogZeroResultAttempts}; excluded out-of-stock/identity/condition/price/unverified/risky: ${result.diagnostics.outOfStockProductsExcluded}/${result.diagnostics.identityProductsExcluded}/${result.diagnostics.conditionProductsExcluded}/${result.diagnostics.priceProductsExcluded}/${result.diagnostics.unverifiedMerchantProductsExcluded}/${result.diagnostics.riskyMerchantProductsExcluded}.`;
+  const searchDiagnostics = `Search attempts: ${result.diagnostics.queryAttempts}; relaxed fallback: ${result.diagnostics.fallbackQueryUsed ? "USED" : "NOT_USED"}; Catalog products/variants: ${result.diagnostics.catalogProductsReturned}/${result.diagnostics.catalogVariantsReturned}; zero-result attempts: ${result.diagnostics.catalogZeroResultAttempts}; excluded out-of-stock/identity/condition/price/feature/unverified/risky: ${result.diagnostics.outOfStockProductsExcluded}/${result.diagnostics.identityProductsExcluded}/${result.diagnostics.conditionProductsExcluded}/${result.diagnostics.priceProductsExcluded}/${result.diagnostics.featureProductsExcluded ?? 0}/${result.diagnostics.unverifiedMerchantProductsExcluded}/${result.diagnostics.riskyMerchantProductsExcluded}.`;
   const trustSummary = `${trustedCount} trusted merchant card(s); ${highRatedUnverifiedCount} product card(s) qualify by a product rating above 3.8 with at least 2 reviews; ${generalUnverifiedCount} product card(s) come from merchants with limited trust evidence. Product ratings do not verify merchant trust.`;
   const chromeAdvice = result.products.length === 0 && result.diagnostics.chromeFallbackEligible
     ? " Shopify still returned no usable product; the user may authorize one bounded Chrome whole-web fallback."
@@ -844,6 +845,7 @@ function unifiedResult(
   const generalUnverifiedCount = products.filter((product) =>
     product.recommendationTier === "GENERAL_UNVERIFIED"
   ).length;
+  const merchantCount = new Set(products.map((product) => product.merchantId)).size;
   const coverage = unavailableSource || partialSource ? "PARTIAL" as const : "COMPLETE" as const;
   const chromeAdvice = execution.chromeFallbackEligible
     ? "No configured source returned a qualifying product. The user may authorize one bounded Chrome whole-web fallback."
@@ -851,13 +853,15 @@ function unifiedResult(
   const message = products.length === 0
     ? chromeAdvice || "No qualifying product returned."
     : [
-        `Returned ${products.length} ranked product card(s).`,
+        `Returned ${products.length} ranked product card(s) from ${merchantCount} merchant(s); never claim more merchants than this count.`,
         ...(highRatedUnverifiedCount === 0
           ? []
           : [`${highRatedUnverifiedCount} later result(s) qualify by product rating above 3.8 with at least 2 reviews; product ratings do not verify merchant trust.`]),
         ...(generalUnverifiedCount === 0
           ? []
           : [`${generalUnverifiedCount} later result(s) come from merchants with limited trust evidence; verify seller identity, returns, and payment protection.`]),
+        "Trust labels do not prove manufacturer authorization; never call a merchant authorized without explicit brand-authorization evidence.",
+        "Use each card's quoteCapability: request ZIP only for DELIVERED_TOTAL_SUPPORTED or ZIP_ESTIMATE_ONLY; MERCHANT_CHECKOUT_ONLY requires checkout and no ZIP request.",
         "Use the cards; do not repeat every field."
       ].join(" ");
   const dataUnavailable = products.length === 0 && (
@@ -915,6 +919,7 @@ function unifiedResult(
         : shopifyResponse.structuredContent.comparison,
       diagnostics: {
         ...shopifyResponse.structuredContent.diagnostics,
+        featureProductsExcluded: execution.featureProductsExcluded,
         chromeFallbackEligible: execution.chromeFallbackEligible
       },
       products
@@ -1167,7 +1172,7 @@ function awinResult(result: AwinSearchResult) {
 }
 
 function awinUnavailableResult() {
-  const message = "Awin Product Feed is unavailable. Configure AWIN_PRODUCT_FEED_URL and AWIN_PRODUCT_FEED_TOKEN, or use datafeed_3047955.csv.gz in Downloads for local development.";
+  const message = "Approved Affiliate products are temporarily unavailable from the FindCheap Search API. Shopify discovery may still be used; no unverified Affiliate result was substituted.";
   return {
     content: [{ type: "text" as const, text: message }],
     structuredContent: {
@@ -1381,7 +1386,7 @@ export function createShoppingServer(
   dependencies: ShoppingServerDependencies = {}
 ): McpServer {
   void comparePort;
-  const server = new McpServer({ name: "findcheap-agent", version: "0.8.8" });
+  const server = new McpServer({ name: "findcheap-agent", version: "0.9.4" });
   const dealPort = dependencies.deals ?? createUnavailableDealPort();
   const awinPort = dependencies.awin ?? createUnavailableAwinPort();
   const toolAvailability = dependencies.toolAvailability ?? {
@@ -1549,7 +1554,7 @@ export function createShoppingServer(
     "search_products",
     {
       title: "Search products",
-      description: "For a clear product request, call immediately without Memory, repo scans, or plan narration. This is the single public product-search entrypoint; call once. Never infer product condition: omit conditionPreference or use ANY unless the user explicitly states new, used, refurbished, open-box, or unknown condition, and preserve that condition wording in query. Use selectionMode=LOWEST_PRICE only when explicitly requested; pass maxItemPriceCents for a ceiling. Commercial relationships never affect relevance or ranking. Reuse selectionId for every follow-up; never search a selected title again.",
+      description: "For any live shopping request, never read Memory or repo files. Never explain Skill reads or internal rules. Before calling, use only one neutral progress sentence: '正在搜索合适商品。' If the host requires naming the Skill, use only '正在使用 FindCheap 搜索合适商品。' Ask one direct clarification only when product type or a decision-critical constraint is missing. Before results, never promise count, merchant diversity, availability, trust, or exact matches. This is the single public product-search entrypoint; call once. Put every explicit non-price constraint in features with featureMode=REQUIRED, preserving wording; this includes size, memory, storage, pack count, volume, weight, resolution, refresh rate, power, apparel or shoe size, color, generation, and compatibility. Never infer product condition: omit conditionPreference or use ANY unless the user explicitly states new, used, refurbished, open-box, or unknown condition, and preserve that condition wording in query. Use selectionMode=LOWEST_PRICE only when explicitly requested; pass maxItemPriceCents for a ceiling. Commercial relationships never affect relevance or ranking. Trust labels do not prove manufacturer authorization. Reuse selectionId for every follow-up; never search a selected title again.",
       inputSchema: SearchProductsInputSchema,
       outputSchema: ShopifyProductsOutputShape,
       annotations: {
@@ -1615,6 +1620,7 @@ export function createShoppingServer(
         recordedAt: now().toISOString(),
         sourceStatus: execution.sourceStatus,
         searchPasses: execution.searchPasses,
+        featureProductsExcluded: execution.featureProductsExcluded,
         awin: execution.awinResult?.diagnostics,
         shopify: enriched.result.diagnostics,
         cardsReturned: response.structuredContent.products.length,
@@ -1887,7 +1893,7 @@ export function createShoppingServer(
     "quote_selected_shopify_product",
     {
       title: "Quote a selected product",
-      description: "For a selected-card ZIP request, call immediately without Memory, repo scans, or plan narration. Quote exactly one prior selectionId; never search its title or request a street address. Unsupported ZIP quotes keep existing cards available.",
+      description: "Call only when the selected card is DELIVERED_TOTAL_SUPPORTED or ZIP_ESTIMATE_ONLY and the user supplied a ZIP. If ZIP is missing, ask only for ZIP. For MERCHANT_CHECKOUT_ONLY, do not ask for ZIP and do not call this tool; explain that shipping, tax, and final total require merchant checkout. Quote exactly one prior selectionId without Memory, repo scans, plan narration, title search, or street-address request.",
       inputSchema: ShopifySelectedQuoteInputSchema,
       outputSchema: ShopifyProductsOutputShape,
       annotations: {

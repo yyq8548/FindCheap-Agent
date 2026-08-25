@@ -4,6 +4,14 @@ This repository is the distributable GitHub marketplace for **FindCheap Agent**.
 
 ## Install
 
+For Windows PM and beta testing, download and double-click:
+
+[`Install-FindCheap-Agent.cmd`](https://github.com/yyq8548/FindCheap-Agent/raw/refs/heads/main/installers/windows/Install-FindCheap-Agent.cmd)
+
+The one-click installer detects Codex, configures an official portable Node.js 22 runtime when
+required, installs or upgrades the GitHub marketplace, installs the latest plugin, and writes a
+local log under `%LOCALAPPDATA%\FindCheapAgent`. Restart Codex and create a new task afterward.
+
 Requirements:
 
 - Codex desktop or Codex CLI
@@ -24,7 +32,7 @@ Open the Plugins Directory and confirm:
 - marketplace: `FindCheap Agent`
 - plugin: `FindCheap Agent`
 - plugin ID: `findcheap-agent`
-- version: `0.8.8`
+- version: `0.9.4`
 
 Test prompt:
 

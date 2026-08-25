@@ -45,8 +45,10 @@ const VARIANT_COLORS = new Set([
   "navy", "orange", "pink", "purple", "red", "silver", "tan", "white", "yellow"
 ]);
 const ACCESSORY_TERMS = new Set([
-  "accessories", "accessory", "adapter", "cable", "case", "charger", "charm", "charms", "cover",
-  "holder", "keychain", "keychains", "keyring", "protector", "replacement", "stand"
+  "accessories", "accessory", "adapter", "bag", "cable", "case", "charger", "charm", "charms",
+  "compatible", "cover", "dock", "earpad", "earpads", "film", "holder", "hub", "keychain",
+  "keychains", "keyring", "mount", "protector", "replacement", "screenprotector", "skin", "sleeve",
+  "strap"
 ]);
 const CONDITION_TERMS = new Set(["box", "open", "preowned", "reconditioned", "refurbished", "renewed", "resale", "used"]);
 const GENERIC_IDENTITY_TERMS = new Set([
@@ -81,7 +83,8 @@ export function classifyShopifyCandidate(
   if (queryTokens.length === 0) return irrelevant("query has no searchable terms");
 
   const productTypeTokens = new Set(tokenize(candidate.productType ?? ""));
-  const candidateTokens = new Set(tokenize(candidateText(candidate)));
+  const searchableCandidateText = candidateText(candidate);
+  const candidateTokens = new Set(tokenize(searchableCandidateText));
   const candidateIdentifiers = [candidate.sku, candidate.handle]
     .filter((value): value is string => value !== undefined)
     .map(compact)
@@ -188,7 +191,10 @@ function termMatches(
   if (candidateTokens.has(term)) return true;
   if (/\d/u.test(term)) {
     const normalized = compact(term);
-    return normalized.length >= 4 && candidateIdentifiers.some((identifier) => identifier.endsWith(normalized));
+    return normalized.length >= 4 && (
+      [...candidateTokens].some((token) => token.endsWith(normalized)) ||
+      candidateIdentifiers.some((identifier) => identifier.endsWith(normalized))
+    );
   }
   return term.length <= 3 && [...candidateTokens].some((token) => /\d/u.test(token) && token.startsWith(term));
 }
@@ -222,7 +228,9 @@ function containsContiguousIdentity(tokens: readonly string[], identity: string)
 }
 
 function tokenize(value: string): string[] {
-  return value.normalize("NFKC").toLocaleLowerCase("en-US").match(/[\p{L}\p{N}]+/gu) ?? [];
+  return (value.normalize("NFKC").toLocaleLowerCase("en-US").match(/[\p{L}\p{N}]+/gu) ?? [])
+    .map((token) => /^\d+(?:st|nd|rd|th)$/u.test(token) ? token.replace(/(?:st|nd|rd|th)$/u, "") : token)
+    .map((token) => token === "generation" ? "gen" : token);
 }
 
 function compact(value: string): string {

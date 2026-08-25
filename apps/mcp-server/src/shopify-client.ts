@@ -73,6 +73,7 @@ export type ShopifySearchResult = {
     irrelevantProductsExcluded: number;
     conditionProductsExcluded: number;
     priceProductsExcluded: number;
+    featureProductsExcluded?: number;
     trustedMerchantProductsReturned: number;
     unverifiedMerchantProductsReturned: number;
     unverifiedMerchantProductsExcluded: number;

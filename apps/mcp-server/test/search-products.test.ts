@@ -150,6 +150,50 @@ describe("unified product search", () => {
     expect(result.chromeFallbackEligible).toBe(false);
   });
 
+  it("normalizes inch notation in titles and variant dimensions", async () => {
+    const result = await searchProducts(SearchProductsInputSchema.parse({
+      query: "MacBook Pro",
+      limit: 3,
+      features: ["14-inch display"],
+      featureMode: "REQUIRED"
+    }), {
+      awin: awin([]),
+      shopify: shopify([
+        shopifyProduct("hyphen", 199_900, "UNKNOWN", { title: "MacBook Pro 14-inch M4" }),
+        shopifyProduct("quote", 209_900, "UNKNOWN", { title: "MacBook Pro 14\" M4 Pro" }),
+        shopifyProduct("variant", 219_900, "UNKNOWN", {
+          title: "MacBook Pro M4 Pro",
+          variantDimensions: { Size: "14 inch" }
+        })
+      ])
+    });
+
+    expect(result.candidates).toHaveLength(3);
+    expect(result.candidates.every((candidate) =>
+      candidate.featureEvidence.includes("14-inch display")
+    )).toBe(true);
+    expect(result.featureProductsExcluded).toBe(0);
+  });
+
+  it("counts unique products excluded by required features across both passes", async () => {
+    const rejected = shopifyProduct("thirteen-inch", 149_900, "UNKNOWN", {
+      title: "MacBook Pro 13-inch"
+    });
+    const result = await searchProducts(SearchProductsInputSchema.parse({
+      query: "MacBook Pro",
+      limit: 3,
+      features: ["14-inch display"],
+      featureMode: "REQUIRED"
+    }), {
+      awin: awin([]),
+      shopify: shopify([rejected])
+    });
+
+    expect(result.candidates).toEqual([]);
+    expect(result.searchPasses).toBe(2);
+    expect(result.featureProductsExcluded).toBe(1);
+  });
+
   it("uses a broader feature query for paraphrased product needs", async () => {
     const shopifySearch = vi.fn()
       .mockResolvedValueOnce(shopifyResult([]))
@@ -233,7 +277,10 @@ describe("unified product search", () => {
 
   it("recognizes only approved affiliate category signals", () => {
     expect(isApprovedAffiliateQuery("角蛋白发膜")).toBe(true);
+    expect(isApprovedAffiliateQuery("GardePro trail camera")).toBe(true);
+    expect(isApprovedAffiliateQuery("野生动物相机")).toBe(true);
     expect(isApprovedAffiliateQuery("Sony headphones")).toBe(false);
+    expect(isApprovedAffiliateQuery("digital camera")).toBe(false);
   });
 });
 

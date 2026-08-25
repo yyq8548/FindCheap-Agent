@@ -1,6 +1,6 @@
 {
   "name": "findcheap-agent",
-  "version": "0.8.8+codex.20260824231807",
+  "version": "0.9.4+codex.20260825010754",
   "description": "Search Shopify Global Catalog and an approved Awin Feed, find verified deals, and monitor prices, promotions, and stock.",
   "author": {
     "name": "yyq8548"
@@ -12,7 +12,7 @@
   "interface": {
     "displayName": "FindCheap Agent",
     "shortDescription": "Verified cards, pricing, coupons, and safe links.",
-    "longDescription": "FindCheap Agent is a Codex Plugin Agent. v0.8.8 recognizes clear product-family evidence such as MacBook during category validation and avoids adding generic categories to already specific product queries. It never infers product condition: searches accept UNKNOWN condition unless the user explicitly requests new, used, refurbished, or open-box. It ranks trusted registry and approved Affiliate Program merchants first, then qualified high-rated Shopify products, then other relevant merchants with a clear trust warning. Risky domains remain excluded. Authorized Chrome remains a bounded fallback after API search returns no usable product. Commercial relationships never affect relevance or ranking. The agent never checks out, reserves inventory, purchases, or pays.",
+    "longDescription": "FindCheap Agent is a Codex Plugin Agent. v0.9.4 gives every installation access to approved Awin products through a public, read-only, rate-limited Railway Search API while keeping Feed URLs and service secrets private. Search responses remain limited to validated approved merchants and three products. It normalizes display size, memory, storage, package count, volume, weight, resolution, refresh rate, power, apparel and shoe size, color, model generation, and compatibility evidence; rejects accessory mismatches; records required-feature exclusions; and never treats payment-plan or trade-in text as ordinary item price. It uses compact neutral progress text, never infers product condition or manufacturer authorization, excludes risky domains, and keeps commercial relationships out of relevance and ranking. Delivered-price follow-ups obey each card's quote capability. Authorized Chrome remains a bounded fallback after API search returns no usable product. The agent never checks out, reserves inventory, purchases, or pays.",
     "developerName": "yyq8548",
     "category": "Productivity",
     "capabilities": [

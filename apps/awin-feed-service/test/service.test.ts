@@ -57,7 +57,7 @@ describe("Awin Feed service", () => {
 
     await controller.refresh();
 
-    expect(fetchRequest).toHaveBeenCalledWith(environment.sourceUrl, expect.objectContaining({
+    expect(fetchRequest).toHaveBeenCalledWith(environment.sourceUrls[0], expect.objectContaining({
       redirect: "error",
       signal: expect.any(AbortSignal)
     }));
@@ -66,6 +66,44 @@ describe("Awin Feed service", () => {
       lastRefreshAt: "2026-08-22T01:00:00.000Z"
     });
     expect(await readFile(dataPath)).toEqual(Buffer.from(archive));
+  });
+
+  it("merges multiple approved merchant Feeds into one validated snapshot", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "findcheap-awin-multi-"));
+    directories.push(directory);
+    const dataPath = join(directory, "current.csv.gz");
+    const amazonliss = fixtureArchive();
+    const gardepro = fixtureArchive({
+      merchantId: "49085",
+      merchantName: "GardePro",
+      merchantHost: "gardeproshop.com",
+      productName: "GardePro Trail Camera",
+      merchantProductId: "gardepro-1"
+    }, { brand_name: "GardePro" });
+    const fetchRequest = vi.fn(async (input: string | URL | Request) =>
+      new Response(responseBody(String(input).includes("gardepro") ? gardepro : amazonliss), {
+        status: 200,
+        headers: { "content-type": "application/gzip" }
+      })
+    );
+    const environment = parseAwinFeedServiceEnvironment({
+      AWIN_SOURCE_FEED_URL: "https://productdata.awin.com/private/amazonliss.csv.gz",
+      AWIN_SOURCE_FEED_URL_2: "https://productdata.awin.com/private/gardepro.csv.gz",
+      AWIN_FEED_API_TOKEN: "m".repeat(32),
+      AWIN_FEED_DATA_PATH: dataPath
+    });
+    const controller = createAwinFeedController(environment, {
+      fetch: fetchRequest,
+      now: () => new Date("2026-08-25T05:00:00.000Z")
+    });
+
+    await controller.refresh();
+
+    expect(fetchRequest).toHaveBeenCalledTimes(2);
+    expect(controller.getState()).toMatchObject({
+      snapshot: { feedRows: 2, sourceFeeds: 2 },
+      lastRefreshAt: "2026-08-25T05:00:00.000Z"
+    });
   });
 
   it("serves only authenticated snapshots and exposes bounded health metadata", async () => {
@@ -91,6 +129,18 @@ describe("Awin Feed service", () => {
     const origin = `http://127.0.0.1:${address.port}`;
     try {
       expect((await fetch(`${origin}/v1/feed`)).status).toBe(401);
+      const publicSearch = await fetch(`${origin}/v1/search`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ query: "keratin mask", limit: 3 })
+      });
+      expect(publicSearch.status).toBe(200);
+      expect(await publicSearch.json()).toMatchObject({
+        source: "AWIN_PRODUCT_FEED",
+        coverage: "COMPLETE",
+        diagnostics: { feedRows: 1, validRows: 1, queryMatches: 1 },
+        products: [{ merchantId: "20282", merchantProductId: "sku-1" }]
+      });
       const feed = await fetch(`${origin}/v1/feed`, { headers: { authorization: `Bearer ${token}` } });
       expect(feed.status).toBe(200);
       expect(feed.headers.get("x-feed-row-count")).toBe("1");
@@ -105,6 +155,55 @@ describe("Awin Feed service", () => {
         feedStatus: "ready",
         feedRows: 1
       });
+      expect((await fetch(`${origin}/v1/search`)).status).toBe(405);
+      expect((await fetch(`${origin}/v1/search`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ query: "x", limit: 3 })
+      })).status).toBe(400);
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    }
+  });
+
+  it("rate-limits public search without exposing the Feed token", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "findcheap-awin-rate-"));
+    directories.push(directory);
+    const token = "z".repeat(32);
+    const environment = parseAwinFeedServiceEnvironment({
+      AWIN_SOURCE_FEED_URL: "https://productdata.awin.com/private/feed.csv.gz",
+      AWIN_FEED_API_TOKEN: token,
+      AWIN_FEED_DATA_PATH: join(directory, "current.csv.gz")
+    });
+    const controller = createAwinFeedController(environment, {
+      fetch: async () => new Response(responseBody(fixtureArchive()), { status: 200 }),
+      now: () => new Date("2026-08-25T05:30:00.000Z")
+    });
+    await controller.refresh();
+    const server = createAwinFeedHttpServer(controller, token, {
+      publicSearchLimitPerMinute: 1,
+      now: () => Date.parse("2026-08-25T05:30:00.000Z")
+    });
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const address = server.address();
+    if (address === null || typeof address === "string") throw new Error("test server did not bind TCP");
+    const request = () => fetch(`http://127.0.0.1:${address.port}/v1/search`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-forwarded-for": "203.0.113.10"
+      },
+      body: JSON.stringify({ query: "keratin mask", limit: 3 })
+    });
+    try {
+      expect((await request()).status).toBe(200);
+      const limited = await request();
+      expect(limited.status).toBe(429);
+      expect(limited.headers.get("retry-after")).toBe("60");
+      expect(await limited.json()).toEqual({ error: "RATE_LIMITED" });
+      expect(JSON.stringify(await (await fetch(`http://127.0.0.1:${address.port}/health`)).json()))
+        .not.toContain(token);
     } finally {
       await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
     }
@@ -150,20 +249,34 @@ describe("Awin Feed service", () => {
       lastErrorAt: "2026-08-22T02:00:00.000Z",
       lastErrorCode: "SOURCE_HTTP_ERROR"
     });
-    expect(JSON.stringify(controller.getState())).not.toContain(environment.sourceUrl);
+    for (const sourceUrl of environment.sourceUrls) {
+      expect(JSON.stringify(controller.getState())).not.toContain(sourceUrl);
+    }
   });
 });
 
-function fixtureArchive(): Buffer {
+function fixtureArchive(overrides: {
+  merchantId?: string;
+  merchantName?: string;
+  merchantHost?: string;
+  productName?: string;
+  merchantProductId?: string;
+} = {}, extraFields: Record<string, string> = {}): Buffer {
+  const merchantId = overrides.merchantId ?? "20282";
+  const merchantName = overrides.merchantName ?? "Amazonliss (US)";
+  const merchantHost = overrides.merchantHost ?? "www.nutreecosmetics.com";
+  const productName = overrides.productName ?? "Amazonliss Keratin Mask";
+  const merchantProductId = overrides.merchantProductId ?? "sku-1";
   const header = [
     "aw_deep_link", "product_name", "merchant_product_id", "merchant_image_url", "description",
     "merchant_category", "search_price", "merchant_name", "merchant_id", "category_name", "currency",
-    "merchant_deep_link", "in_stock"
+    "merchant_deep_link", "in_stock", ...Object.keys(extraFields)
   ];
   const row = [
-    "https://www.awin1.com/pclick.php?p=1&a=3047955&m=20282", "Amazonliss Keratin Mask", "sku-1",
-    "https://cdn.shopify.com/image.jpg", "Keratin repair mask", "Hair Care", "19.99", "Amazonliss (US)",
-    "20282", "Haircare", "USD", "https://www.nutreecosmetics.com/products/keratin-mask", "1"
+    `https://www.awin1.com/pclick.php?p=1&a=3047955&m=${merchantId}`, productName, merchantProductId,
+    "https://cdn.shopify.com/image.jpg", productName, "Products", "19.99", merchantName,
+    merchantId, "Products", "USD", `https://${merchantHost}/products/${merchantProductId}`, "1",
+    ...Object.values(extraFields)
   ];
   return gzipSync([header, row].map((values) => values.join(",")).join("\r\n"));
 }

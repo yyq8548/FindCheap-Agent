@@ -1,0 +1,76 @@
+name: windows-installer-ci
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    paths:
+      - "installers/windows/**"
+      - ".github/workflows/installer-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse the PowerShell installer
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile(
+            "$PWD/installers/windows/Install-FindCheap-Agent.ps1",
+            [ref]$tokens,
+            [ref]$errors
+          )
+          if ($errors.Count -gt 0) {
+            $errors | Format-List | Out-String | Write-Error
+            exit 1
+          }
+      - name: Run PowerShell dry run
+        shell: pwsh
+        run: ./installers/windows/Install-FindCheap-Agent.ps1 -DryRun
+      - name: Run one-click launcher dry run
+        shell: cmd
+        run: installers\windows\Install-FindCheap-Agent.cmd --dry-run
+      - name: Package Windows installer
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path artifacts -Force | Out-Null
+          Copy-Item installers/windows/Install-FindCheap-Agent.cmd artifacts/
+          Copy-Item installers/windows/Install-FindCheap-Agent.ps1 artifacts/
+          Compress-Archive `
+            -Path installers/windows/Install-FindCheap-Agent.cmd,installers/windows/Install-FindCheap-Agent.ps1 `
+            -DestinationPath artifacts/Install-FindCheap-Agent-Windows.zip
+          Get-FileHash artifacts/Install-FindCheap-Agent.cmd,artifacts/Install-FindCheap-Agent.ps1,artifacts/Install-FindCheap-Agent-Windows.zip `
+            -Algorithm SHA256 | ForEach-Object { "{0}  {1}" -f $_.Hash.ToLowerInvariant(), (Split-Path $_.Path -Leaf) } | `
+            Set-Content artifacts/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: findcheap-agent-windows-installer
+          path: artifacts/*
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: findcheap-agent-windows-installer
+          path: artifacts
+      - name: Create or update GitHub Release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          gh release view "$RELEASE_TAG" >/dev/null 2>&1 || \
+            gh release create "$RELEASE_TAG" --title "FindCheap Agent $RELEASE_TAG" --generate-notes
+          gh release upload "$RELEASE_TAG" artifacts/* --clobber

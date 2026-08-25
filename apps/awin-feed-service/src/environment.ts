@@ -1,7 +1,7 @@
 import { isAbsolute } from "node:path";
 
 export type AwinFeedServiceEnvironment = {
-  sourceUrl: string;
+  sourceUrls: string[];
   sourceAllowedHosts: string[];
   apiToken: string;
   dataPath: string;
@@ -25,19 +25,28 @@ export function parseAwinFeedServiceEnvironment(
   ) {
     throw new Error("AWIN_SOURCE_ALLOWED_HOSTS must contain unique comma-separated hostnames");
   }
-  const sourceValue = input.AWIN_SOURCE_FEED_URL?.trim();
-  if (sourceValue === undefined || sourceValue === "") {
+  const sourceValues = [
+    input.AWIN_SOURCE_FEED_URL,
+    ...Array.from({ length: 9 }, (_unused, index) => input[`AWIN_SOURCE_FEED_URL_${index + 2}`])
+  ].map((value) => value?.trim()).filter((value): value is string => value !== undefined && value !== "");
+  if (sourceValues.length === 0) {
     throw new Error("AWIN_SOURCE_FEED_URL is required");
   }
-  const sourceUrl = new URL(sourceValue);
-  if (
-    sourceUrl.protocol !== "https:" ||
-    sourceUrl.username !== "" ||
-    sourceUrl.password !== "" ||
-    sourceUrl.port !== "" ||
-    !sourceAllowedHosts.includes(sourceUrl.hostname.toLowerCase())
-  ) {
-    throw new Error("AWIN_SOURCE_FEED_URL must use credential-free HTTPS on an allowed host");
+  const sourceUrls = sourceValues.map((sourceValue) => {
+    const sourceUrl = new URL(sourceValue);
+    if (
+      sourceUrl.protocol !== "https:" ||
+      sourceUrl.username !== "" ||
+      sourceUrl.password !== "" ||
+      sourceUrl.port !== "" ||
+      !sourceAllowedHosts.includes(sourceUrl.hostname.toLowerCase())
+    ) {
+      throw new Error("Awin source Feed URLs must use HTTPS on an allowed host");
+    }
+    return sourceUrl.href;
+  });
+  if (new Set(sourceUrls).size !== sourceUrls.length) {
+    throw new Error("Awin source Feed URLs must be unique");
   }
   const apiToken = input.AWIN_FEED_API_TOKEN;
   if (apiToken === undefined || apiToken.length < 32 || apiToken.length > 512) {
@@ -65,7 +74,7 @@ export function parseAwinFeedServiceEnvironment(
     throw new Error("AWIN_FEED_SERVICE_HOST must be a supported bind address");
   }
   return {
-    sourceUrl: sourceUrl.href,
+    sourceUrls,
     sourceAllowedHosts,
     apiToken,
     dataPath,

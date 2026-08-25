@@ -144,6 +144,25 @@ describe("FindCheap v0.5.4 Shopify product matching gate", () => {
   });
 
   it.each([
+    "MacBook Pro 14-inch sleeve",
+    "USB-C hub compatible with MacBook Pro",
+    "iPhone 16 screen protector",
+    "WH-1000XM6 replacement earpads"
+  ])("rejects accessory candidate from a main-product query: %s", (title) => {
+    expect(classifyShopifyCandidate("MacBook Pro iPhone 16 WH-1000XM6", {
+      title,
+      productType: "Accessories"
+    })).toMatchObject({ status: "IRRELEVANT" });
+  });
+
+  it("keeps a sleeve when explicitly requested", () => {
+    expect(classifyShopifyCandidate("MacBook Pro sleeve", {
+      title: "Protective sleeve for MacBook Pro",
+      productType: "Sleeves"
+    })).not.toMatchObject({ status: "IRRELEVANT" });
+  });
+
+  it.each([
     ["blue jeans", false],
     ["anime shirt", false],
     ["Sony headphones", false],

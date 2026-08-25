@@ -47,10 +47,10 @@ describe("FindCheap Agent plugin contract", () => {
 
     expect(new TextEncoder().encode(skill).length).toBeLessThanOrEqual(6_000);
     expect(skill.split(/\r?\n/u)).toHaveLength(35);
-    expect(skill).toContain("clear live shopping request is self-contained");
+    expect(skill).toContain("Every live shopping request");
     expect(skill).toContain("Do not read Memory, repository files, logs, task files, or plugin cache");
-    expect(skill).toContain("send at most one short progress sentence");
-    expect(skill).toContain("Do not explain the plan");
+    expect(skill).toContain("use only one neutral progress sentence");
+    expect(skill).toContain("Do not add a plan");
     expect(skill).toContain("Never call `render_product_cards`");
     expect(skill).toContain("Call `search_products` exactly once");
     expect(skill).toContain("`quote_selected_shopify_product`");
@@ -66,6 +66,8 @@ describe("FindCheap Agent plugin contract", () => {
     expect(skill).toContain("`variantDimensions`");
     expect(skill).toContain("Always pass `limit: 3`");
     expect(skill).toContain("Pass price ceilings in integer cents");
+    expect(skill).toContain("Put every explicit non-price constraint");
+    expect(skill).toContain("monthly payment, trade-in, coupon, member, or `from` text");
     expect(skill).toContain("`SAME_PRODUCT`");
     expect(skill).toContain("`DISCOVERY_ONLY`");
     expect(skill).toContain("`comparisonMode: SAME_PRODUCT`");
@@ -76,6 +78,15 @@ describe("FindCheap Agent plugin contract", () => {
     expect(skill).toContain("Preserve returned order");
     expect(skill).toContain("[chrome-fallback.md](references/chrome-fallback.md)");
     expect(skill).toContain("Do not duplicate every card field");
+    expect(skill).toContain("including a broad or ambiguous request");
+    expect(skill).toContain("`正在搜索合适商品。`");
+    expect(skill).toContain("`正在使用 FindCheap 搜索合适商品。`");
+    expect(skill).toContain("description: For live shopping, say only \"正在使用 FindCheap 搜索合适商品。\"");
+    expect(skill).toContain("Never open or explain this Skill file through shell");
+    expect(skill).toContain("“Skill requires” wording");
+    expect(skill).toContain("never call a merchant an authorized retailer");
+    expect(skill).toContain("For `MERCHANT_CHECKOUT_ONLY`, do not ask for ZIP");
+    expect(skill).toContain("never describe multiple products from one merchant as merchant-diverse");
   });
 
   it("keeps the first 20 Golden Tasks on the one-call fast path", async () => {
@@ -90,7 +101,7 @@ describe("FindCheap Agent plugin contract", () => {
     expect(new Set(goldenTasks.map((task) => task.id))).toHaveLength(20);
     expect(goldenTasks.every((task) => task.query.trim().length > 0)).toBe(true);
     expect(skill).toContain("Call `search_products` exactly once");
-    expect(skill).toContain("send at most one short progress sentence");
+    expect(skill).toContain("use only one neutral progress sentence");
     expect(skill).toContain("Do not read Memory, repository files, logs, task files, or plugin cache");
     expect(skillBytes).toBeLessThanOrEqual(Math.floor(19_954 * 0.3));
   });
@@ -144,7 +155,7 @@ describe("FindCheap Agent plugin contract", () => {
     };
 
     expect(manifest.name).toBe("findcheap-agent");
-    expect(manifest.version).toMatch(/^0\.8\.8(?:\+codex\.)?/u);
+    expect(manifest.version).toMatch(/^0\.9\.4(?:\+codex\.)?/u);
     expect(manifest.interface.displayName).toBe("FindCheap Agent");
     expect(manifest.interface.longDescription).toMatch(/Codex Plugin Agent/u);
     expect(manifest.interface.longDescription).toMatch(/[Aa]uthorized.*Chrome/u);

@@ -5,11 +5,13 @@ volume and expose it through an HTTPS reverse proxy.
 
 ## Required secrets
 
-1. In Awin, open **Toolbox → Create-a-Feed**, select the Amazonliss Feed, select the required columns,
-   choose CSV plus gzip, then copy the generated URL. The current file identifies data feed `101349`.
+1. In Awin, open **Toolbox → Create-a-Feed**, select an approved merchant Feed, select the required
+   columns, choose CSV plus gzip, then copy the generated URL. Current approved merchants are
+   Amazonliss (US) `20282`, GardePro `49085`, and Watches Of USA `116479`.
    Do not commit, publish, or place this URL in client-side code; it contains the Product Feed API key
    in its path. This key is separate from the Publisher API key.
-2. Generate an independent API token for FindCheap clients:
+2. Generate an independent API token for private Feed administration and diagnostics. Never ship
+   this token to FindCheap clients:
 
 ```powershell
 [Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(32)).ToLower()
@@ -19,6 +21,8 @@ volume and expose it through an HTTPS reverse proxy.
 
 ```dotenv
 AWIN_SOURCE_FEED_URL=https://datafeed.api.productserve.com/datafeed/download/apikey/PRIVATE_PATH
+AWIN_SOURCE_FEED_URL_2=https://productdata.awin.com/datafeed/download/apikey/SECOND_PRIVATE_PATH
+AWIN_SOURCE_FEED_URL_3=https://productdata.awin.com/datafeed/download/apikey/THIRD_PRIVATE_PATH
 AWIN_SOURCE_ALLOWED_HOSTS=productdata.awin.com,datafeed.api.productserve.com
 AWIN_FEED_API_TOKEN=REPLACE_WITH_THE_RANDOM_TOKEN
 AWIN_REFRESH_INTERVAL_MINUTES=360
@@ -37,16 +41,26 @@ Invoke-RestMethod http://127.0.0.1:3010/health
 Invoke-RestMethod http://127.0.0.1:3010/ready
 ```
 
+Use `AWIN_SOURCE_FEED_URL` for the existing Amazonliss Feed and
+`AWIN_SOURCE_FEED_URL_2` for GardePro, and `AWIN_SOURCE_FEED_URL_3` for Watches Of USA. Up to ten
+numbered URLs are supported. Railway variables must remain secrets. Never place an Awin source URL
+in the Codex plugin or GitHub.
+
 The container:
 
-- downloads immediately at startup, then every 360 minutes;
-- accepts only a credential-free HTTPS source URL on the hostname allowlist;
+- downloads every configured Feed immediately at startup, merges them only after every Feed passes
+  validation, then refreshes every 360 minutes;
+- accepts only HTTPS source URLs without URL userinfo on the hostname allowlist;
 - caps the compressed response at 4 MB and decompressed CSV at 16 MB;
-- requires every row to match Awin publisher `3047955`, Amazonliss merchant `20282`, approved HTTPS
-  hosts, USD, and a valid price;
+- requires every row to match Awin publisher `3047955`, an approved merchant ID, merchant name and
+  merchant host, USD, and a valid price;
 - writes `/data/current.csv.gz` atomically on the persistent `awin_feed_data` volume;
 - fixes the mounted `/data` directory ownership at startup, then drops to the unprivileged `node` user;
 - keeps the last valid snapshot when a later refresh fails;
+- exposes only validated, bounded candidate searches through public `POST /v1/search`; the plugin
+  still returns at most three customer-facing cards;
+- applies a per-client 60-request-per-minute in-memory limit to public search;
+- keeps raw `GET /v1/feed` protected by the private API token;
 - returns `503` instead of unvalidated or missing data.
 
 `GET /health` is the process liveness check and always returns `200` while the server is running.
@@ -54,28 +68,29 @@ The container:
 `503`. Configure Railway to use `/health`; use `/ready` to monitor Feed availability. Failed refreshes
 include only a bounded `lastErrorCode`, never the source URL or credentials.
 
-Publish `127.0.0.1:3010` through the server's TLS reverse proxy as, for example,
-`https://feed.example.com/v1/feed`. Do not expose port `3010` directly to the internet.
+Publish `127.0.0.1:3010` through the server's TLS reverse proxy. Do not expose port `3010` directly
+to the internet.
 
 ## Connect FindCheap MCP
 
-Set these variables in the environment that launches the Codex plugin:
+GitHub-installed clients use the public, read-only Search API and receive no Awin or Railway secret:
 
 ```dotenv
-AWIN_PRODUCT_FEED_URL=https://feed.example.com/v1/feed
-AWIN_PRODUCT_FEED_TOKEN=THE_SAME_RANDOM_TOKEN
-AWIN_PRODUCT_FEED_TIMEOUT_MS=5000
+AWIN_PRODUCT_SEARCH_URL=https://findcheap-agent-production.up.railway.app/v1/search
+AWIN_PRODUCT_SEARCH_TIMEOUT_MS=5000
 ```
 
-Restart Codex and open a new task. Remote mode takes precedence over the local Downloads fallback.
-The Feed service URL must use credential-free HTTPS on the default port. The token is sent only in
-the `Authorization` header.
+The plugin manifest supplies these values by default. Public search returns only validated approved
+merchant products and affiliate links. It never returns the raw Feed, source URLs, Feed API keys, or
+the private service token. `AWIN_PRODUCT_FEED_URL` plus `AWIN_PRODUCT_FEED_TOKEN` remains available
+only for controlled internal diagnostics when public search is not configured.
 
 Test prompt:
 
 ```text
-FindCheap Agent 搜索 Amazonliss keratin mask
+FindCheap Agent 搜索 GardePro trail camera
+FindCheap Agent 搜索 Watches Of USA 手表
 ```
 
-Expected: one `search_awin_products` call, `AWIN_PRODUCT_FEED`, `DISCOVERY_ONLY`, condition
-`UNKNOWN`, and disclosed `APPROVED_AFFILIATE` links. No Shopify or Chrome call.
+Expected: unified `search_products` routes the approved category through `AWIN_PRODUCT_FEED`, keeps
+condition `UNKNOWN`, and returns approved Awin deep links. Commission never changes ranking.

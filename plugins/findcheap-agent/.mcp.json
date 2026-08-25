@@ -6,13 +6,15 @@
       "args": ["./dist/mcp-server.js"],
       "cwd": ".",
       "enabled": true,
-      "env_vars": ["PATH", "AWIN_PRODUCT_FEED_PATH", "AWIN_PRODUCT_FEED_URL", "AWIN_PRODUCT_FEED_TOKEN", "AWIN_PRODUCT_FEED_TIMEOUT_MS", "FINDCHEAP_DEALS_API_URL", "FINDCHEAP_DEALS_API_TOKEN", "FINDCHEAP_STATE_DIR", "SHOPPING_COMMERCE_API_URL", "SHOPPING_COMMERCE_API_TOKEN"],
+      "env_vars": ["PATH", "FINDCHEAP_DEALS_API_URL", "FINDCHEAP_DEALS_API_TOKEN", "FINDCHEAP_STATE_DIR", "SHOPPING_COMMERCE_API_URL", "SHOPPING_COMMERCE_API_TOKEN"],
       "startup_timeout_sec": 10,
       "tool_timeout_sec": 30,
       "env": {
         "SHOPIFY_CATALOG_MODE": "global",
         "SHOPIFY_CART_QUOTE_MODE": "tokenless",
         "SHOPIFY_CART_QUOTE_TIMEOUT_MS": "2500",
+        "AWIN_PRODUCT_SEARCH_URL": "https://findcheap-agent-production.up.railway.app/v1/search",
+        "AWIN_PRODUCT_SEARCH_TIMEOUT_MS": "5000",
         "SHOPIFY_AGENT_PROFILE_URL": "https://cdn.jsdelivr.net/gh/yyq8548/FindCheap-Agent@24267014f0433adefb89181e4123d7b785e30285/plugins/findcheap-agent/ucp-agent-profile.json",
         "SHOPIFY_GLOBAL_CATALOG_TIMEOUT_MS": "10000"
       }

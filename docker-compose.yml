@@ -40,6 +40,7 @@ services:
     environment:
       NODE_ENV: production
       AWIN_SOURCE_FEED_URL: ${AWIN_SOURCE_FEED_URL:-}
+      AWIN_SOURCE_FEED_URL_2: ${AWIN_SOURCE_FEED_URL_2:-}
       AWIN_SOURCE_ALLOWED_HOSTS: ${AWIN_SOURCE_ALLOWED_HOSTS:-productdata.awin.com,datafeed.api.productserve.com}
       AWIN_FEED_API_TOKEN: ${AWIN_FEED_API_TOKEN:-}
       AWIN_FEED_DATA_PATH: /data/current.csv.gz

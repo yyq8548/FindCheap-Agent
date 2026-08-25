@@ -1,16 +1,42 @@
 import { readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { gunzipSync } from "node:zlib";
+import { gunzipSync, gzipSync } from "node:zlib";
 
 export const MAX_AWIN_COMPRESSED_BYTES = 4 * 1024 * 1024;
+export const MAX_AWIN_PUBLIC_SEARCH_RESPONSE_BYTES = 256 * 1024;
 const MAX_UNCOMPRESSED_BYTES = 16 * 1024 * 1024;
 const DEFAULT_FEED_NAME = "datafeed_3047955.csv.gz";
 const APPROVED_PUBLISHER_ID = "3047955";
-const APPROVED_MERCHANT_ID = "20282";
-const APPROVED_MERCHANT_NAME = "Amazonliss (US)";
-const APPROVED_MERCHANT_HOST = "www.nutreecosmetics.com";
 const APPROVED_AFFILIATE_HOST = "www.awin1.com";
+
+type ApprovedAwinMerchant = {
+  id: string;
+  name: string;
+  host: string;
+  searchAliases: string;
+};
+
+const APPROVED_AWIN_MERCHANTS = new Map<string, ApprovedAwinMerchant>([
+  ["20282", {
+    id: "20282",
+    name: "Amazonliss (US)",
+    host: "www.nutreecosmetics.com",
+    searchAliases: "Amazonliss Nutree Cosmetics hair care"
+  }],
+  ["49085", {
+    id: "49085",
+    name: "GardePro",
+    host: "gardeproshop.com",
+    searchAliases: "GardePro trail camera game camera hunting wildlife camera"
+  }],
+  ["116479", {
+    id: "116479",
+    name: "Watches Of USA",
+    host: "watchesofusa.com",
+    searchAliases: "Watches Of USA watch watches wristwatch timepiece"
+  }]
+]);
 
 export type AwinSearchInput = {
   query: string;
@@ -62,6 +88,14 @@ type Dependencies = {
 
 type IndexedProduct = AwinProduct & { searchText: string };
 
+export type AwinFeedIndex = {
+  snapshotAt: string;
+  feedRows: number;
+  validRows: number;
+  rejectedRows: number;
+  products: readonly IndexedProduct[];
+};
+
 export function createAwinFeedPort(
   environment: Readonly<Record<string, string | undefined>>,
   dependencies: Dependencies = {}
@@ -73,9 +107,14 @@ export function createAwinFeedPort(
   const read = dependencies.read ?? readFile;
   const fileStat = dependencies.fileStat ?? stat;
   const fetchRequest = dependencies.fetch ?? fetch;
+  const publicSearch = parsePublicSearchConfiguration(environment);
 
   return {
-    async search(input) {
+    async search(rawInput) {
+      const input = parseAwinSearchInput(rawInput);
+      if (publicSearch !== undefined) {
+        return fetchPublicSearch(publicSearch, input, fetchRequest);
+      }
       const remote = parseRemoteConfiguration(environment);
       const archive = remote === undefined
         ? {
@@ -83,36 +122,85 @@ export function createAwinFeedPort(
             snapshotAt: (await fileStat(feedPath)).mtime.toISOString()
           }
         : await fetchRemoteArchive(remote, fetchRequest);
-      const { rows, parsed } = parseArchive(archive.compressed, archive.snapshotAt);
-      const queryTokens = tokenizeQuery(input.query);
-      const matched = parsed.filter((product) =>
-        queryTokens.every((token) => product.searchText.includes(token))
-      );
-      const priceEligible = input.maxItemPriceCents === undefined
-        ? matched
-        : matched.filter((product) => product.itemPrice.amountCents <= input.maxItemPriceCents!);
-      const products = priceEligible
-        .sort((left, right) =>
-          titleMatchScore(right, queryTokens) - titleMatchScore(left, queryTokens) ||
-          left.itemPrice.amountCents - right.itemPrice.amountCents ||
-          left.merchantProductId.localeCompare(right.merchantProductId)
-        )
-        .slice(0, input.limit)
-        .map(({ searchText: _searchText, ...product }) => product);
-      return {
-        source: "AWIN_PRODUCT_FEED",
-        coverage: "COMPLETE",
-        snapshotAt: archive.snapshotAt,
-        diagnostics: {
-          feedRows: rows.records.length,
-          validRows: parsed.length,
-          rejectedRows: rows.records.length - parsed.length,
-          queryMatches: matched.length,
-          priceProductsExcluded: matched.length - priceEligible.length
-        },
-        products
-      };
+      return searchAwinFeedIndex(createAwinFeedIndex(archive.compressed, archive.snapshotAt), input);
     }
+  };
+}
+
+export function createAwinFeedIndex(compressed: Uint8Array, snapshotAt: string): AwinFeedIndex {
+  const normalizedSnapshotAt = validIsoDate(snapshotAt, "Awin Feed snapshotAt");
+  const { rows, parsed } = parseArchive(compressed, normalizedSnapshotAt);
+  return {
+    snapshotAt: normalizedSnapshotAt,
+    feedRows: rows.records.length,
+    validRows: parsed.length,
+    rejectedRows: rows.records.length - parsed.length,
+    products: parsed
+  };
+}
+
+export function searchAwinFeedIndex(index: AwinFeedIndex, rawInput: unknown): AwinSearchResult {
+  const input = parseAwinSearchInput(rawInput);
+  const queryTokens = tokenizeQuery(input.query);
+  const matched = index.products.filter((product) =>
+    queryTokens.every((token) => product.searchText.includes(token))
+  );
+  const priceEligible = input.maxItemPriceCents === undefined
+    ? matched
+    : matched.filter((product) => product.itemPrice.amountCents <= input.maxItemPriceCents!);
+  const products = [...priceEligible]
+    .sort((left, right) =>
+      titleMatchScore(right, queryTokens) - titleMatchScore(left, queryTokens) ||
+      left.itemPrice.amountCents - right.itemPrice.amountCents ||
+      left.merchantProductId.localeCompare(right.merchantProductId)
+    )
+    .slice(0, input.limit)
+    .map(({ searchText: _searchText, ...product }) => product);
+  return {
+    source: "AWIN_PRODUCT_FEED",
+    coverage: "COMPLETE",
+    snapshotAt: index.snapshotAt,
+    diagnostics: {
+      feedRows: index.feedRows,
+      validRows: index.validRows,
+      rejectedRows: index.rejectedRows,
+      queryMatches: matched.length,
+      priceProductsExcluded: matched.length - priceEligible.length
+    },
+    products
+  };
+}
+
+export function parseAwinSearchInput(value: unknown): AwinSearchInput {
+  if (!isObject(value)) throw new Error("Awin search input must be an object");
+  const allowedKeys = new Set(["query", "limit", "maxItemPriceCents"]);
+  if (Object.keys(value).some((key) => !allowedKeys.has(key))) {
+    throw new Error("Awin search input contains unsupported fields");
+  }
+  const query = typeof value.query === "string" ? value.query.trim() : "";
+  if (
+    query.length < 2 ||
+    query.length > 300 ||
+    !/^[\p{L}\p{N}\s._+'-]+$/u.test(query) ||
+    !/[\p{L}\p{N}]/u.test(query)
+  ) {
+    throw new Error("Awin search query is invalid");
+  }
+  const limit = value.limit;
+  if (!Number.isInteger(limit) || (limit as number) < 1 || (limit as number) > 24) {
+    throw new Error("Awin search limit must be an integer from 1 through 24");
+  }
+  const maxItemPriceCents = value.maxItemPriceCents;
+  if (
+    maxItemPriceCents !== undefined &&
+    (!Number.isInteger(maxItemPriceCents) || (maxItemPriceCents as number) < 1 || (maxItemPriceCents as number) > 100_000_000)
+  ) {
+    throw new Error("Awin search maximum item price is invalid");
+  }
+  return {
+    query,
+    limit: limit as number,
+    ...(maxItemPriceCents === undefined ? {} : { maxItemPriceCents: maxItemPriceCents as number })
   };
 }
 
@@ -120,15 +208,39 @@ export function validateAwinFeedArchive(compressed: Uint8Array): {
   feedRows: number;
   validRows: number;
   rejectedRows: number;
-  uniqueMerchantProductIds: number;
+  uniqueProductKeys: number;
 } {
-  const { rows, parsed } = parseArchive(compressed, new Date(0).toISOString());
+  const index = createAwinFeedIndex(compressed, new Date(0).toISOString());
   return {
-    feedRows: rows.records.length,
-    validRows: parsed.length,
-    rejectedRows: rows.records.length - parsed.length,
-    uniqueMerchantProductIds: new Set(parsed.map((product) => product.merchantProductId)).size
+    feedRows: index.feedRows,
+    validRows: index.validRows,
+    rejectedRows: index.rejectedRows,
+    uniqueProductKeys: new Set(index.products.map((product) => `${product.merchantId}:${product.merchantProductId}`)).size
   };
+}
+
+export function mergeAwinFeedArchives(archives: readonly Uint8Array[]): Uint8Array {
+  if (archives.length === 0) throw new Error("at least one Awin Feed is required");
+  const feeds = archives.map((archive) => {
+    if (archive.byteLength > MAX_AWIN_COMPRESSED_BYTES) throw new Error("AWIN_FEED_TOO_LARGE");
+    return parseAwinCsv(gunzipSync(archive, { maxOutputLength: MAX_UNCOMPRESSED_BYTES }).toString("utf8"));
+  });
+  const headers = [...new Set(feeds.flatMap((feed) => feed.headers))];
+  const records = feeds.flatMap((feed) => feed.records);
+  const productKeys = records.map((record) =>
+    `${requireValue(record, "merchant_id")}:${requireValue(record, "merchant_product_id")}`
+  );
+  if (new Set(productKeys).size !== productKeys.length) {
+    throw new Error("duplicate Awin merchant product across source Feeds");
+  }
+  const csv = [
+    headers,
+    ...records.map((record) => headers.map((header) => record[header] ?? ""))
+  ].map((row) => row.map(csvCell).join(",")).join("\r\n");
+  if (Buffer.byteLength(csv, "utf8") > MAX_UNCOMPRESSED_BYTES) throw new Error("AWIN_FEED_TOO_LARGE");
+  const merged = gzipSync(csv);
+  if (merged.byteLength > MAX_AWIN_COMPRESSED_BYTES) throw new Error("AWIN_FEED_TOO_LARGE");
+  return merged;
 }
 
 export function createUnavailableAwinPort(): AwinProductPort {
@@ -187,16 +299,17 @@ export function parseAwinCsv(document: string): {
 function toProduct(record: Record<string, string>, checkedAt: string): IndexedProduct {
   requireValue(record, "product_name");
   requireValue(record, "merchant_product_id");
-  if (record.merchant_id !== APPROVED_MERCHANT_ID || record.merchant_name !== APPROVED_MERCHANT_NAME) {
+  const merchant = APPROVED_AWIN_MERCHANTS.get(record.merchant_id?.trim() ?? "");
+  if (merchant === undefined || record.merchant_name !== merchant.name) {
     throw new Error("unapproved Awin merchant");
   }
   if (record.currency !== "USD") throw new Error("unsupported Awin currency");
-  const merchantUrl = approvedUrl(requireValue(record, "merchant_deep_link"), APPROVED_MERCHANT_HOST);
+  const merchantUrl = approvedUrl(requireValue(record, "merchant_deep_link"), merchant.host);
   const affiliateUrl = approvedUrl(requireValue(record, "aw_deep_link"), APPROVED_AFFILIATE_HOST);
   const affiliate = new URL(affiliateUrl);
   if (
     affiliate.searchParams.get("a") !== APPROVED_PUBLISHER_ID ||
-    affiliate.searchParams.get("m") !== APPROVED_MERCHANT_ID
+    affiliate.searchParams.get("m") !== merchant.id
   ) {
     throw new Error("Awin link does not match approved relationship");
   }
@@ -206,16 +319,27 @@ function toProduct(record: Record<string, string>, checkedAt: string): IndexedPr
   const title = record.product_name!.trim();
   const category = record.merchant_category?.trim() || record.category_name?.trim() || "Uncategorized";
   const description = record.description?.trim() ?? "";
+  const identityValues = [
+    record.brand_name,
+    record.product_model,
+    record.model_number,
+    record.ean,
+    record.upc,
+    record.mpn,
+    record.product_GTIN
+  ].map((value) => value?.trim() ?? "").filter((value) => value !== "");
   return {
-    merchantId: APPROVED_MERCHANT_ID,
-    merchant: APPROVED_MERCHANT_NAME,
+    merchantId: merchant.id,
+    merchant: merchant.name,
     merchantProductId: record.merchant_product_id!.trim(),
     title,
     category,
     matchStatus: "DISCOVERY_MATCH",
     matchEvidence: [
       "Awin merchant_product_id present",
-      "GTIN, MPN, brand, and condition unavailable; exact identity not independently verified"
+      identityValues.length === 0
+        ? "GTIN, MPN, brand, and condition unavailable; exact identity not independently verified"
+        : "Feed identity fields present; exact identity not independently verified"
     ],
     condition: "UNKNOWN",
     ...(imageUrl === undefined ? {} : { imageUrl }),
@@ -226,7 +350,14 @@ function toProduct(record: Record<string, string>, checkedAt: string): IndexedPr
     merchantUrl,
     affiliateUrl,
     checkedAt,
-    searchText: normalizeSearchText(`${title} ${category} ${description} ${APPROVED_MERCHANT_NAME} Nutree Cosmetics`)
+    searchText: normalizeSearchText([
+      title,
+      category,
+      description,
+      merchant.name,
+      merchant.searchAliases,
+      ...identityValues
+    ].join(" "))
   };
 }
 
@@ -272,6 +403,197 @@ function parseRemoteConfiguration(environment: Readonly<Record<string, string | 
     throw new Error("AWIN_PRODUCT_FEED_TIMEOUT_MS must be an integer from 500 through 30000");
   }
   return { url: url.href, token, timeoutMs };
+}
+
+function parsePublicSearchConfiguration(environment: Readonly<Record<string, string | undefined>>): {
+  url: string;
+  timeoutMs: number;
+} | undefined {
+  const value = environment.AWIN_PRODUCT_SEARCH_URL?.trim();
+  if (value === undefined || value === "") return undefined;
+  const url = new URL(value);
+  if (
+    url.protocol !== "https:" ||
+    url.username !== "" ||
+    url.password !== "" ||
+    url.port !== "" ||
+    url.search !== "" ||
+    url.hash !== ""
+  ) {
+    throw new Error("AWIN_PRODUCT_SEARCH_URL must be credential-free HTTPS on the default port");
+  }
+  const timeoutMs = Number(environment.AWIN_PRODUCT_SEARCH_TIMEOUT_MS ?? "5000");
+  if (!Number.isInteger(timeoutMs) || timeoutMs < 500 || timeoutMs > 30_000) {
+    throw new Error("AWIN_PRODUCT_SEARCH_TIMEOUT_MS must be an integer from 500 through 30000");
+  }
+  return { url: url.href, timeoutMs };
+}
+
+async function fetchPublicSearch(
+  configuration: { url: string; timeoutMs: number },
+  input: AwinSearchInput,
+  fetchRequest: typeof fetch
+): Promise<AwinSearchResult> {
+  const response = await fetchRequest(configuration.url, {
+    method: "POST",
+    redirect: "error",
+    headers: {
+      accept: "application/json",
+      "content-type": "application/json"
+    },
+    body: JSON.stringify(input),
+    signal: AbortSignal.timeout(configuration.timeoutMs)
+  });
+  if (!response.ok) throw new Error(`Awin Search service returned HTTP ${response.status}`);
+  const contentType = response.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
+  if (contentType !== "application/json") {
+    throw new Error("Awin Search service returned an unsupported content type");
+  }
+  const encoded = await readLimitedBody(
+    response,
+    MAX_AWIN_PUBLIC_SEARCH_RESPONSE_BYTES,
+    "Awin Search service"
+  );
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(encoded));
+  } catch {
+    throw new Error("Awin Search service returned invalid JSON");
+  }
+  return parseAwinSearchResult(decoded);
+}
+
+export function parseAwinSearchResult(value: unknown): AwinSearchResult {
+  if (!isObject(value)) throw new Error("Awin search result must be an object");
+  const expectedKeys = new Set(["source", "coverage", "snapshotAt", "diagnostics", "products"]);
+  if (Object.keys(value).some((key) => !expectedKeys.has(key))) {
+    throw new Error("Awin search result contains unsupported fields");
+  }
+  if (value.source !== "AWIN_PRODUCT_FEED" || value.coverage !== "COMPLETE") {
+    throw new Error("Awin search result source is invalid");
+  }
+  const snapshotAt = validIsoDate(value.snapshotAt, "Awin search snapshotAt");
+  if (!isObject(value.diagnostics)) throw new Error("Awin search diagnostics are invalid");
+  const diagnosticsKeys = new Set([
+    "feedRows",
+    "validRows",
+    "rejectedRows",
+    "queryMatches",
+    "priceProductsExcluded"
+  ]);
+  if (Object.keys(value.diagnostics).some((key) => !diagnosticsKeys.has(key))) {
+    throw new Error("Awin search diagnostics contain unsupported fields");
+  }
+  const diagnostics = {
+    feedRows: nonnegativeInteger(value.diagnostics.feedRows, "feedRows"),
+    validRows: nonnegativeInteger(value.diagnostics.validRows, "validRows"),
+    rejectedRows: nonnegativeInteger(value.diagnostics.rejectedRows, "rejectedRows"),
+    queryMatches: nonnegativeInteger(value.diagnostics.queryMatches, "queryMatches"),
+    priceProductsExcluded: nonnegativeInteger(
+      value.diagnostics.priceProductsExcluded,
+      "priceProductsExcluded"
+    )
+  };
+  if (
+    diagnostics.validRows + diagnostics.rejectedRows !== diagnostics.feedRows ||
+    diagnostics.queryMatches > diagnostics.validRows ||
+    diagnostics.priceProductsExcluded > diagnostics.queryMatches
+  ) {
+    throw new Error("Awin search diagnostics are inconsistent");
+  }
+  if (!Array.isArray(value.products) || value.products.length > 24) {
+    throw new Error("Awin search products are invalid");
+  }
+  return {
+    source: "AWIN_PRODUCT_FEED",
+    coverage: "COMPLETE",
+    snapshotAt,
+    diagnostics,
+    products: value.products.map(parsePublicAwinProduct)
+  };
+}
+
+function parsePublicAwinProduct(value: unknown): AwinProduct {
+  if (!isObject(value)) throw new Error("Awin product must be an object");
+  const allowedKeys = new Set([
+    "merchantId",
+    "merchant",
+    "merchantProductId",
+    "title",
+    "category",
+    "matchStatus",
+    "matchEvidence",
+    "condition",
+    "imageUrl",
+    "itemPrice",
+    "availability",
+    "merchantUrl",
+    "affiliateUrl",
+    "checkedAt"
+  ]);
+  if (Object.keys(value).some((key) => !allowedKeys.has(key))) {
+    throw new Error("Awin product contains unsupported fields");
+  }
+  const merchantId = boundedString(value.merchantId, "merchantId", 1, 20);
+  const approvedMerchant = APPROVED_AWIN_MERCHANTS.get(merchantId);
+  if (
+    approvedMerchant === undefined ||
+    value.merchant !== approvedMerchant.name ||
+    value.matchStatus !== "DISCOVERY_MATCH" ||
+    value.condition !== "UNKNOWN"
+  ) {
+    throw new Error("Awin product merchant or identity state is invalid");
+  }
+  if (!Array.isArray(value.matchEvidence) || value.matchEvidence.length < 1 || value.matchEvidence.length > 10) {
+    throw new Error("Awin product match evidence is invalid");
+  }
+  const matchEvidence = value.matchEvidence.map((entry) => boundedString(entry, "matchEvidence", 1, 300));
+  if (!isObject(value.itemPrice)) throw new Error("Awin product item price is invalid");
+  if (
+    Object.keys(value.itemPrice).some((key) => key !== "amountCents" && key !== "currency") ||
+    value.itemPrice.currency !== "USD"
+  ) {
+    throw new Error("Awin product item price is invalid");
+  }
+  const amountCents = positiveInteger(value.itemPrice.amountCents, "amountCents", 100_000_000);
+  const merchantUrl = approvedUrl(
+    boundedString(value.merchantUrl, "merchantUrl", 1, 4_096),
+    approvedMerchant.host
+  );
+  const affiliateUrl = approvedUrl(
+    boundedString(value.affiliateUrl, "affiliateUrl", 1, 4_096),
+    APPROVED_AFFILIATE_HOST
+  );
+  const affiliate = new URL(affiliateUrl);
+  if (
+    affiliate.searchParams.get("a") !== APPROVED_PUBLISHER_ID ||
+    affiliate.searchParams.get("m") !== approvedMerchant.id
+  ) {
+    throw new Error("Awin product affiliate relationship is invalid");
+  }
+  if (value.availability !== "IN_STOCK" && value.availability !== "OUT_OF_STOCK" && value.availability !== "UNKNOWN") {
+    throw new Error("Awin product availability is invalid");
+  }
+  const imageValue = value.imageUrl;
+  const imageUrl = imageValue === undefined
+    ? undefined
+    : approvedHttpsUrl(boundedString(imageValue, "imageUrl", 1, 4_096));
+  return {
+    merchantId,
+    merchant: approvedMerchant.name,
+    merchantProductId: boundedString(value.merchantProductId, "merchantProductId", 1, 300),
+    title: boundedString(value.title, "title", 1, 500),
+    category: boundedString(value.category, "category", 1, 300),
+    matchStatus: "DISCOVERY_MATCH",
+    matchEvidence,
+    condition: "UNKNOWN",
+    ...(imageUrl === undefined ? {} : { imageUrl }),
+    itemPrice: { amountCents, currency: "USD" },
+    availability: value.availability,
+    merchantUrl,
+    affiliateUrl,
+    checkedAt: validIsoDate(value.checkedAt, "Awin product checkedAt")
+  };
 }
 
 async function fetchRemoteArchive(
@@ -339,6 +661,10 @@ function requireValue(record: Record<string, string>, key: string): string {
   return value;
 }
 
+function csvCell(value: string): string {
+  return /[",\r\n]/u.test(value) ? `"${value.replaceAll('"', '""')}"` : value;
+}
+
 function approvedUrl(value: string, expectedHost: string): string {
   const url = new URL(value);
   if (
@@ -380,7 +706,15 @@ function tokenizeQuery(value: string): string[] {
     .replaceAll("护发素", " conditioner ")
     .replaceAll("发膜", " hair mask ")
     .replaceAll("拉直", " straightening ");
-  return [...new Set(normalizeSearchText(translated).match(/[\p{L}\p{N}]+/gu) ?? [])];
+  const commerceTranslated = translated
+    .replaceAll("狩猎相机", " trail camera ")
+    .replaceAll("打猎相机", " trail camera ")
+    .replaceAll("猎场相机", " trail camera ")
+    .replaceAll("追踪相机", " trail camera ")
+    .replaceAll("野生动物相机", " wildlife camera ")
+    .replaceAll("手表", " watch ")
+    .replaceAll("腕表", " watch ");
+  return [...new Set(normalizeSearchText(commerceTranslated).match(/[\p{L}\p{N}]+/gu) ?? [])];
 }
 
 function normalizeSearchText(value: string): string {
@@ -390,4 +724,41 @@ function normalizeSearchText(value: string): string {
 function titleMatchScore(product: IndexedProduct, tokens: string[]): number {
   const normalizedTitle = normalizeSearchText(product.title);
   return tokens.filter((token) => normalizedTitle.includes(token)).length;
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function boundedString(
+  value: unknown,
+  name: string,
+  minimumLength: number,
+  maximumLength: number
+): string {
+  if (typeof value !== "string" || value.length < minimumLength || value.length > maximumLength) {
+    throw new Error(`Awin ${name} is invalid`);
+  }
+  return value;
+}
+
+function nonnegativeInteger(value: unknown, name: string): number {
+  if (!Number.isInteger(value) || (value as number) < 0) {
+    throw new Error(`Awin ${name} is invalid`);
+  }
+  return value as number;
+}
+
+function positiveInteger(value: unknown, name: string, maximum: number): number {
+  if (!Number.isInteger(value) || (value as number) < 1 || (value as number) > maximum) {
+    throw new Error(`Awin ${name} is invalid`);
+  }
+  return value as number;
+}
+
+function validIsoDate(value: unknown, name: string): string {
+  if (typeof value !== "string" || !Number.isFinite(Date.parse(value))) {
+    throw new Error(`${name} is invalid`);
+  }
+  return new Date(value).toISOString();
 }

@@ -3887,6 +3887,10 @@
       "format": "esm",
       "imports": []
     },
+    "src/product-constraint-matcher.ts": {
+      "format": "esm",
+      "imports": []
+    },
     "src/sales-tax-estimator.ts": {
       "format": "esm",
       "imports": []
@@ -3903,6 +3907,11 @@
           "kind": "import-statement",
           "original": "./merchant-trust.js",
           "path": "src/merchant-trust.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./product-constraint-matcher.js",
+          "path": "src/product-constraint-matcher.ts"
         }
       ]
     },
@@ -4188,7 +4197,7 @@
   },
   "outputs": {
     "../../plugins/findcheap-agent/dist/mcp-server.js": {
-      "bytes": 528474,
+      "bytes": 544286,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
@@ -4781,7 +4790,7 @@
           "bytesInOutput": 750
         },
         "../../packages/awin-feed/src/index.ts": {
-          "bytesInOutput": 6514
+          "bytesInOutput": 13584
         },
         "../../packages/contracts/src/comparison.ts": {
           "bytesInOutput": 1322
@@ -4822,14 +4831,17 @@
         "src/product-card-ui.ts": {
           "bytesInOutput": 26938
         },
+        "src/product-constraint-matcher.ts": {
+          "bytesInOutput": 7788
+        },
         "src/sales-tax-estimator.ts": {
           "bytesInOutput": 1784
         },
         "src/search-products.ts": {
-          "bytesInOutput": 6935
+          "bytesInOutput": 6071
         },
         "src/server.ts": {
-          "bytesInOutput": 67234
+          "bytesInOutput": 68805
         },
         "src/shopify-cart-quote.ts": {
           "bytesInOutput": 10285
@@ -4841,7 +4853,7 @@
           "bytesInOutput": 15770
         },
         "src/shopify-match.ts": {
-          "bytesInOutput": 4723
+          "bytesInOutput": 4970
         },
         "src/shopify-selected-product.ts": {
           "bytesInOutput": 3250

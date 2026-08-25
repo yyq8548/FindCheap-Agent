@@ -4,16 +4,24 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { dirname } from "node:path";
 
 import {
+  createAwinFeedIndex,
   MAX_AWIN_COMPRESSED_BYTES,
+  mergeAwinFeedArchives,
+  parseAwinSearchInput,
   readLimitedBody,
-  validateAwinFeedArchive
+  searchAwinFeedIndex,
+  type AwinFeedIndex,
+  type AwinSearchInput,
+  type AwinSearchResult
 } from "../../../packages/awin-feed/src/index.js";
 import type { AwinFeedServiceEnvironment } from "./environment.js";
 
 type FeedSnapshot = {
   archive: Uint8Array;
+  index: AwinFeedIndex;
   snapshotAt: string;
   feedRows: number;
+  sourceFeeds: number;
 };
 
 type FeedState = {
@@ -32,6 +40,7 @@ export type AwinFeedController = {
   loadExisting(): Promise<void>;
   refresh(): Promise<void>;
   getState(): Readonly<FeedState>;
+  search(input: AwinSearchInput): AwinSearchResult | undefined;
 };
 
 export function createAwinFeedController(
@@ -47,7 +56,7 @@ export function createAwinFeedController(
     try {
       const archive = await readFile(environment.dataPath);
       const snapshotAt = (await stat(environment.dataPath)).mtime.toISOString();
-      state.snapshot = validatedSnapshot(archive, snapshotAt);
+      state.snapshot = validatedSnapshot(archive, snapshotAt, environment.sourceUrls.length);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
@@ -55,25 +64,29 @@ export function createAwinFeedController(
   const runRefresh = async (): Promise<void> => {
     let failureCode: NonNullable<FeedState["lastErrorCode"]> = "SOURCE_REQUEST_FAILED";
     try {
-      const response = await fetchRequest(environment.sourceUrl, {
-        method: "GET",
-        redirect: "error",
-        headers: { accept: "application/gzip, application/x-gzip, application/octet-stream" },
-        signal: AbortSignal.timeout(environment.sourceTimeoutMs)
-      });
-      if (!response.ok) {
-        failureCode = "SOURCE_HTTP_ERROR";
-        throw new Error(`Awin source returned HTTP ${response.status}`);
+      const sourceArchives: Uint8Array[] = [];
+      for (const sourceUrl of environment.sourceUrls) {
+        const response = await fetchRequest(sourceUrl, {
+          method: "GET",
+          redirect: "error",
+          headers: { accept: "application/gzip, application/x-gzip, application/octet-stream" },
+          signal: AbortSignal.timeout(environment.sourceTimeoutMs)
+        });
+        if (!response.ok) {
+          failureCode = "SOURCE_HTTP_ERROR";
+          throw new Error(`Awin source returned HTTP ${response.status}`);
+        }
+        failureCode = "SOURCE_READ_FAILED";
+        sourceArchives.push(await readLimitedBody(
+          response,
+          MAX_AWIN_COMPRESSED_BYTES,
+          "Awin source"
+        ));
       }
-      failureCode = "SOURCE_READ_FAILED";
-      const archive = await readLimitedBody(
-        response,
-        MAX_AWIN_COMPRESSED_BYTES,
-        "Awin source"
-      );
       const snapshotAt = validDate(now()).toISOString();
       failureCode = "FEED_INVALID";
-      const snapshot = validatedSnapshot(archive, snapshotAt);
+      const archive = mergeAwinFeedArchives(sourceArchives);
+      const snapshot = validatedSnapshot(archive, snapshotAt, sourceArchives.length);
       failureCode = "STORAGE_WRITE_FAILED";
       await writeArchiveAtomically(environment.dataPath, archive);
       state.snapshot = snapshot;
@@ -94,13 +107,26 @@ export function createAwinFeedController(
       });
       return activeRefresh;
     },
-    getState: () => state
+    getState: () => state,
+    search(input) {
+      return state.snapshot === undefined
+        ? undefined
+        : searchAwinFeedIndex(state.snapshot.index, input);
+    }
   };
 }
 
-export function createAwinFeedHttpServer(controller: AwinFeedController, apiToken: string) {
+export function createAwinFeedHttpServer(
+  controller: AwinFeedController,
+  apiToken: string,
+  options: { now?: () => number; publicSearchLimitPerMinute?: number } = {}
+) {
+  const publicSearchLimiter = createPublicSearchLimiter(
+    options.publicSearchLimitPerMinute ?? 60,
+    options.now ?? Date.now
+  );
   const server = createServer((request, response) => {
-    void handleRequest(controller, apiToken, request, response).catch(() => {
+    void handleRequest(controller, apiToken, publicSearchLimiter, request, response).catch(() => {
       if (!response.headersSent) response.writeHead(500, { "content-type": "application/json" });
       response.end(JSON.stringify({ error: "INTERNAL_SERVER_ERROR" }));
     });
@@ -114,14 +140,42 @@ export function createAwinFeedHttpServer(controller: AwinFeedController, apiToke
 async function handleRequest(
   controller: AwinFeedController,
   apiToken: string,
+  publicSearchLimiter: PublicSearchLimiter,
   request: IncomingMessage,
   response: ServerResponse
 ): Promise<void> {
+  const path = new URL(request.url ?? "/", "http://localhost").pathname;
+  if (path === "/v1/search") {
+    if (request.method !== "POST") {
+      json(response, 405, { error: "METHOD_NOT_ALLOWED" });
+      return;
+    }
+    const rate = publicSearchLimiter.take(publicSearchClientKey(request));
+    if (!rate.allowed) {
+      response.setHeader("retry-after", String(rate.retryAfterSeconds));
+      json(response, 429, { error: "RATE_LIMITED" });
+      return;
+    }
+    let input: AwinSearchInput;
+    try {
+      input = parseAwinSearchInput(await readJsonRequest(request));
+    } catch (error) {
+      const status = error instanceof RequestBodyTooLargeError ? 413 : 400;
+      json(response, status, { error: status === 413 ? "REQUEST_TOO_LARGE" : "INVALID_SEARCH_REQUEST" });
+      return;
+    }
+    const result = controller.search(input);
+    if (result === undefined) {
+      json(response, 503, { error: "FEED_UNAVAILABLE" });
+      return;
+    }
+    json(response, 200, result);
+    return;
+  }
   if (request.method !== "GET") {
     json(response, 405, { error: "METHOD_NOT_ALLOWED" });
     return;
   }
-  const path = new URL(request.url ?? "/", "http://localhost").pathname;
   const state = controller.getState();
   if (path === "/health") {
     json(response, 200, { status: "ok", ...feedMetadata(state) });
@@ -149,6 +203,7 @@ async function handleRequest(
     "content-length": String(state.snapshot.archive.byteLength),
     "x-content-type-options": "nosniff",
     "x-feed-row-count": String(state.snapshot.feedRows),
+    "x-feed-source-count": String(state.snapshot.sourceFeeds),
     "x-feed-snapshot-at": state.snapshot.snapshotAt
   });
   response.end(state.snapshot.archive);
@@ -159,24 +214,28 @@ function feedMetadata(state: Readonly<FeedState>): Record<string, unknown> {
     feedStatus: state.snapshot === undefined ? "unavailable" : state.lastErrorAt === undefined ? "ready" : "degraded",
     ...(state.snapshot === undefined
       ? {}
-      : { snapshotAt: state.snapshot.snapshotAt, feedRows: state.snapshot.feedRows }),
+      : {
+          snapshotAt: state.snapshot.snapshotAt,
+          feedRows: state.snapshot.feedRows,
+          sourceFeeds: state.snapshot.sourceFeeds
+        }),
     ...(state.lastRefreshAt === undefined ? {} : { lastRefreshAt: state.lastRefreshAt }),
     ...(state.lastErrorAt === undefined ? {} : { lastErrorAt: state.lastErrorAt }),
     ...(state.lastErrorCode === undefined ? {} : { lastErrorCode: state.lastErrorCode })
   };
 }
 
-function validatedSnapshot(archive: Uint8Array, snapshotAt: string): FeedSnapshot {
-  const validation = validateAwinFeedArchive(archive);
+function validatedSnapshot(archive: Uint8Array, snapshotAt: string, sourceFeeds: number): FeedSnapshot {
+  const index = createAwinFeedIndex(archive, snapshotAt);
   if (
-    validation.feedRows === 0 ||
-    validation.validRows !== validation.feedRows ||
-    validation.rejectedRows !== 0 ||
-    validation.uniqueMerchantProductIds !== validation.validRows
+    index.feedRows === 0 ||
+    index.validRows !== index.feedRows ||
+    index.rejectedRows !== 0 ||
+    new Set(index.products.map((product) => `${product.merchantId}:${product.merchantProductId}`)).size !== index.validRows
   ) {
     throw new Error("Awin Feed failed approved merchant validation");
   }
-  return { archive, snapshotAt, feedRows: validation.feedRows };
+  return { archive, index, snapshotAt, feedRows: index.feedRows, sourceFeeds };
 }
 
 async function writeArchiveAtomically(path: string, archive: Uint8Array): Promise<void> {
@@ -203,11 +262,82 @@ function validDate(value: Date): Date {
   return value;
 }
 
-function json(response: ServerResponse, status: number, body: Record<string, unknown>): void {
+function json(response: ServerResponse, status: number, body: unknown): void {
   response.writeHead(status, {
     "cache-control": "no-store",
     "content-type": "application/json; charset=utf-8",
     "x-content-type-options": "nosniff"
   });
   response.end(JSON.stringify(body));
+}
+
+type PublicSearchLimiter = {
+  take(key: string): { allowed: boolean; retryAfterSeconds: number };
+};
+
+function createPublicSearchLimiter(limitPerMinute: number, now: () => number): PublicSearchLimiter {
+  if (!Number.isInteger(limitPerMinute) || limitPerMinute < 1 || limitPerMinute > 1_000) {
+    throw new Error("public search rate limit must be an integer from 1 through 1000");
+  }
+  const windows = new Map<string, { count: number; resetAt: number }>();
+  return {
+    take(key) {
+      const currentTime = now();
+      let window = windows.get(key);
+      if (window === undefined || window.resetAt <= currentTime) {
+        if (windows.size >= 10_000) {
+          for (const [storedKey, storedWindow] of windows) {
+            if (storedWindow.resetAt <= currentTime) windows.delete(storedKey);
+          }
+          if (windows.size >= 10_000) windows.delete(windows.keys().next().value as string);
+        }
+        window = { count: 0, resetAt: currentTime + 60_000 };
+        windows.set(key, window);
+      }
+      if (window.count >= limitPerMinute) {
+        return {
+          allowed: false,
+          retryAfterSeconds: Math.max(1, Math.ceil((window.resetAt - currentTime) / 1_000))
+        };
+      }
+      window.count += 1;
+      return { allowed: true, retryAfterSeconds: 0 };
+    }
+  };
+}
+
+function publicSearchClientKey(request: IncomingMessage): string {
+  const forwarded = request.headers["x-forwarded-for"];
+  const candidate = (Array.isArray(forwarded) ? forwarded.at(-1) : forwarded?.split(",").at(-1))?.trim();
+  return candidate !== undefined && /^[0-9a-f:.]{1,64}$/iu.test(candidate)
+    ? candidate
+    : request.socket.remoteAddress ?? "unknown";
+}
+
+class RequestBodyTooLargeError extends Error {}
+
+async function readJsonRequest(request: IncomingMessage): Promise<unknown> {
+  const contentType = request.headers["content-type"]?.split(";", 1)[0]?.trim().toLowerCase();
+  if (contentType !== "application/json") throw new Error("content type must be application/json");
+  const maximumBytes = 4_096;
+  const declaredLength = request.headers["content-length"];
+  if (
+    declaredLength !== undefined &&
+    (!/^\d+$/u.test(declaredLength) || Number(declaredLength) > maximumBytes)
+  ) {
+    throw new RequestBodyTooLargeError("request body is too large");
+  }
+  const chunks: Buffer[] = [];
+  let total = 0;
+  for await (const chunk of request) {
+    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    total += bytes.byteLength;
+    if (total > maximumBytes) throw new RequestBodyTooLargeError("request body is too large");
+    chunks.push(bytes);
+  }
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  } catch {
+    throw new Error("request body must contain valid JSON");
+  }
 }
