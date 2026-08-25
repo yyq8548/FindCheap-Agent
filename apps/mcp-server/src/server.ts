@@ -87,7 +87,7 @@ const ProductCardStagesSchema = z.object({
 
 const ProductCardTelemetryInputSchema = z.object({
   renderId: z.string().uuid(),
-  version: z.literal("0.8.6"),
+  version: z.literal("0.8.7"),
   terminalStage: z.enum([
     "DOM_RENDERED",
     "FIRST_IMAGE_SETTLED",
@@ -1381,7 +1381,7 @@ export function createShoppingServer(
   dependencies: ShoppingServerDependencies = {}
 ): McpServer {
   void comparePort;
-  const server = new McpServer({ name: "findcheap-agent", version: "0.8.6" });
+  const server = new McpServer({ name: "findcheap-agent", version: "0.8.7" });
   const dealPort = dependencies.deals ?? createUnavailableDealPort();
   const awinPort = dependencies.awin ?? createUnavailableAwinPort();
   const toolAvailability = dependencies.toolAvailability ?? {
@@ -1549,7 +1549,7 @@ export function createShoppingServer(
     "search_products",
     {
       title: "Search products",
-      description: "For a clear product request, call immediately without Memory, repo scans, or plan narration. This is the single public product-search entrypoint; call once. Use selectionMode=LOWEST_PRICE only when explicitly requested; pass maxItemPriceCents for a ceiling. Commercial relationships never affect relevance or ranking. Reuse selectionId for every follow-up; never search a selected title again.",
+      description: "For a clear product request, call immediately without Memory, repo scans, or plan narration. This is the single public product-search entrypoint; call once. Never infer product condition: omit conditionPreference or use ANY unless the user explicitly states new, used, refurbished, open-box, or unknown condition, and preserve that condition wording in query. Use selectionMode=LOWEST_PRICE only when explicitly requested; pass maxItemPriceCents for a ceiling. Commercial relationships never affect relevance or ranking. Reuse selectionId for every follow-up; never search a selected title again.",
       inputSchema: SearchProductsInputSchema,
       outputSchema: ShopifyProductsOutputShape,
       annotations: {

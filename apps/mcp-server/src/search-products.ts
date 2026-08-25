@@ -69,9 +69,13 @@ export function isApprovedAffiliateQuery(query: string): boolean {
 }
 
 export async function searchProducts(
-  input: SearchProductsInput,
+  rawInput: SearchProductsInput,
   ports: { awin: AwinProductPort; shopify: ShopifyPort }
 ): Promise<UnifiedSearchExecution> {
+  const input = {
+    ...rawInput,
+    conditionPreference: explicitConditionPreference(rawInput.query, rawInput.conditionPreference)
+  };
   const affiliateEligible = isApprovedAffiliateQuery(input.query);
   let awinResult: AwinSearchResult | undefined;
   let shopifyResult: ShopifySearchResult | undefined;
@@ -198,6 +202,23 @@ export async function searchProducts(
     searchPasses,
     chromeFallbackEligible
   };
+}
+
+function explicitConditionPreference(
+  query: string,
+  requested: SearchProductsInput["conditionPreference"]
+): SearchProductsInput["conditionPreference"] {
+  if (requested === "ANY") return "ANY";
+  const text = query.normalize("NFKC").toLocaleLowerCase("en-US")
+    .replace(/\bnew\s+(?:balance|era|look)\b/gu, "");
+  const patterns: Record<Exclude<SearchProductsInput["conditionPreference"], "ANY">, RegExp> = {
+    NEW: /(?:全新|新品|未拆封|原封)|\b(?:new|brand[\s-]*new|factory[\s-]*sealed|unopened)\b/iu,
+    USED: /(?:二手|中古)|\b(?:used|pre[\s-]*owned|second[\s-]*hand|resale)\b/iu,
+    REFURBISHED: /(?:翻新|官翻)|\b(?:refurbished|renewed|reconditioned)\b/iu,
+    OPEN_BOX: /(?:开箱品|拆箱品)|\bopen[\s-]*box\b/iu,
+    UNKNOWN: /(?:成色未知|状态未知)|\b(?:unknown|unspecified)\s+condition\b/iu
+  };
+  return patterns[requested].test(text) ? requested : "ANY";
 }
 
 function awinCandidate(

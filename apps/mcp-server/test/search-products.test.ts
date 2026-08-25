@@ -86,9 +86,20 @@ describe("unified product search", () => {
     ]);
   });
 
-  it("rejects UNKNOWN affiliate condition when NEW is required", async () => {
+  it("does not infer NEW when the query has no explicit condition", async () => {
     const result = await searchProducts(SearchProductsInputSchema.parse({
-      query: "hair mask",
+      query: "Apple MacBook Pro",
+      limit: 1,
+      conditionPreference: "NEW"
+    }), { awin: awin([]), shopify: shopify([shopifyProduct("macbook", 199_900)]) });
+
+    expect(result.candidates).toHaveLength(1);
+    expect(result.candidates[0]?.shopifyProduct?.condition).toBe("UNKNOWN");
+  });
+
+  it("rejects UNKNOWN affiliate condition when NEW is explicitly required", async () => {
+    const result = await searchProducts(SearchProductsInputSchema.parse({
+      query: "全新 hair mask",
       limit: 1,
       conditionPreference: "NEW"
     }), { awin: awin(), shopify: shopify([shopifyProduct("101", 2500, "NEW")]) });

@@ -24,7 +24,7 @@ Read only after `search_products` returns complete zero-result coverage and user
 
 ## Ranking
 
-Rank only exact identity and requested variant. Keep `SIMILAR` and `UNCONFIRMED` outside main ranking. Treat absent condition as `UNKNOWN`, eligible after verified `NEW` for default/new requests; never call it new. Explicit `USED`, `REFURBISHED`, `RENEWED`, or `OPEN_BOX` is excluded unless requested. Prefer direct merchant, visible stock, then lower visible item price. Return fewer than three rather than weak results. Never claim whole-internet best.
+Rank only exact identity and requested variant. Keep `SIMILAR` and `UNCONFIRMED` outside main ranking. Never infer condition. When the user gives no condition, `UNKNOWN` remains eligible and visibly labeled. When the user explicitly requests `NEW`, absent condition is ineligible and never called new. Explicit `USED`, `REFURBISHED`, `RENEWED`, or `OPEN_BOX` is excluded unless requested. Prefer direct merchant, visible stock, then lower visible item price. Return fewer than three rather than weak results. Never claim whole-internet best.
 
 ## Safety
 

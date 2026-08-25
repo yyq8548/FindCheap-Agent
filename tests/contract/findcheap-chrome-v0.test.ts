@@ -121,9 +121,9 @@ describe("FindCheap Agent plugin contract", () => {
     expect(skill).toContain("then at most two");
     expect(skill).toContain("one unified extractor per page");
     expect(skill).toContain("Do not open merchant category, search, or listing pages");
-    expect(skill).toContain("Treat absent condition as `UNKNOWN`");
-    expect(skill).toContain("eligible after verified `NEW`");
-    expect(skill).toContain("never call it new");
+    expect(skill).toContain("When the user gives no condition, `UNKNOWN` remains eligible");
+    expect(skill).toContain("When the user explicitly requests `NEW`, absent condition is ineligible");
+    expect(skill).toContain("Never infer condition");
     expect(skill).toContain("one conditional refinement search");
     expect(skill).toContain("If fewer pass");
     expect(skill).toContain("all extractors with `Promise.all`");
@@ -144,7 +144,7 @@ describe("FindCheap Agent plugin contract", () => {
     };
 
     expect(manifest.name).toBe("findcheap-agent");
-    expect(manifest.version).toMatch(/^0\.8\.6(?:\+codex\.)?/u);
+    expect(manifest.version).toMatch(/^0\.8\.7(?:\+codex\.)?/u);
     expect(manifest.interface.displayName).toBe("FindCheap Agent");
     expect(manifest.interface.longDescription).toMatch(/Codex Plugin Agent/u);
     expect(manifest.interface.longDescription).toMatch(/[Aa]uthorized.*Chrome/u);
