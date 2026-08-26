@@ -144,14 +144,15 @@ async function discoverJoinedFeedUrls(
   const rows = parseAwinCsv(document).records;
   const selected = new Map<string, { advertiserId: string; feedId: string; importedAt: number; url: string }>();
   for (const row of rows) {
-    if (feedListValue(row, "Membership Status").toLocaleLowerCase("en-US") !== "joined") continue;
+    const membershipStatus = feedListValue(row, "Membership Status").toLocaleLowerCase("en-US");
+    if (membershipStatus !== "joined" && membershipStatus !== "active") continue;
     if (feedListValue(row, "Primary Region").toUpperCase() !== environment.sourceFeedRegion) continue;
     if (feedListValue(row, "Language").toLocaleLowerCase("en-US") !== environment.sourceFeedLanguage.toLocaleLowerCase("en-US")) continue;
     const advertiserId = feedListValue(row, "Advertiser ID");
     const feedId = feedListValue(row, "Feed ID");
     const advertiserName = feedListValue(row, "Advertiser Name");
     const importedAt = parseAwinImportedAt(feedListValue(row, "Last Imported"));
-    if (!/^\d{1,20}$/u.test(advertiserId) || !/^\d{1,20}$/u.test(feedId) || advertiserName.length > 300 || !Number.isFinite(importedAt)) {
+    if (!/^\d{1,20}$/u.test(advertiserId) || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$/u.test(feedId) || advertiserName.length > 300 || !Number.isFinite(importedAt)) {
       throw new Error("Awin Feed List contains invalid joined Feed metadata");
     }
     const url = validateAwinSourceUrl(feedListValue(row, "URL"), environment.sourceAllowedHosts);

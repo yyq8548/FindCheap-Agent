@@ -71,7 +71,7 @@ describe("Awin Feed service", () => {
       })]
     ]);
     const list = feedListCsv([
-      ["20282", "Amazonliss (US)", "US", "Joined", "102", "Default", "English", "General", "2026-08-25 01:00:00", "http://productdata.awin.com/private/20282-102.csv.gz"],
+      ["20282", "Amazonliss (US)", "US", "active", "F102", "Default", "English", "General", "2026-08-25 01:00:00", "http://productdata.awin.com/private/20282-102.csv.gz"],
       ["77777", "New Merchant", "US", "Joined", "200", "Audio", "English", "Audio", "2026-08-25 02:00:00", "https://productdata.awin.com/private/77777-200.csv.gz"],
       ["77777", "New Merchant", "US", "Joined", "201", "Cameras", "English", "Cameras", "2026-08-25 03:00:00", "https://productdata.awin.com/private/77777-201.csv.gz"],
       ["77777", "New Merchant", "US", "Joined", "201", "Cameras", "English", "Cameras", "2026-08-24 03:00:00", "https://productdata.awin.com/private/obsolete.csv.gz"],
