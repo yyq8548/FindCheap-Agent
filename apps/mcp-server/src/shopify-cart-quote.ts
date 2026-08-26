@@ -15,29 +15,29 @@ const QUOTE_TTL_MS = 10 * 60_000;
 const MoneySchema = z.object({
   amount: z.string().regex(/^\d+(?:\.\d{1,2})?$/u).max(20),
   currencyCode: z.literal("USD")
-}).strict();
+}).passthrough();
 const CostSchema = z.object({
   subtotalAmount: MoneySchema,
   totalAmount: MoneySchema,
   totalAmountEstimated: z.boolean(),
   totalTaxAmount: MoneySchema.nullable(),
   totalTaxAmountEstimated: z.boolean()
-}).strict();
+}).passthrough();
 const DeliveryOptionSchema = z.object({
   handle: z.string().trim().min(1).max(500),
   title: z.string().trim().min(1).max(300),
   estimatedCost: MoneySchema
-}).strict();
+}).passthrough();
 const DeliveryGroupSchema = z.object({
   id: z.string().startsWith("gid://shopify/CartDeliveryGroup/").max(1_000),
   deliveryOptions: z.array(DeliveryOptionSchema).max(50),
   selectedDeliveryOption: DeliveryOptionSchema.nullable()
-}).strict();
+}).passthrough();
 const CartSchema = z.object({
   id: z.string().startsWith("gid://shopify/Cart/").max(2_048),
   cost: CostSchema,
-  deliveryGroups: z.object({ nodes: z.array(DeliveryGroupSchema).max(20) }).strict()
-}).strict();
+  deliveryGroups: z.object({ nodes: z.array(DeliveryGroupSchema).max(20) }).passthrough()
+}).passthrough();
 const ErrorSchema = z.object({
   field: z.array(z.string()).nullable().optional(),
   message: z.string().max(2_000)
@@ -48,8 +48,8 @@ const CreateResponseSchema = z.object({
       cart: CartSchema.nullable(),
       userErrors: z.array(ErrorSchema).max(20),
       warnings: z.array(z.unknown()).max(20)
-    }).strict()
-  }).strict(),
+    }).passthrough()
+  }).passthrough(),
   errors: z.array(z.unknown()).max(20).optional()
 }).passthrough();
 const UpdateResponseSchema = z.object({
@@ -58,8 +58,8 @@ const UpdateResponseSchema = z.object({
       cart: CartSchema.nullable(),
       userErrors: z.array(ErrorSchema).max(20),
       warnings: z.array(z.unknown()).max(20)
-    }).strict()
-  }).strict(),
+    }).passthrough()
+  }).passthrough(),
   errors: z.array(z.unknown()).max(20).optional()
 }).passthrough();
 

@@ -163,7 +163,7 @@ describe("Shopify Global Catalog client", () => {
       merchantId: "shopify-11236098",
       sourceHost: "skybygramophone.com",
       handle: "42797821853913",
-      condition: "UNKNOWN",
+      condition: "NEW",
       availability: "IN_STOCK",
       merchantUrl: "https://skybygramophone.com/products/sony-wh-1000xm5?variant=42797821853913",
       checkedAt: now
@@ -447,6 +447,93 @@ describe("Shopify Global Catalog client", () => {
     expect(result.diagnostics.conditionProductsExcluded).toBe(1);
   });
 
+  it("accepts Shopify plain-text description objects and finds ballet flats", async () => {
+    const port = createShopifyGlobalCatalogPort(
+      { SHOPIFY_AGENT_PROFILE_URL: profileUrl },
+      {
+        fetch: vi.fn(async () => catalogResponse([product({
+          shopId: "77",
+          merchant: "Flat Store",
+          host: "flats.example",
+          price: 8_900,
+          title: "Mangrove Leather Ballet Flats",
+          productType: "Ballet flats",
+          description: { plain: "Soft leather ballet flats designed for all-day everyday wear." },
+          variantDescription: { plain: "Black flat sole with an adjustable cross strap." }
+        })])),
+        clock: { now: () => new Date(now) }
+      }
+    );
+
+    const result = await port.search({ query: "everyday ballet flats", limit: 3 });
+
+    expect(result.products).toHaveLength(1);
+    expect(result.products[0]?.description).toContain("all-day everyday wear");
+    expect(result.products[0]?.description).toContain("adjustable cross strap");
+    expect(result.diagnostics.catalogProductsReturned).toBe(1);
+    expect(result.diagnostics.catalogVariantsReturned).toBe(1);
+  });
+
+  it("normalizes bounded Catalog field variants without weakening the internal product model", async () => {
+    const raw = product({
+      shopId: "88",
+      merchant: "Flexible Store",
+      host: "flexible.example",
+      price: 1,
+      title: "Everyday Leather Ballet Flats"
+    }) as Record<string, unknown>;
+    raw.description = { html: "<p>Soft <strong>leather</strong> everyday flat.</p>" };
+    raw.product_type = { name: "Ballet flats", taxonomyId: "shoes-1" };
+    raw.media = ["https://cdn.shopify.com/s/files/flexible.png"];
+    raw.options = [{ name: "Size", values: ["8", { value: "9" }] }];
+    raw.rating = { value: "4.4", scale_min: "1", scale_max: "5", count: "12" };
+    const variant = (raw.variants as Array<Record<string, unknown>>)[0]!;
+    variant.description = { markdown: "Black flat sole" };
+    variant.price = { amount: "89.00", currencyCode: "USD" };
+    variant.availability = "IN_STOCK";
+    variant.options = [{ name: "Size", value: "8" }];
+    variant.condition = { value: "new" };
+    variant.media = [{ image: { url: "https://cdn.shopify.com/s/files/flexible.png" } }];
+    (variant.seller as Record<string, unknown>).domain = null;
+    const port = createShopifyGlobalCatalogPort(
+      { SHOPIFY_AGENT_PROFILE_URL: profileUrl },
+      {
+        fetch: vi.fn(async () => catalogResponse([raw], "2026-08-25")),
+        clock: { now: () => new Date(now) }
+      }
+    );
+
+    const result = await port.search({ query: "everyday ballet flats", limit: 3 });
+
+    expect(result.diagnostics.registryVersion).toBe("shopify-global-2026-08-25");
+    expect(result.products[0]).toMatchObject({
+      productType: "Ballet flats",
+      description: expect.stringContaining("Soft leather everyday flat"),
+      itemPrice: { amountCents: 8_900, currency: "USD" },
+      availability: "IN_STOCK",
+      condition: "NEW",
+      variantDimensions: { Size: "8" },
+      productRating: { value: 4.4, count: 12, scaleMax: 5 }
+    });
+  });
+
+  it("rejects ambiguous Catalog money strings instead of guessing cents or dollars", async () => {
+    const raw = product({
+      shopId: "99",
+      merchant: "Ambiguous Store",
+      host: "ambiguous.example",
+      price: 1
+    }) as Record<string, unknown>;
+    const variant = (raw.variants as Array<Record<string, unknown>>)[0]!;
+    variant.price = { amount: "8999", currency: "USD" };
+    const port = createShopifyGlobalCatalogPort(
+      { SHOPIFY_AGENT_PROFILE_URL: profileUrl },
+      { fetch: vi.fn(async () => catalogResponse([raw])) }
+    );
+
+    await expect(port.search({ query: "headphones", limit: 3 })).rejects.toThrow("CATALOG_SCHEMA_CHANGED");
+  });
+
   it("fails closed on malformed envelopes, oversized bodies, and missing profile configuration", async () => {
     expect(() => createShopifyGlobalCatalogPort({})).toThrow("SHOPIFY_AGENT_PROFILE_URL is required");
     expect(() => createShopifyGlobalCatalogPort({ SHOPIFY_AGENT_PROFILE_URL: "http://agent.example/profile.json" }))
@@ -456,7 +543,7 @@ describe("Shopify Global Catalog client", () => {
       { SHOPIFY_AGENT_PROFILE_URL: profileUrl },
       { fetch: vi.fn(async () => new Response("{}", { status: 200 })) }
     );
-    await expect(malformed.search({ query: "coffee", limit: 3 })).rejects.toThrow("DATA_SOURCE_UNAVAILABLE");
+    await expect(malformed.search({ query: "coffee", limit: 3 })).rejects.toThrow("CATALOG_SCHEMA_CHANGED");
 
     const oversized = createShopifyGlobalCatalogPort(
       { SHOPIFY_AGENT_PROFILE_URL: profileUrl },
@@ -466,13 +553,13 @@ describe("Shopify Global Catalog client", () => {
   });
 });
 
-function catalogResponse(products: unknown[]): Response {
+function catalogResponse(products: unknown[], version = "2026-04-08"): Response {
   return Response.json({
     jsonrpc: "2.0",
     id: 1,
     result: {
       structuredContent: {
-        ucp: { version: "2026-04-08", status: "success" },
+        ucp: { version, status: "success" },
         products,
         messages: [],
         pagination: { has_next_page: false, total_count: products.length }
@@ -491,16 +578,22 @@ function product(input: {
   condition?: string[];
   available?: boolean;
   title?: string;
+  productType?: string;
   rating?: { value: number; count: number };
+  description?: string | { plain: string };
+  variantDescription?: string | { plain: string };
 }) {
   const variantId = input.shopId === "11236098" ? "42797821853913" : `${input.shopId}42797821853913`;
   return {
     id: `gid://shopify/p/${input.shopId}`,
     title: input.title ?? "Sony WH-1000XM5 Wireless Noise Canceling Headphones",
+    ...(input.productType === undefined ? {} : { product_type: input.productType }),
+    ...(input.description === undefined ? {} : { description: input.description }),
     media: [{ type: "image", url: "https://cdn.shopify.com/s/files/sony.png" }],
     variants: [{
       id: `gid://shopify/ProductVariant/${variantId}`,
       title: input.title ?? "Sony WH-1000XM5 Wireless Noise Canceling Headphones",
+      ...(input.variantDescription === undefined ? {} : { description: input.variantDescription }),
       url: input.url ?? `https://${input.host}/products/sony-wh-1000xm5?variant=${variantId}`,
       price: { amount: input.price, currency: input.currency ?? "USD" },
       availability: { available: input.available ?? true },

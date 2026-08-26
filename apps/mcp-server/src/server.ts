@@ -87,7 +87,7 @@ const ProductCardStagesSchema = z.object({
 
 const ProductCardTelemetryInputSchema = z.object({
   renderId: z.string().uuid(),
-  version: z.literal("0.9.6"),
+  version: z.literal("0.9.8"),
   terminalStage: z.enum([
     "DOM_RENDERED",
     "FIRST_IMAGE_SETTLED",
@@ -415,6 +415,10 @@ const ShopifyProductsOutputShape = {
     awin: z.enum(["SKIPPED", "COMPLETE", "UNAVAILABLE"]),
     shopify: z.enum(["SKIPPED", "COMPLETE", "PARTIAL", "UNAVAILABLE"])
   }).optional(),
+  sourceErrors: z.object({
+    awin: z.literal("DATA_SOURCE_UNAVAILABLE").optional(),
+    shopify: z.enum(["CATALOG_SCHEMA_CHANGED", "DATA_SOURCE_UNAVAILABLE"]).optional()
+  }).strict().optional(),
   priceScope: z.enum(["ITEM_PRICE_ONLY", "SHOPIFY_CART_ESTIMATE", "MIXED"]),
   cartQuoteCoverage: z.object({
     attempted: z.number().int().nonnegative(),
@@ -856,8 +860,13 @@ function unifiedResult(
   const chromeAdvice = execution.chromeFallbackEligible
     ? "No configured source returned a qualifying product. The user may authorize one bounded Chrome whole-web fallback."
     : "";
+  const sourceFailureMessage = execution.sourceErrors?.shopify === "CATALOG_SCHEMA_CHANGED"
+    ? "Shopify Catalog response schema changed and could not be safely parsed. No zero-result conclusion was made; retry after the connector is updated."
+    : unavailableSource
+      ? "A configured product source is unavailable. No zero-result conclusion was made."
+      : "";
   const message = products.length === 0
-    ? chromeAdvice || "No qualifying product returned."
+    ? sourceFailureMessage || chromeAdvice || "No qualifying product returned."
     : [
         `Returned ${products.length} ranked product card(s) from ${merchantCount} merchant(s); never claim more merchants than this count.`,
         ...(highRatedUnverifiedCount === 0
@@ -882,6 +891,7 @@ function unifiedResult(
       message,
       source: "UNIFIED_PRODUCT_SEARCH" as const,
       sources: execution.sourceStatus,
+      ...(execution.sourceErrors === undefined ? {} : { sourceErrors: execution.sourceErrors }),
       coverage,
       priceScope: cartQuoteCoverage.succeeded === 0
         ? "ITEM_PRICE_ONLY" as const
@@ -1398,7 +1408,7 @@ export function createShoppingServer(
   dependencies: ShoppingServerDependencies = {}
 ): McpServer {
   void comparePort;
-  const server = new McpServer({ name: "findcheap-agent", version: "0.9.6" });
+  const server = new McpServer({ name: "findcheap-agent", version: "0.9.8" });
   const dealPort = dependencies.deals ?? createUnavailableDealPort();
   const awinPort = dependencies.awin ?? createUnavailableAwinPort();
   const toolAvailability = dependencies.toolAvailability ?? {

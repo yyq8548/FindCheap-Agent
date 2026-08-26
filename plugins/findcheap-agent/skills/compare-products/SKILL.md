@@ -3,7 +3,7 @@ name: compare-products
 description: For live shopping, say only "正在使用 FindCheap 搜索合适商品。" when this Skill is named; never narrate Skill or Memory reads. Search through one constrained router, render evidence-labeled cards, quote one selected item by ZIP, and use authorized Chrome only after complete API zero results.
 ---
 
-# FindCheap Agent v0.9.6 Product Search
+# FindCheap Agent v0.9.8 Product Search
 
 Risk tier: search and authorized Chrome fallback are `R0`; ZIP quote is `R1` because it creates one anonymous short-lived Shopify cart. Never checkout, reserve, purchase, pay, persist an address, or request a street address.
 

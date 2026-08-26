@@ -69,6 +69,10 @@ export type UnifiedSearchExecution = {
     awin: "SKIPPED" | "COMPLETE" | "UNAVAILABLE";
     shopify: "SKIPPED" | "COMPLETE" | "PARTIAL" | "UNAVAILABLE";
   };
+  sourceErrors?: {
+    awin?: "DATA_SOURCE_UNAVAILABLE";
+    shopify?: "CATALOG_SCHEMA_CHANGED" | "DATA_SOURCE_UNAVAILABLE";
+  };
   searchPasses: 1 | 2;
   featureProductsExcluded: number;
   chromeFallbackEligible: boolean;
@@ -106,6 +110,8 @@ export async function searchProducts(
     ? "UNAVAILABLE"
     : "SKIPPED";
   let shopifyStatus: UnifiedSearchExecution["sourceStatus"]["shopify"] = "SKIPPED";
+  let awinError: "DATA_SOURCE_UNAVAILABLE" | undefined;
+  let shopifyError: "CATALOG_SCHEMA_CHANGED" | "DATA_SOURCE_UNAVAILABLE" | undefined;
   let affiliateCandidates: UnifiedCandidate[] = [];
   const featureExcludedKeys = new Set<string>();
 
@@ -125,6 +131,7 @@ export async function searchProducts(
         .sort(compareCandidates);
     } catch {
       awinStatus = "UNAVAILABLE";
+      awinError = "DATA_SOURCE_UNAVAILABLE";
     }
   }
 
@@ -150,8 +157,9 @@ export async function searchProducts(
         .map((product) => shopifyCandidate(product, input, featureExcludedKeys))
         .filter((candidate): candidate is UnifiedCandidate => candidate !== undefined)
         .sort(compareCandidates);
-    } catch {
+    } catch (error) {
       shopifyStatus = "UNAVAILABLE";
+      shopifyError = productSourceError(error);
     }
   }
 
@@ -178,10 +186,11 @@ export async function searchProducts(
         );
       } catch {
         if (awinStatus !== "COMPLETE") awinStatus = "UNAVAILABLE";
+        if (awinStatus === "UNAVAILABLE") awinError = "DATA_SOURCE_UNAVAILABLE";
       }
     }
 
-    try {
+    if (shopifyError !== "CATALOG_SCHEMA_CHANGED") try {
       const expandedShopifyResult = await ports.shopify.search({
         query: expandedQuery,
         limit: 12,
@@ -201,8 +210,9 @@ export async function searchProducts(
           .map((product) => shopifyCandidate(product, input, featureExcludedKeys))
           .filter((candidate): candidate is UnifiedCandidate => candidate !== undefined)
       );
-    } catch {
+    } catch (error) {
       shopifyStatus = shopifyStatus === "COMPLETE" ? "PARTIAL" : "UNAVAILABLE";
+      shopifyError ??= productSourceError(error);
     }
   }
 
@@ -223,10 +233,24 @@ export async function searchProducts(
     ...(awinResult === undefined ? {} : { awinResult }),
     ...(shopifyResult === undefined ? {} : { shopifyResult }),
     sourceStatus: { awin: awinStatus, shopify: shopifyStatus },
+    ...(awinError === undefined && shopifyError === undefined
+      ? {}
+      : {
+          sourceErrors: {
+            ...(awinError === undefined ? {} : { awin: awinError }),
+            ...(shopifyError === undefined ? {} : { shopify: shopifyError })
+          }
+        }),
     searchPasses,
     featureProductsExcluded: featureExcludedKeys.size,
     chromeFallbackEligible
   };
+}
+
+function productSourceError(error: unknown): "CATALOG_SCHEMA_CHANGED" | "DATA_SOURCE_UNAVAILABLE" {
+  return error instanceof Error && error.message === "CATALOG_SCHEMA_CHANGED"
+    ? "CATALOG_SCHEMA_CHANGED"
+    : "DATA_SOURCE_UNAVAILABLE";
 }
 
 function explicitConditionPreference(

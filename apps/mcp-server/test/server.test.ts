@@ -432,7 +432,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.9.6",
+        version: "0.9.8",
         terminalStage: "DOM_RENDERED",
         stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
       }
@@ -441,7 +441,7 @@ describe("shopping MCP server", () => {
     expect(result.structuredContent).toEqual({ status: "RECORDED" });
     expect(record).toHaveBeenCalledWith(expect.objectContaining({
       renderId,
-      version: "0.9.6",
+      version: "0.9.8",
       terminalStage: "DOM_RENDERED",
       stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
     }));
@@ -449,7 +449,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.9.6",
+        version: "0.9.8",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 14 }
       }
@@ -459,7 +459,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.9.6",
+        version: "0.9.8",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 300_001 }
       }
@@ -470,7 +470,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId: "22222222-2222-4222-8222-222222222222",
-        version: "0.9.6",
+        version: "0.9.8",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 1 }
       }
@@ -1648,6 +1648,28 @@ describe("Coupon and Watch tools", () => {
     expect(modelText).toContain("MERCHANT_CHECKOUT_ONLY requires checkout and no ZIP request");
     expect(modelText).toContain("Reuse selectionId; never search titles");
     expect(modelText).not.toMatch(/coverage|diagnostic|feedRows|registry/iu);
+  });
+
+  it("reports an incompatible Shopify Catalog response without claiming zero results", async () => {
+    const client = await connect(
+      { compare: async () => comparison },
+      { search: async () => { throw new Error("CATALOG_SCHEMA_CHANGED"); } }
+    );
+
+    const result = await client.callTool({
+      name: "search_products",
+      arguments: { query: "everyday ballet flats", limit: 3 }
+    });
+
+    expect(result.structuredContent).toMatchObject({
+      status: "DATA_SOURCE_UNAVAILABLE",
+      sources: { awin: "SKIPPED", shopify: "UNAVAILABLE" },
+      sourceErrors: { shopify: "CATALOG_SCHEMA_CHANGED" },
+      products: []
+    });
+    expect(result.content).toEqual([expect.objectContaining({
+      text: expect.stringContaining("No zero-result conclusion was made")
+    })]);
   });
 
   it("quotes an Awin card through its stable merchant product reference and Shopify cart", async () => {

@@ -189,13 +189,15 @@ describe("Awin Product Feed", () => {
     const publicResult = {
       source: "AWIN_PRODUCT_FEED",
       coverage: "COMPLETE",
+      schemaVersion: "2026-08-25",
       snapshotAt: "2026-08-25T05:30:00.000Z",
       diagnostics: {
         feedRows: 61,
         validRows: 61,
         rejectedRows: 0,
         queryMatches: 23,
-        priceProductsExcluded: 0
+        priceProductsExcluded: 0,
+        durationMs: 12
       },
       products: [{
         merchantId: "49085",
@@ -207,11 +209,12 @@ describe("Awin Product Feed", () => {
         matchEvidence: ["Awin merchant_product_id present"],
         condition: "UNKNOWN",
         imageUrl: "https://images.example/trail-camera.jpg",
-        itemPrice: { amountCents: 5_999, currency: "USD" },
+        itemPrice: { amountCents: 5_999, currency: "USD", displayPrice: "$59.99" },
         availability: "IN_STOCK",
         merchantUrl: "https://gardeproshop.com/products/tc-1",
         affiliateUrl: "https://www.awin1.com/pclick.php?p=3&a=3047955&m=49085",
-        checkedAt: "2026-08-25T05:30:00.000Z"
+        checkedAt: "2026-08-25T05:30:00.000Z",
+        providerMetadata: { feedId: "108361" }
       }]
     };
     const fetchRequest = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
@@ -236,7 +239,19 @@ describe("Awin Product Feed", () => {
     const result = await port.search({ query: "GardePro trail camera", limit: 3 });
 
     expect(fetchRequest).toHaveBeenCalledOnce();
-    expect(result).toEqual(publicResult);
+    expect(result).toMatchObject({
+      source: "AWIN_PRODUCT_FEED",
+      coverage: "COMPLETE",
+      diagnostics: { feedRows: 61, queryMatches: 23 },
+      products: [{
+        merchantId: "49085",
+        itemPrice: { amountCents: 5_999, currency: "USD" }
+      }]
+    });
+    expect(result).not.toHaveProperty("schemaVersion");
+    expect(result.diagnostics).not.toHaveProperty("durationMs");
+    expect(result.products[0]).not.toHaveProperty("providerMetadata");
+    expect(result.products[0]?.itemPrice).not.toHaveProperty("displayPrice");
   });
 
   it("rejects tampered products returned by the public search API", async () => {

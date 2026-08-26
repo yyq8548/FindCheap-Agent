@@ -18,62 +18,139 @@ import {
 } from "./merchant-trust.js";
 
 export const SHOPIFY_GLOBAL_CATALOG_ENDPOINT = "https://catalog.shopify.com/api/ucp/mcp";
-const CATALOG_VERSION = "2026-04-08";
 const MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
 
 const HttpsUrlSchema = z.string().url().max(4_096).refine((value) => {
   const url = new URL(value);
   return url.protocol === "https:" && url.username === "" && url.password === "" && url.port === "";
 });
-const MediaSchema = z.object({
-  type: z.string().max(40),
-  url: HttpsUrlSchema
-}).passthrough();
+const NumericSchema = z.union([
+  z.number().finite(),
+  z.string().regex(/^\d+(?:\.\d+)?$/u).max(40).transform(Number)
+]);
+const RatingValueSchema = NumericSchema.pipe(z.number().finite().nonnegative().max(100));
+const RatingCountSchema = NumericSchema.pipe(z.number().int().nonnegative().max(1_000_000_000));
+const MediaSchema = z.union([
+  HttpsUrlSchema.transform((url) => ({ type: "image", url })),
+  z.object({
+    type: z.string().max(40).optional(),
+    url: HttpsUrlSchema
+  }).passthrough().transform((value) => ({ type: value.type ?? "image", url: value.url })),
+  z.object({
+    image: z.object({ url: HttpsUrlSchema }).passthrough()
+  }).passthrough().transform((value) => ({ type: "image", url: value.image.url }))
+]);
 const RatingSchema = z.object({
-  value: z.number().finite().nonnegative().max(100),
-  scale_min: z.number().finite().nonnegative().max(100),
-  scale_max: z.number().finite().positive().max(100),
-  count: z.number().int().nonnegative().max(1_000_000_000)
+  value: RatingValueSchema,
+  scale_min: RatingValueSchema,
+  scale_max: RatingValueSchema.pipe(z.number().positive()),
+  count: RatingCountSchema
 }).passthrough().refine((rating) =>
   rating.scale_max > rating.scale_min &&
   rating.value >= rating.scale_min &&
   rating.value <= rating.scale_max
 );
+const DescriptionSchema = z.union([
+  z.string().trim().max(20_000),
+  z.object({
+    plain: z.string().trim().max(20_000).optional(),
+    markdown: z.string().trim().max(20_000).optional(),
+    html: z.string().trim().max(40_000).optional()
+  }).passthrough().refine((value) =>
+    value.plain !== undefined || value.markdown !== undefined || value.html !== undefined,
+  "description must contain plain, markdown, or html text")
+]);
+const CategorySchema = z.union([
+  z.string().trim().max(300),
+  z.object({
+    name: z.string().trim().max(300).optional(),
+    label: z.string().trim().max(300).optional(),
+    fullName: z.string().trim().max(300).optional()
+  }).passthrough().refine((value) =>
+    value.name !== undefined || value.label !== undefined || value.fullName !== undefined,
+  "category object must contain a name")
+]);
+const AvailabilitySchema = z.union([
+  z.object({ available: z.boolean() }).passthrough(),
+  z.boolean().transform((available) => ({ available })),
+  z.enum(["AVAILABLE", "IN_STOCK", "UNAVAILABLE", "OUT_OF_STOCK"])
+    .transform((value) => ({ available: value === "AVAILABLE" || value === "IN_STOCK" }))
+]);
+const ConditionValueSchema = z.union([
+  z.string().trim().min(1).max(80),
+  z.object({
+    value: z.string().trim().min(1).max(80).optional(),
+    name: z.string().trim().min(1).max(80).optional(),
+    status: z.string().trim().min(1).max(80).optional()
+  }).passthrough().refine((value) =>
+    value.value !== undefined || value.name !== undefined || value.status !== undefined,
+  "condition object must contain a value")
+]);
+const ConditionSchema = z.union([
+  z.array(ConditionValueSchema).max(10),
+  ConditionValueSchema.transform((value) => [value])
+]).nullish().transform((values) => values?.map(conditionText));
+const VariantOptionSchema = z.object({
+  name: z.string().trim().min(1).max(100),
+  label: z.string().trim().min(1).max(300).optional(),
+  value: z.string().trim().min(1).max(300).optional()
+}).passthrough().refine((option) => option.label !== undefined || option.value !== undefined)
+  .transform((option) => ({ name: option.name, label: option.label ?? option.value! }));
+const ProductOptionValueSchema = z.union([
+  z.string().trim().min(1).max(300).transform((label) => ({ label })),
+  z.object({
+    label: z.string().trim().min(1).max(300).optional(),
+    value: z.string().trim().min(1).max(300).optional(),
+    name: z.string().trim().min(1).max(300).optional()
+  }).passthrough().refine((value) =>
+    value.label !== undefined || value.value !== undefined || value.name !== undefined)
+    .transform((value) => ({ label: value.label ?? value.value ?? value.name! }))
+]);
+const CatalogPriceSchema = z.union([
+  z.object({
+    amount: z.number().int().nonnegative().max(100_000_000),
+    currency: z.string().length(3)
+  }).passthrough(),
+  z.object({
+    amount: z.string().regex(/^\d+\.\d{1,2}$/u).max(20),
+    currency: z.string().length(3).optional(),
+    currencyCode: z.string().length(3).optional()
+  }).passthrough().refine((value) => value.currency !== undefined || value.currencyCode !== undefined)
+    .transform((value) => ({
+      amount: decimalDollarsToCents(value.amount),
+      currency: value.currency ?? value.currencyCode!
+    }))
+]);
 const VariantSchema = z.object({
   id: z.string().regex(/^gid:\/\/shopify\/ProductVariant\/\d+$/u).max(200),
   title: z.string().trim().min(1).max(1_000),
   url: HttpsUrlSchema,
-  price: z.object({
-    amount: z.number().int().nonnegative().max(100_000_000),
-    currency: z.string().length(3)
-  }).strict(),
-  availability: z.object({ available: z.boolean() }).passthrough(),
-  options: z.array(z.object({
-    name: z.string().trim().min(1).max(100),
-    label: z.string().trim().min(1).max(300)
-  }).strict()).max(30).optional(),
-  media: z.array(MediaSchema).max(20).optional(),
+  price: CatalogPriceSchema,
+  availability: AvailabilitySchema,
+  options: z.array(VariantOptionSchema).max(30).nullish().transform((value) => value ?? undefined),
+  media: z.array(MediaSchema).max(20).nullish().transform((value) => value ?? undefined),
   seller: z.object({
     id: z.string().regex(/^gid:\/\/shopify\/Shop\/\d+$/u).max(200),
     name: z.string().trim().min(1).max(300),
     url: HttpsUrlSchema,
-    domain: z.string().trim().min(1).max(253)
+    domain: z.string().trim().min(1).max(253).nullish()
   }).passthrough(),
-  condition: z.array(z.string().trim().min(1).max(80)).max(10).optional(),
-  rating: RatingSchema.nullish()
+  condition: ConditionSchema,
+  rating: RatingSchema.nullish(),
+  description: DescriptionSchema.optional()
 }).passthrough();
 const ProductSchema = z.object({
   id: z.string().regex(/^gid:\/\/shopify\/p\/[A-Za-z0-9]+$/u).max(200),
   title: z.string().trim().min(1).max(1_000),
-  description: z.string().trim().max(20_000).optional(),
-  product_type: z.string().trim().max(300).optional(),
-  productType: z.string().trim().max(300).optional(),
-  category: z.string().trim().max(300).optional(),
+  description: DescriptionSchema.optional(),
+  product_type: CategorySchema.nullish(),
+  productType: CategorySchema.nullish(),
+  category: CategorySchema.nullish(),
   options: z.array(z.object({
     name: z.string().trim().min(1).max(100),
-    values: z.array(z.object({ label: z.string().trim().min(1).max(300) }).passthrough()).max(100)
-  }).passthrough()).max(30).optional(),
-  media: z.array(MediaSchema).max(20).optional(),
+    values: z.array(ProductOptionValueSchema).max(100)
+  }).passthrough()).max(30).nullish().transform((value) => value ?? undefined),
+  media: z.array(MediaSchema).max(20).nullish().transform((value) => value ?? undefined),
   rating: RatingSchema.nullish(),
   variants: z.array(VariantSchema).max(100)
 }).passthrough();
@@ -83,14 +160,14 @@ const CatalogEnvelopeSchema = z.object({
   result: z.object({
     structuredContent: z.object({
       ucp: z.object({
-        version: z.literal(CATALOG_VERSION),
+        version: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u),
         status: z.literal("success")
       }).passthrough(),
       products: z.array(ProductSchema).max(50),
-      messages: z.array(z.unknown()).max(100).optional()
+      messages: z.array(z.unknown()).max(100).nullish()
     }).passthrough()
   }).passthrough()
-}).strict();
+}).passthrough();
 
 type Fetch = (input: string, init: RequestInit) => Promise<Response>;
 type Dependencies = {
@@ -242,7 +319,8 @@ export function createShopifyGlobalCatalogPort(
               checkedAt: clock.now().toISOString(),
               durationMs: Math.max(0, Math.round(monotonicNow() - startedAt)),
               timeoutMs,
-              relaxed: attempt.kind === "RELAXED"
+              relaxed: attempt.kind === "RELAXED",
+              catalogVersion: parsed.result.structuredContent.ucp.version
             }
           );
           totals = addAttemptTotals(totals, latest.diagnostics);
@@ -261,7 +339,10 @@ export function createShopifyGlobalCatalogPort(
         if (latest === undefined) throw new Error("catalog query plan is empty");
         return latest;
       } catch (error) {
-        throw new Error("DATA_SOURCE_UNAVAILABLE", { cause: error });
+        if (error instanceof z.ZodError) recordCatalogSchemaChange(error);
+        throw new Error(error instanceof z.ZodError ? "CATALOG_SCHEMA_CHANGED" : "DATA_SOURCE_UNAVAILABLE", {
+          cause: error
+        });
       }
     }
   };
@@ -319,12 +400,19 @@ function relaxCatalogQuery(value: string): string {
 function buildResult(
   products: z.infer<typeof ProductSchema>[],
   input: ShopifySearchInput,
-  context: { checkedAt: string; durationMs: number; timeoutMs: number; relaxed: boolean }
+  context: {
+    checkedAt: string;
+    durationMs: number;
+    timeoutMs: number;
+    relaxed: boolean;
+    catalogVersion: string;
+  }
 ): ShopifySearchResult {
   const unsupportedConditions = products.reduce((count, product) => count + product.variants.filter((variant) =>
     detectCondition([
       product.title,
       variant.title,
+      ...(variant.condition ?? []),
       ...(product.options ?? []).flatMap((option) => [option.name, ...option.values.map((value) => value.label)]),
       ...(variant.options ?? []).flatMap((option) => [option.name, option.label])
     ]) === "UNSUPPORTED"
@@ -431,7 +519,7 @@ function buildResult(
       coveragePercent: 100,
       failedMerchantIds: [],
       timedOutMerchantIds: [],
-      registryVersion: `shopify-global-${CATALOG_VERSION}`,
+      registryVersion: `shopify-global-${context.catalogVersion}`,
       searchTimeoutMs: context.timeoutMs,
       selectionPolicy: selectionMode === "LOWEST_PRICE"
         ? "EXACT_THEN_DISCOVERY_THEN_SIMILAR_THEN_PRICE"
@@ -498,6 +586,7 @@ function toCandidate(
   const condition = detectCondition([
     product.title,
     variant.title,
+    ...(variant.condition ?? []),
     ...(product.options ?? []).flatMap((option) => [option.name, ...option.values.map((value) => value.label)]),
     ...(variant.options ?? []).flatMap((option) => [option.name, option.label])
   ]);
@@ -507,7 +596,7 @@ function toCandidate(
     .find(isAllowedImageUrl);
   const merchantTrust = resolveMerchantTrust(new URL(productUrl).hostname, variant.seller.name);
   const productRating = normalizeProductRating(variant.rating ?? product.rating);
-  const productType = product.product_type ?? product.productType ?? product.category;
+  const productType = categoryText(product.product_type ?? product.productType ?? product.category);
   return {
     catalogProductId: product.id,
     merchantId: `shopify-${shopId}`,
@@ -518,7 +607,11 @@ function toCandidate(
     handle: variantId,
     title: variant.title,
     ...(productType === undefined ? {} : { productType }),
-    description: [product.title, product.description].filter((value): value is string => value !== undefined).join(" "),
+    description: [
+      product.title,
+      descriptionText(product.description),
+      descriptionText(variant.description)
+    ].filter((value): value is string => value !== undefined && value !== "").join(" "),
     gtins: [],
     variantDimensions: Object.fromEntries((variant.options ?? []).map((option) => [option.name, option.label])),
     matchStatus: "SIMILAR",
@@ -531,6 +624,39 @@ function toCandidate(
     checkedAt,
     ...(productRating === undefined ? {} : { productRating })
   };
+}
+
+function descriptionText(value: z.infer<typeof DescriptionSchema> | undefined): string | undefined {
+  if (typeof value === "string") return value;
+  if (value?.plain !== undefined) return value.plain;
+  if (value?.markdown !== undefined) return value.markdown;
+  return value?.html === undefined ? undefined : stripHtml(value.html);
+}
+
+function categoryText(value: z.infer<typeof CategorySchema> | null | undefined): string | undefined {
+  return typeof value === "string" ? value : value?.name ?? value?.label ?? value?.fullName;
+}
+
+function conditionText(value: z.infer<typeof ConditionValueSchema>): string {
+  return typeof value === "string" ? value : value.value ?? value.name ?? value.status!;
+}
+
+function decimalDollarsToCents(value: string): number {
+  const [whole, fraction = ""] = value.split(".");
+  const cents = Number(whole) * 100 + Number(fraction.padEnd(2, "0"));
+  if (!Number.isSafeInteger(cents) || cents > 100_000_000) {
+    throw new Error("Catalog price is outside supported range");
+  }
+  return cents;
+}
+
+function stripHtml(value: string): string {
+  return value.replace(/<[^>]*>/gu, " ").replace(/&(?:amp|lt|gt|quot|#39);/gu, " ").replace(/\s+/gu, " ").trim();
+}
+
+function recordCatalogSchemaChange(error: z.ZodError): void {
+  const issues = error.issues.slice(0, 10).map((issue) => ({ code: issue.code, path: issue.path.join(".") }));
+  process.stderr.write(`[findcheap-catalog-schema] ${JSON.stringify({ code: "CATALOG_SCHEMA_CHANGED", issues })}\n`);
 }
 
 function normalizeProductRating(

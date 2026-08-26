@@ -172,6 +172,39 @@ describe("Shopify tokenless Cart quote", () => {
     });
   });
 
+  it("ignores additive provider fields while preserving validated Cart totals", async () => {
+    let call = 0;
+    const withAdditiveFields = (value: ReturnType<typeof createResponse> | ReturnType<typeof updateResponse>) => ({
+      ...value,
+      extensions: { requestId: "provider-only" },
+      data: Object.fromEntries(Object.entries(value.data).map(([key, mutation]) => [key, {
+        ...mutation,
+        providerMetadata: { region: "US" },
+        cart: mutation.cart === null ? null : {
+          ...mutation.cart,
+          buyerIdentity: { countryCode: "US" },
+          cost: {
+            ...mutation.cart.cost,
+            providerEstimateVersion: 2,
+            subtotalAmount: { ...mutation.cart.cost.subtotalAmount, formatted: "$100.00" }
+          }
+        }
+      }]))
+    });
+    const port = createShopifyCartQuotePort(
+      { SHOPIFY_CART_QUOTE_MODE: "tokenless" },
+      {
+        request: async () => withAdditiveFields(++call === 1 ? createResponse() : updateResponse())
+      }
+    );
+
+    await expect(port.quote(product, "33433")).resolves.toMatchObject({
+      subtotal: { amountCents: 10_000 },
+      shipping: { amountCents: 500 },
+      deliveredPrice: { amountCents: 11_198 }
+    });
+  });
+
   it("fails closed before network for invalid identity, host, ZIP, or disabled mode", async () => {
     const request = vi.fn();
     const enabled = createShopifyCartQuotePort(

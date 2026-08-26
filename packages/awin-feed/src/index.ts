@@ -465,25 +465,11 @@ async function fetchPublicSearch(
 
 export function parseAwinSearchResult(value: unknown): AwinSearchResult {
   if (!isObject(value)) throw new Error("Awin search result must be an object");
-  const expectedKeys = new Set(["source", "coverage", "snapshotAt", "diagnostics", "products"]);
-  if (Object.keys(value).some((key) => !expectedKeys.has(key))) {
-    throw new Error("Awin search result contains unsupported fields");
-  }
   if (value.source !== "AWIN_PRODUCT_FEED" || value.coverage !== "COMPLETE") {
     throw new Error("Awin search result source is invalid");
   }
   const snapshotAt = validIsoDate(value.snapshotAt, "Awin search snapshotAt");
   if (!isObject(value.diagnostics)) throw new Error("Awin search diagnostics are invalid");
-  const diagnosticsKeys = new Set([
-    "feedRows",
-    "validRows",
-    "rejectedRows",
-    "queryMatches",
-    "priceProductsExcluded"
-  ]);
-  if (Object.keys(value.diagnostics).some((key) => !diagnosticsKeys.has(key))) {
-    throw new Error("Awin search diagnostics contain unsupported fields");
-  }
   const diagnostics = {
     feedRows: nonnegativeInteger(value.diagnostics.feedRows, "feedRows"),
     validRows: nonnegativeInteger(value.diagnostics.validRows, "validRows"),
@@ -515,25 +501,6 @@ export function parseAwinSearchResult(value: unknown): AwinSearchResult {
 
 function parsePublicAwinProduct(value: unknown): AwinProduct {
   if (!isObject(value)) throw new Error("Awin product must be an object");
-  const allowedKeys = new Set([
-    "merchantId",
-    "merchant",
-    "merchantProductId",
-    "title",
-    "category",
-    "matchStatus",
-    "matchEvidence",
-    "condition",
-    "imageUrl",
-    "itemPrice",
-    "availability",
-    "merchantUrl",
-    "affiliateUrl",
-    "checkedAt"
-  ]);
-  if (Object.keys(value).some((key) => !allowedKeys.has(key))) {
-    throw new Error("Awin product contains unsupported fields");
-  }
   const merchantId = boundedString(value.merchantId, "merchantId", 1, 20);
   const approvedMerchant = APPROVED_AWIN_MERCHANTS.get(merchantId);
   if (
@@ -549,10 +516,7 @@ function parsePublicAwinProduct(value: unknown): AwinProduct {
   }
   const matchEvidence = value.matchEvidence.map((entry) => boundedString(entry, "matchEvidence", 1, 300));
   if (!isObject(value.itemPrice)) throw new Error("Awin product item price is invalid");
-  if (
-    Object.keys(value.itemPrice).some((key) => key !== "amountCents" && key !== "currency") ||
-    value.itemPrice.currency !== "USD"
-  ) {
+  if (value.itemPrice.currency !== "USD") {
     throw new Error("Awin product item price is invalid");
   }
   const amountCents = positiveInteger(value.itemPrice.amountCents, "amountCents", 100_000_000);

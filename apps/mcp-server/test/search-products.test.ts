@@ -121,6 +121,23 @@ describe("unified product search", () => {
     expect(result.chromeFallbackEligible).toBe(false);
   });
 
+  it("preserves a catalog schema-change error and does not retry the incompatible response", async () => {
+    const search = vi.fn(async () => {
+      throw new Error("CATALOG_SCHEMA_CHANGED");
+    });
+
+    const result = await searchProducts(SearchProductsInputSchema.parse({
+      query: "everyday ballet flats",
+      limit: 3
+    }), { awin: awin([]), shopify: { search } });
+
+    expect(result.candidates).toEqual([]);
+    expect(result.sourceStatus.shopify).toBe("UNAVAILABLE");
+    expect(result.sourceErrors).toEqual({ shopify: "CATALOG_SCHEMA_CHANGED" });
+    expect(result.chromeFallbackEligible).toBe(false);
+    expect(search).toHaveBeenCalledTimes(1);
+  });
+
   it("runs one feature-enriched expansion before Chrome and accepts minimum capacity", async () => {
     const shopifySearch = vi.fn()
       .mockResolvedValueOnce(shopifyResult([]))
