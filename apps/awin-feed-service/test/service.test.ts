@@ -54,7 +54,7 @@ describe("Awin Feed service", () => {
     const dataPath = join(directory, "current.csv.gz");
     const feedListUrl = "https://ui.awin.com/private/feedList";
     const feeds = new Map<string, Buffer>([
-      ["https://productdata.awin.com/private/20282-102.csv.gz", fixtureArchive()],
+      ["https://productdata.awin.com/private/20282-102.csv.gz", enhancedFixtureArchive()],
       ["https://productdata.awin.com/private/77777-200.csv.gz", fixtureArchive({
         merchantId: "77777",
         merchantName: "New Merchant",
@@ -371,6 +371,21 @@ function fixtureArchive(overrides: {
     "https://cdn.shopify.com/image.jpg", productName, "Products", "19.99", merchantName,
     merchantId, "Products", "USD", `https://${merchantHost}/products/${merchantProductId}`, "1",
     ...Object.values(extraFields)
+  ];
+  return gzipSync([header, row].map((values) => values.map(csvCell).join(",")).join("\r\n"));
+}
+
+function enhancedFixtureArchive(): Buffer {
+  const header = [
+    "advertiser_id", "advertiser_name", "id", "title", "description", "link", "image_link",
+    "aw_deep_link", "google_product_category", "product_type", "gtin", "mpn", "brand",
+    "availability", "price", "sale_price", "condition"
+  ];
+  const row = [
+    "20282", "Amazonliss (US)", "sku-1", "Amazonliss Keratin Mask", "Amazonliss Keratin Mask",
+    "https://www.nutreecosmetics.com/products/sku-1", "https://cdn.shopify.com/image.jpg",
+    "https://www.awin1.com/pclick.php?p=1&a=3047955&m=20282", "Health & Beauty > Hair Care", "Hair Care",
+    "", "", "Amazonliss", "in_stock", "19.99 USD", "", "new"
   ];
   return gzipSync([header, row].map((values) => values.map(csvCell).join(",")).join("\r\n"));
 }

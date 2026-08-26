@@ -198,8 +198,8 @@ export function mergeAwinFeedArchives(archives: readonly Uint8Array[]): Uint8Arr
     if (archive.byteLength > MAX_AWIN_COMPRESSED_BYTES) throw new Error("AWIN_FEED_TOO_LARGE");
     return parseAwinCsv(gunzipSync(archive, { maxOutputLength: MAX_UNCOMPRESSED_BYTES }).toString("utf8"));
   });
-  const headers = [...new Set(feeds.flatMap((feed) => feed.headers))];
-  const records = feeds.flatMap((feed) => feed.records);
+  const records = feeds.flatMap((feed) => feed.records.map(normalizeAwinFeedRecord));
+  const headers = [...new Set(records.flatMap((record) => Object.keys(record)))];
   const productKeys = records.map((record) =>
     `${requireValue(record, "merchant_id")}:${requireValue(record, "merchant_product_id")}`
   );
@@ -214,6 +214,35 @@ export function mergeAwinFeedArchives(archives: readonly Uint8Array[]): Uint8Arr
   const merged = gzipSync(csv);
   if (merged.byteLength > MAX_AWIN_COMPRESSED_BYTES) throw new Error("AWIN_FEED_TOO_LARGE");
   return merged;
+}
+
+function normalizeAwinFeedRecord(record: Record<string, string>): Record<string, string> {
+  if (record.merchant_id !== undefined) return record;
+  if (record.advertiser_id === undefined) return record;
+  const price = (record.sale_price?.trim() || record.price?.trim() || "")
+    .match(/^(\d+(?:\.\d{1,2})?)\s+([A-Z]{3})$/u);
+  if (price === null) throw new Error("invalid enhanced Awin price");
+  const category = record.product_type?.trim() || record.google_product_category?.trim() || "Uncategorized";
+  const availability = record.availability?.trim().toLocaleLowerCase("en-US");
+  return {
+    aw_deep_link: requireValue(record, "aw_deep_link"),
+    product_name: requireValue(record, "title"),
+    merchant_product_id: requireValue(record, "id"),
+    merchant_image_url: record.image_link?.trim() ?? "",
+    description: record.description?.trim() ?? "",
+    merchant_category: category,
+    search_price: price[1]!,
+    merchant_name: requireValue(record, "advertiser_name"),
+    merchant_id: requireValue(record, "advertiser_id"),
+    category_name: record.google_product_category?.trim() || category,
+    currency: price[2]!,
+    merchant_deep_link: requireValue(record, "link"),
+    in_stock: availability === "in_stock" ? "1" : availability === "out_of_stock" ? "0" : "",
+    brand_name: record.brand?.trim() ?? "",
+    mpn: record.mpn?.trim() ?? "",
+    product_GTIN: record.gtin?.trim() ?? "",
+    condition: record.condition?.trim() ?? ""
+  };
 }
 
 export function createUnavailableAwinPort(): AwinProductPort {
