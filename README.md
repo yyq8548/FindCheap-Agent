@@ -43,7 +43,7 @@ For a follow-up quote, refer to a result by its number or choose it from the car
 
 ## Product search
 
-The plugin uses one constrained search request across its eligible sources. Approved Awin products are considered first for supported categories only when they satisfy the requested identity, condition, required features, availability, and price limits. Shopify Global Catalog fills remaining slots. Supported Chinese product terms are translated while identity and variant details remain unchanged.
+The plugin uses one constrained search request across its eligible sources. Products from joined Awin programmes are considered for every product category when they satisfy the requested identity, condition, required features, availability, and price limits. Shopify Global Catalog fills remaining slots. Supported Chinese product terms are translated while identity and variant details remain unchanged.
 
 Explicit non-price requirements are hard filters, not ranking hints. The matcher normalizes display size, memory, storage, package count, volume, weight, resolution, refresh rate, power, apparel and shoe size, color, model generation, and compatibility wording. It understands common metric, US customary, and Chinese forms, including equivalent expressions such as `14-inch`, `14"`, and `35.56 cm`, along with minimum, maximum, and approximate requirements. Memory, storage, physical dimensions, quantity, and marketing refresh-rate labels remain separate so that a shared number does not create a false match.
 
@@ -129,9 +129,10 @@ Tell me when this jacket is back in stock in black, size M.
 
 ## Affiliate status
 
-Approved Awin programmes for publisher `3047955`: Amazonliss (US) `20282`, GardePro `49085`,
-Watches Of USA `116479`, and Shenzhen Cangyu Technology Co., Ltd. `99013`. Production reads their
-validated Feeds through the private Railway downloader and returns disclosed Awin links.
+Production uses the private Awin Feed List for publisher `3047955` to discover every `Joined`, US,
+English Feed. The Railway service downloads and validates every matching Feed on startup and every
+six hours, so newly joined programmes become searchable without adding another source URL or product-category rule.
+Only links that carry this publisher ID and the row's merchant ID are returned, with an affiliate disclosure.
 
 Feed rows always provide item price, availability, and merchant product ID; GTIN, MPN, brand, and condition may be absent. Results remain `DISCOVERY_MATCH`, `DISCOVERY_ONLY`, and `condition: UNKNOWN`; they are not exact or same-product comparisons. When an exact prior merchant product path safely resolves to one supported Shopify Variant, a ZIP follow-up can show selected shipping, tax, and estimated total. Otherwise the result remains item-price-only. Coupons and member price remain unavailable unless separately verified. Other product sources keep canonical merchant links unless their own approved relationship is configured. Commission never affects ranking.
 

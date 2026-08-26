@@ -36,6 +36,77 @@ describe("Awin Feed service", () => {
     })).toThrow("32 through 512");
   });
 
+  it("accepts a Feed List as the only source and upgrades allowlisted download URLs to HTTPS", () => {
+    const environment = parseAwinFeedServiceEnvironment({
+      AWIN_SOURCE_FEED_LIST_URL: "https://ui.awin.com/private/feedList",
+      AWIN_FEED_API_TOKEN: "l".repeat(32)
+    });
+
+    expect(environment.sourceUrls).toEqual([]);
+    expect(environment.sourceFeedListUrl).toBe("https://ui.awin.com/private/feedList");
+    expect(environment.sourceFeedRegion).toBe("US");
+    expect(environment.sourceFeedLanguage).toBe("English");
+  });
+
+  it("discovers every joined US English Feed and ignores other visible advertisers", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "findcheap-awin-list-"));
+    directories.push(directory);
+    const dataPath = join(directory, "current.csv.gz");
+    const feedListUrl = "https://ui.awin.com/private/feedList";
+    const feeds = new Map<string, Buffer>([
+      ["https://productdata.awin.com/private/20282-102.csv.gz", fixtureArchive()],
+      ["https://productdata.awin.com/private/77777-200.csv.gz", fixtureArchive({
+        merchantId: "77777",
+        merchantName: "New Merchant",
+        merchantHost: "new-merchant.example",
+        productName: "New Merchant Headphones",
+        merchantProductId: "headphones-1"
+      })],
+      ["https://productdata.awin.com/private/77777-201.csv.gz", fixtureArchive({
+        merchantId: "77777",
+        merchantName: "New Merchant",
+        merchantHost: "new-merchant.example",
+        productName: "New Merchant Camera",
+        merchantProductId: "camera-1"
+      })]
+    ]);
+    const list = feedListCsv([
+      ["20282", "Amazonliss (US)", "US", "Joined", "102", "Default", "English", "General", "2026-08-25 01:00:00", "http://productdata.awin.com/private/20282-102.csv.gz"],
+      ["77777", "New Merchant", "US", "Joined", "200", "Audio", "English", "Audio", "2026-08-25 02:00:00", "https://productdata.awin.com/private/77777-200.csv.gz"],
+      ["77777", "New Merchant", "US", "Joined", "201", "Cameras", "English", "Cameras", "2026-08-25 03:00:00", "https://productdata.awin.com/private/77777-201.csv.gz"],
+      ["77777", "New Merchant", "US", "Joined", "201", "Cameras", "English", "Cameras", "2026-08-24 03:00:00", "https://productdata.awin.com/private/obsolete.csv.gz"],
+      ["88888", "Visible Merchant", "US", "Not Joined", "300", "Default", "English", "General", "2026-08-25 04:00:00", "https://productdata.awin.com/private/not-joined.csv.gz"],
+      ["99998", "Canada Merchant", "CA", "Joined", "400", "Default", "English", "General", "2026-08-25 04:00:00", "https://productdata.awin.com/private/canada.csv.gz"],
+      ["99999", "Spanish Merchant", "US", "Joined", "500", "Default", "Spanish", "General", "2026-08-25 04:00:00", "https://productdata.awin.com/private/spanish.csv.gz"]
+    ]);
+    const fetchRequest = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url === feedListUrl) return new Response(list, { status: 200, headers: { "content-type": "text/csv" } });
+      const archive = feeds.get(url);
+      return archive === undefined
+        ? new Response(null, { status: 404 })
+        : new Response(responseBody(archive), { status: 200, headers: { "content-type": "application/gzip" } });
+    });
+    const environment = parseAwinFeedServiceEnvironment({
+      AWIN_SOURCE_FEED_LIST_URL: feedListUrl,
+      AWIN_SOURCE_FEED_URL: "https://productdata.awin.com/private/ignored-direct.csv.gz",
+      AWIN_FEED_API_TOKEN: "f".repeat(32),
+      AWIN_FEED_DATA_PATH: dataPath
+    });
+    const controller = createAwinFeedController(environment, {
+      fetch: fetchRequest,
+      now: () => new Date("2026-08-25T05:00:00.000Z")
+    });
+
+    await controller.refresh();
+
+    expect(fetchRequest.mock.calls.map(([input]) => String(input))).toEqual([feedListUrl, ...feeds.keys()]);
+    expect(controller.getState()).toMatchObject({
+      snapshot: { feedRows: 3, sourceFeeds: 3 },
+      lastRefreshAt: "2026-08-25T05:00:00.000Z"
+    });
+  });
+
   it("downloads, validates, and atomically persists an approved Feed", async () => {
     const directory = await mkdtemp(join(tmpdir(), "findcheap-awin-service-"));
     directories.push(directory);
@@ -306,6 +377,13 @@ function fixtureArchive(overrides: {
 
 function csvCell(value: string): string {
   return /[",\r\n]/u.test(value) ? `"${value.replaceAll('"', '""')}"` : value;
+}
+
+function feedListCsv(rows: string[][]): string {
+  return [
+    ["Advertiser ID", "Advertiser Name", "Primary Region", "Membership Status", "Feed ID", "Feed Name", "Language", "Vertical", "Last Imported", "URL"],
+    ...rows
+  ].map((values) => values.map(csvCell).join(",")).join("\r\n");
 }
 
 function responseBody(value: Uint8Array): ArrayBuffer {

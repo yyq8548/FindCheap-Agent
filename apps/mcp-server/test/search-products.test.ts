@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { AwinProductPort } from "../../../packages/awin-feed/src/index.js";
 import {
   SearchProductsInputSchema,
-  isApprovedAffiliateQuery,
+  shouldQueryAwin,
   searchProducts
 } from "../src/search-products.js";
 import type { ShopifyPort, ShopifySearchResult } from "../src/shopify-client.js";
@@ -367,16 +367,17 @@ describe("unified product search", () => {
     ]);
   });
 
-  it("recognizes only approved affiliate category signals", () => {
-    expect(isApprovedAffiliateQuery("角蛋白发膜")).toBe(true);
-    expect(isApprovedAffiliateQuery("GardePro trail camera")).toBe(true);
-    expect(isApprovedAffiliateQuery("野生动物相机")).toBe(true);
-    expect(isApprovedAffiliateQuery("Watches Of USA 手表")).toBe(true);
-    expect(isApprovedAffiliateQuery("SNFLEX macerating toilet")).toBe(true);
-    expect(isApprovedAffiliateQuery("36 inch bathroom vanity")).toBe(true);
-    expect(isApprovedAffiliateQuery("淋浴门")).toBe(true);
-    expect(isApprovedAffiliateQuery("Sony headphones")).toBe(false);
-    expect(isApprovedAffiliateQuery("digital camera")).toBe(false);
+  it("queries Awin for every valid product category", () => {
+    expect(shouldQueryAwin("角蛋白发膜")).toBe(true);
+    expect(shouldQueryAwin("GardePro trail camera")).toBe(true);
+    expect(shouldQueryAwin("野生动物相机")).toBe(true);
+    expect(shouldQueryAwin("Watches Of USA 手表")).toBe(true);
+    expect(shouldQueryAwin("SNFLEX macerating toilet")).toBe(true);
+    expect(shouldQueryAwin("36 inch bathroom vanity")).toBe(true);
+    expect(shouldQueryAwin("淋浴门")).toBe(true);
+    expect(shouldQueryAwin("Sony headphones")).toBe(true);
+    expect(shouldQueryAwin("digital camera")).toBe(true);
+    expect(shouldQueryAwin(" ")).toBe(false);
   });
 });
 

@@ -1,4 +1,5 @@
 import { readFile, stat } from "node:fs/promises";
+import { isIP } from "node:net";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { gunzipSync, gzipSync } from "node:zlib";
@@ -9,40 +10,6 @@ const MAX_UNCOMPRESSED_BYTES = 16 * 1024 * 1024;
 const DEFAULT_FEED_NAME = "datafeed_3047955.csv.gz";
 const APPROVED_PUBLISHER_ID = "3047955";
 const APPROVED_AFFILIATE_HOST = "www.awin1.com";
-
-type ApprovedAwinMerchant = {
-  id: string;
-  name: string;
-  host: string;
-  searchAliases: string;
-};
-
-const APPROVED_AWIN_MERCHANTS = new Map<string, ApprovedAwinMerchant>([
-  ["20282", {
-    id: "20282",
-    name: "Amazonliss (US)",
-    host: "www.nutreecosmetics.com",
-    searchAliases: "Amazonliss Nutree Cosmetics hair care"
-  }],
-  ["49085", {
-    id: "49085",
-    name: "GardePro",
-    host: "gardeproshop.com",
-    searchAliases: "GardePro trail camera game camera hunting wildlife camera"
-  }],
-  ["116479", {
-    id: "116479",
-    name: "Watches Of USA",
-    host: "watchesofusa.com",
-    searchAliases: "Watches Of USA watch watches wristwatch timepiece"
-  }],
-  ["99013", {
-    id: "99013",
-    name: "Shenzhen Cangyu Technology Co., Ltd.",
-    host: "simpleprojectus.com",
-    searchAliases: "Simple Project SNFLEX SKIFLEX ELEMAZ CALYZ Sigsoul toilet macerator pump bathroom vanity shower door"
-  }]
-]);
 
 export type AwinSearchInput = {
   query: string;
@@ -302,20 +269,32 @@ export function parseAwinCsv(document: string): {
   };
 }
 
-function toProduct(record: Record<string, string>, checkedAt: string): IndexedProduct {
+type ObservedMerchant = { name: string };
+
+function toProduct(
+  record: Record<string, string>,
+  checkedAt: string,
+  observedMerchants: Map<string, ObservedMerchant>
+): IndexedProduct {
   requireValue(record, "product_name");
   requireValue(record, "merchant_product_id");
-  const merchant = APPROVED_AWIN_MERCHANTS.get(record.merchant_id?.trim() ?? "");
-  if (merchant === undefined || record.merchant_name !== merchant.name) {
-    throw new Error("unapproved Awin merchant");
-  }
+  const merchantId = requireValue(record, "merchant_id");
+  if (!/^\d{1,20}$/u.test(merchantId)) throw new Error("invalid Awin merchant ID");
+  const merchantName = requireValue(record, "merchant_name");
+  if (merchantName.length > 300) throw new Error("invalid Awin merchant name");
   if (record.currency !== "USD") throw new Error("unsupported Awin currency");
-  const merchantUrl = approvedUrl(requireValue(record, "merchant_deep_link"), merchant.host);
+  const merchantUrl = approvedMerchantUrl(requireValue(record, "merchant_deep_link"));
+  const observedMerchant = observedMerchants.get(merchantId);
+  if (observedMerchant === undefined) {
+    observedMerchants.set(merchantId, { name: merchantName });
+  } else if (observedMerchant.name !== merchantName) {
+    throw new Error("inconsistent Awin merchant identity");
+  }
   const affiliateUrl = approvedUrl(requireValue(record, "aw_deep_link"), APPROVED_AFFILIATE_HOST);
   const affiliate = new URL(affiliateUrl);
   if (
     affiliate.searchParams.get("a") !== APPROVED_PUBLISHER_ID ||
-    affiliate.searchParams.get("m") !== merchant.id
+    affiliate.searchParams.get("m") !== merchantId
   ) {
     throw new Error("Awin link does not match approved relationship");
   }
@@ -335,8 +314,8 @@ function toProduct(record: Record<string, string>, checkedAt: string): IndexedPr
     record.product_GTIN
   ].map((value) => value?.trim() ?? "").filter((value) => value !== "");
   return {
-    merchantId: merchant.id,
-    merchant: merchant.name,
+    merchantId,
+    merchant: merchantName,
     merchantProductId: record.merchant_product_id!.trim(),
     title,
     category,
@@ -360,8 +339,7 @@ function toProduct(record: Record<string, string>, checkedAt: string): IndexedPr
       title,
       category,
       description,
-      merchant.name,
-      merchant.searchAliases,
+      merchantName,
       ...identityValues
     ].join(" "))
   };
@@ -374,9 +352,10 @@ function parseArchive(compressed: Uint8Array, checkedAt: string): {
   if (compressed.byteLength > MAX_AWIN_COMPRESSED_BYTES) throw new Error("AWIN_FEED_TOO_LARGE");
   const csv = gunzipSync(compressed, { maxOutputLength: MAX_UNCOMPRESSED_BYTES }).toString("utf8");
   const rows = parseAwinCsv(csv);
+  const observedMerchants = new Map<string, ObservedMerchant>();
   const parsed = rows.records.flatMap((record) => {
     try {
-      return [toProduct(record, checkedAt)];
+      return [toProduct(record, checkedAt, observedMerchants)];
     } catch {
       return [];
     }
@@ -508,10 +487,8 @@ export function parseAwinSearchResult(value: unknown): AwinSearchResult {
 function parsePublicAwinProduct(value: unknown): AwinProduct {
   if (!isObject(value)) throw new Error("Awin product must be an object");
   const merchantId = boundedString(value.merchantId, "merchantId", 1, 20);
-  const approvedMerchant = APPROVED_AWIN_MERCHANTS.get(merchantId);
   if (
-    approvedMerchant === undefined ||
-    value.merchant !== approvedMerchant.name ||
+    !/^\d{1,20}$/u.test(merchantId) ||
     value.matchStatus !== "DISCOVERY_MATCH" ||
     value.condition !== "UNKNOWN"
   ) {
@@ -526,10 +503,8 @@ function parsePublicAwinProduct(value: unknown): AwinProduct {
     throw new Error("Awin product item price is invalid");
   }
   const amountCents = positiveInteger(value.itemPrice.amountCents, "amountCents", 100_000_000);
-  const merchantUrl = approvedUrl(
-    boundedString(value.merchantUrl, "merchantUrl", 1, 4_096),
-    approvedMerchant.host
-  );
+  const merchant = boundedString(value.merchant, "merchant", 1, 300);
+  const merchantUrl = approvedMerchantUrl(boundedString(value.merchantUrl, "merchantUrl", 1, 4_096));
   const affiliateUrl = approvedUrl(
     boundedString(value.affiliateUrl, "affiliateUrl", 1, 4_096),
     APPROVED_AFFILIATE_HOST
@@ -537,7 +512,7 @@ function parsePublicAwinProduct(value: unknown): AwinProduct {
   const affiliate = new URL(affiliateUrl);
   if (
     affiliate.searchParams.get("a") !== APPROVED_PUBLISHER_ID ||
-    affiliate.searchParams.get("m") !== approvedMerchant.id
+    affiliate.searchParams.get("m") !== merchantId
   ) {
     throw new Error("Awin product affiliate relationship is invalid");
   }
@@ -550,7 +525,7 @@ function parsePublicAwinProduct(value: unknown): AwinProduct {
     : approvedHttpsUrl(boundedString(imageValue, "imageUrl", 1, 4_096));
   return {
     merchantId,
-    merchant: approvedMerchant.name,
+    merchant,
     merchantProductId: boundedString(value.merchantProductId, "merchantProductId", 1, 300),
     title: boundedString(value.title, "title", 1, 500),
     category: boundedString(value.category, "category", 1, 300),
@@ -645,6 +620,25 @@ function approvedUrl(value: string, expectedHost: string): string {
     url.port !== ""
   ) {
     throw new Error("unapproved Awin URL");
+  }
+  return url.href;
+}
+
+function approvedMerchantUrl(value: string): string {
+  const url = new URL(value);
+  const host = url.hostname.toLowerCase();
+  if (
+    url.protocol !== "https:" ||
+    url.username !== "" ||
+    url.password !== "" ||
+    url.port !== "" ||
+    host === APPROVED_AFFILIATE_HOST ||
+    host === "localhost" ||
+    !host.includes(".") ||
+    isIP(host) !== 0 ||
+    host.split(".").some((label) => label.startsWith("xn--"))
+  ) {
+    throw new Error("unapproved Awin merchant URL");
   }
   return url.href;
 }

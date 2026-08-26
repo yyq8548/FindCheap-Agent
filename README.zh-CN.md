@@ -43,7 +43,7 @@ Codex 通过本地 stdio MCP 服务器调用唯一公开的 `search_products` �
 
 ## 商品搜索
 
-插件用一次受约束的请求搜索所有合格来源。对于已支持的品类，只有同时满足商品身份、成色、必需功能、库存和价格限制的 Awin 联盟商品才会优先进入候选；其余位置由 Shopify Global Catalog 补足。中文商品词会转换成英文搜索词，品牌、型号、SKU、GTIN、颜色、尺寸和容量等身份与变体信息保持不变。
+插件用一次受约束的请求搜索所有合格来源。所有商品品类都会查询已加入的 Awin Program；只有同时满足商品身份、成色、必需功能、库存和价格限制的联盟商品才会进入候选，其余位置由 Shopify Global Catalog 补足。中文商品词会转换成英文搜索词，品牌、型号、SKU、GTIN、颜色、尺寸和容量等身份与变体信息保持不变。
 
 用户明确提出的非价格要求会作为硬性筛选条件，而不是仅用于排序。匹配器会统一处理屏幕尺寸、内存、存储、包装数量、容积、重量、分辨率、刷新率、功率、服装和鞋码、颜色、型号代际及兼容性表达。它支持常见公制、美制和中文写法，可以将 `14 英寸`、`35.56 厘米` 和 `14寸` 等同类表达正确对应，也能识别至少、最多和约等范围要求。内存、存储、物理尺寸、数量和营销刷新率标签会分开判断，避免因为数字相同而产生错误匹配。
 
@@ -129,7 +129,7 @@ Coupon 和促销路径采用失败关闭策略。只有配置的 Deals API 提�
 
 ## 联盟状态
 
-Awin publisher `3047955` 当前已加入 Amazonliss (US) `20282`、GardePro `49085`、Watches Of USA `116479` 和 Shenzhen Cangyu Technology Co., Ltd. `99013`。生产环境通过 Railway 私有下载器读取并验证四个 Feed，再返回带披露的 Awin 链接。Awin 结果与 Shopify 使用同一套商品卡片；本地开发仍可用 `AWIN_PRODUCT_FEED_PATH` 指定 Feed。
+生产环境使用 Awin publisher `3047955` 的私有 Feed List，自动发现所有 `Joined`、美国区、英文 Feed。Railway 服务会在启动时及每六小时下载并验证全部符合条件的 Feed，因此新加入的 Program 不再需要单独添加 Feed URL 或商品品类规则。只有同时包含该 publisher ID 和对应 merchant ID 的联盟链接才会返回，并附带联盟披露。Awin 结果与 Shopify 使用同一套商品卡片；本地开发仍可用 `AWIN_PRODUCT_FEED_PATH` 指定 Feed。
 
 Feed 始终提供商品价、库存和商家商品 ID，但 GTIN、MPN、品牌和 condition 可能缺失。因此结果始终标记为 `DISCOVERY_MATCH`、`DISCOVERY_ONLY`、`condition: UNKNOWN`，不能当作精确同款比价。当原始商家商品路径可安全解析为唯一且受支持的 Shopify Variant 时，后续邮编报价可显示配送费、税费和预估总价；否则继续只显示商品价。优惠券和会员价仍需独立验证。其他来源在没有各自已批准关系时继续使用商家原始链接；佣金不参与排序。
 

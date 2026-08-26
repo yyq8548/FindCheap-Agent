@@ -7,6 +7,7 @@ import {
   createAwinFeedIndex,
   MAX_AWIN_COMPRESSED_BYTES,
   mergeAwinFeedArchives,
+  parseAwinCsv,
   parseAwinSearchInput,
   readLimitedBody,
   searchAwinFeedIndex,
@@ -14,7 +15,9 @@ import {
   type AwinSearchInput,
   type AwinSearchResult
 } from "../../../packages/awin-feed/src/index.js";
-import type { AwinFeedServiceEnvironment } from "./environment.js";
+import { validateAwinSourceUrl, type AwinFeedServiceEnvironment } from "./environment.js";
+
+const MAX_AWIN_FEED_LIST_BYTES = 4 * 1024 * 1024;
 
 type FeedSnapshot = {
   archive: Uint8Array;
@@ -28,7 +31,7 @@ type FeedState = {
   snapshot?: FeedSnapshot;
   lastRefreshAt?: string;
   lastErrorAt?: string;
-  lastErrorCode?: "SOURCE_REQUEST_FAILED" | "SOURCE_HTTP_ERROR" | "SOURCE_READ_FAILED" | "FEED_INVALID" | "STORAGE_WRITE_FAILED";
+  lastErrorCode?: "SOURCE_REQUEST_FAILED" | "SOURCE_HTTP_ERROR" | "SOURCE_READ_FAILED" | "FEED_LIST_INVALID" | "FEED_INVALID" | "STORAGE_WRITE_FAILED";
 };
 
 type Dependencies = {
@@ -64,8 +67,12 @@ export function createAwinFeedController(
   const runRefresh = async (): Promise<void> => {
     let failureCode: NonNullable<FeedState["lastErrorCode"]> = "SOURCE_REQUEST_FAILED";
     try {
+      if (environment.sourceFeedListUrl !== undefined) failureCode = "FEED_LIST_INVALID";
+      const sourceUrls = environment.sourceFeedListUrl === undefined
+        ? environment.sourceUrls
+        : await discoverJoinedFeedUrls(environment, fetchRequest);
       const sourceArchives: Uint8Array[] = [];
-      for (const sourceUrl of environment.sourceUrls) {
+      for (const sourceUrl of sourceUrls) {
         const response = await fetchRequest(sourceUrl, {
           method: "GET",
           redirect: "error",
@@ -86,7 +93,7 @@ export function createAwinFeedController(
       const snapshotAt = validDate(now()).toISOString();
       failureCode = "FEED_INVALID";
       const archive = mergeAwinFeedArchives(sourceArchives);
-      const snapshot = validatedSnapshot(archive, snapshotAt, sourceArchives.length);
+      const snapshot = validatedSnapshot(archive, snapshotAt, sourceUrls.length);
       failureCode = "STORAGE_WRITE_FAILED";
       await writeArchiveAtomically(environment.dataPath, archive);
       state.snapshot = snapshot;
@@ -114,6 +121,73 @@ export function createAwinFeedController(
         : searchAwinFeedIndex(state.snapshot.index, input);
     }
   };
+}
+
+async function discoverJoinedFeedUrls(
+  environment: AwinFeedServiceEnvironment,
+  fetchRequest: typeof fetch
+): Promise<string[]> {
+  const response = await fetchRequest(environment.sourceFeedListUrl!, {
+    method: "GET",
+    redirect: "error",
+    headers: { accept: "text/csv, text/plain, application/octet-stream" },
+    signal: AbortSignal.timeout(environment.sourceTimeoutMs)
+  });
+  if (!response.ok) throw new Error(`Awin Feed List returned HTTP ${response.status}`);
+  const encoded = await readLimitedBody(response, MAX_AWIN_FEED_LIST_BYTES, "Awin Feed List");
+  let document: string;
+  try {
+    document = new TextDecoder("utf-8", { fatal: true }).decode(encoded);
+  } catch {
+    throw new Error("Awin Feed List is not valid UTF-8");
+  }
+  const rows = parseAwinCsv(document).records;
+  const selected = new Map<string, { advertiserId: string; feedId: string; importedAt: number; url: string }>();
+  for (const row of rows) {
+    if (feedListValue(row, "Membership Status").toLocaleLowerCase("en-US") !== "joined") continue;
+    if (feedListValue(row, "Primary Region").toUpperCase() !== environment.sourceFeedRegion) continue;
+    if (feedListValue(row, "Language").toLocaleLowerCase("en-US") !== environment.sourceFeedLanguage.toLocaleLowerCase("en-US")) continue;
+    const advertiserId = feedListValue(row, "Advertiser ID");
+    const feedId = feedListValue(row, "Feed ID");
+    const advertiserName = feedListValue(row, "Advertiser Name");
+    const importedAt = parseAwinImportedAt(feedListValue(row, "Last Imported"));
+    if (!/^\d{1,20}$/u.test(advertiserId) || !/^\d{1,20}$/u.test(feedId) || advertiserName.length > 300 || !Number.isFinite(importedAt)) {
+      throw new Error("Awin Feed List contains invalid joined Feed metadata");
+    }
+    const url = validateAwinSourceUrl(feedListValue(row, "URL"), environment.sourceAllowedHosts);
+    const feedKey = `${advertiserId}:${feedId}`;
+    const current = selected.get(feedKey);
+    if (current === undefined || importedAt > current.importedAt) {
+      selected.set(feedKey, { advertiserId, feedId, importedAt, url });
+    }
+  }
+  const numericCompare = (left: string, right: string): number =>
+    left.length - right.length || left.localeCompare(right, "en-US");
+  const urls = [...selected.values()]
+    .sort((left, right) =>
+      numericCompare(left.advertiserId, right.advertiserId) || numericCompare(left.feedId, right.feedId)
+    )
+    .map((feed) => feed.url);
+  if (urls.length === 0) throw new Error("Awin Feed List contains no joined Feeds for the configured region and language");
+  if (new Set(urls).size !== urls.length) throw new Error("Awin Feed List contains duplicate download URLs");
+  return urls;
+}
+
+function feedListValue(record: Record<string, string>, expectedHeader: string): string {
+  const canonical = (value: string): string => value.replace(/^\uFEFF/u, "").trim().toLocaleLowerCase("en-US");
+  const key = Object.keys(record).find((candidate) => canonical(candidate) === canonical(expectedHeader));
+  const value = key === undefined ? undefined : record[key]?.trim();
+  if (value === undefined || value === "") throw new Error(`Awin Feed List is missing ${expectedHeader}`);
+  return value;
+}
+
+function parseAwinImportedAt(value: string): number {
+  const awinTimestamp = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})$/u.exec(value);
+  if (awinTimestamp !== null) {
+    const [, year, month, day, hour, minute, second] = awinTimestamp;
+    return Date.UTC(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second));
+  }
+  return Date.parse(value);
 }
 
 export function createAwinFeedHttpServer(

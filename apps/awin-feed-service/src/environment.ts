@@ -2,6 +2,9 @@ import { isAbsolute } from "node:path";
 
 export type AwinFeedServiceEnvironment = {
   sourceUrls: string[];
+  sourceFeedListUrl?: string;
+  sourceFeedRegion: string;
+  sourceFeedLanguage: string;
   sourceAllowedHosts: string[];
   apiToken: string;
   dataPath: string;
@@ -14,7 +17,7 @@ export type AwinFeedServiceEnvironment = {
 export function parseAwinFeedServiceEnvironment(
   input: Readonly<Record<string, string | undefined>>
 ): AwinFeedServiceEnvironment {
-  const sourceAllowedHosts = (input.AWIN_SOURCE_ALLOWED_HOSTS ?? "productdata.awin.com,datafeed.api.productserve.com")
+  const sourceAllowedHosts = (input.AWIN_SOURCE_ALLOWED_HOSTS ?? "productdata.awin.com,datafeed.api.productserve.com,ui.awin.com")
     .split(",")
     .map((host) => host.trim().toLowerCase())
     .filter((host) => host !== "");
@@ -29,24 +32,24 @@ export function parseAwinFeedServiceEnvironment(
     input.AWIN_SOURCE_FEED_URL,
     ...Array.from({ length: 9 }, (_unused, index) => input[`AWIN_SOURCE_FEED_URL_${index + 2}`])
   ].map((value) => value?.trim()).filter((value): value is string => value !== undefined && value !== "");
-  if (sourceValues.length === 0) {
-    throw new Error("AWIN_SOURCE_FEED_URL is required");
-  }
-  const sourceUrls = sourceValues.map((sourceValue) => {
-    const sourceUrl = new URL(sourceValue);
-    if (
-      sourceUrl.protocol !== "https:" ||
-      sourceUrl.username !== "" ||
-      sourceUrl.password !== "" ||
-      sourceUrl.port !== "" ||
-      !sourceAllowedHosts.includes(sourceUrl.hostname.toLowerCase())
-    ) {
-      throw new Error("Awin source Feed URLs must use HTTPS on an allowed host");
-    }
-    return sourceUrl.href;
-  });
+  const sourceUrls = sourceValues.map((sourceValue) => validateAwinSourceUrl(sourceValue, sourceAllowedHosts));
   if (new Set(sourceUrls).size !== sourceUrls.length) {
     throw new Error("Awin source Feed URLs must be unique");
+  }
+  const feedListValue = input.AWIN_SOURCE_FEED_LIST_URL?.trim();
+  const sourceFeedListUrl = feedListValue === undefined || feedListValue === ""
+    ? undefined
+    : validateAwinSourceUrl(feedListValue, sourceAllowedHosts);
+  if (sourceUrls.length === 0 && sourceFeedListUrl === undefined) {
+    throw new Error("AWIN_SOURCE_FEED_LIST_URL or AWIN_SOURCE_FEED_URL is required");
+  }
+  const sourceFeedRegion = input.AWIN_SOURCE_FEED_REGION?.trim().toUpperCase() || "US";
+  if (!/^[A-Z]{2}$/u.test(sourceFeedRegion)) {
+    throw new Error("AWIN_SOURCE_FEED_REGION must be a two-letter region code");
+  }
+  const sourceFeedLanguage = input.AWIN_SOURCE_FEED_LANGUAGE?.trim() || "English";
+  if (sourceFeedLanguage.length < 2 || sourceFeedLanguage.length > 40) {
+    throw new Error("AWIN_SOURCE_FEED_LANGUAGE must contain 2 through 40 characters");
   }
   const apiToken = input.AWIN_FEED_API_TOKEN;
   if (apiToken === undefined || apiToken.length < 32 || apiToken.length > 512) {
@@ -75,6 +78,9 @@ export function parseAwinFeedServiceEnvironment(
   }
   return {
     sourceUrls,
+    ...(sourceFeedListUrl === undefined ? {} : { sourceFeedListUrl }),
+    sourceFeedRegion,
+    sourceFeedLanguage,
     sourceAllowedHosts,
     apiToken,
     dataPath,
@@ -83,6 +89,22 @@ export function parseAwinFeedServiceEnvironment(
     host,
     port
   };
+}
+
+export function validateAwinSourceUrl(value: string, allowedHosts: readonly string[]): string {
+  const sourceUrl = new URL(value);
+  const host = sourceUrl.hostname.toLowerCase();
+  if (
+    (sourceUrl.protocol !== "https:" && sourceUrl.protocol !== "http:") ||
+    sourceUrl.username !== "" ||
+    sourceUrl.password !== "" ||
+    sourceUrl.port !== "" ||
+    !allowedHosts.includes(host)
+  ) {
+    throw new Error("Awin source Feed URLs must use HTTPS on an allowed host");
+  }
+  sourceUrl.protocol = "https:";
+  return sourceUrl.href;
 }
 
 function integerInRange(value: string, minimum: number, maximum: number, name: string): number {

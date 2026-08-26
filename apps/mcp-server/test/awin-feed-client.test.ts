@@ -107,7 +107,7 @@ describe("Awin Product Feed", () => {
     });
   });
 
-  it("accepts approved Watches Of USA rows and rejects a mismatched merchant host", async () => {
+  it("accepts Watches Of USA rows and rejects a mismatched merchant identity", async () => {
     const directory = await mkdtemp(join(tmpdir(), "findcheap-awin-watches-"));
     temporaryDirectories.push(directory);
     const path = join(directory, "feed.csv.gz");
@@ -125,7 +125,7 @@ describe("Awin Product Feed", () => {
       ],
       [
         "https://www.awin1.com/pclick.php?p=6&a=3047955&m=116479", "Invalid Host Watch", "watch-2", "",
-        "Invalid merchant host", "Watches", "99.99", "Watches Of USA", "116479", "Watches", "USD",
+        "Invalid merchant identity", "Watches", "99.99", "Different Merchant", "116479", "Watches", "USD",
         "https://example.com/products/watch-2", "1", "Example", "Model 2", ""
       ]
     ];
@@ -143,6 +143,40 @@ describe("Awin Product Feed", () => {
         merchant: "Watches Of USA",
         merchantProductId: "watch-1",
         affiliateUrl: "https://www.awin1.com/pclick.php?p=5&a=3047955&m=116479"
+      }]
+    });
+  });
+
+  it("accepts a newly joined merchant without a code change", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "findcheap-awin-dynamic-"));
+    temporaryDirectories.push(directory);
+    const path = join(directory, "feed.csv.gz");
+    const rows = [
+      [
+        "aw_deep_link", "product_name", "merchant_product_id", "merchant_image_url", "description",
+        "merchant_category", "search_price", "merchant_name", "merchant_id", "category_name", "currency",
+        "merchant_deep_link", "in_stock"
+      ],
+      [
+        "https://www.awin1.com/pclick.php?p=9&a=3047955&m=77777", "New Merchant Headphones", "headphones-1",
+        "https://images.example/headphones.jpg", "Wireless noise cancelling headphones", "Audio", "89.99",
+        "New Merchant", "77777", "Headphones", "USD", "https://new-merchant.example/products/headphones-1", "1"
+      ]
+    ];
+    await writeFile(path, gzipSync(rows.map((row) => row.map(csvCell).join(",")).join("\r\n")));
+
+    const result = await createAwinFeedPort({ AWIN_PRODUCT_FEED_PATH: path }).search({
+      query: "noise cancelling headphones",
+      limit: 3
+    });
+
+    expect(result).toMatchObject({
+      diagnostics: { feedRows: 1, validRows: 1, rejectedRows: 0, queryMatches: 1 },
+      products: [{
+        merchantId: "77777",
+        merchant: "New Merchant",
+        merchantProductId: "headphones-1",
+        affiliateUrl: "https://www.awin1.com/pclick.php?p=9&a=3047955&m=77777"
       }]
     });
   });
