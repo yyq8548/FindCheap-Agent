@@ -69,6 +69,7 @@ jobs:
       - name: Create or update GitHub Release assets
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
           gh release view "$RELEASE_TAG" >/dev/null 2>&1 || \
