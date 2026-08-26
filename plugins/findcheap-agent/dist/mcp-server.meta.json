@@ -4202,7 +4202,7 @@
   },
   "outputs": {
     "../../plugins/findcheap-agent/dist/mcp-server.js": {
-      "bytes": 554318,
+      "bytes": 554721,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
@@ -4800,7 +4800,7 @@
           "bytesInOutput": 750
         },
         "../../packages/awin-feed/src/index.ts": {
-          "bytesInOutput": 12887
+          "bytesInOutput": 12989
         },
         "../../packages/contracts/src/comparison.ts": {
           "bytesInOutput": 1322
@@ -4833,7 +4833,7 @@
           "bytesInOutput": 2670
         },
         "src/deal-client.ts": {
-          "bytesInOutput": 3502
+          "bytesInOutput": 3803
         },
         "src/merchant-trust.ts": {
           "bytesInOutput": 6834

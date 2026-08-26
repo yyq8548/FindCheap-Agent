@@ -85,7 +85,7 @@ export function createDealPortFromEnvironment(
           redirect: "error",
           signal: controller.signal,
           headers: {
-            authorization: `Bearer ${token}`,
+            ...(token === undefined ? {} : { authorization: `Bearer ${token}` }),
             "content-type": "application/json",
             accept: "application/json"
           },
@@ -119,16 +119,36 @@ export function hasDealProviderConfiguration(
 
 function dealProviderConfiguration(
   environment: Readonly<Record<string, string | undefined>>
-): { endpoint: URL; token: string } | undefined {
+): { endpoint: URL; token?: string } | undefined {
   const rawUrl = environment.FINDCHEAP_DEALS_API_URL?.trim();
   const token = environment.FINDCHEAP_DEALS_API_TOKEN?.trim();
-  if (rawUrl === undefined || rawUrl === "" || token === undefined || token === "") return undefined;
+  if (rawUrl === undefined || rawUrl === "" || token === undefined || token === "") {
+    return publicAwinOffersConfiguration(environment);
+  }
   try {
     const endpoint = new URL(rawUrl);
     if (endpoint.protocol !== "https:" || endpoint.username !== "" || endpoint.password !== "" || endpoint.hash !== "") {
       return undefined;
     }
     return { endpoint, token };
+  } catch {
+    return undefined;
+  }
+}
+
+function publicAwinOffersConfiguration(
+  environment: Readonly<Record<string, string | undefined>>
+): { endpoint: URL } | undefined {
+  const rawUrl = environment.AWIN_OFFERS_SEARCH_URL?.trim();
+  if (rawUrl === undefined || rawUrl === "") return undefined;
+  try {
+    const endpoint = new URL(rawUrl);
+    if (
+      endpoint.protocol !== "https:" || endpoint.username !== "" || endpoint.password !== "" ||
+      endpoint.port !== "" || endpoint.search !== "" || endpoint.hash !== "" ||
+      endpoint.pathname !== "/v1/offers/search"
+    ) return undefined;
+    return { endpoint };
   } catch {
     return undefined;
   }

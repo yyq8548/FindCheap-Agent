@@ -6,6 +6,7 @@ import { once } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { parseAwinFeedServiceEnvironment } from "../src/environment.js";
+import { createAwinOffersController } from "../src/offers.js";
 import { createAwinFeedController, createAwinFeedHttpServer } from "../src/service.js";
 
 const directories: string[] = [];
@@ -23,6 +24,23 @@ describe("Awin Feed service", () => {
     });
 
     expect(environment.port).toBe(8080);
+    expect(environment.offers).toBeUndefined();
+  });
+
+  it("enables the Awin Offers cache only when a publisher API token is configured", () => {
+    const environment = parseAwinFeedServiceEnvironment({
+      AWIN_SOURCE_FEED_URL: "https://productdata.awin.com/feed.csv.gz",
+      AWIN_FEED_API_TOKEN: "a".repeat(32),
+      AWIN_API_TOKEN: "b".repeat(40)
+    });
+
+    expect(environment.offers).toEqual({
+      apiToken: "b".repeat(40),
+      publisherId: "3047955",
+      dataPath: "/data/offers.json",
+      refreshIntervalMs: 3_600_000,
+      sourceTimeoutMs: 15_000
+    });
   });
 
   it("requires an allowlisted HTTPS Awin source and a strong API token", () => {
@@ -215,7 +233,20 @@ describe("Awin Feed service", () => {
       now: () => new Date("2026-08-22T01:00:00.000Z")
     });
     await controller.refresh();
-    const server = createAwinFeedHttpServer(controller, token);
+    const offers = createAwinOffersController({
+      apiToken: "o".repeat(40), publisherId: "3047955", dataPath: join(directory, "offers.json"),
+      refreshIntervalMs: 3_600_000, sourceTimeoutMs: 15_000
+    }, {
+      fetch: async () => new Response(JSON.stringify([{ promotionId: 1, type: "voucher",
+        advertiser: { id: 20282, name: "Amazonliss (US)", joined: true }, title: "Save ten percent",
+        description: "Selected hair products", terms: "Online orders only", startDate: "2026-08-01T00:00:00",
+        endDate: "2026-09-01T00:00:00", urlTracking: "https://www.awin1.com/cread.php?awinmid=20282&awinaffid=3047955",
+        regions: { all: false, list: [{ countryCode: "US" }] }, voucher: { code: "SAVE10" } }]),
+      { headers: { "content-type": "application/json" } }),
+      now: () => new Date("2026-08-22T01:00:00.000Z")
+    });
+    await offers.refresh();
+    const server = createAwinFeedHttpServer(controller, token, { offers });
     server.listen(0, "127.0.0.1");
     await once(server, "listening");
     const address = server.address();
@@ -243,8 +274,17 @@ describe("Awin Feed service", () => {
       expect(await (await fetch(`${origin}/health`)).json()).toMatchObject({
         status: "ok",
         feedStatus: "ready",
-        feedRows: 1
+        feedRows: 1,
+        offersStatus: "ready",
+        offerRows: 1
       });
+      const offerSearch = await fetch(`${origin}/v1/offers/search`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ merchant: "Amazonliss (US)", channel: "ONLINE" })
+      });
+      expect(offerSearch.status).toBe(200);
+      expect(await offerSearch.json()).toMatchObject({ deals: [{ code: "SAVE10", verificationStatus: "VERIFIED" }] });
       expect(await (await fetch(`${origin}/ready`)).json()).toMatchObject({
         feedStatus: "ready",
         feedRows: 1

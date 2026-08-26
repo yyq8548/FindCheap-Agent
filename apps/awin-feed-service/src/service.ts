@@ -16,6 +16,10 @@ import {
   type AwinSearchResult
 } from "../../../packages/awin-feed/src/index.js";
 import { validateAwinSourceUrl, type AwinFeedServiceEnvironment } from "./environment.js";
+import {
+  parseAwinOfferSearchInput,
+  type AwinOffersController
+} from "./offers.js";
 
 const MAX_AWIN_FEED_LIST_BYTES = 4 * 1024 * 1024;
 
@@ -202,14 +206,18 @@ function parseAwinImportedAt(value: string): number {
 export function createAwinFeedHttpServer(
   controller: AwinFeedController,
   apiToken: string,
-  options: { now?: () => number; publicSearchLimitPerMinute?: number } = {}
+  options: {
+    now?: () => number;
+    publicSearchLimitPerMinute?: number;
+    offers?: AwinOffersController;
+  } = {}
 ) {
   const publicSearchLimiter = createPublicSearchLimiter(
     options.publicSearchLimitPerMinute ?? 60,
     options.now ?? Date.now
   );
   const server = createServer((request, response) => {
-    void handleRequest(controller, apiToken, publicSearchLimiter, request, response).catch(() => {
+    void handleRequest(controller, apiToken, publicSearchLimiter, options.offers, request, response).catch(() => {
       if (!response.headersSent) response.writeHead(500, { "content-type": "application/json" });
       response.end(JSON.stringify({ error: "INTERNAL_SERVER_ERROR" }));
     });
@@ -224,11 +232,12 @@ async function handleRequest(
   controller: AwinFeedController,
   apiToken: string,
   publicSearchLimiter: PublicSearchLimiter,
+  offers: AwinOffersController | undefined,
   request: IncomingMessage,
   response: ServerResponse
 ): Promise<void> {
   const path = new URL(request.url ?? "/", "http://localhost").pathname;
-  if (path === "/v1/search") {
+  if (path === "/v1/search" || path === "/v1/offers/search") {
     if (request.method !== "POST") {
       json(response, 405, { error: "METHOD_NOT_ALLOWED" });
       return;
@@ -239,21 +248,30 @@ async function handleRequest(
       json(response, 429, { error: "RATE_LIMITED" });
       return;
     }
-    let input: AwinSearchInput;
     try {
-      input = parseAwinSearchInput(await readJsonRequest(request));
+      const body = await readJsonRequest(request);
+      if (path === "/v1/offers/search") {
+        const result = offers?.search(parseAwinOfferSearchInput(body));
+        if (result === undefined) {
+          json(response, 503, { error: "OFFERS_UNAVAILABLE" });
+          return;
+        }
+        json(response, 200, result);
+        return;
+      }
+      const input = parseAwinSearchInput(body);
+      const result = controller.search(input);
+      if (result === undefined) {
+        json(response, 503, { error: "FEED_UNAVAILABLE" });
+        return;
+      }
+      json(response, 200, result);
+      return;
     } catch (error) {
       const status = error instanceof RequestBodyTooLargeError ? 413 : 400;
       json(response, status, { error: status === 413 ? "REQUEST_TOO_LARGE" : "INVALID_SEARCH_REQUEST" });
       return;
     }
-    const result = controller.search(input);
-    if (result === undefined) {
-      json(response, 503, { error: "FEED_UNAVAILABLE" });
-      return;
-    }
-    json(response, 200, result);
-    return;
   }
   if (request.method !== "GET") {
     json(response, 405, { error: "METHOD_NOT_ALLOWED" });
@@ -261,7 +279,11 @@ async function handleRequest(
   }
   const state = controller.getState();
   if (path === "/health") {
-    json(response, 200, { status: "ok", ...feedMetadata(state) });
+    json(response, 200, {
+      status: "ok",
+      ...feedMetadata(state),
+      ...(offers === undefined ? {} : offersMetadata(offers.getState()))
+    });
     return;
   }
   if (path === "/ready") {
@@ -319,6 +341,16 @@ function validatedSnapshot(archive: Uint8Array, snapshotAt: string, sourceFeeds:
     throw new Error("Awin Feed failed approved merchant validation");
   }
   return { archive, index, snapshotAt, feedRows: index.feedRows, sourceFeeds };
+}
+
+function offersMetadata(state: ReturnType<AwinOffersController["getState"]>): Record<string, unknown> {
+  return {
+    offersStatus: state.deals === undefined ? "unavailable" : state.lastErrorAt === undefined ? "ready" : "degraded",
+    ...(state.deals === undefined ? {} : { offerRows: state.deals.length, offersSnapshotAt: state.snapshotAt }),
+    ...(state.lastRefreshAt === undefined ? {} : { offersLastRefreshAt: state.lastRefreshAt }),
+    ...(state.lastErrorAt === undefined ? {} : { offersLastErrorAt: state.lastErrorAt }),
+    ...(state.lastErrorCode === undefined ? {} : { offersLastErrorCode: state.lastErrorCode })
+  };
 }
 
 async function writeArchiveAtomically(path: string, archive: Uint8Array): Promise<void> {

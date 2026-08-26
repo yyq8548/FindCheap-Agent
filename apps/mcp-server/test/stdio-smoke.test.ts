@@ -43,6 +43,7 @@ describe("installed plugin stdio", () => {
         SHOPIFY_CART_QUOTE_TIMEOUT_MS: "2500",
         AWIN_PRODUCT_SEARCH_URL: "https://findcheap-agent-production.up.railway.app/v1/search",
         AWIN_PRODUCT_SEARCH_TIMEOUT_MS: "5000",
+        AWIN_OFFERS_SEARCH_URL: "https://findcheap-agent-production.up.railway.app/v1/offers/search",
         SHOPIFY_AGENT_PROFILE_URL: "https://cdn.jsdelivr.net/gh/yyq8548/FindCheap-Agent@24267014f0433adefb89181e4123d7b785e30285/plugins/findcheap-agent/ucp-agent-profile.json",
         SHOPIFY_GLOBAL_CATALOG_TIMEOUT_MS: "10000"
       }
@@ -72,6 +73,7 @@ describe("installed plugin stdio", () => {
         "search_awin_products",
         "inspect_selected_shopify_product",
         "quote_selected_shopify_product",
+        "find_coupons",
         "create_watch",
         "bind_watch_automation",
         "check_watch",
@@ -278,6 +280,7 @@ function unconfiguredEnvironment(): Record<string, string> {
   const environment = definedEnvironment();
   delete environment.FINDCHEAP_DEALS_API_URL;
   delete environment.FINDCHEAP_DEALS_API_TOKEN;
+  delete environment.AWIN_OFFERS_SEARCH_URL;
   delete environment.SHOPPING_COMMERCE_API_URL;
   delete environment.SHOPPING_COMMERCE_API_TOKEN;
   return environment;

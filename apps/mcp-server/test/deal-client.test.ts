@@ -67,5 +67,32 @@ describe("Deals API client", () => {
       FINDCHEAP_DEALS_API_URL: "https://deals.example/v1/search",
       FINDCHEAP_DEALS_API_TOKEN: "secret"
     })).toBe(true);
+    expect(hasDealProviderConfiguration({
+      AWIN_OFFERS_SEARCH_URL: "https://findcheap-agent-production.up.railway.app/v1/offers/search"
+    })).toBe(true);
+    expect(hasDealProviderConfiguration({
+      AWIN_OFFERS_SEARCH_URL: "https://findcheap-agent-production.up.railway.app/not-offers"
+    })).toBe(false);
+  });
+
+  it("uses the public Awin Offers endpoint without exposing a publisher token", async () => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({ deals: [
+      {
+        ...deal,
+        kind: "PROMO_CODE",
+        code: "SAVE10",
+        channels: ["ONLINE"],
+        sourceUrl: "https://www.awin1.com/cread.php?awinmid=99&awinaffid=3047955"
+      }
+    ] }), { headers: { "content-type": "application/json" } }));
+    const port = createDealPortFromEnvironment({
+      AWIN_OFFERS_SEARCH_URL: "https://findcheap-agent-production.up.railway.app/v1/offers/search"
+    }, fetcher as typeof fetch, () => new Date("2026-08-18T12:00:00.000Z"));
+
+    await expect(port.search({ merchant: "Merchant", membershipIds: [], channel: "ONLINE" })).resolves.toHaveLength(1);
+    expect(fetcher).toHaveBeenCalledWith(
+      new URL("https://findcheap-agent-production.up.railway.app/v1/offers/search"),
+      expect.objectContaining({ headers: expect.not.objectContaining({ authorization: expect.anything() }) })
+    );
   });
 });

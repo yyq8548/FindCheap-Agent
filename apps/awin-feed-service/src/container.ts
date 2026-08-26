@@ -11,9 +11,14 @@ async function runContainer(): Promise<void> {
     if (process.setgroups === undefined || process.setgid === undefined || process.setuid === undefined) {
       throw new Error("container privilege drop is unavailable");
     }
-    const dataDirectory = dirname(process.env.AWIN_FEED_DATA_PATH ?? "/data/current.csv.gz");
-    await mkdir(dataDirectory, { recursive: true });
-    await chown(dataDirectory, NODE_UID, NODE_GID);
+    const dataDirectories = new Set([
+      dirname(process.env.AWIN_FEED_DATA_PATH ?? "/data/current.csv.gz"),
+      dirname(process.env.AWIN_OFFERS_DATA_PATH ?? "/data/offers.json")
+    ]);
+    for (const dataDirectory of dataDirectories) {
+      await mkdir(dataDirectory, { recursive: true });
+      await chown(dataDirectory, NODE_UID, NODE_GID);
+    }
     process.setgroups([]);
     process.setgid(NODE_GID);
     process.setuid(NODE_UID);
