@@ -147,6 +147,46 @@ describe("Awin Product Feed", () => {
     });
   });
 
+  it("accepts approved Shenzhen Cangyu rows and rejects a mismatched merchant relationship", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "findcheap-awin-cangyu-"));
+    temporaryDirectories.push(directory);
+    const path = join(directory, "feed.csv.gz");
+    const header = [
+      "aw_deep_link", "product_name", "merchant_product_id", "merchant_image_url", "description",
+      "merchant_category", "search_price", "merchant_name", "merchant_id", "category_name", "currency",
+      "merchant_deep_link", "in_stock"
+    ];
+    const rows = [
+      [
+        "https://www.awin1.com/pclick.php?p=7&a=3047955&m=99013", "SNFLEX Macerating Toilet", "toilet-1",
+        "https://images.example/toilet.jpg", "Two-piece upflush toilet", "Bathroom", "729.00",
+        "Shenzhen Cangyu Technology Co., Ltd.", "99013", "Toilets", "USD",
+        "https://simpleprojectus.com/products/toilet-1", "1"
+      ],
+      [
+        "https://www.awin1.com/pclick.php?p=8&a=3047955&m=116479", "Mismatched Toilet", "toilet-2",
+        "", "Invalid relationship", "Bathroom", "499.00", "Shenzhen Cangyu Technology Co., Ltd.",
+        "99013", "Toilets", "USD", "https://simpleprojectus.com/products/toilet-2", "1"
+      ]
+    ];
+    await writeFile(path, gzipSync([header, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n")));
+
+    const result = await createAwinFeedPort({ AWIN_PRODUCT_FEED_PATH: path }).search({
+      query: "SNFLEX macerating toilet",
+      limit: 3
+    });
+
+    expect(result).toMatchObject({
+      diagnostics: { feedRows: 2, validRows: 1, rejectedRows: 1, queryMatches: 1 },
+      products: [{
+        merchantId: "99013",
+        merchant: "Shenzhen Cangyu Technology Co., Ltd.",
+        merchantProductId: "toilet-1",
+        affiliateUrl: "https://www.awin1.com/pclick.php?p=7&a=3047955&m=99013"
+      }]
+    });
+  });
+
   it("reads an authenticated remote Feed service before the local fallback", async () => {
     const archive = gzipSync([
       [

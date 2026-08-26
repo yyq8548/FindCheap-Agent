@@ -80,10 +80,15 @@ export type UnifiedSearchExecution = {
 
 const AFFILIATE_HAIR_QUERY = /(?:\bhair\b|haircare|hair[\s-]*care|hair[\s-]*mask|keratin|shampoo|conditioner|straighten|smoothing|styling|amazonliss|nutree|护发|头发|发膜|角蛋白|洗发水|护发素|拉直|顺滑|造型)/iu;
 const AFFILIATE_TRAIL_CAMERA_QUERY = /(?:gardepro|trail[\s-]*camera|game[\s-]*camera|hunting[\s-]*camera|wildlife[\s-]*camera|狩猎相机|打猎相机|猎场相机|追踪相机|野生动物相机)/iu;
+const AFFILIATE_WATCH_QUERY = /(?:watches[\s-]*of[\s-]*usa|wristwatch|timepiece|\bwatch(?:es)?\b|手表|腕表)/iu;
+const AFFILIATE_BATHROOM_QUERY = /(?:shenzhen[\s-]*cangyu|simple[\s-]*project|simpleproject|snflex|skiflex|elemaz|calyz|sigsoul|macerat(?:ing|or)[\s-]*(?:pump|toilet)|upflush[\s-]*toilet|\btoilet\b|bathroom[\s-]*vanity|shower[\s-]*door|马桶|坐便器|粉碎泵|浴室柜|淋浴门)/iu;
 
 export function isApprovedAffiliateQuery(query: string): boolean {
   const normalized = query.normalize("NFKC");
-  return AFFILIATE_HAIR_QUERY.test(normalized) || AFFILIATE_TRAIL_CAMERA_QUERY.test(normalized);
+  return AFFILIATE_HAIR_QUERY.test(normalized) ||
+    AFFILIATE_TRAIL_CAMERA_QUERY.test(normalized) ||
+    AFFILIATE_WATCH_QUERY.test(normalized) ||
+    AFFILIATE_BATHROOM_QUERY.test(normalized);
 }
 
 export async function searchProducts(

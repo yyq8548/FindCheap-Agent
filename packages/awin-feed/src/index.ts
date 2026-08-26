@@ -35,6 +35,12 @@ const APPROVED_AWIN_MERCHANTS = new Map<string, ApprovedAwinMerchant>([
     name: "Watches Of USA",
     host: "watchesofusa.com",
     searchAliases: "Watches Of USA watch watches wristwatch timepiece"
+  }],
+  ["99013", {
+    id: "99013",
+    name: "Shenzhen Cangyu Technology Co., Ltd.",
+    host: "simpleprojectus.com",
+    searchAliases: "Simple Project SNFLEX SKIFLEX ELEMAZ CALYZ Sigsoul toilet macerator pump bathroom vanity shower door"
   }]
 ]);
 

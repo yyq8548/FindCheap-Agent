@@ -32,7 +32,7 @@ Open the Plugins Directory and confirm:
 - marketplace: `FindCheap Agent`
 - plugin: `FindCheap Agent`
 - plugin ID: `findcheap-agent`
-- version: `0.9.8`
+- version: `0.9.9`
 
 Test prompt:
 
@@ -79,6 +79,6 @@ Restart Codex and test in a new task.
 - Shopify tax is used only when explicitly returned. Otherwise tax is a labeled ZIP-inferred 2026
   state-average estimate; some merchants need a full address or checkout for final tax.
 - Coupon and Cashback require a configured approved Deals API.
-- Amazonliss (US) Awin Feed links use the approved publisher/merchant relationship with disclosure.
-  Other sources remain canonical until their own relationship is approved.
+- Amazonliss (US), GardePro, Watches Of USA, and Shenzhen Cangyu Awin Feed links use approved
+  publisher/merchant relationships with disclosure. Other sources remain canonical until approved.
 - The plugin never orders, checks out, submits payment, or auto-buys.

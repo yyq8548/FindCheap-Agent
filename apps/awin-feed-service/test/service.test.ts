@@ -80,15 +80,38 @@ describe("Awin Feed service", () => {
       productName: "GardePro Trail Camera",
       merchantProductId: "gardepro-1"
     }, { brand_name: "GardePro" });
-    const fetchRequest = vi.fn(async (input: string | URL | Request) =>
-      new Response(responseBody(String(input).includes("gardepro") ? gardepro : amazonliss), {
+    const watches = fixtureArchive({
+      merchantId: "116479",
+      merchantName: "Watches Of USA",
+      merchantHost: "watchesofusa.com",
+      productName: "Citizen Watch",
+      merchantProductId: "watch-1"
+    });
+    const cangyu = fixtureArchive({
+      merchantId: "99013",
+      merchantName: "Shenzhen Cangyu Technology Co., Ltd.",
+      merchantHost: "simpleprojectus.com",
+      productName: "SNFLEX Macerating Toilet",
+      merchantProductId: "toilet-1"
+    });
+    const archives = new Map([
+      ["amazonliss", amazonliss],
+      ["gardepro", gardepro],
+      ["watches", watches],
+      ["cangyu", cangyu]
+    ]);
+    const fetchRequest = vi.fn(async (input: string | URL | Request) => {
+      const key = [...archives.keys()].find((candidate) => String(input).includes(candidate));
+      return new Response(responseBody(key === undefined ? amazonliss : archives.get(key)!), {
         status: 200,
         headers: { "content-type": "application/gzip" }
-      })
-    );
+      });
+    });
     const environment = parseAwinFeedServiceEnvironment({
       AWIN_SOURCE_FEED_URL: "https://productdata.awin.com/private/amazonliss.csv.gz",
       AWIN_SOURCE_FEED_URL_2: "https://productdata.awin.com/private/gardepro.csv.gz",
+      AWIN_SOURCE_FEED_URL_3: "https://productdata.awin.com/private/watches.csv.gz",
+      AWIN_SOURCE_FEED_URL_4: "https://productdata.awin.com/private/cangyu.csv.gz",
       AWIN_FEED_API_TOKEN: "m".repeat(32),
       AWIN_FEED_DATA_PATH: dataPath
     });
@@ -99,9 +122,9 @@ describe("Awin Feed service", () => {
 
     await controller.refresh();
 
-    expect(fetchRequest).toHaveBeenCalledTimes(2);
+    expect(fetchRequest).toHaveBeenCalledTimes(4);
     expect(controller.getState()).toMatchObject({
-      snapshot: { feedRows: 2, sourceFeeds: 2 },
+      snapshot: { feedRows: 4, sourceFeeds: 4 },
       lastRefreshAt: "2026-08-25T05:00:00.000Z"
     });
   });
@@ -278,7 +301,11 @@ function fixtureArchive(overrides: {
     merchantId, "Products", "USD", `https://${merchantHost}/products/${merchantProductId}`, "1",
     ...Object.values(extraFields)
   ];
-  return gzipSync([header, row].map((values) => values.join(",")).join("\r\n"));
+  return gzipSync([header, row].map((values) => values.map(csvCell).join(",")).join("\r\n"));
+}
+
+function csvCell(value: string): string {
+  return /[",\r\n]/u.test(value) ? `"${value.replaceAll('"', '""')}"` : value;
 }
 
 function responseBody(value: Uint8Array): ArrayBuffer {

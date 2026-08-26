@@ -1,6 +1,6 @@
 {
   "name": "findcheap-agent",
-  "version": "0.9.8+codex.20260825235609",
+  "version": "0.9.9+codex.20260826013746",
   "description": "Search Shopify Global Catalog and an approved Awin Feed, find verified deals, and monitor prices, promotions, and stock.",
   "author": {
     "name": "yyq8548"
@@ -12,7 +12,7 @@
   "interface": {
     "displayName": "FindCheap Agent",
     "shortDescription": "Verified cards, pricing, coupons, and safe links.",
-    "longDescription": "FindCheap Agent is a Codex Plugin Agent. v0.9.8 adds bounded provider normalization for Shopify Catalog versions, money, rich descriptions, category, media, options, ratings, availability, and condition. Shopify Cart and Awin responses may add ignored metadata only after all security-critical price, merchant, link, identity, and currency fields pass strict validation. Ambiguous money and unknown structures fail closed as CATALOG_SCHEMA_CHANGED instead of becoming false zero results. Node.js 24, evidence-aware matching, merchant trust, Affiliate-neutral ranking, stable product selection, and delivered-price rules remain unchanged. Authorized Chrome remains a bounded fallback after API search returns no usable product. Every installation can access approved Awin products through a public, read-only, rate-limited Railway Search API while Feed URLs and service secrets stay private. The agent never checks out, reserves inventory, purchases, or pays.",
+    "longDescription": "FindCheap Agent is a Codex Plugin Agent. v0.9.9 adds the approved Shenzhen Cangyu Awin programme and routes relevant toilet, macerator pump, bathroom vanity, and shower door searches through the validated public Feed service. Bounded provider normalization for Shopify Catalog versions, money, rich descriptions, category, media, options, ratings, availability, and condition remains in place. Shopify Cart and Awin responses may add ignored metadata only after all security-critical price, merchant, link, identity, and currency fields pass strict validation. Ambiguous money and unknown structures fail closed as CATALOG_SCHEMA_CHANGED instead of becoming false zero results. Node.js 24, evidence-aware matching, merchant trust, Affiliate-neutral ranking, stable product selection, and delivered-price rules remain unchanged. Authorized Chrome remains a bounded fallback after API search returns no usable product. Every installation can access approved Awin products through a public, read-only, rate-limited Railway Search API while Feed URLs and service secrets stay private. The agent never checks out, reserves inventory, purchases, or pays.",
     "developerName": "yyq8548",
     "category": "Productivity",
     "capabilities": [

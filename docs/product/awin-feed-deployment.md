@@ -7,7 +7,8 @@ volume and expose it through an HTTPS reverse proxy.
 
 1. In Awin, open **Toolbox → Create-a-Feed**, select an approved merchant Feed, select the required
    columns, choose CSV plus gzip, then copy the generated URL. Current approved merchants are
-   Amazonliss (US) `20282`, GardePro `49085`, and Watches Of USA `116479`.
+   Amazonliss (US) `20282`, GardePro `49085`, Watches Of USA `116479`, and
+   Shenzhen Cangyu Technology Co., Ltd. `99013`.
    Do not commit, publish, or place this URL in client-side code; it contains the Product Feed API key
    in its path. This key is separate from the Publisher API key.
 2. Generate an independent API token for private Feed administration and diagnostics. Never ship
@@ -41,8 +42,8 @@ Invoke-RestMethod http://127.0.0.1:3010/health
 Invoke-RestMethod http://127.0.0.1:3010/ready
 ```
 
-Use `AWIN_SOURCE_FEED_URL` for the existing Amazonliss Feed and
-`AWIN_SOURCE_FEED_URL_2` for GardePro, and `AWIN_SOURCE_FEED_URL_3` for Watches Of USA. Up to ten
+Use `AWIN_SOURCE_FEED_URL` for Amazonliss, `AWIN_SOURCE_FEED_URL_2` for GardePro,
+`AWIN_SOURCE_FEED_URL_3` for Watches Of USA, and `AWIN_SOURCE_FEED_URL_4` for Shenzhen Cangyu. Up to ten
 numbered URLs are supported. Railway variables must remain secrets. Never place an Awin source URL
 in the Codex plugin or GitHub.
 
@@ -90,6 +91,7 @@ Test prompt:
 ```text
 FindCheap Agent 搜索 GardePro trail camera
 FindCheap Agent 搜索 Watches Of USA 手表
+FindCheap Agent 搜索 SNFLEX macerating toilet
 ```
 
 Expected: unified `search_products` routes the approved category through `AWIN_PRODUCT_FEED`, keeps

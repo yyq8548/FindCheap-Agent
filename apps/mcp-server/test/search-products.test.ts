@@ -371,6 +371,10 @@ describe("unified product search", () => {
     expect(isApprovedAffiliateQuery("角蛋白发膜")).toBe(true);
     expect(isApprovedAffiliateQuery("GardePro trail camera")).toBe(true);
     expect(isApprovedAffiliateQuery("野生动物相机")).toBe(true);
+    expect(isApprovedAffiliateQuery("Watches Of USA 手表")).toBe(true);
+    expect(isApprovedAffiliateQuery("SNFLEX macerating toilet")).toBe(true);
+    expect(isApprovedAffiliateQuery("36 inch bathroom vanity")).toBe(true);
+    expect(isApprovedAffiliateQuery("淋浴门")).toBe(true);
     expect(isApprovedAffiliateQuery("Sony headphones")).toBe(false);
     expect(isApprovedAffiliateQuery("digital camera")).toBe(false);
   });

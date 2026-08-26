@@ -129,9 +129,9 @@ Coupon 和促销路径采用失败关闭策略。只有配置的 Deals API 提�
 
 ## 联盟状态
 
-Awin 商家 Amazonliss (US)（merchant `20282`）已批准 publisher `3047955`。生产环境中，统一的 `search_products` 路由读取由 `AWIN_PRODUCT_FEED_URL` 和 `AWIN_PRODUCT_FEED_TOKEN` 配置的认证 HTTPS Feed 服务。本地开发才回退到 Downloads 中的 `datafeed_3047955.csv.gz`，也可用 `AWIN_PRODUCT_FEED_PATH` 指定路径。Awin 结果与 Shopify 使用同一套商品卡片，链接为带披露的已批准 Awin 深链。
+Awin publisher `3047955` 当前已加入 Amazonliss (US) `20282`、GardePro `49085`、Watches Of USA `116479` 和 Shenzhen Cangyu Technology Co., Ltd. `99013`。生产环境通过 Railway 私有下载器读取并验证四个 Feed，再返回带披露的 Awin 链接。Awin 结果与 Shopify 使用同一套商品卡片；本地开发仍可用 `AWIN_PRODUCT_FEED_PATH` 指定 Feed。
 
-该 Feed 有商品价、库存和商家商品 ID，但没有 GTIN、MPN、品牌和 condition。因此结果始终标记为 `DISCOVERY_MATCH`、`DISCOVERY_ONLY`、`condition: UNKNOWN`，不能当作精确同款比价。当原始商家商品路径可安全解析为唯一且受支持的 Shopify Variant 时，后续邮编报价可显示配送费、税费和预估总价；否则继续只显示商品价。优惠券和会员价仍需独立验证。其他来源在没有各自已批准关系时继续使用商家原始链接；佣金不参与排序。
+Feed 始终提供商品价、库存和商家商品 ID，但 GTIN、MPN、品牌和 condition 可能缺失。因此结果始终标记为 `DISCOVERY_MATCH`、`DISCOVERY_ONLY`、`condition: UNKNOWN`，不能当作精确同款比价。当原始商家商品路径可安全解析为唯一且受支持的 Shopify Variant 时，后续邮编报价可显示配送费、税费和预估总价；否则继续只显示商品价。优惠券和会员价仍需独立验证。其他来源在没有各自已批准关系时继续使用商家原始链接；佣金不参与排序。
 
 正式部署步骤见 [Awin Product Feed production deployment](docs/product/awin-feed-deployment.md)，包含定时下载、持久化卷、认证接口和所需密钥。
 
