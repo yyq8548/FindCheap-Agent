@@ -55,9 +55,9 @@ describe("Awin Feed service", () => {
     const feedListUrl = "https://ui.awin.com/private/feedList";
     const feeds = new Map<string, Buffer>([
       ["https://productdata.awin.com/private/20282-102.csv.gz", enhancedFixtureArchive()],
-      ["https://productdata.awin.com/private/77777-200.csv.gz", fixtureArchive({
+      ["https://productdata.awin.com/private/77777-200.csv.gz", minimalFixtureArchive({
         merchantId: "77777",
-        merchantName: "New Merchant",
+        merchantName: "New Merchant Legal LLC",
         merchantHost: "new-merchant.example",
         productName: "New Merchant Headphones",
         merchantProductId: "headphones-1"
@@ -377,15 +377,35 @@ function fixtureArchive(overrides: {
 
 function enhancedFixtureArchive(): Buffer {
   const header = [
-    "advertiser_id", "advertiser_name", "id", "title", "description", "link", "image_link",
+    "\uFEFFadvertiser_id", "advertiser_name", "id", "title", "description", "link", "image_link",
     "aw_deep_link", "google_product_category", "product_type", "gtin", "mpn", "brand",
     "availability", "price", "sale_price", "condition"
   ];
   const row = [
     "20282", "Amazonliss (US)", "sku-1", "Amazonliss Keratin Mask", "Amazonliss Keratin Mask",
     "https://www.nutreecosmetics.com/products/sku-1", "https://cdn.shopify.com/image.jpg",
-    "https://www.awin1.com/pclick.php?p=1&a=3047955&m=20282", "Health & Beauty > Hair Care", "Hair Care",
+    "https://www.awin1.com/cread.php?awinmid=20282&awinaffid=3047955&ued=https%3A%2F%2Fwww.nutreecosmetics.com%2Fproducts%2Fsku-1", "Health & Beauty > Hair Care", "Hair Care",
     "", "", "Amazonliss", "in_stock", "19.99 USD", "", "new"
+  ];
+  return gzipSync([header, row].map((values) => values.map(csvCell).join(",")).join("\r\n"));
+}
+
+function minimalFixtureArchive(overrides: {
+  merchantId: string;
+  merchantName: string;
+  merchantHost: string;
+  productName: string;
+  merchantProductId: string;
+}): Buffer {
+  const header = [
+    "aw_deep_link", "product_name", "merchant_product_id", "description", "merchant_category",
+    "search_price", "merchant_name", "merchant_id", "merchant_deep_link"
+  ];
+  const row = [
+    `https://www.awin1.com/pclick.php?p=1&a=3047955&m=${overrides.merchantId}`,
+    overrides.productName, overrides.merchantProductId, overrides.productName, "Products", "19.99",
+    overrides.merchantName, overrides.merchantId,
+    `https://${overrides.merchantHost}/products/${overrides.merchantProductId}`
   ];
   return gzipSync([header, row].map((values) => values.map(csvCell).join(",")).join("\r\n"));
 }

@@ -192,13 +192,29 @@ export function validateAwinFeedArchive(compressed: Uint8Array): {
   };
 }
 
-export function mergeAwinFeedArchives(archives: readonly Uint8Array[]): Uint8Array {
+export function mergeAwinFeedArchives(
+  archives: readonly Uint8Array[],
+  options: { defaultCurrency?: "USD"; canonicalizeMerchantNames?: boolean } = {}
+): Uint8Array {
   if (archives.length === 0) throw new Error("at least one Awin Feed is required");
   const feeds = archives.map((archive) => {
     if (archive.byteLength > MAX_AWIN_COMPRESSED_BYTES) throw new Error("AWIN_FEED_TOO_LARGE");
     return parseAwinCsv(gunzipSync(archive, { maxOutputLength: MAX_UNCOMPRESSED_BYTES }).toString("utf8"));
   });
-  const records = feeds.flatMap((feed) => feed.records.map(normalizeAwinFeedRecord));
+  let records = feeds.flatMap((feed) => feed.records.map((record) =>
+    normalizeAwinFeedRecord(record, options.defaultCurrency)
+  ));
+  if (options.canonicalizeMerchantNames === true) {
+    const merchantNames = new Map<string, string>();
+    for (const record of records) {
+      const merchantId = requireValue(record, "merchant_id");
+      if (!merchantNames.has(merchantId)) merchantNames.set(merchantId, requireValue(record, "merchant_name"));
+    }
+    records = records.map((record) => ({
+      ...record,
+      merchant_name: merchantNames.get(requireValue(record, "merchant_id"))!
+    }));
+  }
   const headers = [...new Set(records.flatMap((record) => Object.keys(record)))];
   const productKeys = records.map((record) =>
     `${requireValue(record, "merchant_id")}:${requireValue(record, "merchant_product_id")}`
@@ -216,8 +232,13 @@ export function mergeAwinFeedArchives(archives: readonly Uint8Array[]): Uint8Arr
   return merged;
 }
 
-function normalizeAwinFeedRecord(record: Record<string, string>): Record<string, string> {
-  if (record.merchant_id !== undefined) return record;
+function normalizeAwinFeedRecord(
+  record: Record<string, string>,
+  defaultCurrency: "USD" | undefined
+): Record<string, string> {
+  if (record.merchant_id !== undefined) {
+    return record.currency?.trim() ? record : { ...record, currency: defaultCurrency ?? "" };
+  }
   if (record.advertiser_id === undefined) return record;
   const price = (record.sale_price?.trim() || record.price?.trim() || "")
     .match(/^(\d+(?:\.\d{1,2})?)\s+([A-Z]{3})$/u);
@@ -291,6 +312,7 @@ export function parseAwinCsv(document: string): {
   if (row.some((value) => value !== "")) rows.push(row);
   const headers = rows.shift();
   if (headers === undefined || headers.length === 0) throw new Error("missing Awin CSV header");
+  headers[0] = headers[0]!.replace(/^\uFEFF/u, "");
   if (new Set(headers).size !== headers.length) throw new Error("duplicate Awin CSV header");
   return {
     headers,
@@ -321,10 +343,7 @@ function toProduct(
   }
   const affiliateUrl = approvedUrl(requireValue(record, "aw_deep_link"), APPROVED_AFFILIATE_HOST);
   const affiliate = new URL(affiliateUrl);
-  if (
-    affiliate.searchParams.get("a") !== APPROVED_PUBLISHER_ID ||
-    affiliate.searchParams.get("m") !== merchantId
-  ) {
+  if (!hasApprovedAffiliateRelationship(affiliate, merchantId)) {
     throw new Error("Awin link does not match approved relationship");
   }
   const itemPriceCents = parseUsdCents(requireValue(record, "search_price"));
@@ -539,10 +558,7 @@ function parsePublicAwinProduct(value: unknown): AwinProduct {
     APPROVED_AFFILIATE_HOST
   );
   const affiliate = new URL(affiliateUrl);
-  if (
-    affiliate.searchParams.get("a") !== APPROVED_PUBLISHER_ID ||
-    affiliate.searchParams.get("m") !== merchantId
-  ) {
+  if (!hasApprovedAffiliateRelationship(affiliate, merchantId)) {
     throw new Error("Awin product affiliate relationship is invalid");
   }
   if (value.availability !== "IN_STOCK" && value.availability !== "OUT_OF_STOCK" && value.availability !== "UNKNOWN") {
@@ -678,6 +694,12 @@ function approvedHttpsUrl(value: string): string {
     throw new Error("invalid Awin image URL");
   }
   return url.href;
+}
+
+function hasApprovedAffiliateRelationship(url: URL, merchantId: string): boolean {
+  const classic = url.searchParams.get("a") === APPROVED_PUBLISHER_ID && url.searchParams.get("m") === merchantId;
+  const enhanced = url.searchParams.get("awinaffid") === APPROVED_PUBLISHER_ID && url.searchParams.get("awinmid") === merchantId;
+  return classic || enhanced;
 }
 
 function parseUsdCents(value: string): number {

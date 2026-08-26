@@ -92,7 +92,15 @@ export function createAwinFeedController(
       }
       const snapshotAt = validDate(now()).toISOString();
       failureCode = "FEED_INVALID";
-      const archive = mergeAwinFeedArchives(sourceArchives);
+      const archive = mergeAwinFeedArchives(
+        sourceArchives,
+        environment.sourceFeedListUrl === undefined
+          ? {}
+          : {
+              ...(environment.sourceFeedRegion === "US" ? { defaultCurrency: "USD" as const } : {}),
+              canonicalizeMerchantNames: true
+            }
+      );
       const snapshot = validatedSnapshot(archive, snapshotAt, sourceUrls.length);
       failureCode = "STORAGE_WRITE_FAILED";
       await writeArchiveAtomically(environment.dataPath, archive);
