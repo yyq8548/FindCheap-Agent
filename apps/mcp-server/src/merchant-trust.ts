@@ -35,6 +35,7 @@ type MerchantTrustRecord = {
   level: Exclude<MerchantTrustLevel, "UNKNOWN" | "RISKY">;
   evidenceUrl: string;
   reviewedAt: string;
+  storefrontHost?: string;
   storefrontBrands?: readonly string[];
 };
 
@@ -50,11 +51,11 @@ const MERCHANT_TRUST_RECORDS: readonly MerchantTrustRecord[] = [
   { host: "electronics.sony.com", level: "OFFICIAL", evidenceUrl: "https://electronics.sony.com/", reviewedAt: "2026-08-20" },
   { host: "shopdoen.com", level: "OFFICIAL", evidenceUrl: "https://www.shopdoen.com/", reviewedAt: "2026-08-20", storefrontBrands: ["DÔEN", "DOEN"] },
   { host: "skims.com", level: "OFFICIAL", evidenceUrl: "https://skims.com/", reviewedAt: "2026-08-27", storefrontBrands: ["SKIMS", "NikeSKIMS"] },
-  { host: "deathwishcoffee.com", level: "OFFICIAL", evidenceUrl: "https://www.deathwishcoffee.com/", reviewedAt: "2026-08-20" },
-  { host: "blkandbold.com", level: "OFFICIAL", evidenceUrl: "https://blkandbold.com/", reviewedAt: "2026-08-20" },
-  { host: "vervecoffee.com", level: "OFFICIAL", evidenceUrl: "https://www.vervecoffee.com/", reviewedAt: "2026-08-20" },
+  { host: "deathwishcoffee.com", level: "OFFICIAL", evidenceUrl: "https://www.deathwishcoffee.com/", reviewedAt: "2026-08-27", storefrontHost: "www.deathwishcoffee.com", storefrontBrands: ["Death Wish Coffee", "Death Wish"] },
+  { host: "blkandbold.com", level: "OFFICIAL", evidenceUrl: "https://blkandbold.com/", reviewedAt: "2026-08-27", storefrontBrands: ["BLK & Bold", "BLK and Bold"] },
+  { host: "vervecoffee.com", level: "OFFICIAL", evidenceUrl: "https://www.vervecoffee.com/", reviewedAt: "2026-08-27", storefrontHost: "www.vervecoffee.com", storefrontBrands: ["Verve Coffee", "Verve"] },
   { host: "fashionnova.com", level: "OFFICIAL", evidenceUrl: "https://www.fashionnova.com/", reviewedAt: "2026-08-20" },
-  { host: "stevemadden.com", level: "OFFICIAL", evidenceUrl: "https://www.stevemadden.com/", reviewedAt: "2026-08-20" },
+  { host: "stevemadden.com", level: "OFFICIAL", evidenceUrl: "https://www.stevemadden.com/", reviewedAt: "2026-08-27", storefrontHost: "www.stevemadden.com", storefrontBrands: ["Steve Madden"] },
   { host: "apple.com", level: "OFFICIAL", evidenceUrl: "https://www.apple.com/", reviewedAt: "2026-08-24" },
   { host: "samsung.com", level: "OFFICIAL", evidenceUrl: "https://www.samsung.com/us/", reviewedAt: "2026-08-24" },
   { host: "microsoft.com", level: "OFFICIAL", evidenceUrl: "https://www.microsoft.com/en-us/store/b/home", reviewedAt: "2026-08-24" },
@@ -65,12 +66,12 @@ const MERCHANT_TRUST_RECORDS: readonly MerchantTrustRecord[] = [
   { host: "adidas.com", level: "OFFICIAL", evidenceUrl: "https://www.adidas.com/us/", reviewedAt: "2026-08-24" },
   { host: "patagonia.com", level: "OFFICIAL", evidenceUrl: "https://www.patagonia.com/", reviewedAt: "2026-08-24" },
   { host: "thenorthface.com", level: "OFFICIAL", evidenceUrl: "https://www.thenorthface.com/", reviewedAt: "2026-08-24" },
-  { host: "allbirds.com", level: "OFFICIAL", evidenceUrl: "https://www.allbirds.com/", reviewedAt: "2026-08-24" },
+  { host: "allbirds.com", level: "OFFICIAL", evidenceUrl: "https://www.allbirds.com/", reviewedAt: "2026-08-27", storefrontHost: "www.allbirds.com", storefrontBrands: ["Allbirds"] },
   { host: "bombas.com", level: "OFFICIAL", evidenceUrl: "https://bombas.com/", reviewedAt: "2026-08-24" },
-  { host: "brooklinen.com", level: "OFFICIAL", evidenceUrl: "https://www.brooklinen.com/", reviewedAt: "2026-08-24" },
+  { host: "brooklinen.com", level: "OFFICIAL", evidenceUrl: "https://www.brooklinen.com/", reviewedAt: "2026-08-27", storefrontHost: "www.brooklinen.com", storefrontBrands: ["Brooklinen"] },
   { host: "gymshark.com", level: "OFFICIAL", evidenceUrl: "https://www.gymshark.com/", reviewedAt: "2026-08-24" },
-  { host: "glossier.com", level: "OFFICIAL", evidenceUrl: "https://www.glossier.com/", reviewedAt: "2026-08-24" },
-  { host: "colourpop.com", level: "OFFICIAL", evidenceUrl: "https://colourpop.com/", reviewedAt: "2026-08-24" },
+  { host: "glossier.com", level: "OFFICIAL", evidenceUrl: "https://www.glossier.com/", reviewedAt: "2026-08-27", storefrontHost: "www.glossier.com", storefrontBrands: ["Glossier"] },
+  { host: "colourpop.com", level: "OFFICIAL", evidenceUrl: "https://colourpop.com/", reviewedAt: "2026-08-27", storefrontBrands: ["ColourPop", "Colour Pop"] },
 
   // Retailers with reviewed authorization evidence.
   { host: "expercom.com", level: "AUTHORIZED_RETAILER", evidenceUrl: "https://expercom.com/", reviewedAt: "2026-08-24" },
@@ -152,7 +153,7 @@ export function resolveVerifiedOfficialStorefront(brand: string): VerifiedOffici
     candidate.storefrontBrands?.some((alias) => normalizeBrand(alias) === requested) === true
   );
   if (record === undefined) return undefined;
-  return { host: record.host, brand: record.storefrontBrands?.[0] ?? brand.trim() };
+  return { host: record.storefrontHost ?? record.host, brand: record.storefrontBrands?.[0] ?? brand.trim() };
 }
 
 export function isHighRatedProduct(rating: ProductRating | undefined): boolean {

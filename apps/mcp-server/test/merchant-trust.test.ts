@@ -68,6 +68,38 @@ describe("merchant trust evidence", () => {
   it("resolves only reviewed Shopify storefront brands", () => {
     expect(resolveVerifiedOfficialStorefront("SKIMS")).toEqual({ host: "skims.com", brand: "SKIMS" });
     expect(resolveVerifiedOfficialStorefront("doen")).toEqual({ host: "shopdoen.com", brand: "DÔEN" });
+    expect(resolveVerifiedOfficialStorefront("Death Wish")).toEqual({
+      host: "www.deathwishcoffee.com",
+      brand: "Death Wish Coffee"
+    });
+    expect(resolveVerifiedOfficialStorefront("BLK and Bold")).toEqual({
+      host: "blkandbold.com",
+      brand: "BLK & Bold"
+    });
+    expect(resolveVerifiedOfficialStorefront("Verve")).toEqual({
+      host: "www.vervecoffee.com",
+      brand: "Verve Coffee"
+    });
+    expect(resolveVerifiedOfficialStorefront("Steve Madden")).toEqual({
+      host: "www.stevemadden.com",
+      brand: "Steve Madden"
+    });
+    expect(resolveVerifiedOfficialStorefront("Allbirds")).toEqual({
+      host: "www.allbirds.com",
+      brand: "Allbirds"
+    });
+    expect(resolveVerifiedOfficialStorefront("Brooklinen")).toEqual({
+      host: "www.brooklinen.com",
+      brand: "Brooklinen"
+    });
+    expect(resolveVerifiedOfficialStorefront("Glossier")).toEqual({
+      host: "www.glossier.com",
+      brand: "Glossier"
+    });
+    expect(resolveVerifiedOfficialStorefront("Colour Pop")).toEqual({
+      host: "colourpop.com",
+      brand: "ColourPop"
+    });
     expect(resolveVerifiedOfficialStorefront("Unknown Brand")).toBeUndefined();
   });
 

@@ -1,6 +1,6 @@
 {
   "name": "findcheap-agent",
-  "version": "0.12.5+codex.20260827025541",
+  "version": "0.12.6+codex.20260827030717",
   "description": "Search products from text or visual evidence, compare verified offers, find deals, and monitor prices, promotions, and stock.",
   "author": {
     "name": "yyq8548"
@@ -12,7 +12,7 @@
   "interface": {
     "displayName": "FindCheap Agent",
     "shortDescription": "Verified cards, pricing, coupons, and safe links.",
-    "longDescription": "FindCheap Agent is a Codex Plugin Agent. v0.12.5 preserves explicit product names as the primary source query even when visual evidence is present. When Catalog returns zero products, independently reviewed brand-to-storefront records can start one bounded official Shopify Sitemap and JSON-LD search without requiring an unrelated Catalog seed. Official candidates remain subject to identity, feature, variant, availability, and merchant-safety checks. Visual candidates remain conservatively labeled rather than inventing EXACT identity. Deal Concierge reuses stable selected-product identity, current price, inventory, verified deal candidates, optional delivered-price evidence, and bounded price history before returning BUY_NOW, WAIT, or WATCH. Authorized bounded Chrome search remains a user-approved fallback only after eligible API searches return no usable result. Search ranking remains independent of affiliate relationships. The agent never invents identity, discount eligibility, stacking, price history, or sale probability; it never checks out, reserves inventory, purchases, or pays.",
+    "longDescription": "FindCheap Agent is a Codex Plugin Agent. v0.12.6 expands independently reviewed official Shopify storefront recovery to Death Wish Coffee, BLK & Bold, Verve Coffee, Steve Madden, Allbirds, Brooklinen, Glossier, and ColourPop, in addition to SKIMS and DÔEN. Official candidates remain subject to identity, feature, variant, availability, and merchant-safety checks. Visual candidates remain conservatively labeled rather than inventing EXACT identity. Deal Concierge reuses stable selected-product identity, current price, inventory, verified deal candidates, optional delivered-price evidence, and bounded price history before returning BUY_NOW, WAIT, or WATCH. Authorized bounded Chrome search remains a user-approved fallback only after eligible API searches return no usable result. Search ranking remains independent of affiliate relationships. The agent never invents identity, discount eligibility, stacking, price history, or sale probability; it never checks out, reserves inventory, purchases, or pays.",
     "developerName": "yyq8548",
     "category": "Productivity",
     "capabilities": [

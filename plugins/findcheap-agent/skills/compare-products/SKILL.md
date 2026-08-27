@@ -3,7 +3,7 @@ name: compare-products
 description: For live shopping, match all prose to the user's language. When named, say only "Searching for suitable products." for English or "正在使用 FindCheap 搜索合适商品。" for Chinese; never narrate Skill or Memory reads.
 ---
 
-# FindCheap Agent v0.12.5 Product Search
+# FindCheap Agent v0.12.6 Product Search
 
 Search/Chrome are `R0`; ZIP quote is `R1`. Never checkout, reserve, buy, pay, persist, or request street address.
 
