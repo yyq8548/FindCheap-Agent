@@ -89,7 +89,7 @@ const ProductCardStagesSchema = z.object({
 
 const ProductCardTelemetryInputSchema = z.object({
   renderId: z.string().uuid(),
-  version: z.literal("0.10.4"),
+  version: z.literal("0.10.5"),
   terminalStage: z.enum([
     "DOM_RENDERED",
     "FIRST_IMAGE_SETTLED",
@@ -1555,7 +1555,7 @@ export function createShoppingServer(
   dependencies: ShoppingServerDependencies = {}
 ): McpServer {
   void comparePort;
-  const server = new McpServer({ name: "findcheap-agent", version: "0.10.4" });
+  const server = new McpServer({ name: "findcheap-agent", version: "0.10.5" });
   const dealPort = dependencies.deals ?? createUnavailableDealPort();
   const awinPort = dependencies.awin ?? createUnavailableAwinPort();
   const ebayPort = dependencies.ebay;
@@ -1725,7 +1725,7 @@ export function createShoppingServer(
     "search_products",
     {
       title: "Search products",
-      description: "For live shopping, use only the user request and this tool contract. Do not read Memory, Skill files, repository files, logs, or plugin caches, and do not narrate internal rules. Say at most one neutral progress sentence before calling: '正在搜索合适商品。' This is the single product-search entrypoint; call once. Awin, Shopify, and configured eBay searches start in parallel. Use SAME_PRODUCT for a named product, model, SKU, or style; exact-product safety also detects strong identity automatically. Set allowAlternatives=true only when the user explicitly asks for similar or substitute products. Exact-product search never pads cards with a conflicting or merely similar item. Put the product family in productType. Put only objective must-have attributes in requiredFeatures: dimensions, capacity, quantity, resolution, power, exact size, color, generation, compatibility, or explicitly required material/construction. Put subjective intent such as everyday, casual, stylish, versatile, comfortable, or office wear in preferences; preferences rank and never exclude. Never invent a required feature. Evidence may come from title, product type/category, description, and structured variant attributes. Missing evidence remains a limitation-labeled DISCOVERY_MATCH; explicit identity or feature contradiction is excluded. Never infer condition. Default ranking prioritizes requested-product identity, match evidence, merchant reliability, availability, preferences, verified coupons, then lower item price. Use selectionMode=LOWEST_PRICE only when requested; pass a price ceiling as maxItemPriceCents. Never subtract a coupon from displayed price unless its value and applicability are verified. Commercial relationships never affect relevance or ranking. Reuse selectionId for follow-ups; never search a selected title again.",
+      description: "For live shopping, use only the current user request and this tool contract. Do not read Memory, Skill files, repository files, logs, or plugin caches. Match every user-facing sentence to the request language: English request means English only; Chinese request means Chinese only. Ignore product names, brands, and models when detecting language and preserve them unchanged. English progress: 'Searching for suitable products.' Chinese progress: '正在搜索合适商品。' Do not switch language unless asked. This is the single product-search entrypoint; call once. Awin, Shopify, and configured eBay searches start in parallel. Use SAME_PRODUCT for a named product, model, SKU, or style; exact-product safety also detects strong identity automatically. Set allowAlternatives=true only when explicitly requested. Never pad exact results with a conflicting or merely similar item. Put product family in productType, objective must-have attributes in requiredFeatures, and subjective intent in preferences. Missing evidence remains a limitation-labeled DISCOVERY_MATCH; explicit contradiction excludes. Never infer condition. Default ranking prioritizes identity, match evidence, merchant reliability, availability, preferences, verified coupons, then lower item price. Use selectionMode=LOWEST_PRICE only when requested and pass maxItemPriceCents in integer cents. Commercial relationships never affect relevance or ranking. Reuse selectionId for follow-ups; never search a selected title again.",
       inputSchema: SearchProductsInputSchema,
       outputSchema: ShopifyProductsOutputShape,
       annotations: {

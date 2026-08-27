@@ -258,6 +258,9 @@ describe("shopping MCP server", () => {
     expect(unifiedTool?.description).toContain("maxItemPriceCents");
     expect(unifiedTool?.description).toContain("objective must-have attributes in requiredFeatures");
     expect(unifiedTool?.description).toContain("single product-search entrypoint");
+    expect(unifiedTool?.description).toContain("English request means English only");
+    expect(unifiedTool?.description).toContain("Chinese request means Chinese only");
+    expect(unifiedTool?.description).toContain("Searching for suitable products.");
     expect(unifiedTool?.description).toContain("正在搜索合适商品。");
     expect(unifiedTool?.description).toContain("Do not read Memory, Skill files, repository files");
     expect(unifiedTool?.description).toContain("Missing evidence remains a limitation-labeled DISCOVERY_MATCH");
@@ -433,7 +436,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.10.4",
+        version: "0.10.5",
         terminalStage: "DOM_RENDERED",
         stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
       }
@@ -442,7 +445,7 @@ describe("shopping MCP server", () => {
     expect(result.structuredContent).toEqual({ status: "RECORDED" });
     expect(record).toHaveBeenCalledWith(expect.objectContaining({
       renderId,
-      version: "0.10.4",
+      version: "0.10.5",
       terminalStage: "DOM_RENDERED",
       stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
     }));
@@ -450,7 +453,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.10.4",
+        version: "0.10.5",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 14 }
       }
@@ -460,7 +463,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.10.4",
+        version: "0.10.5",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 300_001 }
       }
@@ -471,7 +474,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId: "22222222-2222-4222-8222-222222222222",
-        version: "0.10.4",
+        version: "0.10.5",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 1 }
       }

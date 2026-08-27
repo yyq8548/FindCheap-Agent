@@ -1,6 +1,6 @@
 # eBay Browse deployment
 
-FindCheap v0.10.4 keeps eBay as an opt-in source and supports separate Sandbox review and
+FindCheap v0.10.5 keeps eBay as an opt-in source and supports separate Sandbox review and
 Production operation. The plugin calls a bounded Railway endpoint; eBay credentials and the EPN
 campaign ID never enter the plugin or browser. While `EBAY_BROWSE_ENABLED=false`, the gateway
 reports not configured and the router skips eBay without degrading other sources.

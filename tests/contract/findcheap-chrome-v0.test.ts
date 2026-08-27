@@ -80,9 +80,13 @@ describe("FindCheap Agent plugin contract", () => {
     expect(skill).toContain("[chrome-fallback.md](references/chrome-fallback.md)");
     expect(skill).toContain("Do not duplicate every card field");
     expect(skill).toContain("Every live shopping request is self-contained");
+    expect(skill).toContain("`Searching for suitable products.`");
+    expect(skill).toContain("English request: English only");
+    expect(skill).toContain("Chinese request: Chinese only");
+    expect(skill).toContain("Keep product names, brands, and models unchanged");
     expect(skill).toContain("`正在搜索合适商品。`");
     expect(skill).toContain("`正在使用 FindCheap 搜索合适商品。`");
-    expect(skill).toContain("description: For live shopping, say only \"正在使用 FindCheap 搜索合适商品。\"");
+    expect(skill).toContain("description: For live shopping, match all prose to the user's language");
     expect(skill).toContain("Do not open Skill files or narrate file reads");
     expect(skill).toContain("“Skill requires” wording");
     expect(skill).toContain("trust does not prove brand authorization");
@@ -156,7 +160,7 @@ describe("FindCheap Agent plugin contract", () => {
     };
 
     expect(manifest.name).toBe("findcheap-agent");
-    expect(manifest.version).toMatch(/^0\.10\.4(?:\+codex\.)?/u);
+    expect(manifest.version).toMatch(/^0\.10\.5(?:\+codex\.)?/u);
     expect(manifest.interface.displayName).toBe("FindCheap Agent");
     expect(manifest.interface.longDescription).toMatch(/Codex Plugin Agent/u);
     expect(manifest.interface.longDescription).toMatch(/[Aa]uthorized.*Chrome/u);

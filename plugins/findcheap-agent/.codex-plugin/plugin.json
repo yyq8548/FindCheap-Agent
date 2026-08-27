@@ -1,6 +1,6 @@
 {
   "name": "findcheap-agent",
-  "version": "0.10.4+codex.20260826220434",
+  "version": "0.10.5+codex.20260826221420",
   "description": "Search Shopify Global Catalog, joined Awin Feeds, and approved eBay listings; find verified deals and monitor prices, promotions, and stock.",
   "author": {
     "name": "yyq8548"
@@ -12,7 +12,7 @@
   "interface": {
     "displayName": "FindCheap Agent",
     "shortDescription": "Verified cards, pricing, coupons, and safe links.",
-    "longDescription": "FindCheap Agent is a Codex Plugin Agent. v0.10.4 separates exact-product requests from category discovery: named-product identity anchors are preserved, conflicting apparel types are rejected, unrelated products never pad the top three, and alternatives appear only when explicitly requested. Requested products and alternatives render in separate card groups, while ranking prioritizes identity, specification fit, merchant quality, availability, verified deals, and price. The private Awin Feed List discovers joined US English Feeds, Shopify Global Catalog remains the general catalog source, and approved eBay listings remain opt-in. Node.js 24, stable product selection, bounded provider normalization, fail-closed schema handling, and neutral affiliate ranking remain in place. Authorized Chrome remains a bounded fallback after complete API search returns no usable product. The agent never checks out, reserves inventory, purchases, or pays.",
+    "longDescription": "FindCheap Agent is a Codex Plugin Agent. v0.10.5 keeps all user-facing prose in the request language: English requests receive English responses and Chinese requests receive Chinese responses, while product names, brands, and models remain unchanged. Exact-product requests remain separate from category discovery: named-product identity anchors are preserved, conflicting apparel types are rejected, unrelated products never pad the top three, and alternatives appear only when explicitly requested. Ranking prioritizes identity, specification fit, merchant quality, availability, verified deals, and price. Awin Feed, Shopify Global Catalog, and approved opt-in eBay listings remain read-only sources. Node.js 24, stable product selection, fail-closed schema handling, neutral affiliate ranking, and bounded authorized Chrome fallback remain in place. The agent never checks out, reserves inventory, purchases, or pays.",
     "developerName": "yyq8548",
     "category": "Productivity",
     "capabilities": [
