@@ -199,12 +199,13 @@ export async function searchProducts(
     ])
   };
   const searchIntent = resolveSearchIntent(input);
+  const productQuery = productOnlyQuery(input.query, input.maxItemPriceCents !== undefined);
   const identityQuery = searchIntent === "EXACT_PRODUCT"
     ? unique([
-        input.brand !== undefined && !containsBrand(input.query, input.brand) ? input.brand : "",
-        input.query
+        input.brand !== undefined && !containsBrand(productQuery, input.brand) ? input.brand : "",
+        productQuery
       ]).join(" ").slice(0, 300).trim()
-    : buildSourceQuery(input);
+    : buildSourceQuery({ ...input, query: productQuery });
   const sourceQuery = searchIntent === "EXACT_PRODUCT" ? identityQuery : buildSourceQuery(input);
   const affiliateEligible = shouldQueryAwin(sourceQuery);
   let awinResult: AwinSearchResult | undefined;
@@ -851,15 +852,31 @@ function buildExpandedQuery(
   return parts.join(" ").slice(0, 300).trim();
 }
 
-function buildSourceQuery(input: Pick<SearchProductsInput, "query" | "brand" | "productType" | "visualInput">): string {
+function buildSourceQuery(input: Pick<SearchProductsInput, "query" | "brand" | "productType" | "visualInput" | "maxItemPriceCents">): string {
   if (input.visualInput !== undefined) {
     return visualSearchTerms(input.visualInput).join(" ").slice(0, 300).trim() || input.query;
   }
+  const query = productOnlyQuery(input.query, input.maxItemPriceCents !== undefined);
   return unique([
     input.brand ?? "",
-    input.query,
+    query,
     input.productType ?? "",
   ]).join(" ").slice(0, 300).trim();
+}
+
+function productOnlyQuery(value: string, hasPriceCeiling: boolean): string {
+  let query = value.normalize("NFKC");
+  if (hasPriceCeiling) {
+    query = query
+      .replace(/\b(?:under|below|less\s+than|up\s+to|budget(?:\s+of)?|maximum|max)\s*(?:usd\s*)?\$?\s*\d[\d,.]*/giu, " ")
+      .replace(/(?:预算|不超过|低于|少于|以内|以下|最高)\s*(?:美元|美金|人民币|USD|\$|￥|¥)?\s*\d[\d,.]*/giu, " ")
+      .replace(/\d[\d,.]*\s*(?:美元|美金|人民币|USD|\$|￥|¥)?\s*(?:预算|以内|以下)/giu, " ");
+  }
+  return query
+    .replace(/\b(?:for|suitable\s+for)\s+(?:programming|coding|software\s+development|gaming|video\s+editing|office\s+work|school|college|travel|everyday\s+use|daily\s+use)\b/giu, " ")
+    .replace(/(?:适合|用于)?(?:编程|写代码|软件开发|游戏|剪辑|视频编辑|办公|上学|通勤|日常使用)/gu, " ")
+    .replace(/\s+/gu, " ")
+    .trim() || value;
 }
 
 function buildOfficialStoreQueries(

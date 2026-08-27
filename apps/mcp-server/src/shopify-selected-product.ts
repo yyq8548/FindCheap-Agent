@@ -1,5 +1,6 @@
 import { safeFetchWithProvenance } from "../../../packages/network-safety/src/safe-fetch.js";
 import type { ShopifyProduct } from "./shopify-client.js";
+import { parseOfficialStructuredProduct } from "./shopify-official-store-search.js";
 import { ShopifyProductJsonSchema, shopifyVariantDimensions } from "./shopify-product-json.js";
 
 export type SelectedProductInspection = {
@@ -39,44 +40,75 @@ export function createShopifySelectedProductInspector(
       if (canonicalHref(fetched.finalUrl) !== target.jsonUrl) {
         throw new Error("selected product path changed");
       }
-      if (!fetched.response.ok) throw new Error("selected product document unavailable");
-      const product = ShopifyProductJsonSchema.parse(JSON.parse(await fetched.response.text()));
-      if (product.handle !== target.productHandle) {
-        throw new Error("selected product handle changed");
-      }
-      if (!product.variants.some((variant) => variant.id === selected.handle)) {
-        throw new Error("selected variant identity was not present");
-      }
-
       const checkedAt = clock.now().toISOString();
       const hasRequestedDimensions = Object.keys(requestedVariantDimensions).length > 0;
+      if (fetched.response.ok) {
+        const product = ShopifyProductJsonSchema.parse(JSON.parse(await fetched.response.text()));
+        if (product.handle !== target.productHandle) {
+          throw new Error("selected product handle changed");
+        }
+        if (!product.variants.some((variant) => variant.id === selected.handle)) {
+          throw new Error("selected variant identity was not present");
+        }
+        const variants = product.variants
+          .map((variant) => ({ variant, dimensions: shopifyVariantDimensions(product.options, variant) }))
+          .filter(({ variant, dimensions }) => hasRequestedDimensions
+            ? matchesDimensions(dimensions, requestedVariantDimensions)
+            : variant.id === selected.handle)
+          .slice(0, 3)
+          .map(({ variant, dimensions }): ShopifyProduct => ({
+            ...selected,
+            handle: variant.id,
+            title: variant.title === "Default Title"
+              ? product.title
+              : `${product.title} — ${variant.title}`,
+            ...(variant.sku === undefined || variant.sku === null || variant.sku === ""
+              ? {}
+              : { sku: variant.sku }),
+            variantDimensions: dimensions,
+            itemPrice: { amountCents: variant.price, currency: "USD" },
+            availability: variant.available ? "IN_STOCK" : "OUT_OF_STOCK",
+            merchantUrl: `${target.canonicalProductUrl}?variant=${variant.id}`,
+            checkedAt
+          }));
+        return { productTitle: product.title, canonicalProductUrl: target.canonicalProductUrl, variants };
+      }
+
+      const page = await fetchProduct(target.canonicalProductUrl, target.sourceHost);
+      if (canonicalHref(page.finalUrl) !== canonicalHref(target.canonicalProductUrl) || !page.response.ok) {
+        throw new Error("selected product page changed");
+      }
+      const product = parseOfficialStructuredProduct(
+        await page.response.text(),
+        target.sourceHost,
+        target.productHandle
+      );
+      if (!product.variants.some((variant) => variant.variantId === selected.handle)) {
+        throw new Error("selected variant identity was not present");
+      }
       const variants = product.variants
-        .map((variant) => ({ variant, dimensions: shopifyVariantDimensions(product.options, variant) }))
+        .map((variant) => ({
+          variant,
+          dimensions: variant.size === undefined ? {} : { Size: variant.size }
+        }))
         .filter(({ variant, dimensions }) => hasRequestedDimensions
           ? matchesDimensions(dimensions, requestedVariantDimensions)
-          : variant.id === selected.handle)
+          : variant.variantId === selected.handle)
         .slice(0, 3)
         .map(({ variant, dimensions }): ShopifyProduct => ({
           ...selected,
-          handle: variant.id,
-          title: variant.title === "Default Title"
-            ? product.title
-            : `${product.title} — ${variant.title}`,
-          ...(variant.sku === undefined || variant.sku === null || variant.sku === ""
-            ? {}
-            : { sku: variant.sku }),
+          handle: variant.variantId,
+          title: variant.title,
+          ...(variant.sku === undefined ? {} : { sku: variant.sku }),
+          gtins: variant.gtin === undefined ? [] : [variant.gtin],
           variantDimensions: dimensions,
-          itemPrice: { amountCents: variant.price, currency: "USD" },
+          ...(variant.imageUrl === undefined ? {} : { imageUrl: variant.imageUrl }),
+          itemPrice: { amountCents: variant.amountCents, currency: "USD" },
           availability: variant.available ? "IN_STOCK" : "OUT_OF_STOCK",
-          merchantUrl: `${target.canonicalProductUrl}?variant=${variant.id}`,
+          merchantUrl: variant.merchantUrl,
           checkedAt
         }));
-
-      return {
-        productTitle: product.title,
-        canonicalProductUrl: target.canonicalProductUrl,
-        variants
-      };
+      return { productTitle: product.title, canonicalProductUrl: target.canonicalProductUrl, variants };
     }
   };
 }

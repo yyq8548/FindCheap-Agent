@@ -3,17 +3,17 @@ name: deals-and-watch
 description: Find verified Coupon, promotion, membership, Cashback, and offline-barcode evidence, or create and manage shopping watches with Codex Automation.
 ---
 
-# FindCheap Agent v0.13.0 Deals and Watch
+# FindCheap Agent v0.13.1 Deals and Watch
 
-A clear live Coupon or Watch request is self-contained. Do not read Memory, repository files, logs, task files, or plugin cache. Send at most one short progress sentence before the first tool call; do not narrate the tool sequence between calls.
+A live Coupon or Watch request is self-contained. MCP tools are loaded. Do not read Memory, repository files, logs, task files, or plugin cache. Do not reopen this Skill. Send at most one short progress sentence before the first tool call; do not narrate the tool sequence between calls.
 
 ## Coupon
 
-Call `find_coupons` once when available. It includes active Awin Promotions for joined advertisers, including advertisers without Product Feeds. Return only verified deals with source, eligibility, expiry, and checked time. Keep Coupon, Promo Code, promotion, membership, Cashback, and offline barcode distinct. Never invent a code, stacking, discount, or Cashback. `DATA_SOURCE_UNAVAILABLE` is not “no Coupon.” Chrome requires explicit single-use authorization and may inspect only public HTTPS merchant promotion pages; never apply codes, sign in, enter checkout, or persist data.
+Call `find_coupons` once. It includes active Awin Promotions for joined advertisers without Product Feeds. Return only verified deals with source, eligibility, expiry, checked time. Keep Coupon, Promo Code, promotion, membership, Cashback, offline barcode distinct. Never invent code, stacking, discount, Cashback. `DATA_SOURCE_UNAVAILABLE` is not “no Coupon.” Chrome requires explicit single-use authorization and may inspect only public HTTPS promotion pages; never apply codes, sign in, enter checkout, or persist data.
 
 ## Current deal check
 
-For current deal or cheapest-current-path questions about a selected card, call `research_selected_product_deal` with stable `selectionId`; never search its title. Pass only supplied ZIP and memberships. Return current item or delivered price, inventory, verified deal candidates, and limits. Do not discuss price history, sale cadence, or buy-or-wait forecasting. A deal does not prove eligibility or stacking. Monitor only after explicit Watch authorization.
+For a selected-card deal question, call `research_selected_product_deal` with stable `selectionId`; never search title. Pass only supplied ZIP and memberships. Return product, merchant, price basis/amount/checked time, inventory, each verified deal's source/eligibility/expiry, and limits. Never answer only “price checked” or “no Coupon.” No price history, sale cadence, buy-or-wait forecast, or Watch unless requested. Deal does not prove eligibility or stacking.
 
 ## Create Watch
 

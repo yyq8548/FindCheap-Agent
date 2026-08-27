@@ -117,4 +117,63 @@ describe("selected Shopify product inspection", () => {
     await expect(inspector.inspect(selected, { Size: "S" }))
       .rejects.toThrow("selected product path changed");
   });
+
+  it("uses the exact official product page JSON-LD when the legacy product JSON is unavailable", async () => {
+    const skimsSelected: ShopifyProduct = {
+      ...selected,
+      merchantId: "official-skims.com",
+      merchant: "SKIMS",
+      sourceHost: "skims.com",
+      handle: "47897163792737",
+      title: "COTTON JERSEY CUT OUT MINI DRESS | JASPER",
+      brand: "SKIMS",
+      merchantUrl: "https://skims.com/products/cotton-jersey-cut-out-mini-dress-jasper?variant=47897163792737"
+    };
+    const productPage = {
+      "@type": "ProductGroup",
+      name: "COTTON JERSEY CUT OUT MINI DRESS | JASPER",
+      brand: { name: "SKIMS" },
+      hasVariant: [
+        {
+          name: "COTTON JERSEY CUT OUT MINI DRESS | JASPER | XS",
+          gtin: "199106156961",
+          mpn: "OP-DRS-11172W-JSP-XS",
+          size: "XS",
+          image: "https://cdn.shopify.com/skims-jasper.jpg",
+          offers: {
+            availability: "https://schema.org/InStock",
+            price: "58.00",
+            priceCurrency: "USD",
+            url: "https://skims.com/products/cotton-jersey-cut-out-mini-dress-jasper?variant=47897163792737"
+          }
+        }
+      ]
+    };
+    const fetchProduct = vi.fn<ProductJsonFetch>(async (url) => url.endsWith(".js")
+      ? { response: new Response("not found", { status: 404 }), finalUrl: url }
+      : {
+          response: new Response(`<script type="application/ld+json">${JSON.stringify(productPage)}</script>`),
+          finalUrl: url
+        });
+    const inspector = createShopifySelectedProductInspector({
+      fetchProduct,
+      clock: { now: () => new Date("2026-08-27T10:30:00.000Z") }
+    });
+
+    const result = await inspector.inspect(skimsSelected, {});
+
+    expect(fetchProduct).toHaveBeenNthCalledWith(
+      2,
+      "https://skims.com/products/cotton-jersey-cut-out-mini-dress-jasper",
+      "skims.com"
+    );
+    expect(result.variants).toEqual([expect.objectContaining({
+      handle: "47897163792737",
+      sku: "OP-DRS-11172W-JSP-XS",
+      gtins: ["199106156961"],
+      variantDimensions: { Size: "XS" },
+      itemPrice: { amountCents: 5_800, currency: "USD" },
+      availability: "IN_STOCK"
+    })]);
+  });
 });

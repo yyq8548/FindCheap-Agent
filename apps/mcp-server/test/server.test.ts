@@ -452,7 +452,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.13.0",
+        version: "0.13.1",
         terminalStage: "DOM_RENDERED",
         stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
       }
@@ -461,7 +461,7 @@ describe("shopping MCP server", () => {
     expect(result.structuredContent).toEqual({ status: "RECORDED" });
     expect(record).toHaveBeenCalledWith(expect.objectContaining({
       renderId,
-      version: "0.13.0",
+      version: "0.13.1",
       terminalStage: "DOM_RENDERED",
       stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
     }));
@@ -469,7 +469,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.13.0",
+        version: "0.13.1",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 14 }
       }
@@ -479,7 +479,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.13.0",
+        version: "0.13.1",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 300_001 }
       }
@@ -490,7 +490,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId: "22222222-2222-4222-8222-222222222222",
-        version: "0.13.0",
+        version: "0.13.1",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 1 }
       }
@@ -1251,6 +1251,13 @@ describe("Coupon and Watch tools", () => {
       dealStatus: "CURRENT_DEAL_FOUND",
       deals: [{ dealId: "deal-1", applicability: "REQUIRES_MERCHANT_CONFIRMATION" }]
     });
+    const content = result.content as Array<{ text: string }>;
+    expect(content).toEqual([expect.objectContaining({
+      text: expect.stringContaining("Selected product: Valhalla Java Single-Serve Pods — 10 count")
+    })]);
+    expect(content[0]?.text).toContain("Current item price: USD 14.99");
+    expect(content[0]?.text).toContain("code SAVE30");
+    expect(content[0]?.text).toContain("source https://www.aritzia.com/promotion");
     expect(JSON.stringify(result.structuredContent)).not.toMatch(/history|cadence|BUY_NOW|WAIT/u);
     expect((await client.callTool({ name: "list_watches", arguments: {} })).structuredContent)
       .toEqual({ watches: [] });

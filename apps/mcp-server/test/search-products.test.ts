@@ -160,6 +160,31 @@ describe("unified product search", () => {
     expect(result.candidates[0]?.shopifyProduct?.condition).toBe("UNKNOWN");
   });
 
+  it("keeps budget and usage out of source identity while applying the price ceiling", async () => {
+    const search = vi.fn<ShopifyPort["search"]>(async () => shopifyResult([
+      shopifyProduct("m5-pro", 234_900, "NEW", { title: "Apple MacBook Pro M5 Pro 24GB 1TB", brand: "Apple" }),
+      shopifyProduct("m4-max", 259_900, "NEW", { title: "Apple MacBook Pro M4 Max 36GB 1TB", brand: "Apple" }),
+      shopifyProduct("m3", 100_000, "NEW", { title: "Apple MacBook Pro M3 8GB 512GB", brand: "Apple" })
+    ]));
+
+    const result = await searchProducts(SearchProductsInputSchema.parse({
+      query: "MacBook Pro for programming under $3000",
+      brand: "Apple",
+      brandMode: "REQUIRED",
+      productType: "MacBook Pro laptop",
+      preferences: ["suitable for software development", "24GB unified memory", "1TB SSD"],
+      maxItemPriceCents: 300_000,
+      limit: 3
+    }), { awin: awin([]), shopify: { search } });
+
+    expect(search.mock.calls[0]?.[0]).toMatchObject({
+      query: "Apple MacBook Pro",
+      maxItemPriceCents: 300_000,
+      limit: 12
+    });
+    expect(result.candidates[0]?.shopifyProduct?.title).toBe("Apple MacBook Pro M5 Pro 24GB 1TB");
+  });
+
   it("rejects UNKNOWN affiliate condition when NEW is explicitly required", async () => {
     const result = await searchProducts(SearchProductsInputSchema.parse({
       query: "全新 hair mask",

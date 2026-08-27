@@ -94,7 +94,7 @@ const ProductCardStagesSchema = z.object({
 
 const ProductCardTelemetryInputSchema = z.object({
   renderId: z.string().uuid(),
-  version: z.literal("0.13.0"),
+  version: z.literal("0.13.1"),
   terminalStage: z.enum([
     "DOM_RENDERED",
     "FIRST_IMAGE_SETTLED",
@@ -1639,7 +1639,7 @@ export function createShoppingServer(
   dependencies: ShoppingServerDependencies = {}
 ): McpServer {
   void comparePort;
-  const server = new McpServer({ name: "findcheap-agent", version: "0.13.0" });
+  const server = new McpServer({ name: "findcheap-agent", version: "0.13.1" });
   const dealPort = dependencies.deals ?? createUnavailableDealPort();
   const awinPort = dependencies.awin ?? createUnavailableAwinPort();
   const ebayPort = dependencies.ebay;
@@ -2354,13 +2354,25 @@ export function createShoppingServer(
         ...(cartQuotes === undefined ? {} : { cartQuotes }),
         now: now()
       });
-      const message = research.dealStatus === "CURRENT_DEAL_FOUND"
-        ? `Found ${research.deals.length} current verified deal candidate(s) for the exact selected product.`
-        : research.dealStatus === "OUT_OF_STOCK"
-          ? "The exact selected product is currently out of stock."
-          : research.dealStatus === "CURRENT_PRICE_UNAVAILABLE"
-            ? "A current price for the exact selected product is unavailable."
-            : "Current price checked; no current verified merchant deal was found.";
+      const priceEvidence = research.currentPrice === undefined
+        ? "Current price: unavailable."
+        : `Current ${research.currentPrice.basis === "DELIVERED_TOTAL" ? "estimated delivered total" : "item price"}: USD ${(research.currentPrice.amount.amountCents / 100).toFixed(2)}; checked at ${research.currentPrice.checkedAt}.`;
+      const dealEvidence = research.deals.length === 0
+        ? "Verified deals: none found."
+        : `Verified deals: ${research.deals.map((deal) => [
+            deal.title,
+            deal.code === undefined ? undefined : `code ${deal.code}`,
+            `eligibility: ${deal.eligibility.join(", ") || "merchant confirmation required"}`,
+            `valid through ${deal.validTo}`,
+            `checked at ${deal.checkedAt}`,
+            `source ${deal.sourceUrl}`
+          ].filter((part): part is string => part !== undefined).join("; ")).join(" | ")}.`;
+      const message = [
+        `Selected product: ${selectedCard.title}; merchant: ${selectedCard.merchant}; availability: ${selectedCard.availability}.`,
+        priceEvidence,
+        dealEvidence,
+        ...research.limitations.map((limitation) => `Limit: ${limitation}`)
+      ].join(" ");
       return {
         content: [{ type: "text" as const, text: message }],
         structuredContent: {

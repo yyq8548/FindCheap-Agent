@@ -59,6 +59,23 @@ export type OfficialShopifySearchInput = {
   limit: number;
 };
 
+export type OfficialStructuredProduct = {
+  title: string;
+  brand?: string | undefined;
+  description?: string | undefined;
+  variants: Array<{
+    variantId: string;
+    title: string;
+    sku?: string | undefined;
+    gtin?: string | undefined;
+    size?: string | undefined;
+    imageUrl?: string | undefined;
+    amountCents: number;
+    available: boolean;
+    merchantUrl: string;
+  }>;
+};
+
 export interface OfficialShopifySearchPort {
   search(input: OfficialShopifySearchInput): Promise<ShopifyProduct[]>;
 }
@@ -192,35 +209,21 @@ async function hydrateStorefrontProduct(
     });
   } catch {
     const html = await fetchText(fetchDocument, productUrl, host, "official product page");
-    const group = productGroupFromHtml(html);
-    const variant = group.hasVariant.find((entry) => isInStock(entry.offers.availability)) ?? group.hasVariant[0];
-    if (variant === undefined || variant.offers.priceCurrency.toUpperCase() !== "USD") {
-      throw new Error("official structured product data was incomplete");
-    }
-    const offerUrl = exactVariantUrl(host, variant.offers.url, candidate.handle);
-    const variantId = new URL(offerUrl).searchParams.get("variant");
-    if (variantId === null || !/^\d{1,30}$/u.test(variantId)) {
-      throw new Error("official structured variant id was invalid");
-    }
-    const price = typeof variant.offers.price === "number" ? variant.offers.price : Number(variant.offers.price);
-    const amountCents = Math.round(price * 100);
-    if (!Number.isSafeInteger(amountCents) || amountCents < 0 || amountCents > 100_000_000) {
-      throw new Error("official structured price was invalid");
-    }
-    const brand = typeof group.brand === "string" ? group.brand : group.brand?.name;
-    const image = variant.image ?? (Array.isArray(group.image) ? group.image[0] : group.image);
+    const structured = parseOfficialStructuredProduct(html, host, candidate.handle);
+    const variant = structured.variants.find((entry) => entry.available) ?? structured.variants[0];
+    if (variant === undefined) throw new Error("official structured product data was incomplete");
     return officialProduct(seed, host, checkedAt, {
-      handle: variantId,
-      title: group.name,
-      description: group.description,
-      brand,
-      sku: variant.mpn,
-      gtins: variant.gtin === undefined || variant.gtin === "" ? [] : [variant.gtin],
+      handle: variant.variantId,
+      title: structured.title,
+      description: structured.description,
+      brand: structured.brand,
+      sku: variant.sku,
+      gtins: variant.gtin === undefined ? [] : [variant.gtin],
       variantDimensions: variant.size === undefined ? {} : { Size: variant.size },
-      imageUrl: image,
-      amountCents,
-      available: isInStock(variant.offers.availability),
-      merchantUrl: offerUrl
+      imageUrl: variant.imageUrl,
+      amountCents: variant.amountCents,
+      available: variant.available,
+      merchantUrl: variant.merchantUrl
     });
   }
 }
@@ -394,6 +397,47 @@ function validSameHostUrl(value: string, host: string): boolean {
   } catch {
     return false;
   }
+}
+
+export function parseOfficialStructuredProduct(
+  html: string,
+  host: string,
+  expectedHandle: string
+): OfficialStructuredProduct {
+  const group = productGroupFromHtml(html);
+  const brand = typeof group.brand === "string" ? group.brand : group.brand?.name;
+  const fallbackImage = Array.isArray(group.image) ? group.image[0] : group.image;
+  const variants = group.hasVariant.flatMap((variant) => {
+    if (variant.offers.priceCurrency.toUpperCase() !== "USD") return [];
+    const merchantUrl = exactVariantUrl(host, variant.offers.url, expectedHandle);
+    const variantId = new URL(merchantUrl).searchParams.get("variant");
+    if (variantId === null || !/^\d{1,30}$/u.test(variantId)) {
+      throw new Error("official structured variant id was invalid");
+    }
+    const price = typeof variant.offers.price === "number" ? variant.offers.price : Number(variant.offers.price);
+    const amountCents = Math.round(price * 100);
+    if (!Number.isSafeInteger(amountCents) || amountCents < 0 || amountCents > 100_000_000) {
+      throw new Error("official structured price was invalid");
+    }
+    return [{
+      variantId,
+      title: variant.name,
+      ...(variant.mpn === undefined || variant.mpn === "" ? {} : { sku: variant.mpn }),
+      ...(variant.gtin === undefined || variant.gtin === "" ? {} : { gtin: variant.gtin }),
+      ...(variant.size === undefined || variant.size === "" ? {} : { size: variant.size }),
+      ...((variant.image ?? fallbackImage) === undefined ? {} : { imageUrl: variant.image ?? fallbackImage }),
+      amountCents,
+      available: isInStock(variant.offers.availability),
+      merchantUrl
+    }];
+  });
+  if (variants.length === 0) throw new Error("official structured product data was incomplete");
+  return {
+    title: group.name,
+    ...(brand === undefined ? {} : { brand }),
+    ...(group.description === undefined ? {} : { description: group.description }),
+    variants
+  };
 }
 
 function productGroupFromHtml(html: string): z.infer<typeof JsonLdProductGroupSchema> {
