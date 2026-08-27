@@ -1,7 +1,7 @@
 {
   "name": "findcheap-agent",
-  "version": "0.10.1+codex.20260826194622",
-  "description": "Search Shopify Global Catalog and automatically discovered joined Awin Feeds, find verified deals, and monitor prices, promotions, and stock.",
+  "version": "0.10.2+codex.20260826200654",
+  "description": "Search Shopify Global Catalog, joined Awin Feeds, and approved eBay listings; find verified deals and monitor prices, promotions, and stock.",
   "author": {
     "name": "yyq8548"
   },
@@ -12,7 +12,7 @@
   "interface": {
     "displayName": "FindCheap Agent",
     "shortDescription": "Verified cards, pricing, coupons, and safe links.",
-    "longDescription": "FindCheap Agent is a Codex Plugin Agent. v0.10.1 uses the private Awin Feed List to automatically discover every joined US English Feed and adds hourly Awin Promotion synchronization for joined advertisers, including advertisers without Product Feeds. The Railway service validates publisher and merchant relationships, keeps source credentials private, and exposes bounded read-only product and promotion search. Shopify Global Catalog remains the general catalog source and fills eligible results. Node.js 24, evidence-aware matching, merchant trust, affiliate-neutral ranking, stable product selection, delivered-price rules, bounded provider normalization, and fail-closed schema handling remain in place. Authorized Chrome remains a bounded fallback after API search returns no usable product. The agent never checks out, reserves inventory, purchases, or pays.",
+    "longDescription": "FindCheap Agent is a Codex Plugin Agent. v0.10.2 adds an opt-in eBay Browse gateway for approved EBAY_US fixed-price discovery while keeping eBay credentials on Railway. eBay seller identity remains explicitly unverified, EPN relationships never affect ranking, and shipping, tax, fees, and totals require eBay checkout. The private Awin Feed List continues to discover joined US English Feeds and synchronize promotions, while Shopify Global Catalog remains the general catalog source. Node.js 24, evidence-aware matching, stable product selection, bounded provider normalization, and fail-closed schema handling remain in place. Authorized Chrome remains a bounded fallback after complete API search returns no usable product. The agent never checks out, reserves inventory, purchases, or pays.",
     "developerName": "yyq8548",
     "category": "Productivity",
     "capabilities": [

@@ -159,12 +159,12 @@ describe("shopping MCP server", () => {
     const renderTool = tools.tools.find((candidate) => candidate.name === "render_product_cards");
     const metricsTool = tools.tools.find((candidate) => candidate.name === "report_product_card_metrics");
     expect(searchTool?._meta).toMatchObject({
-      ui: { resourceUri: "ui://findcheap/product-cards/v22.html" },
-      "openai/outputTemplate": "ui://findcheap/product-cards/v22.html"
+      ui: { resourceUri: "ui://findcheap/product-cards/v23.html" },
+      "openai/outputTemplate": "ui://findcheap/product-cards/v23.html"
     });
     expect(renderTool?._meta).toMatchObject({
       ui: {
-        resourceUri: "ui://findcheap/product-cards/v22.html",
+        resourceUri: "ui://findcheap/product-cards/v23.html",
         visibility: ["app"]
       }
     });
@@ -181,11 +181,11 @@ describe("shopping MCP server", () => {
     const resources = await client.listResources();
     expect(resources.resources).toEqual([expect.objectContaining({
       name: "findcheap-product-cards",
-      uri: "ui://findcheap/product-cards/v22.html",
+      uri: "ui://findcheap/product-cards/v23.html",
       mimeType: "text/html;profile=mcp-app"
     })]);
 
-    const resource = await client.readResource({ uri: "ui://findcheap/product-cards/v22.html" });
+    const resource = await client.readResource({ uri: "ui://findcheap/product-cards/v23.html" });
     const content = resource.contents[0];
     const html = content !== undefined && "text" in content ? content.text : "";
     expect(html).toContain("ui/notifications/tool-result");
@@ -205,7 +205,7 @@ describe("shopping MCP server", () => {
         prefersBorder: false,
         csp: {
           connectDomains: [],
-          resourceDomains: ["https://cdn.shopify.com"]
+          resourceDomains: ["https://cdn.shopify.com", "https://i.ebayimg.com"]
         }
       }
     });
@@ -432,7 +432,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.10.1",
+        version: "0.10.2",
         terminalStage: "DOM_RENDERED",
         stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
       }
@@ -441,7 +441,7 @@ describe("shopping MCP server", () => {
     expect(result.structuredContent).toEqual({ status: "RECORDED" });
     expect(record).toHaveBeenCalledWith(expect.objectContaining({
       renderId,
-      version: "0.10.1",
+      version: "0.10.2",
       terminalStage: "DOM_RENDERED",
       stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
     }));
@@ -449,7 +449,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.10.1",
+        version: "0.10.2",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 14 }
       }
@@ -459,7 +459,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.10.1",
+        version: "0.10.2",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 300_001 }
       }
@@ -470,7 +470,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId: "22222222-2222-4222-8222-222222222222",
-        version: "0.10.1",
+        version: "0.10.2",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 1 }
       }
@@ -1623,11 +1623,13 @@ describe("Coupon and Watch tools", () => {
     expect(result.structuredContent).toMatchObject({
       status: "OK",
       source: "UNIFIED_PRODUCT_SEARCH",
-      sources: { awin: "COMPLETE", shopify: "COMPLETE" },
+      sources: { awin: "COMPLETE", shopify: "COMPLETE", ebay: "SKIPPED" },
       comparison: { status: "DISCOVERY_ONLY" },
       diagnostics: { featureProductsExcluded: 0 }
     });
-    expect((result.structuredContent as { products: unknown[] }).products[0]).toMatchObject({
+    const awinCard = (result.structuredContent as { products: Array<Record<string, unknown>> }).products
+      .find((product) => product.sourceKind === "AWIN_PRODUCT_FEED");
+    expect(awinCard).toMatchObject({
         matchStatus: "DISCOVERY_MATCH",
         condition: "UNKNOWN",
         sourceKind: "AWIN_PRODUCT_FEED",
@@ -1650,6 +1652,76 @@ describe("Coupon and Watch tools", () => {
     expect(modelText).not.toMatch(/coverage|diagnostic|feedRows|registry/iu);
   });
 
+  it("attaches verified Coupon evidence to ranked product cards", async () => {
+    const client = await connect({ compare: async () => comparison }, shopifyPort, undefined, {
+      now: () => current,
+      deals: { search: async ({ merchant }) => merchant === "Death Wish Coffee"
+        ? [{ ...verifiedDeal, merchant: "Death Wish Coffee" }]
+        : [] }
+    });
+
+    const result = await client.callTool({
+      name: "search_products",
+      arguments: { query: "coffee pods", limit: 1 }
+    });
+
+    expect(result.structuredContent).toMatchObject({
+      quality: { couponsVerified: 1 },
+      products: [{
+        coupons: { status: "VERIFIED", verified: [{ code: "SAVE30", discountPercent: 30 }] },
+        card: { couponLabel: "Coupon: SAVE30" }
+      }]
+    });
+  });
+
+  it("renders eBay as an unverified marketplace seller with checkout-only pricing", async () => {
+    const client = await connect({ compare: async () => comparison }, shopifyPort, undefined, {
+      awin: { search: async () => { throw new Error("unavailable"); } },
+      ebay: { search: async () => ({
+        source: "EBAY_BROWSE",
+        coverage: "COMPLETE",
+        snapshotAt: "2026-08-26T12:00:00.000Z",
+        diagnostics: { queryMatches: 1, itemsReturned: 1, validItems: 1, rejectedItems: 0 },
+        products: [{
+          itemId: "v1|123|0",
+          productRef: "ebay-0123456789abcdef0123456789abcdef",
+          title: "Sony WH-1000XM5 Headphones",
+          category: "Headphones",
+          attributes: ["Color: Black"],
+          sellerName: "audio_store",
+          sellerFeedbackPercentage: 99.8,
+          sellerFeedbackScore: 4200,
+          matchStatus: "DISCOVERY_MATCH",
+          matchEvidence: ["live eBay fixed-price listing returned by Browse API"],
+          condition: "REFURBISHED",
+          imageUrl: "https://i.ebayimg.com/images/g/test/s-l1600.jpg",
+          itemPrice: { amountCents: 29_999, currency: "USD" },
+          availability: "UNKNOWN",
+          merchantUrl: "https://www.ebay.com/itm/123",
+          affiliateUrl: "https://www.ebay.com/itm/123?campid=5339000012",
+          checkedAt: "2026-08-26T12:00:00.000Z"
+        }]
+      }) }
+    });
+
+    const result = await client.callTool({
+      name: "search_products",
+      arguments: { query: "Sony headphones", limit: 3 }
+    });
+    const products = (result.structuredContent as { products: Array<Record<string, unknown>> }).products;
+    const product = products.find((candidate) => candidate.sourceKind === "EBAY_BROWSE");
+
+    expect(product).toMatchObject({
+      merchant: "eBay",
+      sellerName: "audio_store",
+      recommendationTier: "GENERAL_UNVERIFIED",
+      merchantTrust: { level: "UNKNOWN", verification: "UNVERIFIED" },
+      quoteCapability: "MERCHANT_CHECKOUT_ONLY",
+      purchaseLink: { kind: "APPROVED_AFFILIATE", providerName: "eBay Partner Network" },
+      card: { merchant: "eBay", sellerName: "audio_store", merchantTrustBadge: "MERCHANT_UNVERIFIED" }
+    });
+  });
+
   it("reports an incompatible Shopify Catalog response without claiming zero results", async () => {
     const client = await connect(
       { compare: async () => comparison },
@@ -1663,7 +1735,7 @@ describe("Coupon and Watch tools", () => {
 
     expect(result.structuredContent).toMatchObject({
       status: "DATA_SOURCE_UNAVAILABLE",
-      sources: { awin: "UNAVAILABLE", shopify: "UNAVAILABLE" },
+      sources: { awin: "UNAVAILABLE", shopify: "UNAVAILABLE", ebay: "SKIPPED" },
       sourceErrors: { shopify: "CATALOG_SCHEMA_CHANGED" },
       products: []
     });
@@ -1733,24 +1805,24 @@ describe("Coupon and Watch tools", () => {
         }
       }
     });
-    const found = await client.callTool({ name: "search_products", arguments: { query: "B24 shampoo", limit: 1 } });
-    expect(found.structuredContent).toMatchObject({
-      products: [{
-        merchantTrust: {
-          level: "ESTABLISHED_RETAILER",
-          verification: "INDEPENDENT"
-        },
-        quoteCapability: "ZIP_ESTIMATE_ONLY",
-        card: {
-          merchantTrustBadge: "ESTABLISHED_RETAILER",
-          quoteCapability: "ZIP_ESTIMATE_ONLY"
-        },
-        quoteReference: { selectionId: expect.any(String) }
-      }]
+    const found = await client.callTool({ name: "search_products", arguments: { query: "B24 shampoo", limit: 2 } });
+    const awinProduct = (found.structuredContent as {
+      products: Array<{ sourceKind?: string; quoteReference: { selectionId: string; renderId: string; variantId: string } }>;
+    }).products.find((product) => product.sourceKind === "AWIN_PRODUCT_FEED");
+    expect(awinProduct).toMatchObject({
+      sourceKind: "AWIN_PRODUCT_FEED",
+      merchantTrust: {
+        level: "ESTABLISHED_RETAILER",
+        verification: "INDEPENDENT"
+      },
+      quoteCapability: "ZIP_ESTIMATE_ONLY",
+      card: {
+        merchantTrustBadge: "ESTABLISHED_RETAILER",
+        quoteCapability: "ZIP_ESTIMATE_ONLY"
+      },
+      quoteReference: { selectionId: expect.any(String) }
     });
-    const reference = (found.structuredContent as {
-      products: Array<{ quoteReference: { selectionId: string; renderId: string; variantId: string } }>;
-    }).products[0]!.quoteReference;
+    const reference = awinProduct!.quoteReference;
 
     const quoted = await client.callTool({
       name: "quote_selected_shopify_product",

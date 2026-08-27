@@ -1,7 +1,8 @@
-export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v22.html";
+export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v23.html";
 
 export const PRODUCT_CARD_RESOURCE_DOMAINS = [
-  "https://cdn.shopify.com"
+  "https://cdn.shopify.com",
+  "https://i.ebayimg.com"
 ];
 
 export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
@@ -169,7 +170,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     const uiStartedAt = typeof performance === "object" && typeof performance.now === "function"
       ? performance.now()
       : Date.now();
-    const cardMetrics = { version: "0.10.1", stages: {} };
+    const cardMetrics = { version: "0.10.2", stages: {} };
     window.__findcheapCardMetrics = cardMetrics;
     const notify = (method, params = {}) => {
       window.parent.postMessage({ jsonrpc: "2.0", method, params }, "*");
@@ -385,6 +386,9 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
           }
           const body = make("div", "body");
           body.append(make("div", "merchant", cardData.merchant || product.merchant || "Merchant"));
+          if (cardData.sellerName || product.sellerName) {
+            body.append(make("div", "details", "Seller: " + String(cardData.sellerName || product.sellerName)));
+          }
           body.append(make("h3", "", cardData.title || product.title || "Product"));
           const identity = [product.brand, product.sku ? "Model/SKU: " + product.sku : undefined, product.gtins?.[0] ? "GTIN: " + product.gtins[0] : undefined]
             .filter(Boolean).join(" / ");
@@ -407,6 +411,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
           badges.append(make("span", "badge " + (trustBadge === "MERCHANT_UNVERIFIED" ? "unverified" : "trusted"), trustBadge));
           badges.append(make("span", "badge", String(cardData.conditionBadge || product.condition || "UNKNOWN")));
           badges.append(make("span", "badge", String(cardData.availability || product.availability || "UNKNOWN")));
+          if (cardData.couponLabel) badges.append(make("span", "badge", String(cardData.couponLabel)));
           row.append(badges);
           body.append(row);
           const breakdown = make("div", "price-breakdown");
@@ -442,9 +447,12 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
             body.append(make("div", "evidence", "Merchant evidence: " + product.merchantTrust.evidence.join("; ")));
           }
           body.append(make("div", "observed", observedAt(product.checkedAt)));
-          body.append(make("div", "limitations notice", product?.pricing?.scope === "SHOPIFY_CART_ESTIMATE"
-            ? "Shopify Cart estimate for supplied ZIP. Tax is Shopify-reported or clearly labeled as a ZIP state-average estimate. Some merchants require a full address or checkout before calculating tax. Final checkout total may change. Coupons and membership remain unavailable unless separately verified."
-            : "Verified public item price. Shipping, tax, fees, coupons, membership and delivered price remain unavailable unless separately verified."));
+          const couponNotice = product?.coupons?.status === "VERIFIED"
+            ? " Attached Coupon evidence is verified for the merchant, but eligibility and final discount require checkout confirmation."
+            : " Coupons remain unavailable unless separately verified.";
+          body.append(make("div", "limitations notice", (product?.pricing?.scope === "SHOPIFY_CART_ESTIMATE"
+            ? "Shopify Cart estimate for supplied ZIP. Tax is Shopify-reported or clearly labeled as a ZIP state-average estimate. Some merchants require a full address or checkout before calculating tax. Final checkout total may change."
+            : "Verified public item price. Shipping, tax, fees, membership and delivered price remain unavailable unless separately verified.") + couponNotice));
           const purchaseUrl = safeHttps(product?.purchaseLink?.url || product?.merchantUrl);
           if (purchaseUrl) {
             const link = make("a", "", cardData.actionLabel || "View at merchant");
@@ -551,7 +559,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     warmCompatibilityBridge();
     const initializeParams = {
       protocolVersion: "2026-01-26",
-      appInfo: { name: "FindCheap Agent product cards", version: "0.10.1" },
+      appInfo: { name: "FindCheap Agent product cards", version: "0.10.2" },
       appCapabilities: { availableDisplayModes: ["inline"] }
     };
     const finishInitialization = () => {

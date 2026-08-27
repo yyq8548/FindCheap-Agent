@@ -1,5 +1,7 @@
 import { isAbsolute } from "node:path";
 
+import { parseEbayBrowseEnvironment, type EbayBrowseEnvironment } from "./ebay-browse.js";
+
 export type AwinFeedServiceEnvironment = {
   sourceUrls: string[];
   sourceFeedListUrl?: string;
@@ -17,6 +19,7 @@ export type AwinFeedServiceEnvironment = {
     refreshIntervalMs: number;
     sourceTimeoutMs: number;
   };
+  ebay?: EbayBrowseEnvironment;
   host: "127.0.0.1" | "::1" | "0.0.0.0" | "::";
   port: number;
 };
@@ -98,6 +101,7 @@ export function parseAwinFeedServiceEnvironment(
           "AWIN_OFFERS_TIMEOUT_MS"
         )
       };
+  const ebay = parseEbayBrowseEnvironment(input);
   const port = integerInRange(input.AWIN_FEED_SERVICE_PORT ?? input.PORT ?? "3010", 1, 65_535, "service port");
   const host = input.AWIN_FEED_SERVICE_HOST ?? "127.0.0.1";
   if (host !== "127.0.0.1" && host !== "::1" && host !== "0.0.0.0" && host !== "::") {
@@ -114,6 +118,7 @@ export function parseAwinFeedServiceEnvironment(
     refreshIntervalMs: refreshIntervalMinutes * 60_000,
     sourceTimeoutMs,
     ...(offers === undefined ? {} : { offers }),
+    ...(ebay === undefined ? {} : { ebay }),
     host,
     port
   };

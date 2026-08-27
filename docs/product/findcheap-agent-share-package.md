@@ -17,6 +17,7 @@ Requirements:
 - Codex desktop or Codex CLI
 - Node.js 24 available as `node`
 - Internet access for Shopify Global Catalog and product images
+- eBay results require the production gateway to be enabled after applicable eBay approvals
 
 ```powershell
 codex plugin marketplace add yyq8548/FindCheap-Agent --ref main
@@ -32,7 +33,7 @@ Open the Plugins Directory and confirm:
 - marketplace: `FindCheap Agent`
 - plugin: `FindCheap Agent`
 - plugin ID: `findcheap-agent`
-- version: `0.10.1`
+- version: `0.10.2`
 
 Test prompt:
 
@@ -79,6 +80,8 @@ Restart Codex and test in a new task.
 - Shopify tax is used only when explicitly returned. Otherwise tax is a labeled ZIP-inferred 2026
   state-average estimate; some merchants need a full address or checkout for final tax.
 - Coupon and Cashback require a configured approved Deals API.
+- eBay Browse is opt-in and fixed-price only. eBay seller trust, shipping, tax, fees, and final total
+  remain unverified until the listing or checkout confirms them.
 - Amazonliss (US), GardePro, Watches Of USA, and Shenzhen Cangyu Awin Feed links use approved
   publisher/merchant relationships with disclosure. Other sources remain canonical until approved.
 - The plugin never orders, checks out, submits payment, or auto-buys.

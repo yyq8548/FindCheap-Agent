@@ -7,6 +7,7 @@ import {
   searchProducts
 } from "../src/search-products.js";
 import type { ShopifyPort, ShopifySearchResult } from "../src/shopify-client.js";
+import type { EbayBrowsePort } from "../src/ebay-client.js";
 
 const now = "2026-08-24T12:00:00.000Z";
 
@@ -32,8 +33,18 @@ function shopify(products = [shopifyProduct("101", 2500)]): ShopifyPort {
   return { search: vi.fn(async () => shopifyResult(products)) };
 }
 
+function ebay(products = [ebayProduct("1", 2100)]): EbayBrowsePort {
+  return { search: vi.fn(async () => ({
+    source: "EBAY_BROWSE" as const,
+    coverage: "COMPLETE" as const,
+    snapshotAt: now,
+    diagnostics: { queryMatches: products.length, itemsReturned: products.length, validItems: products.length, rejectedItems: 0 },
+    products
+  })) };
+}
+
 describe("unified product search", () => {
-  it("routes approved hair queries to Awin first and skips Shopify when filled", async () => {
+  it("queries Shopify in parallel even when Awin fills the result", async () => {
     const awinPort = awin([
       awinProduct("1", 1800),
       awinProduct("2", 1900),
@@ -51,7 +62,7 @@ describe("unified product search", () => {
       "AWIN_PRODUCT_FEED",
       "AWIN_PRODUCT_FEED"
     ]);
-    expect(shopifyPort.search).not.toHaveBeenCalled();
+    expect(shopifyPort.search).toHaveBeenCalledTimes(1);
   });
 
   it("fills missing affiliate results with Shopify without commission scoring", async () => {
@@ -64,10 +75,36 @@ describe("unified product search", () => {
     });
 
     expect(result.candidates.map((candidate) => candidate.source)).toEqual([
-      "AWIN_PRODUCT_FEED",
       "SHOPIFY_GLOBAL_CATALOG",
-      "SHOPIFY_GLOBAL_CATALOG"
+      "SHOPIFY_GLOBAL_CATALOG",
+      "AWIN_PRODUCT_FEED"
     ]);
+  });
+
+  it("starts Awin, Shopify, and eBay together before any source completes", async () => {
+    const started: string[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const pending = searchProducts(SearchProductsInputSchema.parse({ query: "headphones", limit: 3 }), {
+      awin: { search: vi.fn(async () => { started.push("awin"); await gate; return await awin([]).search({ query: "headphones", limit: 3 }); }) },
+      shopify: { search: vi.fn(async () => { started.push("shopify"); await gate; return shopifyResult([]); }) },
+      ebay: { search: vi.fn(async () => { started.push("ebay"); await gate; return await ebay([]).search({ query: "headphones", limit: 3 }); }) }
+    });
+
+    await vi.waitFor(() => expect(started.sort()).toEqual(["awin", "ebay", "shopify"]));
+    release();
+    await pending;
+  });
+
+  it("prioritizes a verified Coupon before a lower raw price at equal match and trust", async () => {
+    const result = await searchProducts(SearchProductsInputSchema.parse({ query: "hair mask", limit: 2 }), {
+      awin: awin([]),
+      shopify: shopify([shopifyProduct("lower", 1000), shopifyProduct("coupon", 1200)]),
+      deals: { search: vi.fn(async ({ merchant }) => merchant === "Merchant coupon" ? [verifiedCoupon(merchant)] : []) }
+    });
+
+    expect(result.candidates.map((candidate) => candidate.shopifyProduct?.handle)).toEqual(["coupon", "lower"]);
+    expect(result.candidates[0]?.verifiedCoupons).toHaveLength(1);
   });
 
   it("uses cross-source price order only for explicit LOWEST_PRICE", async () => {
@@ -379,6 +416,53 @@ describe("unified product search", () => {
     expect(shouldQueryAwin("digital camera")).toBe(true);
     expect(shouldQueryAwin(" ")).toBe(false);
   });
+
+  it("includes eBay by price without treating EPN as seller trust", async () => {
+    const result = await searchProducts(SearchProductsInputSchema.parse({
+      query: "headphones",
+      limit: 3,
+      selectionMode: "LOWEST_PRICE"
+    }), {
+      awin: awin([awinProduct("1", 3000)]),
+      ebay: ebay([ebayProduct("1", 900)]),
+      shopify: shopify([shopifyProduct("101", 1200)])
+    });
+
+    expect(result.candidates.map((candidate) => candidate.source)).toEqual([
+      "EBAY_BROWSE",
+      "SHOPIFY_GLOBAL_CATALOG",
+      "AWIN_PRODUCT_FEED"
+    ]);
+    expect(result.candidates[0]).toMatchObject({
+      affiliateState: "APPROVED",
+      recommendationTier: "GENERAL_UNVERIFIED",
+      ebayProduct: { sellerName: "seller-1" }
+    });
+    expect(result.sourceStatus.ebay).toBe("COMPLETE");
+  });
+
+  it("fails closed for Chrome when configured eBay is unavailable", async () => {
+    const result = await searchProducts(SearchProductsInputSchema.parse({ query: "headphones", limit: 3 }), {
+      awin: awin([]),
+      ebay: { search: vi.fn(async () => { throw new Error("offline"); }) },
+      shopify: shopify([])
+    });
+
+    expect(result.sourceErrors).toMatchObject({ ebay: "DATA_SOURCE_UNAVAILABLE" });
+    expect(result.chromeFallbackEligible).toBe(false);
+  });
+
+  it("skips eBay without degrading coverage when the gateway is not configured", async () => {
+    const result = await searchProducts(SearchProductsInputSchema.parse({ query: "headphones", limit: 3 }), {
+      awin: awin([]),
+      ebay: { search: vi.fn(async () => { throw new Error("SOURCE_NOT_CONFIGURED"); }) },
+      shopify: shopify([])
+    });
+
+    expect(result.sourceStatus.ebay).toBe("SKIPPED");
+    expect(result.sourceErrors).toBeUndefined();
+    expect(result.chromeFallbackEligible).toBe(true);
+  });
 });
 
 function awinProduct(id: string, amountCents: number) {
@@ -470,5 +554,43 @@ function shopifyResult(products: ReturnType<typeof shopifyProduct>[]): ShopifySe
     },
     questions: [],
     products
+  };
+}
+
+function ebayProduct(id: string, amountCents: number) {
+  return {
+    itemId: `v1|${id}|0`,
+    productRef: `ebay-${id.padStart(32, "0")}`,
+    title: `eBay headphones ${id}`,
+    category: "Headphones",
+    attributes: [],
+    sellerName: `seller-${id}`,
+    matchStatus: "DISCOVERY_MATCH" as const,
+    matchEvidence: ["live eBay fixed-price listing returned by Browse API"],
+    condition: "NEW" as const,
+    itemPrice: { amountCents, currency: "USD" as const },
+    availability: "UNKNOWN" as const,
+    merchantUrl: `https://www.ebay.com/itm/${id}`,
+    affiliateUrl: `https://www.ebay.com/itm/${id}?campid=5339000012`,
+    checkedAt: now
+  };
+}
+
+function verifiedCoupon(merchant: string) {
+  return {
+    dealId: `coupon:${merchant}`,
+    merchant,
+    kind: "PROMO_CODE" as const,
+    title: "20% off",
+    description: "Verified merchant promotion",
+    code: "SAVE20",
+    discountPercent: 20,
+    eligibility: ["Online only"],
+    channels: ["ONLINE" as const],
+    sourceUrl: "https://www.awin1.com/promotion",
+    checkedAt: "2026-08-24T12:00:00.000Z",
+    validFrom: "2026-08-24T00:00:00.000Z",
+    validTo: "2026-08-30T00:00:00.000Z",
+    verificationStatus: "VERIFIED" as const
   };
 }

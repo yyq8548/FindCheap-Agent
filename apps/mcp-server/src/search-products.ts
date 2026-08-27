@@ -11,6 +11,12 @@ import type {
   ShopifyProduct,
   ShopifySearchResult
 } from "./shopify-client.js";
+import type { EbayBrowsePort, EbayProduct, EbaySearchResult } from "./ebay-client.js";
+import {
+  VerifiedDealsSchema,
+  type DealPort,
+  type VerifiedDeal
+} from "./deal-client.js";
 import {
   merchantRecommendationRank,
   merchantRecommendationTier
@@ -50,28 +56,35 @@ export const SearchProductsInputSchema = z.object({
 
 export type SearchProductsInput = z.infer<typeof SearchProductsInputSchema>;
 
-export type UnifiedCandidate = {
-  source: "AWIN_PRODUCT_FEED" | "SHOPIFY_GLOBAL_CATALOG";
+type CandidateBase = {
   affiliateState: "APPROVED" | "NONE";
   recommendationTier: MerchantRecommendationTier;
   featureEvidence: string[];
   preferenceEvidence: string[];
   requiredFeatureLimitations: string[];
-  awinProduct?: AwinProduct;
-  shopifyProduct?: ShopifyProduct;
+  verifiedCoupons: VerifiedDeal[];
 };
+
+export type UnifiedCandidate = CandidateBase & (
+  | { source: "AWIN_PRODUCT_FEED"; awinProduct: AwinProduct; shopifyProduct?: undefined; ebayProduct?: undefined }
+  | { source: "SHOPIFY_GLOBAL_CATALOG"; awinProduct?: undefined; shopifyProduct: ShopifyProduct; ebayProduct?: undefined }
+  | { source: "EBAY_BROWSE"; awinProduct?: undefined; shopifyProduct?: undefined; ebayProduct: EbayProduct }
+);
 
 export type UnifiedSearchExecution = {
   candidates: UnifiedCandidate[];
   awinResult?: AwinSearchResult;
   shopifyResult?: ShopifySearchResult;
+  ebayResult?: EbaySearchResult;
   sourceStatus: {
     awin: "SKIPPED" | "COMPLETE" | "UNAVAILABLE";
     shopify: "SKIPPED" | "COMPLETE" | "PARTIAL" | "UNAVAILABLE";
+    ebay: "SKIPPED" | "COMPLETE" | "UNAVAILABLE";
   };
   sourceErrors?: {
     awin?: "DATA_SOURCE_UNAVAILABLE";
     shopify?: "CATALOG_SCHEMA_CHANGED" | "DATA_SOURCE_UNAVAILABLE";
+    ebay?: "DATA_SOURCE_UNAVAILABLE";
   };
   searchPasses: 1 | 2;
   featureProductsExcluded: number;
@@ -84,7 +97,7 @@ export function shouldQueryAwin(query: string): boolean {
 
 export async function searchProducts(
   rawInput: SearchProductsInput,
-  ports: { awin: AwinProductPort; shopify: ShopifyPort }
+  ports: { awin: AwinProductPort; shopify: ShopifyPort; ebay?: EbayBrowsePort; deals?: DealPort }
 ): Promise<UnifiedSearchExecution> {
   const input = {
     ...rawInput,
@@ -102,121 +115,120 @@ export async function searchProducts(
   const affiliateEligible = shouldQueryAwin(sourceQuery);
   let awinResult: AwinSearchResult | undefined;
   let shopifyResult: ShopifySearchResult | undefined;
+  let ebayResult: EbaySearchResult | undefined;
   let awinStatus: UnifiedSearchExecution["sourceStatus"]["awin"] = affiliateEligible
     ? "UNAVAILABLE"
     : "SKIPPED";
-  let shopifyStatus: UnifiedSearchExecution["sourceStatus"]["shopify"] = "SKIPPED";
+  let shopifyStatus: UnifiedSearchExecution["sourceStatus"]["shopify"] = "UNAVAILABLE";
+  let ebayStatus: UnifiedSearchExecution["sourceStatus"]["ebay"] = ports.ebay === undefined
+    ? "SKIPPED"
+    : "UNAVAILABLE";
   let awinError: "DATA_SOURCE_UNAVAILABLE" | undefined;
   let shopifyError: "CATALOG_SCHEMA_CHANGED" | "DATA_SOURCE_UNAVAILABLE" | undefined;
+  let ebayError: "DATA_SOURCE_UNAVAILABLE" | undefined;
   let affiliateCandidates: UnifiedCandidate[] = [];
+  let shopifyCandidates: UnifiedCandidate[] = [];
+  let ebayCandidates: UnifiedCandidate[] = [];
   const featureExcludedKeys = new Set<string>();
 
-  if (affiliateEligible) {
+  const queryAwin = async (query: string, limit: number, merge: boolean): Promise<void> => {
+    if (!affiliateEligible) return;
     try {
-      awinResult = await ports.awin.search({
-        query: sourceQuery,
-        limit: 12,
-        ...(input.maxItemPriceCents === undefined
-          ? {}
-          : { maxItemPriceCents: input.maxItemPriceCents })
+      const result = await ports.awin.search({
+        query,
+        limit,
+        ...(input.maxItemPriceCents === undefined ? {} : { maxItemPriceCents: input.maxItemPriceCents })
       });
+      awinResult = result;
       awinStatus = "COMPLETE";
-      affiliateCandidates = awinResult.products
+      const incoming = result.products
         .map((product) => awinCandidate(product, input, featureExcludedKeys))
-        .filter((candidate): candidate is UnifiedCandidate => candidate !== undefined)
-        .sort(compareCandidates);
+        .filter((candidate): candidate is UnifiedCandidate => candidate !== undefined);
+      affiliateCandidates = merge ? mergeCandidates(affiliateCandidates, incoming) : incoming;
     } catch {
-      awinStatus = "UNAVAILABLE";
-      awinError = "DATA_SOURCE_UNAVAILABLE";
+      if (awinResult === undefined) {
+        awinStatus = "UNAVAILABLE";
+        awinError = "DATA_SOURCE_UNAVAILABLE";
+      }
     }
-  }
-
-  const needsShopify =
-    input.selectionMode === "LOWEST_PRICE" ||
-    affiliateCandidates.length < input.limit;
-  let shopifyCandidates: UnifiedCandidate[] = [];
-  if (needsShopify) {
+  };
+  const queryShopify = async (query: string, limit: number, merge: boolean): Promise<void> => {
     try {
-      shopifyResult = await ports.shopify.search({
-        query: sourceQuery,
-        limit: input.limit,
+      const result = await ports.shopify.search({
+        query,
+        limit,
         comparisonMode: input.comparisonMode,
         selectionMode: input.selectionMode,
-        ...(input.maxItemPriceCents === undefined
-          ? {}
-          : { maxItemPriceCents: input.maxItemPriceCents }),
+        ...(input.maxItemPriceCents === undefined ? {} : { maxItemPriceCents: input.maxItemPriceCents }),
         ...(input.zipCode === undefined ? {} : { zipCode: input.zipCode }),
         membershipIds: input.membershipIds ?? []
       });
-      shopifyStatus = shopifyResult.coverage;
-      shopifyCandidates = shopifyResult.products
+      shopifyResult = result;
+      shopifyStatus = result.coverage;
+      const incoming = result.products
         .map((product) => shopifyCandidate(product, input, featureExcludedKeys))
-        .filter((candidate): candidate is UnifiedCandidate => candidate !== undefined)
-        .sort(compareCandidates);
+        .filter((candidate): candidate is UnifiedCandidate => candidate !== undefined);
+      shopifyCandidates = merge ? mergeCandidates(shopifyCandidates, incoming) : incoming;
     } catch (error) {
-      shopifyStatus = "UNAVAILABLE";
-      shopifyError = productSourceError(error);
+      shopifyStatus = shopifyResult === undefined ? "UNAVAILABLE" : "PARTIAL";
+      shopifyError ??= productSourceError(error);
     }
-  }
+  };
+  const queryEbay = async (query: string, limit: number, merge: boolean): Promise<void> => {
+    if (ports.ebay === undefined || ebayStatus === "SKIPPED") return;
+    try {
+      const result = await ports.ebay.search({
+        query,
+        limit,
+        ...(input.maxItemPriceCents === undefined ? {} : { maxItemPriceCents: input.maxItemPriceCents }),
+        ...(input.zipCode === undefined ? {} : { zipCode: input.zipCode })
+      });
+      ebayResult = result;
+      ebayStatus = "COMPLETE";
+      const incoming = result.products
+        .map((product) => ebayCandidate(product, input, featureExcludedKeys))
+        .filter((candidate): candidate is UnifiedCandidate => candidate !== undefined);
+      ebayCandidates = merge ? mergeCandidates(ebayCandidates, incoming) : incoming;
+    } catch (error) {
+      if (error instanceof Error && error.message === "SOURCE_NOT_CONFIGURED") {
+        if (ebayResult === undefined) ebayStatus = "SKIPPED";
+      } else if (ebayResult === undefined) {
+        ebayStatus = "UNAVAILABLE";
+        ebayError = "DATA_SOURCE_UNAVAILABLE";
+      }
+    }
+  };
+
+  await Promise.all([
+    queryAwin(sourceQuery, 12, false),
+    queryShopify(sourceQuery, input.limit, false),
+    queryEbay(sourceQuery, input.selectionMode === "MERCHANT_DIVERSE" ? 1 : 12, false)
+  ]);
 
   let searchPasses: 1 | 2 = 1;
   const expandedQuery = buildExpandedQuery(input);
-  if (affiliateCandidates.length + shopifyCandidates.length < input.limit) {
+  if (affiliateCandidates.length + ebayCandidates.length + shopifyCandidates.length < input.limit) {
     searchPasses = 2;
-    if (affiliateEligible && expandedQuery !== sourceQuery) {
-      try {
-        const expandedAwinResult = await ports.awin.search({
-          query: expandedQuery,
-          limit: 24,
-          ...(input.maxItemPriceCents === undefined
-            ? {}
-            : { maxItemPriceCents: input.maxItemPriceCents })
-        });
-        awinResult = expandedAwinResult;
-        awinStatus = "COMPLETE";
-        affiliateCandidates = mergeCandidates(
-          affiliateCandidates,
-          expandedAwinResult.products
-            .map((product) => awinCandidate(product, input, featureExcludedKeys))
-            .filter((candidate): candidate is UnifiedCandidate => candidate !== undefined)
-        );
-      } catch {
-        if (awinStatus !== "COMPLETE") awinStatus = "UNAVAILABLE";
-        if (awinStatus === "UNAVAILABLE") awinError = "DATA_SOURCE_UNAVAILABLE";
-      }
-    }
-
-    if (shopifyError !== "CATALOG_SCHEMA_CHANGED") try {
-      const expandedShopifyResult = await ports.shopify.search({
-        query: expandedQuery,
-        limit: 12,
-        comparisonMode: input.comparisonMode,
-        selectionMode: input.selectionMode,
-        ...(input.maxItemPriceCents === undefined
-          ? {}
-          : { maxItemPriceCents: input.maxItemPriceCents }),
-        ...(input.zipCode === undefined ? {} : { zipCode: input.zipCode }),
-        membershipIds: input.membershipIds ?? []
-      });
-      shopifyResult = expandedShopifyResult;
-      shopifyStatus = expandedShopifyResult.coverage;
-      shopifyCandidates = mergeCandidates(
-        shopifyCandidates,
-        expandedShopifyResult.products
-          .map((product) => shopifyCandidate(product, input, featureExcludedKeys))
-          .filter((candidate): candidate is UnifiedCandidate => candidate !== undefined)
-      );
-    } catch (error) {
-      shopifyStatus = shopifyStatus === "COMPLETE" ? "PARTIAL" : "UNAVAILABLE";
-      shopifyError ??= productSourceError(error);
-    }
+    await Promise.all([
+      queryAwin(expandedQuery, 24, true),
+      shopifyError === "CATALOG_SCHEMA_CHANGED"
+        ? Promise.resolve()
+        : queryShopify(expandedQuery, 12, true),
+      queryEbay(expandedQuery, 12, true)
+    ]);
   }
 
-  const candidates = [...affiliateCandidates, ...shopifyCandidates]
-    .sort(input.selectionMode === "LOWEST_PRICE" ? compareCandidates : compareRecommendationTiers)
+  const enrichedCandidates = await addVerifiedCoupons(
+    [...affiliateCandidates, ...shopifyCandidates, ...ebayCandidates],
+    ports.deals,
+    input.membershipIds ?? []
+  );
+  const candidates = enrichedCandidates
+    .sort(input.selectionMode === "LOWEST_PRICE" ? compareLowestPrice : compareRankedCandidates)
     .slice(0, input.limit);
   const queriedSourcesComplete =
     awinStatus !== "UNAVAILABLE" &&
+    ebayStatus !== "UNAVAILABLE" &&
     shopifyStatus !== "UNAVAILABLE" &&
     shopifyStatus !== "PARTIAL";
   const chromeFallbackEligible =
@@ -228,13 +240,15 @@ export async function searchProducts(
     candidates,
     ...(awinResult === undefined ? {} : { awinResult }),
     ...(shopifyResult === undefined ? {} : { shopifyResult }),
-    sourceStatus: { awin: awinStatus, shopify: shopifyStatus },
-    ...(awinError === undefined && shopifyError === undefined
+    ...(ebayResult === undefined ? {} : { ebayResult }),
+    sourceStatus: { awin: awinStatus, shopify: shopifyStatus, ebay: ebayStatus },
+    ...(awinError === undefined && shopifyError === undefined && ebayError === undefined
       ? {}
       : {
           sourceErrors: {
             ...(awinError === undefined ? {} : { awin: awinError }),
-            ...(shopifyError === undefined ? {} : { shopify: shopifyError })
+            ...(shopifyError === undefined ? {} : { shopify: shopifyError }),
+            ...(ebayError === undefined ? {} : { ebay: ebayError })
           }
         }),
     searchPasses,
@@ -284,6 +298,7 @@ function awinCandidate(
     featureEvidence: evidence.matched,
     preferenceEvidence: evidence.preferences,
     requiredFeatureLimitations: evidence.unknown,
+    verifiedCoupons: [],
     awinProduct: evidence.unknown.length === 0 ? product : {
       ...product,
       matchStatus: "DISCOVERY_MATCH",
@@ -311,9 +326,39 @@ function shopifyCandidate(
     featureEvidence: evidence.matched,
     preferenceEvidence: evidence.preferences,
     requiredFeatureLimitations: evidence.unknown,
+    verifiedCoupons: [],
     shopifyProduct: evidence.unknown.length === 0 ? product : {
       ...product,
       matchStatus: "DISCOVERY_MATCH",
+      matchEvidence: [...product.matchEvidence, `required features not verified: ${evidence.unknown.join(", ")}`]
+    }
+  };
+}
+
+function ebayCandidate(
+  product: EbayProduct,
+  input: SearchProductsInput,
+  featureExcludedKeys: Set<string>
+): UnifiedCandidate | undefined {
+  if (!conditionMatches(product.condition, input.conditionPreference)) return undefined;
+  const evidence = evaluateConstraints(
+    [product.title, product.category, ...product.attributes].join(" "),
+    input
+  );
+  if (evidence.contradicted.length > 0) {
+    featureExcludedKeys.add(`EBAY:${product.itemId}`);
+    return undefined;
+  }
+  return {
+    source: "EBAY_BROWSE",
+    affiliateState: product.affiliateUrl === undefined ? "NONE" : "APPROVED",
+    recommendationTier: "GENERAL_UNVERIFIED",
+    featureEvidence: evidence.matched,
+    preferenceEvidence: evidence.preferences,
+    requiredFeatureLimitations: evidence.unknown,
+    verifiedCoupons: [],
+    ebayProduct: evidence.unknown.length === 0 ? product : {
+      ...product,
       matchEvidence: [...product.matchEvidence, `required features not verified: ${evidence.unknown.join(", ")}`]
     }
   };
@@ -352,59 +397,111 @@ function mergeCandidates(
   const merged = new Map<string, UnifiedCandidate>();
   for (const candidate of [...current, ...incoming]) {
     const key = candidate.source === "AWIN_PRODUCT_FEED"
-      ? `${candidate.source}:${candidate.awinProduct?.merchantId}:${candidate.awinProduct?.merchantProductId}`
-      : `${candidate.source}:${candidate.shopifyProduct?.merchantId}:${candidate.shopifyProduct?.handle}`;
+      ? `${candidate.source}:${candidate.awinProduct.merchantId}:${candidate.awinProduct.merchantProductId}`
+      : candidate.source === "SHOPIFY_GLOBAL_CATALOG"
+        ? `${candidate.source}:${candidate.shopifyProduct.merchantId}:${candidate.shopifyProduct.handle}`
+        : `${candidate.source}:${candidate.ebayProduct.itemId}`;
     const existing = merged.get(key);
-    if (existing === undefined || compareCandidates(candidate, existing) < 0) merged.set(key, candidate);
+    if (existing === undefined || compareRankedCandidates(candidate, existing) < 0) merged.set(key, candidate);
   }
-  return [...merged.values()].sort(compareCandidates);
+  return [...merged.values()].sort(compareRankedCandidates);
 }
 
-function compareCandidates(
+async function addVerifiedCoupons(
+  candidates: UnifiedCandidate[],
+  deals: DealPort | undefined,
+  membershipIds: string[]
+): Promise<UnifiedCandidate[]> {
+  if (deals === undefined || candidates.length === 0) return candidates;
+  const merchants = new Map<string, string>();
+  for (const candidate of [...candidates].sort(compareRankedCandidates)) {
+    const merchant = candidateMerchant(candidate);
+    const key = normalize(merchant);
+    if (!merchants.has(key)) merchants.set(key, merchant);
+    if (merchants.size === 12) break;
+  }
+  const results: Array<readonly [string, VerifiedDeal[]]> = await Promise.all([...merchants].map(async ([key, merchant]) => {
+    try {
+      const verified = VerifiedDealsSchema.parse(await deals.search({
+        merchant,
+        membershipIds,
+        channel: "ONLINE"
+      })).filter(isCoupon);
+      return [key, verified] as const;
+    } catch {
+      return [key, [] as VerifiedDeal[]] as const;
+    }
+  }));
+  const byMerchant = new Map(results);
+  return candidates.map((candidate) => ({
+    ...candidate,
+    verifiedCoupons: byMerchant.get(normalize(candidateMerchant(candidate))) ?? []
+  }));
+}
+
+function isCoupon(deal: VerifiedDeal): boolean {
+  return deal.kind === "COUPON" || deal.kind === "PROMO_CODE" || deal.kind === "BRAND_PROMOTION";
+}
+
+function candidateMerchant(candidate: UnifiedCandidate): string {
+  if (candidate.source === "AWIN_PRODUCT_FEED") return candidate.awinProduct.merchant;
+  if (candidate.source === "EBAY_BROWSE") return "eBay";
+  return candidate.shopifyProduct.merchant;
+}
+
+function compareRankedCandidates(
   left: UnifiedCandidate,
   right: UnifiedCandidate
 ): number {
+  const limitationDifference = left.requiredFeatureLimitations.length - right.requiredFeatureLimitations.length;
+  if (limitationDifference !== 0) return limitationDifference;
+  const featureDifference = right.featureEvidence.length - left.featureEvidence.length;
+  if (featureDifference !== 0) return featureDifference;
+  const matchDifference = matchRank(right) - matchRank(left);
+  if (matchDifference !== 0) return matchDifference;
   const tierDifference = merchantRecommendationRank(left.recommendationTier) -
     merchantRecommendationRank(right.recommendationTier);
   if (tierDifference !== 0) return tierDifference;
-  const featureDifference = right.featureEvidence.length - left.featureEvidence.length;
-  if (featureDifference !== 0) return featureDifference;
   const preferenceDifference = right.preferenceEvidence.length - left.preferenceEvidence.length;
   if (preferenceDifference !== 0) return preferenceDifference;
-  const matchDifference = matchRank(right) - matchRank(left);
-  if (matchDifference !== 0) return matchDifference;
-  const ratingDifference = productRating(right) - productRating(left);
-  if (ratingDifference !== 0) return ratingDifference;
+  const couponDifference = Number(right.verifiedCoupons.length > 0) - Number(left.verifiedCoupons.length > 0);
+  if (couponDifference !== 0) return couponDifference;
   const priceDifference = price(left) - price(right);
   if (priceDifference !== 0) return priceDifference;
+  const ratingDifference = productRating(right) - productRating(left);
+  if (ratingDifference !== 0) return ratingDifference;
   return title(left).localeCompare(title(right));
 }
 
-function compareRecommendationTiers(
-  left: UnifiedCandidate,
-  right: UnifiedCandidate
-): number {
-  return merchantRecommendationRank(left.recommendationTier) -
-    merchantRecommendationRank(right.recommendationTier);
+function productRating(candidate: UnifiedCandidate): number {
+  return candidate.source === "SHOPIFY_GLOBAL_CATALOG" ? candidate.shopifyProduct.productRating?.value ?? 0 : 0;
 }
 
-function productRating(candidate: UnifiedCandidate): number {
-  return candidate.shopifyProduct?.productRating?.value ?? 0;
+function compareLowestPrice(left: UnifiedCandidate, right: UnifiedCandidate): number {
+  return price(left) - price(right) ||
+    Number(right.verifiedCoupons.length > 0) - Number(left.verifiedCoupons.length > 0) ||
+    compareRankedCandidates(left, right);
 }
 
 function matchRank(candidate: UnifiedCandidate): number {
-  const status = candidate.shopifyProduct?.matchStatus ?? candidate.awinProduct?.matchStatus;
+  const status = candidate.source === "AWIN_PRODUCT_FEED"
+    ? candidate.awinProduct.matchStatus
+    : candidate.source === "SHOPIFY_GLOBAL_CATALOG"
+      ? candidate.shopifyProduct.matchStatus
+      : candidate.ebayProduct.matchStatus;
   return status === "EXACT" ? 3 : status === "DISCOVERY_MATCH" ? 2 : 1;
 }
 
 function price(candidate: UnifiedCandidate): number {
-  return candidate.shopifyProduct?.itemPrice?.amountCents ??
-    candidate.awinProduct?.itemPrice.amountCents ??
-    Number.MAX_SAFE_INTEGER;
+  if (candidate.source === "AWIN_PRODUCT_FEED") return candidate.awinProduct.itemPrice.amountCents;
+  if (candidate.source === "EBAY_BROWSE") return candidate.ebayProduct.itemPrice.amountCents;
+  return candidate.shopifyProduct.itemPrice?.amountCents ?? Number.MAX_SAFE_INTEGER;
 }
 
 function title(candidate: UnifiedCandidate): string {
-  return candidate.shopifyProduct?.title ?? candidate.awinProduct?.title ?? "";
+  if (candidate.source === "AWIN_PRODUCT_FEED") return candidate.awinProduct.title;
+  if (candidate.source === "EBAY_BROWSE") return candidate.ebayProduct.title;
+  return candidate.shopifyProduct.title;
 }
 
 function normalize(value: string): string {

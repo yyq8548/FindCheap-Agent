@@ -44,6 +44,8 @@ describe("installed plugin stdio", () => {
         AWIN_PRODUCT_SEARCH_URL: "https://findcheap-agent-production.up.railway.app/v1/search",
         AWIN_PRODUCT_SEARCH_TIMEOUT_MS: "5000",
         AWIN_OFFERS_SEARCH_URL: "https://findcheap-agent-production.up.railway.app/v1/offers/search",
+        EBAY_PRODUCT_SEARCH_URL: "https://findcheap-agent-production.up.railway.app/v1/ebay/search",
+        EBAY_PRODUCT_SEARCH_TIMEOUT_MS: "5000",
         SHOPIFY_AGENT_PROFILE_URL: "https://cdn.jsdelivr.net/gh/yyq8548/FindCheap-Agent@24267014f0433adefb89181e4123d7b785e30285/plugins/findcheap-agent/ucp-agent-profile.json",
         SHOPIFY_GLOBAL_CATALOG_TIMEOUT_MS: "10000"
       }
@@ -65,7 +67,7 @@ describe("installed plugin stdio", () => {
       const tools = await client.listTools();
       const resources = await client.listResources();
       const productCards = await client.readResource({
-        uri: "ui://findcheap/product-cards/v22.html"
+        uri: "ui://findcheap/product-cards/v23.html"
       });
       expect(tools.tools.map((tool) => tool.name)).toEqual([
         "search_products",
@@ -87,26 +89,26 @@ describe("installed plugin stdio", () => {
       const quoteTool = tools.tools.find((tool) => tool.name === "quote_selected_shopify_product");
       const renderTool = tools.tools.find((tool) => tool.name === "render_product_cards");
       expect(shopifyTool?._meta).toMatchObject({
-        ui: { resourceUri: "ui://findcheap/product-cards/v22.html" },
-        "openai/outputTemplate": "ui://findcheap/product-cards/v22.html"
+        ui: { resourceUri: "ui://findcheap/product-cards/v23.html" },
+        "openai/outputTemplate": "ui://findcheap/product-cards/v23.html"
       });
       expect(renderTool?._meta).toMatchObject({
         ui: {
-          resourceUri: "ui://findcheap/product-cards/v22.html",
+          resourceUri: "ui://findcheap/product-cards/v23.html",
           visibility: ["app"]
         }
       });
       expect(quoteTool?._meta).toMatchObject({
-        ui: { resourceUri: "ui://findcheap/product-cards/v22.html" },
-        "openai/outputTemplate": "ui://findcheap/product-cards/v22.html"
+        ui: { resourceUri: "ui://findcheap/product-cards/v23.html" },
+        "openai/outputTemplate": "ui://findcheap/product-cards/v23.html"
       });
       expect(resources.resources).toEqual([expect.objectContaining({
         name: "findcheap-product-cards",
-        uri: "ui://findcheap/product-cards/v22.html",
+        uri: "ui://findcheap/product-cards/v23.html",
         mimeType: "text/html;profile=mcp-app"
       })]);
       expect(productCards.contents).toEqual([expect.objectContaining({
-        uri: "ui://findcheap/product-cards/v22.html",
+        uri: "ui://findcheap/product-cards/v23.html",
         mimeType: "text/html;profile=mcp-app",
         text: expect.stringContaining("ui/notifications/tool-result")
       })]);

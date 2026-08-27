@@ -21,6 +21,7 @@ import {
 } from "./shopify-cart-quote.js";
 import type { ShopifySelectedProductInspector } from "./shopify-selected-product.js";
 import type { AwinShopifyQuoteResolver, AwinShopifyQuoteSeed } from "./awin-shopify-quote.js";
+import type { EbayBrowsePort } from "./ebay-client.js";
 import {
   createAffiliateLinkResolver,
   type AffiliateLinkResolver
@@ -34,7 +35,8 @@ import {
   DealSearchInputSchema,
   VerifiedDealsSchema,
   createUnavailableDealPort,
-  type DealPort
+  type DealPort,
+  type VerifiedDeal
 } from "./deal-client.js";
 import {
   WatchSpecSchema,
@@ -87,7 +89,7 @@ const ProductCardStagesSchema = z.object({
 
 const ProductCardTelemetryInputSchema = z.object({
   renderId: z.string().uuid(),
-  version: z.literal("0.10.1"),
+  version: z.literal("0.10.2"),
   terminalStage: z.enum([
     "DOM_RENDERED",
     "FIRST_IMAGE_SETTLED",
@@ -268,13 +270,14 @@ const CompareProductsOutputShape = {
 };
 
 const ShopifyProductOutputSchema = z.object({
-  sourceKind: z.enum(["AWIN_PRODUCT_FEED", "SHOPIFY_GLOBAL_CATALOG"]).optional(),
+  sourceKind: z.enum(["AWIN_PRODUCT_FEED", "SHOPIFY_GLOBAL_CATALOG", "EBAY_BROWSE"]).optional(),
   affiliateState: z.enum(["APPROVED", "NONE"]).optional(),
   featureEvidence: z.array(z.string()).optional(),
   preferenceEvidence: z.array(z.string()).optional(),
   requiredFeatureLimitations: z.array(z.string()).optional(),
   merchantId: z.string(),
   merchant: z.string(),
+  sellerName: z.string().optional(),
   sourceHost: z.string(),
   merchantTrust: z.object({
     level: z.enum(["OFFICIAL", "AUTHORIZED_RETAILER", "ESTABLISHED_RETAILER", "UNKNOWN", "RISKY"]),
@@ -367,10 +370,14 @@ const ShopifyProductOutputSchema = z.object({
   coupons: z.object({
     status: z.enum(["VERIFIED", "UNAVAILABLE"]),
     verified: z.array(z.object({
+      title: z.string(),
+      kind: z.enum(["COUPON", "PROMO_CODE", "BRAND_PROMOTION"]),
       code: z.string().optional(),
-      amount: MoneyOutputSchema,
+      discountPercent: z.number().min(0).max(100).optional(),
+      discountAmount: MoneyOutputSchema.optional(),
       eligibility: z.array(z.string()),
-      validTo: z.string()
+      validTo: z.string(),
+      sourceUrl: z.string().url()
     }))
   }),
   purchaseLink: z.object({
@@ -382,6 +389,7 @@ const ShopifyProductOutputSchema = z.object({
   card: z.object({
     title: z.string(),
     merchant: z.string(),
+    sellerName: z.string().optional(),
     imageUrl: z.string().url().optional(),
     primaryPrice: MoneyOutputSchema.optional(),
     priceLabel: z.string(),
@@ -390,6 +398,7 @@ const ShopifyProductOutputSchema = z.object({
     taxPrice: MoneyOutputSchema.optional(),
     taxLabel: z.string().optional(),
     estimatedTotal: MoneyOutputSchema.optional(),
+    couponLabel: z.string().optional(),
     matchBadge: z.enum(["EXACT", "DISCOVERY_MATCH", "SIMILAR"]),
     conditionBadge: z.enum(["NEW", "USED", "REFURBISHED", "OPEN_BOX", "UNKNOWN"]),
     availability: z.enum(["IN_STOCK", "OUT_OF_STOCK", "UNKNOWN"]),
@@ -413,11 +422,13 @@ const ShopifyProductsOutputShape = {
   source: z.enum(["SHOPIFY_GLOBAL_CATALOG", "UNIFIED_PRODUCT_SEARCH"]),
   sources: z.object({
     awin: z.enum(["SKIPPED", "COMPLETE", "UNAVAILABLE"]),
-    shopify: z.enum(["SKIPPED", "COMPLETE", "PARTIAL", "UNAVAILABLE"])
+    shopify: z.enum(["SKIPPED", "COMPLETE", "PARTIAL", "UNAVAILABLE"]),
+    ebay: z.enum(["SKIPPED", "COMPLETE", "UNAVAILABLE"])
   }).optional(),
   sourceErrors: z.object({
     awin: z.literal("DATA_SOURCE_UNAVAILABLE").optional(),
-    shopify: z.enum(["CATALOG_SCHEMA_CHANGED", "DATA_SOURCE_UNAVAILABLE"]).optional()
+    shopify: z.enum(["CATALOG_SCHEMA_CHANGED", "DATA_SOURCE_UNAVAILABLE"]).optional(),
+    ebay: z.literal("DATA_SOURCE_UNAVAILABLE").optional()
   }).strict().optional(),
   priceScope: z.enum(["ITEM_PRICE_ONLY", "SHOPIFY_CART_ESTIMATE", "MIXED"]),
   cartQuoteCoverage: z.object({
@@ -828,12 +839,14 @@ function unifiedResult(
     shopifyResponse.structuredContent.products.map((product) => [product.handle, product])
   );
   const products = execution.candidates.flatMap((candidate) => {
-    if (candidate.awinProduct !== undefined) {
-      return [awinCardProduct(candidate)];
+    if (candidate.source === "AWIN_PRODUCT_FEED") {
+      return [withVerifiedCoupons(awinCardProduct(candidate), candidate.verifiedCoupons)];
     }
-    const handle = candidate.shopifyProduct?.handle;
-    const card = handle === undefined ? undefined : shopifyCards.get(handle);
-    return card === undefined ? [] : [{
+    if (candidate.source === "EBAY_BROWSE") {
+      return [withVerifiedCoupons(ebayCardProduct(candidate), candidate.verifiedCoupons)];
+    }
+    const card = shopifyCards.get(candidate.shopifyProduct.handle);
+    return card === undefined ? [] : [withVerifiedCoupons({
       ...card,
       sourceKind: "SHOPIFY_GLOBAL_CATALOG" as const,
       affiliateState: card.purchaseLink.kind === "APPROVED_AFFILIATE"
@@ -843,10 +856,11 @@ function unifiedResult(
       preferenceEvidence: candidate.preferenceEvidence,
       requiredFeatureLimitations: candidate.requiredFeatureLimitations,
       recommendationTier: candidate.recommendationTier
-    }];
+    }, candidate.verifiedCoupons)];
   });
   const affiliateCount = products.filter((product) => product.affiliateState === "APPROVED").length;
   const itemPriceCount = products.filter((product) => product.itemPrice !== undefined).length;
+  const couponCount = products.reduce((count, product) => count + product.coupons.verified.length, 0);
   const unavailableSource = Object.values(execution.sourceStatus).includes("UNAVAILABLE");
   const partialSource = execution.sourceStatus.shopify === "PARTIAL";
   const highRatedUnverifiedCount = products.filter((product) =>
@@ -875,13 +889,15 @@ function unifiedResult(
         ...(generalUnverifiedCount === 0
           ? []
           : [`${generalUnverifiedCount} later result(s) come from merchants with limited trust evidence; verify seller identity, returns, and payment protection.`]),
+        ...(couponCount === 0 ? [] : [`${couponCount} verified Coupon or promotion result(s) are attached to the ranked cards.`]),
         "Trust labels do not prove manufacturer authorization; never call a merchant authorized without explicit brand-authorization evidence.",
         "Use each card's quoteCapability: request ZIP only for DELIVERED_TOTAL_SUPPORTED or ZIP_ESTIMATE_ONLY; MERCHANT_CHECKOUT_ONLY requires checkout and no ZIP request.",
         "Use the cards; do not repeat every field."
       ].join(" ");
   const dataUnavailable = products.length === 0 && (
     execution.sourceStatus.shopify === "UNAVAILABLE" ||
-    (execution.sourceStatus.awin === "UNAVAILABLE" && execution.sourceStatus.shopify === "SKIPPED")
+    execution.sourceStatus.ebay === "UNAVAILABLE" ||
+    (execution.sourceStatus.awin === "UNAVAILABLE" && execution.sourceStatus.shopify === "SKIPPED" && execution.sourceStatus.ebay === "SKIPPED")
   );
   return {
     content: [{ type: "text" as const, text: message }],
@@ -908,7 +924,7 @@ function unifiedResult(
           : "PASS" as const,
         cardsReturned: products.length,
         itemPricesVerified: itemPriceCount,
-        couponsVerified: 0,
+        couponsVerified: couponCount,
         affiliateLinksApproved: affiliateCount,
         limitations: [
           ...(unavailableSource ? ["one configured source was unavailable"] : []),
@@ -921,6 +937,9 @@ function unifiedResult(
           ...(products.some((product) => product.sourceKind === "AWIN_PRODUCT_FEED")
             ? ["Awin cards contain verified item price and feed availability only; shipping, tax, and delivered price are unavailable"]
             : []),
+          ...(products.some((product) => product.sourceKind === "EBAY_BROWSE")
+            ? ["eBay cards contain live fixed-price listing data only; seller identity, shipping, tax, fees, and delivered price require eBay checkout verification"]
+            : []),
           ...(highRatedUnverifiedCount === 0
             ? []
             : ["one or more products qualify by product rating above 3.8 with at least 2 reviews; this does not verify merchant trust"]),
@@ -929,7 +948,7 @@ function unifiedResult(
             : ["one or more merchants have limited trust evidence; verify seller identity, returns, and payment protection"])
         ]
       },
-      comparison: execution.candidates.some((candidate) => candidate.source === "AWIN_PRODUCT_FEED")
+      comparison: execution.candidates.some((candidate) => candidate.source !== "SHOPIFY_GLOBAL_CATALOG")
         ? {
             status: "DISCOVERY_ONLY" as const,
             evidence: ["cross-source results are product recommendations, not independently verified same-product offers"],
@@ -1010,6 +1029,120 @@ function awinCardProduct(candidate: UnifiedCandidate): ProductCardProduct {
       quoteCapability: "MERCHANT_CHECKOUT_ONLY",
       actionLabel: "View at merchant"
     }
+  };
+}
+
+function ebayCardProduct(candidate: UnifiedCandidate): ProductCardProduct {
+  if (candidate.source !== "EBAY_BROWSE") throw new Error("eBay candidate is missing its source product");
+  const product = candidate.ebayProduct;
+  const purchaseUrl = product.affiliateUrl ?? product.merchantUrl;
+  return {
+    sourceKind: "EBAY_BROWSE",
+    affiliateState: candidate.affiliateState,
+    recommendationTier: "GENERAL_UNVERIFIED",
+    featureEvidence: candidate.featureEvidence,
+    preferenceEvidence: candidate.preferenceEvidence,
+    requiredFeatureLimitations: candidate.requiredFeatureLimitations,
+    merchantId: `ebay:${product.sellerName}`,
+    merchant: "eBay",
+    sellerName: product.sellerName,
+    sourceHost: "www.ebay.com",
+    merchantTrust: {
+      level: "UNKNOWN",
+      verification: "UNVERIFIED",
+      evidence: [
+        "listing supplied by the eBay Browse API",
+        ...(product.sellerFeedbackPercentage === undefined
+          ? []
+          : [`eBay-reported seller feedback: ${product.sellerFeedbackPercentage}%`]),
+        ...(product.sellerFeedbackScore === undefined
+          ? []
+          : [`eBay-reported seller feedback score: ${product.sellerFeedbackScore}`])
+      ]
+    },
+    handle: product.productRef,
+    title: product.title,
+    productType: product.category,
+    gtins: [],
+    variantDimensions: {},
+    matchStatus: product.matchStatus,
+    matchEvidence: product.matchEvidence,
+    condition: product.condition,
+    ...(product.imageUrl === undefined ? {} : { imageUrl: product.imageUrl }),
+    itemPrice: product.itemPrice,
+    availability: product.availability,
+    merchantUrl: product.merchantUrl,
+    checkedAt: product.checkedAt,
+    pricing: {
+      scope: "ITEM_PRICE_ONLY",
+      regularItemPrice: { status: "VERIFIED", amount: product.itemPrice },
+      memberPrice: { status: "UNAVAILABLE", reason: "membership-specific price was not provided by eBay Browse" },
+      shipping: { status: "UNAVAILABLE", reason: "shipping requires verification on the eBay listing or checkout" },
+      tax: { status: "UNAVAILABLE", reason: "tax requires verification at eBay checkout" },
+      mandatoryFees: { status: "UNAVAILABLE", reason: "mandatory fees require verification at eBay checkout" },
+      deliveredPrice: { status: "UNAVAILABLE", reason: "shipping, tax, and fees require verification at eBay checkout" }
+    },
+    freshness: { status: "OBSERVED_AT_QUERY", checkedAt: product.checkedAt },
+    coupons: { status: "UNAVAILABLE", verified: [] },
+    purchaseLink: product.affiliateUrl === undefined
+      ? { kind: "CANONICAL", url: purchaseUrl }
+      : {
+          kind: "APPROVED_AFFILIATE",
+          providerName: "eBay Partner Network",
+          url: purchaseUrl,
+          disclosure: "Affiliate link. FindCheap may earn a commission."
+        },
+    quoteCapability: "MERCHANT_CHECKOUT_ONLY",
+    card: {
+      title: product.title,
+      merchant: "eBay",
+      sellerName: product.sellerName,
+      ...(product.imageUrl === undefined ? {} : { imageUrl: product.imageUrl }),
+      primaryPrice: product.itemPrice,
+      priceLabel: "Live item price",
+      itemPrice: product.itemPrice,
+      matchBadge: product.matchStatus,
+      conditionBadge: product.condition,
+      availability: product.availability,
+      merchantTrustBadge: "MERCHANT_UNVERIFIED",
+      quoteCapability: "MERCHANT_CHECKOUT_ONLY",
+      actionLabel: "View at merchant"
+    }
+  };
+}
+
+function withVerifiedCoupons(
+  product: ProductCardProduct,
+  deals: VerifiedDeal[]
+): ProductCardProduct {
+  const coupons = deals.flatMap((deal) => {
+    if (deal.kind !== "COUPON" && deal.kind !== "PROMO_CODE" && deal.kind !== "BRAND_PROMOTION") return [];
+    return [{
+      title: deal.title,
+      kind: deal.kind,
+      ...(deal.code === undefined ? {} : { code: deal.code }),
+      ...(deal.discountPercent === undefined ? {} : { discountPercent: deal.discountPercent }),
+      ...(deal.discountAmountCents === undefined
+        ? {}
+        : { discountAmount: { amountCents: deal.discountAmountCents, currency: "USD" as const } }),
+      eligibility: deal.eligibility,
+      validTo: deal.validTo,
+      sourceUrl: deal.sourceUrl
+    }];
+  });
+  if (coupons.length === 0) return product;
+  const first = coupons[0]!;
+  const couponLabel = first.code !== undefined
+    ? `Coupon: ${first.code}`
+    : first.discountPercent !== undefined
+      ? `Coupon: ${first.discountPercent}% off`
+      : first.discountAmount !== undefined
+        ? `Coupon: $${(first.discountAmount.amountCents / 100).toFixed(2)} off`
+        : first.title;
+  return {
+    ...product,
+    coupons: { status: "VERIFIED", verified: coupons },
+    card: { ...product.card, couponLabel }
   };
 }
 
@@ -1220,6 +1353,7 @@ function awinUnavailableResult() {
 
 export type ShoppingServerDependencies = {
   awin?: AwinProductPort;
+  ebay?: EbayBrowsePort;
   awinShopifyQuotes?: AwinShopifyQuoteResolver;
   deals?: DealPort;
   watches?: WatchStore;
@@ -1408,9 +1542,10 @@ export function createShoppingServer(
   dependencies: ShoppingServerDependencies = {}
 ): McpServer {
   void comparePort;
-  const server = new McpServer({ name: "findcheap-agent", version: "0.10.1" });
+  const server = new McpServer({ name: "findcheap-agent", version: "0.10.2" });
   const dealPort = dependencies.deals ?? createUnavailableDealPort();
   const awinPort = dependencies.awin ?? createUnavailableAwinPort();
+  const ebayPort = dependencies.ebay;
   const toolAvailability = dependencies.toolAvailability ?? {
     commerceCompare: true,
     verifiedDeals: true
@@ -1446,7 +1581,8 @@ export function createShoppingServer(
   const preflightQuoteCapabilities = async (content: ProductCardContent) => {
     const resolvedAwinProducts = new Map<string, ShopifyProduct>();
     const products = await Promise.all(content.products.map(async (product) => {
-      if (product.sourceKind !== "AWIN_PRODUCT_FEED") {
+      if (product.sourceKind === "EBAY_BROWSE") return product;
+      if (product.sourceKind === "SHOPIFY_GLOBAL_CATALOG" || product.sourceKind === undefined) {
         const quoteCapability = cartQuotes === undefined
           ? "MERCHANT_CHECKOUT_ONLY" as const
           : "DELIVERED_TOTAL_SUPPORTED" as const;
@@ -1576,7 +1712,7 @@ export function createShoppingServer(
     "search_products",
     {
       title: "Search products",
-      description: "For live shopping, use only the user request and this tool contract. Do not read Memory, Skill files, repository files, logs, or plugin caches, and do not narrate internal rules. Say at most one neutral progress sentence before calling: '正在搜索合适商品。' This is the single product-search entrypoint; call once. Put the product family in productType. Put only objective must-have attributes in requiredFeatures: dimensions, capacity, quantity, resolution, power, exact size, color, generation, compatibility, or explicitly required material/construction. Put subjective intent such as everyday, casual, stylish, versatile, comfortable, or office wear in preferences; preferences rank and never exclude. Never invent a required feature. Evidence may come from title, product type/category, description, and structured variant attributes. Missing evidence remains a limitation-labeled DISCOVERY_MATCH; only explicit contradiction is excluded. Never infer condition. Use selectionMode=LOWEST_PRICE only when requested; pass a price ceiling as maxItemPriceCents. Commercial relationships never affect relevance or ranking. Reuse selectionId for follow-ups; never search a selected title again.",
+      description: "For live shopping, use only the user request and this tool contract. Do not read Memory, Skill files, repository files, logs, or plugin caches, and do not narrate internal rules. Say at most one neutral progress sentence before calling: '正在搜索合适商品。' This is the single product-search entrypoint; call once. Awin, Shopify, and configured eBay searches start in parallel. Put the product family in productType. Put only objective must-have attributes in requiredFeatures: dimensions, capacity, quantity, resolution, power, exact size, color, generation, compatibility, or explicitly required material/construction. Put subjective intent such as everyday, casual, stylish, versatile, comfortable, or office wear in preferences; preferences rank and never exclude. Never invent a required feature. Evidence may come from title, product type/category, description, and structured variant attributes. Missing evidence remains a limitation-labeled DISCOVERY_MATCH; only explicit contradiction is excluded. Never infer condition. Default ranking prioritizes match evidence, merchant reliability, preferences, verified coupons, then lower item price. Use selectionMode=LOWEST_PRICE only when requested; pass a price ceiling as maxItemPriceCents. Never subtract a coupon from displayed price unless its value and applicability are verified. Commercial relationships never affect relevance or ranking. Reuse selectionId for follow-ups; never search a selected title again.",
       inputSchema: SearchProductsInputSchema,
       outputSchema: ShopifyProductsOutputShape,
       annotations: {
@@ -1600,7 +1736,12 @@ export function createShoppingServer(
       ) {
         return shopifyClarificationResult(input.selectionMode, input);
       }
-      const execution = await searchProducts(input, { awin: awinPort, shopify: shopifyPort });
+      const execution = await searchProducts(input, {
+        awin: awinPort,
+        shopify: shopifyPort,
+        ...(ebayPort === undefined ? {} : { ebay: ebayPort }),
+        ...(toolAvailability.verifiedDeals ? { deals: dealPort } : {})
+      });
       const selectedShopifyHandles = new Set(execution.candidates.flatMap((candidate) =>
         candidate.shopifyProduct === undefined ? [] : [candidate.shopifyProduct.handle]
       ));
@@ -1644,6 +1785,7 @@ export function createShoppingServer(
         searchPasses: execution.searchPasses,
         featureProductsExcluded: execution.featureProductsExcluded,
         awin: execution.awinResult?.diagnostics,
+        ebay: execution.ebayResult?.diagnostics,
         shopify: enriched.result.diagnostics,
         cardsReturned: response.structuredContent.products.length,
         qualityStatus: response.structuredContent.quality.status,

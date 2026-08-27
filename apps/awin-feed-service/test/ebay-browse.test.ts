@@ -1,0 +1,112 @@
+import { once } from "node:events";
+import { describe, expect, it, vi } from "vitest";
+
+import {
+  createEbayBrowseController,
+  parseEbayBrowseEnvironment
+} from "../src/ebay-browse.js";
+import { createAwinFeedHttpServer, type AwinFeedController } from "../src/service.js";
+
+const now = () => new Date("2026-08-26T12:00:00.000Z");
+
+describe("eBay Browse gateway", () => {
+  it("is disabled by default and requires server-side credentials when enabled", () => {
+    expect(parseEbayBrowseEnvironment({})).toBeUndefined();
+    expect(() => parseEbayBrowseEnvironment({ EBAY_BROWSE_ENABLED: "true" }))
+      .toThrow("EBAY_CLIENT_ID");
+  });
+
+  it("uses one cached OAuth token and returns normalized EPN listings", async () => {
+    const requests: Array<{ url: string; init: RequestInit }> = [];
+    const fetchRequest = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      requests.push({ url, init: init ?? {} });
+      if (url.includes("/oauth2/token")) {
+        return jsonResponse({ access_token: "access-token", expires_in: 7200 });
+      }
+      return jsonResponse({
+        total: 1,
+        itemSummaries: [{
+          itemId: "v1|123456789|0",
+          title: "Sony WH-1000XM5 Headphones",
+          price: { value: "299.99", currency: "USD" },
+          itemWebUrl: "https://www.ebay.com/itm/123456789",
+          itemAffiliateWebUrl: "https://www.ebay.com/itm/123456789?campid=5339000012",
+          image: { imageUrl: "https://i.ebayimg.com/images/g/test/s-l1600.jpg" },
+          seller: { username: "audio_store", feedbackPercentage: "99.8", feedbackScore: 4200 },
+          condition: "Certified Refurbished",
+          categories: [{ categoryName: "Headphones" }],
+          localizedAspects: [{ name: "Color", value: "Black" }]
+        }]
+      });
+    });
+    const environment = parseEbayBrowseEnvironment({
+      EBAY_BROWSE_ENABLED: "true",
+      EBAY_CLIENT_ID: "client-id-123",
+      EBAY_CLIENT_SECRET: "client-secret-123",
+      EBAY_EPN_CAMPAIGN_ID: "5339000012"
+    })!;
+    const controller = createEbayBrowseController(environment, { fetch: fetchRequest, now });
+
+    const first = await controller.search({ query: "Sony headphones", limit: 3, zipCode: "10001" });
+    const second = await controller.search({ query: "Sony headphones", limit: 3, zipCode: "10001" });
+
+    expect(second).toEqual(first);
+    expect(fetchRequest).toHaveBeenCalledTimes(2);
+    expect(requests[0]?.init.headers).toMatchObject({ authorization: expect.stringMatching(/^Basic /u) });
+    expect(requests[1]?.url).toContain("buyingOptions%3A%7BFIXED_PRICE%7D");
+    expect(requests[1]?.init.headers).toMatchObject({
+      authorization: "Bearer access-token",
+      "x-ebay-c-marketplace-id": "EBAY_US",
+      "x-ebay-c-enduserctx": expect.stringContaining("affiliateCampaignId=5339000012")
+    });
+    expect(first.products[0]).toMatchObject({
+      productRef: expect.stringMatching(/^ebay-[a-f0-9]{32}$/u),
+      sellerName: "audio_store",
+      sellerFeedbackPercentage: 99.8,
+      condition: "REFURBISHED",
+      itemPrice: { amountCents: 29_999, currency: "USD" },
+      affiliateUrl: expect.stringContaining("campid=5339000012")
+    });
+  });
+
+  it("exposes the public eBay route without exposing credentials", async () => {
+    const ebay = { search: vi.fn(async () => ({
+      source: "EBAY_BROWSE" as const,
+      coverage: "COMPLETE" as const,
+      snapshotAt: "2026-08-26T12:00:00.000Z",
+      diagnostics: { queryMatches: 0, itemsReturned: 0, validItems: 0, rejectedItems: 0 },
+      products: []
+    })) };
+    const awin = {
+      loadExisting: async () => {},
+      refresh: async () => {},
+      getState: () => ({}),
+      search: () => undefined
+    } satisfies AwinFeedController;
+    const server = createAwinFeedHttpServer(awin, "a".repeat(32), { ebay });
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const address = server.address();
+    if (address === null || typeof address === "string") throw new Error("test server did not bind TCP");
+    try {
+      const response = await fetch(`http://127.0.0.1:${address.port}/v1/ebay/search`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ query: "headphones", limit: 3 })
+      });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ source: "EBAY_BROWSE" });
+      expect(ebay.search).toHaveBeenCalledWith({ query: "headphones", limit: 3 });
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    }
+  });
+});
+
+function jsonResponse(value: unknown): Response {
+  return new Response(JSON.stringify(value), {
+    status: 200,
+    headers: { "content-type": "application/json" }
+  });
+}

@@ -1,6 +1,7 @@
 import { once } from "node:events";
 
 import { parseAwinFeedServiceEnvironment } from "./environment.js";
+import { createEbayBrowseController } from "./ebay-browse.js";
 import { createAwinOffersController } from "./offers.js";
 import { createAwinFeedController, createAwinFeedHttpServer } from "./service.js";
 
@@ -14,6 +15,7 @@ export async function startAwinFeedRuntime(
   const environment = parseAwinFeedServiceEnvironment(input);
   const controller = createAwinFeedController(environment);
   const offers = environment.offers === undefined ? undefined : createAwinOffersController(environment.offers);
+  const ebay = environment.ebay === undefined ? undefined : createEbayBrowseController(environment.ebay);
   await controller.loadExisting();
   await offers?.loadExisting();
   await controller.refresh().catch(() => {});
@@ -21,7 +23,10 @@ export async function startAwinFeedRuntime(
   const server = createAwinFeedHttpServer(
     controller,
     environment.apiToken,
-    offers === undefined ? {} : { offers }
+    {
+      ...(offers === undefined ? {} : { offers }),
+      ...(ebay === undefined ? {} : { ebay })
+    }
   );
   server.listen(environment.port, environment.host);
   await once(server, "listening");

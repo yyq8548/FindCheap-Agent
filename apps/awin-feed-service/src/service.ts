@@ -17,6 +17,10 @@ import {
 } from "../../../packages/awin-feed/src/index.js";
 import { validateAwinSourceUrl, type AwinFeedServiceEnvironment } from "./environment.js";
 import {
+  parseEbaySearchInput,
+  type EbayBrowseController
+} from "./ebay-browse.js";
+import {
   parseAwinOfferSearchInput,
   type AwinOffersController
 } from "./offers.js";
@@ -210,6 +214,7 @@ export function createAwinFeedHttpServer(
     now?: () => number;
     publicSearchLimitPerMinute?: number;
     offers?: AwinOffersController;
+    ebay?: EbayBrowseController;
   } = {}
 ) {
   const publicSearchLimiter = createPublicSearchLimiter(
@@ -217,7 +222,7 @@ export function createAwinFeedHttpServer(
     options.now ?? Date.now
   );
   const server = createServer((request, response) => {
-    void handleRequest(controller, apiToken, publicSearchLimiter, options.offers, request, response).catch(() => {
+    void handleRequest(controller, apiToken, publicSearchLimiter, options.offers, options.ebay, request, response).catch(() => {
       if (!response.headersSent) response.writeHead(500, { "content-type": "application/json" });
       response.end(JSON.stringify({ error: "INTERNAL_SERVER_ERROR" }));
     });
@@ -233,11 +238,12 @@ async function handleRequest(
   apiToken: string,
   publicSearchLimiter: PublicSearchLimiter,
   offers: AwinOffersController | undefined,
+  ebay: EbayBrowseController | undefined,
   request: IncomingMessage,
   response: ServerResponse
 ): Promise<void> {
   const path = new URL(request.url ?? "/", "http://localhost").pathname;
-  if (path === "/v1/search" || path === "/v1/offers/search") {
+  if (path === "/v1/search" || path === "/v1/offers/search" || path === "/v1/ebay/search") {
     if (request.method !== "POST") {
       json(response, 405, { error: "METHOD_NOT_ALLOWED" });
       return;
@@ -250,6 +256,19 @@ async function handleRequest(
     }
     try {
       const body = await readJsonRequest(request);
+      if (path === "/v1/ebay/search") {
+        if (ebay === undefined) {
+          json(response, 404, { error: "EBAY_NOT_CONFIGURED" });
+          return;
+        }
+        const input = parseEbaySearchInput(body);
+        try {
+          json(response, 200, await ebay.search(input));
+        } catch {
+          json(response, 503, { error: "EBAY_UPSTREAM_UNAVAILABLE" });
+        }
+        return;
+      }
       if (path === "/v1/offers/search") {
         const result = offers?.search(parseAwinOfferSearchInput(body));
         if (result === undefined) {
@@ -282,7 +301,8 @@ async function handleRequest(
     json(response, 200, {
       status: "ok",
       ...feedMetadata(state),
-      ...(offers === undefined ? {} : offersMetadata(offers.getState()))
+      ...(offers === undefined ? {} : offersMetadata(offers.getState())),
+      ...(ebay === undefined ? {} : { ebayStatus: "ready" })
     });
     return;
   }
