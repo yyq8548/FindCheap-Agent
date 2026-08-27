@@ -164,10 +164,9 @@ export function isHighRatedProduct(rating: ProductRating | undefined): boolean {
 
 export function merchantRecommendationTier(
   trust: MerchantTrustEvidence,
-  rating: ProductRating | undefined,
-  affiliateApproved = false
+  rating: ProductRating | undefined
 ): MerchantRecommendationTier {
-  if (affiliateApproved || isTrustedMerchant(trust)) return "TRUSTED_OR_AFFILIATE";
+  if (isTrustedMerchant(trust)) return "TRUSTED_OR_AFFILIATE";
   return isHighRatedProduct(rating) ? "HIGH_RATED_UNVERIFIED" : "GENERAL_UNVERIFIED";
 }
 

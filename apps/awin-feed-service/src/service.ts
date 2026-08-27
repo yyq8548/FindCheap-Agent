@@ -15,6 +15,7 @@ import {
   type AwinSearchInput,
   type AwinSearchResult
 } from "../../../packages/awin-feed/src/index.js";
+import { safeFetch } from "../../../packages/network-safety/src/safe-fetch.js";
 import { validateAwinSourceUrl, type AwinFeedServiceEnvironment } from "./environment.js";
 import {
   parseEbaySearchInput,
@@ -52,6 +53,7 @@ export type AwinFeedController = {
   refresh(): Promise<void>;
   getState(): Readonly<FeedState>;
   search(input: AwinSearchInput): AwinSearchResult | undefined;
+  getImageSource(merchantId: string, merchantProductId: string): string | undefined;
 };
 
 export function createAwinFeedController(
@@ -135,6 +137,11 @@ export function createAwinFeedController(
       return state.snapshot === undefined
         ? undefined
         : searchAwinFeedIndex(state.snapshot.index, input);
+    },
+    getImageSource(merchantId, merchantProductId) {
+      return state.snapshot?.index.products.find((product) =>
+        product.merchantId === merchantId && product.merchantProductId === merchantProductId
+      )?.imageUrl;
     }
   };
 }
@@ -213,6 +220,8 @@ export function createAwinFeedHttpServer(
   options: {
     now?: () => number;
     publicSearchLimitPerMinute?: number;
+    publicImageLimitPerMinute?: number;
+    imageFetch?: (url: string) => Promise<Response>;
     offers?: AwinOffersController;
     ebay?: EbayBrowseController;
   } = {}
@@ -221,8 +230,22 @@ export function createAwinFeedHttpServer(
     options.publicSearchLimitPerMinute ?? 60,
     options.now ?? Date.now
   );
+  const publicImageLimiter = createPublicSearchLimiter(
+    options.publicImageLimitPerMinute ?? 180,
+    options.now ?? Date.now
+  );
   const server = createServer((request, response) => {
-    void handleRequest(controller, apiToken, publicSearchLimiter, options.offers, options.ebay, request, response).catch(() => {
+    void handleRequest(
+      controller,
+      apiToken,
+      publicSearchLimiter,
+      publicImageLimiter,
+      options.imageFetch ?? fetchValidatedImage,
+      options.offers,
+      options.ebay,
+      request,
+      response
+    ).catch(() => {
       if (!response.headersSent) response.writeHead(500, { "content-type": "application/json" });
       response.end(JSON.stringify({ error: "INTERNAL_SERVER_ERROR" }));
     });
@@ -237,12 +260,15 @@ async function handleRequest(
   controller: AwinFeedController,
   apiToken: string,
   publicSearchLimiter: PublicSearchLimiter,
+  publicImageLimiter: PublicSearchLimiter,
+  imageFetch: (url: string) => Promise<Response>,
   offers: AwinOffersController | undefined,
   ebay: EbayBrowseController | undefined,
   request: IncomingMessage,
   response: ServerResponse
 ): Promise<void> {
-  const path = new URL(request.url ?? "/", "http://localhost").pathname;
+  const requestUrl = new URL(request.url ?? "/", "http://localhost");
+  const path = requestUrl.pathname;
   if (path === "/v1/search" || path === "/v1/offers/search" || path === "/v1/ebay/search") {
     if (request.method !== "POST") {
       json(response, 405, { error: "METHOD_NOT_ALLOWED" });
@@ -291,6 +317,48 @@ async function handleRequest(
       json(response, status, { error: status === 413 ? "REQUEST_TOO_LARGE" : "INVALID_SEARCH_REQUEST" });
       return;
     }
+  }
+  if (path === "/v1/images") {
+    if (request.method !== "GET") {
+      json(response, 405, { error: "METHOD_NOT_ALLOWED" });
+      return;
+    }
+    const rate = publicImageLimiter.take(publicSearchClientKey(request));
+    if (!rate.allowed) {
+      response.setHeader("retry-after", String(rate.retryAfterSeconds));
+      json(response, 429, { error: "RATE_LIMITED" });
+      return;
+    }
+    const merchantId = requestUrl.searchParams.get("merchantId") ?? "";
+    const merchantProductId = requestUrl.searchParams.get("merchantProductId") ?? "";
+    if (!/^\d{1,20}$/u.test(merchantId) || merchantProductId.length < 1 || merchantProductId.length > 300) {
+      json(response, 400, { error: "INVALID_IMAGE_REQUEST" });
+      return;
+    }
+    const source = controller.getImageSource(merchantId, merchantProductId);
+    if (source === undefined) {
+      json(response, 404, { error: "IMAGE_NOT_FOUND" });
+      return;
+    }
+    try {
+      const upstream = await imageFetch(source);
+      const contentType = upstream.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
+      if (!upstream.ok || contentType === undefined || !ALLOWED_IMAGE_CONTENT_TYPES.has(contentType)) {
+        json(response, 502, { error: "IMAGE_UPSTREAM_UNAVAILABLE" });
+        return;
+      }
+      const image = new Uint8Array(await upstream.arrayBuffer());
+      response.writeHead(200, {
+        "cache-control": "public, max-age=3600, stale-while-revalidate=86400",
+        "content-type": contentType,
+        "content-length": String(image.byteLength),
+        "x-content-type-options": "nosniff"
+      });
+      response.end(image);
+    } catch {
+      json(response, 502, { error: "IMAGE_UPSTREAM_UNAVAILABLE" });
+    }
+    return;
   }
   if (request.method !== "GET") {
     json(response, 405, { error: "METHOD_NOT_ALLOWED" });
@@ -361,6 +429,18 @@ function validatedSnapshot(archive: Uint8Array, snapshotAt: string, sourceFeeds:
     throw new Error("Awin Feed failed approved merchant validation");
   }
   return { archive, index, snapshotAt, feedRows: index.feedRows, sourceFeeds };
+}
+
+const ALLOWED_IMAGE_CONTENT_TYPES = new Set([
+  "image/avif",
+  "image/gif",
+  "image/jpeg",
+  "image/png",
+  "image/webp"
+]);
+
+async function fetchValidatedImage(url: string): Promise<Response> {
+  return safeFetch({ url }, { allowedHosts: [new URL(url).hostname] });
 }
 
 function offersMetadata(state: ReturnType<AwinOffersController["getState"]>): Record<string, unknown> {

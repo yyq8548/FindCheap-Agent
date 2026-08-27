@@ -1,12 +1,27 @@
-export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v27.html";
+export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v28.html";
 
 export const PRODUCT_CARD_RESOURCE_DOMAINS = [
   "https://cdn.shopify.com",
   "https://i.ebayimg.com"
 ];
 
+export function productCardResourceDomains(productSearchUrl?: string): string[] {
+  if (productSearchUrl === undefined || productSearchUrl.trim() === "") {
+    return [...PRODUCT_CARD_RESOURCE_DOMAINS];
+  }
+  try {
+    const url = new URL(productSearchUrl);
+    if (url.protocol !== "https:" || url.username !== "" || url.password !== "" || url.port !== "") {
+      return [...PRODUCT_CARD_RESOURCE_DOMAINS];
+    }
+    return [...new Set([...PRODUCT_CARD_RESOURCE_DOMAINS, url.origin])];
+  } catch {
+    return [...PRODUCT_CARD_RESOURCE_DOMAINS];
+  }
+}
+
 export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
-<html lang="en">
+<html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -170,13 +185,13 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
   </style>
 </head>
 <body>
-  <main id="app" aria-live="polite"><div class="empty">Waiting for verified product results…</div></main>
+  <main id="app" aria-live="polite"><div class="empty">Loading…</div></main>
   <script>
     const app = document.getElementById("app");
     const uiStartedAt = typeof performance === "object" && typeof performance.now === "function"
       ? performance.now()
       : Date.now();
-    const cardMetrics = { version: "0.12.8", stages: {} };
+    const cardMetrics = { version: "0.13.0", stages: {} };
     window.__findcheapCardMetrics = cardMetrics;
     const notify = (method, params = {}) => {
       window.parent.postMessage({ jsonrpc: "2.0", method, params }, "*");
@@ -201,6 +216,40 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     let latestToolInput;
     let hydrationRenderId;
     let currentRenderId;
+    let currentLocale = document.documentElement.lang?.toLocaleLowerCase().startsWith("zh") ? "zh-CN" : "en-US";
+    const text = (english, chinese) => currentLocale === "zh-CN" ? chinese : english;
+    const badgeText = (value) => currentLocale !== "zh-CN" ? value : ({
+      EXACT: "精确匹配",
+      DISCOVERY_MATCH: "发现匹配",
+      SIMILAR: "相似商品",
+      MERCHANT_UNVERIFIED: "商家未验证",
+      OFFICIAL: "品牌官网",
+      AUTHORIZED_RETAILER: "授权零售商",
+      ESTABLISHED_RETAILER: "成熟零售商",
+      NEW: "全新",
+      USED: "二手",
+      REFURBISHED: "翻新",
+      OPEN_BOX: "开箱品",
+      UNKNOWN: "未知",
+      IN_STOCK: "有货",
+      OUT_OF_STOCK: "缺货"
+    }[value] || value);
+    const cardLabelText = (value) => {
+      const label = String(value);
+      if (currentLocale !== "zh-CN") return label === "免费配送 $0.00" ? "Free shipping $0.00" : label;
+      const exact = {
+        "Verified item price": "已验证商品价",
+        "Live item price": "实时商品价",
+        "Item price unavailable": "商品价暂不可用",
+        "Estimated total": "预估总价",
+        "Shopify estimated tax": "Shopify 预估税费",
+        "Shopify-reported tax": "Shopify 返回税费"
+      }[label];
+      if (exact) return exact;
+      if (label.endsWith(" shipping")) return label.slice(0, -9) + " 运费";
+      if (label.startsWith("Estimated tax (")) return "预估税费（" + label.slice(15, -1) + "）";
+      return label;
+    };
     let initializeAttempts = 0;
     let nextRequestId = 1;
     const pendingRequests = new Map();
@@ -280,8 +329,8 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       return node;
     };
     const money = (value) => value && Number.isInteger(value.amountCents) && value.currency === "USD"
-      ? new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value.amountCents / 100)
-      : "Price unavailable";
+      ? new Intl.NumberFormat(currentLocale, { style: "currency", currency: "USD" }).format(value.amountCents / 100)
+      : text("Price unavailable", "价格暂不可用");
     const safeHttps = (value) => {
       try { const url = new URL(value); return url.protocol === "https:" ? url.href : null; }
       catch { return null; }
@@ -297,7 +346,9 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     };
     const observedAt = (value) => {
       const date = new Date(value);
-      return Number.isNaN(date.getTime()) ? "Observation time unavailable" : "Observed " + new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" }).format(date);
+      return Number.isNaN(date.getTime())
+        ? text("Observation time unavailable", "观察时间暂不可用")
+        : text("Observed ", "观察时间：") + new Intl.DateTimeFormat(currentLocale, { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" }).format(date);
     };
     const appendPriceLine = (container, label, value, emphasis = false) => {
       const line = make("div", "price-line" + (emphasis ? " total" : ""));
@@ -305,56 +356,56 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       line.append(make("span", "price-value", value));
       container.append(line);
     };
-    const trustGroupDefinitions = [
-      { tier: "TRUSTED_OR_AFFILIATE", title: "Trusted merchants and approved affiliate programs" },
+    const trustGroupDefinitions = () => [
+      { tier: "TRUSTED_OR_AFFILIATE", title: text("Trusted merchants", "可信商家") },
       {
         tier: "HIGH_RATED_UNVERIFIED",
-        title: "Highly rated products - merchant not independently verified",
-        notice: "Product rating is above 3.8 with at least 2 reviews. Product feedback does not verify merchant trust."
+        title: text("Highly rated products - merchant not independently verified", "高评分商品 - 商家未经独立验证"),
+        notice: text("Product rating is above 3.8 with at least 2 reviews. Product feedback does not verify merchant trust.", "商品评分高于 3.8 且至少有 2 条评价。商品评价不能证明商家可信。")
       },
       {
         tier: "GENERAL_UNVERIFIED",
-        title: "Other relevant products - review merchant carefully",
-        notice: "Merchant trust evidence is limited. Verify seller identity, returns, and payment protection before purchasing."
+        title: text("Other relevant products - review merchant carefully", "其他相关商品 - 请仔细核验商家"),
+        notice: text("Merchant trust evidence is limited. Verify seller identity, returns, and payment protection before purchasing.", "商家可信证据有限。购买前请核验卖家身份、退货政策和付款保障。")
       }
     ];
-    const resultGroupDefinitions = [
-      { group: "REQUESTED_PRODUCT", title: "Requested product candidates" },
-      { group: "DISCOVERY", title: "Discovery results" },
+    const resultGroupDefinitions = () => [
+      { group: "REQUESTED_PRODUCT", title: text("Requested product candidates", "目标商品候选") },
+      { group: "DISCOVERY", title: text("Discovery results", "发现结果") },
       {
         group: "ALTERNATIVE",
-        title: "Alternative products",
-        notice: "Alternatives are shown only when explicitly requested; they are not the same product."
+        title: text("Alternative products", "替代商品"),
+        notice: text("Alternatives are shown only when explicitly requested; they are not the same product.", "仅在明确要求时展示替代商品；它们不是同一款商品。")
       }
     ];
-    const presentationGroupDefinitions = [
+    const presentationGroupDefinitions = () => [
       {
         group: "OFFICIAL_STORE",
-        title: "Official website matches",
-        notice: "Products from the independently verified official brand website."
+        title: text("Official website matches", "品牌官网匹配"),
+        notice: text("Only products hosted on independently verified official brand websites.", "仅展示位于已独立验证品牌官网的商品。")
       },
       {
         group: "TRUSTED_MATCH",
-        title: "Trusted exact and similar matches",
-        notice: "High-match products from reviewed merchants or approved affiliate programs."
+        title: text("Trusted exact and similar matches", "可信的精确与相似匹配"),
+        notice: text("High-match products from reviewed merchants or Shopify products rated above 3.8 with at least 2 reviews. Commercial relationships never affect eligibility or ranking.", "来自已审核商家，或评分高于 3.8 且至少有 2 条评价的 Shopify 高匹配商品。商业关系不影响入选或排序。")
       },
       {
         group: "BEST_VALUE",
-        title: "Best-value high-match options",
-        notice: "High-match products ordered by verified Coupon evidence, then item price."
+        title: text("Best-value high-match options", "高性价比匹配"),
+        notice: text("High-match products ordered by verified Coupon evidence, then item price.", "高匹配商品按已验证优惠券证据排序，其次按商品价格排序。")
       }
     ];
-    const visualGroupDefinitions = [
+    const visualGroupDefinitions = () => [
       {
         group: "POSSIBLE_SAME_ITEM",
-        title: "Possible same item",
-        notice: "Visual evidence suggests the same item, but exact identity is not confirmed without a stable product identifier."
+        title: text("Possible same item", "可能是同一商品"),
+        notice: text("Visual evidence suggests the same item, but exact identity is not confirmed without a stable product identifier.", "视觉证据表明可能是同一商品，但缺少稳定商品标识，无法确认精确身份。")
       },
-      { group: "HIGHLY_SIMILAR", title: "Highly similar" },
-      { group: "SAME_STYLE", title: "Same style" }
+      { group: "HIGHLY_SIMILAR", title: text("Highly similar", "高度相似") },
+      { group: "SAME_STYLE", title: text("Same style", "同风格") }
     ];
     const combinedGroupDefinitions = (results) => results.flatMap((result) =>
-      trustGroupDefinitions.map((trust) => ({
+      trustGroupDefinitions().map((trust) => ({
         group: result.group,
         tier: trust.tier,
         title: result.title + " / " + trust.title,
@@ -363,7 +414,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     );
     const recommendationTier = (product) => {
       if (typeof product?.recommendationTier === "string") return product.recommendationTier;
-      if (product?.merchantTrust?.verification === "INDEPENDENT" || product?.affiliateState === "APPROVED") {
+      if (product?.merchantTrust?.verification === "INDEPENDENT") {
         return "TRUSTED_OR_AFFILIATE";
       }
       const rating = product?.productRating;
@@ -383,13 +434,19 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
         : product?.matchStatus === "EXACT" ? "REQUESTED_PRODUCT" : "DISCOVERY";
     };
     function render(output) {
+      currentLocale = output?.locale === "zh-CN"
+        ? "zh-CN"
+        : output?.locale === "en-US"
+          ? "en-US"
+          : document.documentElement.lang?.toLocaleLowerCase().startsWith("zh") ? "zh-CN" : "en-US";
+      document.documentElement.lang = currentLocale;
       hasResult = true;
       if (typeof output?.renderId === "string") currentRenderId = output.renderId;
       markStage("RENDER_STARTED");
       app.replaceChildren();
       const products = Array.isArray(output?.products) ? output.products.slice(0, 8) : [];
       if (products.length === 0) {
-        app.append(make("div", "empty", output?.message || "No verified products returned."));
+        app.append(make("div", "empty", output?.message || text("No verified products returned.", "没有返回已验证商品。")));
         markStage("DOM_RENDERED");
         requestSizeReport("DOM_RENDERED");
         reportMetrics("DOM_RENDERED");
@@ -399,27 +456,29 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
         ["OFFICIAL_STORE", "TRUSTED_MATCH", "BEST_VALUE"].includes(product?.presentationGroup)
       );
       const groupDefinitions = usesPresentationGroups
-        ? presentationGroupDefinitions
+        ? presentationGroupDefinitions()
         : combinedGroupDefinitions(
             products.some((product) => typeof product?.visualMatchGroup === "string")
-              ? visualGroupDefinitions
-              : resultGroupDefinitions
+              ? visualGroupDefinitions()
+              : resultGroupDefinitions()
           );
       const quoteCount = products.filter((product) => product?.pricing?.scope === "SHOPIFY_CART_ESTIMATE").length;
       const priceSummary = quoteCount === 0
-        ? "public item prices only"
+        ? text("public item prices only", "仅公开商品价")
         : quoteCount === products.length
-          ? "Shopify Cart estimates for supplied ZIP"
-          : quoteCount + " Shopify Cart estimate" + (quoteCount === 1 ? "" : "s") + "; remaining item-price-only";
-      app.append(make("div", "summary", products.length + " product card" + (products.length === 1 ? "" : "s") + " / identity labels / " + priceSummary));
+          ? text("Shopify Cart estimates for supplied ZIP", "基于所提供 ZIP 的 Shopify Cart 预估")
+          : text(quoteCount + " Shopify Cart estimate" + (quoteCount === 1 ? "" : "s") + "; remaining item-price-only", quoteCount + " 个 Shopify Cart 预估；其余仅含商品价");
+      app.append(make("div", "summary", currentLocale === "zh-CN"
+        ? products.length + " 张商品卡 / 身份标签 / " + priceSummary
+        : products.length + " product card" + (products.length === 1 ? "" : "s") + " / identity labels / " + priceSummary));
       const quotedProducts = products.filter((product) => product?.pricing?.scope === "SHOPIFY_CART_ESTIMATE" && product?.card?.estimatedTotal);
       if (quotedProducts.length > 0) {
         const quoteSummary = make("section", "quote-summary");
-        quoteSummary.append(make("h2", "", "Estimated total summary"));
+        quoteSummary.append(make("h2", "", text("Estimated total summary", "预估总价汇总")));
         for (const product of quotedProducts) {
           const item = make("div", "quote-summary-item");
           item.append(
-            make("span", "", String(product.card.title || product.title || "Product")),
+            make("span", "", String(product.card.title || product.title || text("Product", "商品"))),
             make("span", "quote-summary-value", money(product.card.estimatedTotal))
           );
           quoteSummary.append(item);
@@ -443,7 +502,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
           if (!imageUrl) card.className = "card no-image";
           if (imageUrl) {
             const image = make("img", "image");
-            image.alt = cardData.title || product.title || "Product image";
+            image.alt = cardData.title || product.title || text("Product image", "商品图片");
             image.loading = "lazy";
             image.decoding = "async";
             image.fetchPriority = "low";
@@ -467,83 +526,85 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
             card.append(image);
           }
           const body = make("div", "body");
-          body.append(make("div", "merchant", cardData.merchant || product.merchant || "Merchant"));
+          body.append(make("div", "merchant", cardData.merchant || product.merchant || text("Merchant", "商家")));
           if (cardData.sellerName || product.sellerName) {
-            body.append(make("div", "details", "Seller: " + String(cardData.sellerName || product.sellerName)));
+            body.append(make("div", "details", text("Seller: ", "卖家：") + String(cardData.sellerName || product.sellerName)));
           }
-          body.append(make("h3", "", cardData.title || product.title || "Product"));
-          const identity = [product.brand, product.sku ? "Model/SKU: " + product.sku : undefined, product.gtins?.[0] ? "GTIN: " + product.gtins[0] : undefined]
+          body.append(make("h3", "", cardData.title || product.title || text("Product", "商品")));
+          const identity = [product.brand, product.sku ? text("Model/SKU: ", "型号/SKU：") + product.sku : undefined, product.gtins?.[0] ? "GTIN: " + product.gtins[0] : undefined]
             .filter(Boolean).join(" / ");
           if (identity) body.append(make("div", "details", identity));
           const variants = Object.entries(product.variantDimensions || {}).map(([name, value]) => name + ": " + value).join(" / ");
           if (variants) body.append(make("div", "details", variants));
           if (product?.productRating && Number.isFinite(Number(product.productRating.value)) && Number.isInteger(Number(product.productRating.count))) {
-            body.append(make("div", "details", "Product rating: " + Number(product.productRating.value).toFixed(1) + "/5 (" + Number(product.productRating.count) + " reviews)"));
+            body.append(make("div", "details", currentLocale === "zh-CN"
+              ? "商品评分：" + Number(product.productRating.value).toFixed(1) + "/5（" + Number(product.productRating.count) + " 条评价）"
+              : "Product rating: " + Number(product.productRating.value).toFixed(1) + "/5 (" + Number(product.productRating.count) + " reviews)"));
           }
           const row = make("div", "row");
           const priceBlock = make("div", "");
           priceBlock.append(make("div", "price", money(cardData.primaryPrice)));
-          if (cardData.priceLabel) priceBlock.append(make("div", "details", String(cardData.priceLabel)));
+          if (cardData.priceLabel) priceBlock.append(make("div", "details", cardLabelText(cardData.priceLabel)));
           row.append(priceBlock);
           const badges = make("div", "badges");
           const match = String(cardData.matchBadge || product.matchStatus || "UNCONFIRMED");
           const matchClass = match === "EXACT" ? "exact" : match === "DISCOVERY_MATCH" ? "discovery" : "similar";
-          badges.append(make("span", "badge " + matchClass, match));
+          badges.append(make("span", "badge " + matchClass, badgeText(match)));
           const trustBadge = String(cardData.merchantTrustBadge || "MERCHANT_UNVERIFIED");
-          badges.append(make("span", "badge " + (trustBadge === "MERCHANT_UNVERIFIED" ? "unverified" : "trusted"), trustBadge));
-          badges.append(make("span", "badge", String(cardData.conditionBadge || product.condition || "UNKNOWN")));
-          badges.append(make("span", "badge", String(cardData.availability || product.availability || "UNKNOWN")));
+          badges.append(make("span", "badge " + (trustBadge === "MERCHANT_UNVERIFIED" ? "unverified" : "trusted"), badgeText(trustBadge)));
+          badges.append(make("span", "badge", badgeText(String(cardData.conditionBadge || product.condition || "UNKNOWN"))));
+          badges.append(make("span", "badge", badgeText(String(cardData.availability || product.availability || "UNKNOWN"))));
           if (cardData.couponLabel) badges.append(make("span", "badge", String(cardData.couponLabel)));
           row.append(badges);
           body.append(row);
           const breakdown = make("div", "price-breakdown");
           if (cardData.itemPrice && product?.pricing?.scope === "SHOPIFY_CART_ESTIMATE") {
-            appendPriceLine(breakdown, "Item price", money(cardData.itemPrice));
+            appendPriceLine(breakdown, text("Item price", "商品价"), money(cardData.itemPrice));
           }
           if (cardData.shippingLabel) {
-            appendPriceLine(breakdown, "Shipping", String(cardData.shippingLabel));
+            appendPriceLine(breakdown, text("Shipping", "运费"), cardLabelText(cardData.shippingLabel));
           }
           if (cardData.taxPrice && cardData.taxLabel) {
-            appendPriceLine(breakdown, String(cardData.taxLabel), money(cardData.taxPrice));
+            appendPriceLine(breakdown, cardLabelText(cardData.taxLabel), money(cardData.taxPrice));
           }
           if (cardData.estimatedTotal) {
-            appendPriceLine(breakdown, "Estimated total", money(cardData.estimatedTotal), true);
+            appendPriceLine(breakdown, text("Estimated total", "预估总价"), money(cardData.estimatedTotal), true);
           }
           if (breakdown.children.length > 0) body.append(breakdown);
           const quoteCapability = String(cardData.quoteCapability || product.quoteCapability || "MERCHANT_CHECKOUT_ONLY");
           body.append(make("div", "details", quoteCapability === "DELIVERED_TOTAL_SUPPORTED"
-            ? "ZIP delivered-total estimate available."
+            ? text("ZIP delivered-total estimate available.", "可按 ZIP 查询预估到手价。")
             : quoteCapability === "ZIP_ESTIMATE_ONLY"
-              ? "ZIP estimate available; some merchants may require checkout for the final total."
-              : "Shipping, tax, and final total are available at merchant checkout."));
+              ? text("ZIP estimate available; some merchants may require checkout for the final total.", "可按 ZIP 估价；部分商家仍需在结账页确认最终总价。")
+              : text("Shipping, tax, and final total are available at merchant checkout.", "运费、税费和最终总价需在商家结账页确认。")));
           if (Array.isArray(product.matchEvidence) && product.matchEvidence.length > 0) {
-            body.append(make("div", "evidence", "Identity evidence: " + product.matchEvidence.join("; ")));
+            body.append(make("div", "evidence", text("Identity evidence: ", "身份依据：") + product.matchEvidence.join("; ")));
           }
           if (Array.isArray(product.requiredFeatureLimitations) && product.requiredFeatureLimitations.length > 0) {
-            body.append(make("div", "limitations notice", "Not verified: " + product.requiredFeatureLimitations.join(", ") + ". Confirm on the merchant page before purchase."));
+            body.append(make("div", "limitations notice", text("Not verified: ", "尚未验证：") + product.requiredFeatureLimitations.join(", ") + text(". Confirm on the merchant page before purchase.", "。购买前请在商家页面确认。")));
           }
           if (Array.isArray(product.preferenceEvidence) && product.preferenceEvidence.length > 0) {
-            body.append(make("div", "evidence", "Preference match: " + product.preferenceEvidence.join(", ")));
+            body.append(make("div", "evidence", text("Preference match: ", "偏好匹配：") + product.preferenceEvidence.join(", ")));
           }
           if (Array.isArray(product?.merchantTrust?.evidence) && product.merchantTrust.evidence.length > 0) {
-            body.append(make("div", "evidence", "Merchant evidence: " + product.merchantTrust.evidence.join("; ")));
+            body.append(make("div", "evidence", text("Merchant evidence: ", "商家依据：") + product.merchantTrust.evidence.join("; ")));
           }
           body.append(make("div", "observed", observedAt(product.checkedAt)));
           const couponNotice = product?.coupons?.status === "VERIFIED"
-            ? " Attached Coupon evidence is verified for the merchant, but eligibility and final discount require checkout confirmation."
-            : " Coupons remain unavailable unless separately verified.";
+            ? text(" Attached Coupon evidence is verified for the merchant, but eligibility and final discount require checkout confirmation.", " 已附商家优惠券证据，但适用资格和最终折扣仍需在结账时确认。")
+            : text(" Coupons remain unavailable unless separately verified.", " 未经单独验证时，不提供优惠券结论。");
           body.append(make("div", "limitations notice", (product?.pricing?.scope === "SHOPIFY_CART_ESTIMATE"
-            ? "Shopify Cart estimate for supplied ZIP. Tax is Shopify-reported or clearly labeled as a ZIP state-average estimate. Some merchants require a full address or checkout before calculating tax. Final checkout total may change."
-            : "Verified public item price. Shipping, tax, fees, membership and delivered price remain unavailable unless separately verified.") + couponNotice));
+            ? text("Shopify Cart estimate for supplied ZIP. Tax is Shopify-reported or clearly labeled as a ZIP state-average estimate. Some merchants require a full address or checkout before calculating tax. Final checkout total may change.", "基于所提供 ZIP 的 Shopify Cart 预估。税费来自 Shopify，或明确标注为 ZIP 所在州的平均估算。部分商家需要完整地址或进入结账页后才能计算税费，最终金额可能变化。")
+            : text("Verified public item price. Shipping, tax, fees, membership and delivered price remain unavailable unless separately verified.", "已验证公开商品价。运费、税费、费用、会员价和到手价需单独验证。")) + couponNotice));
           if (product?.sourceEnvironment === "SANDBOX") {
-            body.append(make("div", "disclosure", "eBay Sandbox review only. This test link does not earn a commission."));
+            body.append(make("div", "disclosure", text("eBay Sandbox review only. This test link does not earn a commission.", "仅供 eBay Sandbox 测试；此测试链接不会产生佣金。")));
           } else if (product?.purchaseLink?.kind === "APPROVED_AFFILIATE" && typeof product.purchaseLink.disclosure === "string") {
             const disclosure = product.purchaseLink.disclosure.trim();
-            if (disclosure) body.append(make("div", "disclosure", disclosure));
+            if (disclosure) body.append(make("div", "disclosure", currentLocale === "zh-CN" ? "联盟链接：FindCheap 可能获得佣金；佣金不影响入选或排序。" : disclosure));
           }
           const purchaseUrl = safeHttps(product?.purchaseLink?.url || product?.merchantUrl);
           if (purchaseUrl) {
-            const link = make("a", "", cardData.actionLabel || "View at merchant");
+            const link = make("a", "", text("View at merchant", "前往商家页面"));
             link.href = purchaseUrl;
             link.target = "_blank";
             link.rel = "noopener noreferrer";
@@ -580,7 +641,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
         markStage(terminalStage);
         reportMetrics(terminalStage);
         if (!hasResult) {
-          app.replaceChildren(make("div", "empty error", "Product-card snapshot could not be loaded. Text results remain available."));
+          app.replaceChildren(make("div", "empty error", text("Product-card snapshot could not be loaded. Text results remain available.", "商品卡快照无法加载，文字结果仍可使用。")));
         }
       }
     };
@@ -646,7 +707,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     warmCompatibilityBridge();
     const initializeParams = {
       protocolVersion: "2026-01-26",
-      appInfo: { name: "FindCheap Agent product cards", version: "0.12.8" },
+      appInfo: { name: "FindCheap Agent product cards", version: "0.13.0" },
       appCapabilities: { availableDisplayModes: ["inline"] }
     };
     const finishInitialization = () => {
@@ -673,7 +734,10 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
         }
         markStage("INITIALIZE_FAILED");
         if (!hasResult) {
-          app.replaceChildren(make("div", "empty error", "Product-card UI could not connect. Text results remain available."));
+          app.replaceChildren(make("div", "empty error", text(
+            "Product-card UI could not connect. Text results remain available.",
+            "商品卡片暂时无法连接，文字结果仍可使用。"
+          )));
         }
       });
     };
@@ -682,12 +746,18 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       if (!initialized && !hasResult) {
         markStage("INITIALIZE_SLOW");
         reportMetrics("INITIALIZE_SLOW");
-        app.replaceChildren(make("div", "empty error", "Product-card UI is still connecting. Text results remain available."));
+        app.replaceChildren(make("div", "empty error", text(
+          "Product-card UI is still connecting. Text results remain available.",
+          "商品卡片仍在连接，文字结果可先使用。"
+        )));
       }
     }, 2500);
     window.setTimeout(() => {
       if (!hasResult) {
-        app.replaceChildren(make("div", "empty error", "Product-card data did not arrive. Text results remain available."));
+        app.replaceChildren(make("div", "empty error", text(
+          "Product-card data did not arrive. Text results remain available.",
+          "商品卡片数据未到达，文字结果仍可使用。"
+        )));
       }
     }, 5000);
   </script>

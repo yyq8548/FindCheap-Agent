@@ -1,7 +1,11 @@
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import { describe, expect, it } from "vitest";
-import { PRODUCT_CARD_HTML, PRODUCT_CARD_UI_URI } from "../src/product-card-ui.js";
+import {
+  PRODUCT_CARD_HTML,
+  PRODUCT_CARD_UI_URI,
+  productCardResourceDomains
+} from "../src/product-card-ui.js";
 
 class FakeNode {
   children: FakeNode[] = [];
@@ -39,7 +43,7 @@ function nodes(node: FakeNode): FakeNode[] {
 
 describe("product-card MCP Apps UI", () => {
   it("uses an embedded Codex-native surface with responsive cards", () => {
-    expect(PRODUCT_CARD_UI_URI).toBe("ui://findcheap/product-cards/v27.html");
+    expect(PRODUCT_CARD_UI_URI).toBe("ui://findcheap/product-cards/v28.html");
     expect(PRODUCT_CARD_HTML).toContain("--fc-surface:");
     expect(PRODUCT_CARD_HTML).toContain("background: var(--fc-action);");
     expect(PRODUCT_CARD_HTML).toContain("@media (max-width: 640px)");
@@ -54,6 +58,18 @@ describe("product-card MCP Apps UI", () => {
     expect(PRODUCT_CARD_HTML).toContain("Possible same item");
     expect(PRODUCT_CARD_HTML).toContain("Highly similar");
     expect(PRODUCT_CARD_HTML).toContain("Same style");
+  });
+
+  it("allows only built-in image CDNs plus the configured public search origin", () => {
+    expect(productCardResourceDomains("https://findcheap.example/v1/search")).toEqual([
+      "https://cdn.shopify.com",
+      "https://i.ebayimg.com",
+      "https://findcheap.example"
+    ]);
+    expect(productCardResourceDomains("http://findcheap.example/v1/search")).toEqual([
+      "https://cdn.shopify.com",
+      "https://i.ebayimg.com"
+    ]);
   });
 
   it("reports size only after rendered DOM, without ResizeObserver, and persists app-only metrics", async () => {
@@ -122,7 +138,7 @@ describe("product-card MCP Apps UI", () => {
       params: expect.objectContaining({
         name: "report_product_card_metrics",
         arguments: expect.objectContaining({
-          version: "0.12.8",
+          version: "0.13.0",
           terminalStage: "DOM_RENDERED",
           stages: expect.objectContaining({ DOM_RENDERED: expect.any(Number) })
         })
@@ -232,7 +248,7 @@ describe("product-card MCP Apps UI", () => {
     expect(text(app)).toContain("Direct Product");
     expect(text(app)).toContain("$13.90");
     expect(text(app)).toContain("Item price $12.99");
-    expect(text(app)).toContain("Shipping 免费配送 $0.00");
+    expect(text(app)).toContain("Shipping Free shipping $0.00");
     expect(text(app)).toContain("Estimated tax (FL ZIP state average 6.98%) $0.91");
     expect(text(app)).toContain("Estimated total $13.90");
     expect(text(app)).toMatch(/Estimated total summary\s+Direct Product \$13\.90/u);
@@ -242,6 +258,52 @@ describe("product-card MCP Apps UI", () => {
     expect(PRODUCT_CARD_HTML).toContain('image.loading = "lazy"');
     expect(PRODUCT_CARD_HTML).toContain('image.fetchPriority = "low"');
     expect(PRODUCT_CARD_HTML).not.toContain('image.loading = "eager"');
+  });
+
+  it("renders all card chrome in Chinese for a Chinese search", () => {
+    const script = PRODUCT_CARD_HTML.match(/<script>([\s\S]*)<\/script>/u)?.[1];
+    const app = new FakeNode();
+    const window = {
+      parent: { postMessage: () => undefined },
+      openai: { toolOutput: {
+        locale: "zh-CN",
+        products: [{
+          merchant: "示例商家",
+          title: "示例商品",
+          matchStatus: "DISCOVERY_MATCH",
+          resultGroup: "DISCOVERY",
+          recommendationTier: "GENERAL_UNVERIFIED",
+          condition: "UNKNOWN",
+          availability: "IN_STOCK",
+          merchantUrl: "https://example.com/product",
+          card: {
+            merchant: "示例商家",
+            title: "示例商品",
+            primaryPrice: { amountCents: 1999, currency: "USD" },
+            matchBadge: "DISCOVERY_MATCH",
+            conditionBadge: "UNKNOWN",
+            merchantTrustBadge: "MERCHANT_UNVERIFIED",
+            availability: "IN_STOCK"
+          }
+        }]
+      } },
+      addEventListener: () => undefined,
+      setTimeout: () => 1,
+      ResizeObserver: undefined
+    };
+    const document = {
+      getElementById: () => app,
+      createElement: () => new FakeNode(),
+      documentElement: { lang: "en-US", scrollWidth: 700, scrollHeight: 320 },
+      body: { scrollWidth: 700, scrollHeight: 320 }
+    };
+
+    vm.runInNewContext(script!, { window, document, URL, Intl, Number, String, Array, Object, Promise, Map, Math, Date });
+
+    expect(document.documentElement.lang).toBe("zh-CN");
+    expect(text(app)).toContain("发现结果 / 其他相关商品 - 请仔细核验商家");
+    expect(text(app)).toContain("前往商家页面");
+    expect(text(app)).not.toContain("View at merchant");
   });
 
   it("prewarms the compatibility bridge when window.openai arrives after resource evaluation", () => {
@@ -368,7 +430,7 @@ describe("product-card MCP Apps UI", () => {
     vm.runInNewContext(script!, { window, document, URL, Intl, Number, String, Array, Object, Promise, Map, Math, Date });
 
     const output = text(app);
-    expect(output).toContain("Trusted merchants and approved affiliate programs");
+    expect(output).toContain("Trusted merchants");
     expect(output).toContain("Highly rated products - merchant not independently verified");
     expect(output).toContain("Other relevant products - review merchant carefully");
     expect(output.indexOf("Exact Product")).toBeLessThan(output.indexOf("Discovery Product"));
@@ -428,6 +490,8 @@ describe("product-card MCP Apps UI", () => {
     expect(output).toContain("Official website matches");
     expect(output).toContain("Trusted exact and similar matches");
     expect(output).toContain("Best-value high-match options");
+    expect(output).toContain("Only products hosted on independently verified official brand websites");
+    expect(output).toContain("Shopify products rated above 3.8 with at least 2 reviews");
     expect(output.indexOf("Official Product")).toBeLessThan(output.indexOf("Trusted Product"));
     expect(output.indexOf("Trusted Product")).toBeLessThan(output.indexOf("Value Product"));
   });
@@ -467,7 +531,7 @@ describe("product-card MCP Apps UI", () => {
       method: "ui/initialize",
       params: {
         protocolVersion: "2026-01-26",
-        appInfo: { name: "FindCheap Agent product cards", version: "0.12.8" },
+        appInfo: { name: "FindCheap Agent product cards", version: "0.13.0" },
         appCapabilities: { availableDisplayModes: ["inline"] }
       }
     });

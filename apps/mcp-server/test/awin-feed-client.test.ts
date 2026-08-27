@@ -319,7 +319,8 @@ describe("Awin Product Feed", () => {
       diagnostics: { feedRows: 61, queryMatches: 23 },
       products: [{
         merchantId: "49085",
-        itemPrice: { amountCents: 5_999, currency: "USD" }
+        itemPrice: { amountCents: 5_999, currency: "USD" },
+        imageUrl: "https://findcheap.example/v1/images?merchantId=49085&merchantProductId=tc-1"
       }]
     });
     expect(result).not.toHaveProperty("schemaVersion");

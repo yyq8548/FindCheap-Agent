@@ -4236,6 +4236,11 @@
           "kind": "import-statement",
           "original": "./shopify-official-store-search.js",
           "path": "src/shopify-official-store-search.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./product-card-ui.js",
+          "path": "src/product-card-ui.ts"
         }
       ]
     },
@@ -4297,7 +4302,7 @@
   },
   "outputs": {
     "../../plugins/findcheap-agent/dist/mcp-server.js": {
-      "bytes": 609883,
+      "bytes": 615945,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
@@ -4895,7 +4900,7 @@
           "bytesInOutput": 750
         },
         "../../packages/awin-feed/src/index.ts": {
-          "bytesInOutput": 12989
+          "bytesInOutput": 13266
         },
         "../../packages/contracts/src/comparison.ts": {
           "bytesInOutput": 1322
@@ -4916,7 +4921,7 @@
           "bytesInOutput": 254
         },
         "../../packages/network-safety/src/safe-fetch.ts": {
-          "bytesInOutput": 7522
+          "bytesInOutput": 7523
         },
         "src/affiliate-links.ts": {
           "bytesInOutput": 2966
@@ -4937,10 +4942,10 @@
           "bytesInOutput": 3766
         },
         "src/merchant-trust.ts": {
-          "bytesInOutput": 7884
+          "bytesInOutput": 7876
         },
         "src/product-card-ui.ts": {
-          "bytesInOutput": 31786
+          "bytesInOutput": 37140
         },
         "src/product-constraint-matcher.ts": {
           "bytesInOutput": 10781
@@ -4949,10 +4954,10 @@
           "bytesInOutput": 1784
         },
         "src/search-products.ts": {
-          "bytesInOutput": 20297
+          "bytesInOutput": 20585
         },
         "src/server.ts": {
-          "bytesInOutput": 82395
+          "bytesInOutput": 82478
         },
         "src/shopify-cart-quote.ts": {
           "bytesInOutput": 10335
@@ -4976,7 +4981,7 @@
           "bytesInOutput": 2070
         },
         "src/stdio.ts": {
-          "bytesInOutput": 625
+          "bytesInOutput": 692
         },
         "src/visual-product-discovery.ts": {
           "bytesInOutput": 7954

@@ -49,7 +49,10 @@ import {
   type WatchStore
 } from "./watch-store.js";
 import { evaluateWatch, type WatchEvaluation } from "./watch-service.js";
-import { MERCHANT_TRUST_REGISTRY_VERSION } from "./merchant-trust.js";
+import {
+  MERCHANT_TRUST_REGISTRY_VERSION,
+  resolveMerchantTrust
+} from "./merchant-trust.js";
 import {
   SearchProductsInputSchema,
   searchProducts,
@@ -91,7 +94,7 @@ const ProductCardStagesSchema = z.object({
 
 const ProductCardTelemetryInputSchema = z.object({
   renderId: z.string().uuid(),
-  version: z.literal("0.12.8"),
+  version: z.literal("0.13.0"),
   terminalStage: z.enum([
     "DOM_RENDERED",
     "FIRST_IMAGE_SETTLED",
@@ -109,6 +112,9 @@ export type ProductCardTelemetry = z.infer<typeof ProductCardTelemetryInputSchem
 export type ProductCardTelemetrySink = {
   record(event: ProductCardTelemetry): void | Promise<void>;
 };
+
+export const PRODUCT_SELECTION_SNAPSHOT_TTL_MS = 2 * 60 * 60_000;
+export const MAX_PRODUCT_SELECTION_SNAPSHOTS = 128;
 
 const unavailableMessage =
   "Live comparison is unavailable because no approved shopping data source is connected.";
@@ -462,6 +468,7 @@ const ShopifyProductOutputSchema = z.object({
 
 const ShopifyProductsOutputShape = {
   renderId: z.string().uuid().optional(),
+  locale: z.enum(["en-US", "zh-CN"]).optional(),
   status: z.enum(["OK", "NEEDS_CLARIFICATION", "DATA_SOURCE_UNAVAILABLE"]),
   message: z.string(),
   source: z.enum(["SHOPIFY_GLOBAL_CATALOG", "UNIFIED_PRODUCT_SEARCH"]),
@@ -966,6 +973,7 @@ function unifiedResult(
     content: [{ type: "text" as const, text: message }],
     structuredContent: {
       ...shopifyResponse.structuredContent,
+      locale: /\p{Script=Han}/u.test(input.query) ? "zh-CN" as const : "en-US" as const,
       status: dataUnavailable ? "DATA_SOURCE_UNAVAILABLE" as const : "OK" as const,
       message,
       source: "UNIFIED_PRODUCT_SEARCH" as const,
@@ -1040,10 +1048,11 @@ function awinCardProduct(candidate: UnifiedCandidate): ProductCardProduct {
   const product = candidate.awinProduct;
   if (product === undefined) throw new Error("Awin candidate is missing its source product");
   const sourceHost = new URL(product.merchantUrl).hostname;
+  const merchantTrust = resolveMerchantTrust(sourceHost, product.merchant);
   return {
     sourceKind: "AWIN_PRODUCT_FEED",
     affiliateState: "APPROVED",
-    recommendationTier: "TRUSTED_OR_AFFILIATE",
+    recommendationTier: candidate.recommendationTier,
     featureEvidence: candidate.featureEvidence,
     preferenceEvidence: candidate.preferenceEvidence,
     requiredFeatureLimitations: candidate.requiredFeatureLimitations,
@@ -1056,11 +1065,7 @@ function awinCardProduct(candidate: UnifiedCandidate): ProductCardProduct {
     merchantId: product.merchantId,
     merchant: product.merchant,
     sourceHost,
-    merchantTrust: {
-      level: "ESTABLISHED_RETAILER",
-      verification: "INDEPENDENT",
-      evidence: ["merchant supplied through an approved Awin Advertiser Product Feed"]
-    },
+    merchantTrust,
     handle: product.merchantProductId,
     title: product.title,
     gtins: [],
@@ -1101,7 +1106,9 @@ function awinCardProduct(candidate: UnifiedCandidate): ProductCardProduct {
       matchBadge: candidate.identityStatus === "SIMILAR" ? "SIMILAR" : product.matchStatus,
       conditionBadge: product.condition,
       availability: product.availability,
-      merchantTrustBadge: "ESTABLISHED_RETAILER",
+      merchantTrustBadge: merchantTrust.verification === "INDEPENDENT"
+        ? merchantTrust.level as "OFFICIAL" | "AUTHORIZED_RETAILER" | "ESTABLISHED_RETAILER"
+        : "MERCHANT_UNVERIFIED",
       quoteCapability: "MERCHANT_CHECKOUT_ONLY",
       actionLabel: "View at merchant"
     }
@@ -1445,6 +1452,7 @@ export type ShoppingServerDependencies = {
   officialShopify?: OfficialShopifySearchPort;
   now?: () => Date;
   cardTelemetry?: ProductCardTelemetrySink;
+  productCardResourceDomains?: readonly string[];
   toolAvailability?: {
     commerceCompare: boolean;
     verifiedDeals: boolean;
@@ -1631,7 +1639,7 @@ export function createShoppingServer(
   dependencies: ShoppingServerDependencies = {}
 ): McpServer {
   void comparePort;
-  const server = new McpServer({ name: "findcheap-agent", version: "0.12.8" });
+  const server = new McpServer({ name: "findcheap-agent", version: "0.13.0" });
   const dealPort = dependencies.deals ?? createUnavailableDealPort();
   const awinPort = dependencies.awin ?? createUnavailableAwinPort();
   const ebayPort = dependencies.ebay;
@@ -1732,12 +1740,12 @@ export function createShoppingServer(
       })
     };
     renderSnapshots.set(renderId, {
-      expiresAt: Date.now() + 30 * 60_000,
+      expiresAt: now().getTime() + PRODUCT_SELECTION_SNAPSHOT_TTL_MS,
       content: snapshot,
       sourceResult,
       resolvedAwinProducts
     });
-    while (renderSnapshots.size > 32) {
+    while (renderSnapshots.size > MAX_PRODUCT_SELECTION_SNAPSHOTS) {
       const oldest = renderSnapshots.keys().next().value as string | undefined;
       if (oldest === undefined) break;
       deleteSnapshot(oldest);
@@ -1790,7 +1798,7 @@ export function createShoppingServer(
             prefersBorder: false,
             csp: {
               connectDomains: [],
-              resourceDomains: PRODUCT_CARD_RESOURCE_DOMAINS
+              resourceDomains: dependencies.productCardResourceDomains ?? PRODUCT_CARD_RESOURCE_DOMAINS
             }
           }
         }
@@ -2053,7 +2061,7 @@ export function createShoppingServer(
       const { renderId, variantId } = reference;
       const { variantDimensions = {} } = parsed;
       const snapshot = renderSnapshots.get(renderId);
-      if (snapshot === undefined || snapshot.expiresAt <= Date.now()) {
+      if (snapshot === undefined || snapshot.expiresAt <= now().getTime()) {
         deleteSnapshot(renderId);
         return {
           isError: true,
@@ -2199,7 +2207,7 @@ export function createShoppingServer(
       const { renderId, variantId } = reference;
       const { zipCode } = parsed;
       const snapshot = renderSnapshots.get(renderId);
-      if (snapshot === undefined || snapshot.expiresAt <= Date.now()) {
+      if (snapshot === undefined || snapshot.expiresAt <= now().getTime()) {
         deleteSnapshot(renderId);
         return {
           isError: true,
@@ -2299,7 +2307,7 @@ export function createShoppingServer(
       const parsed = DealConciergeInputSchema.parse(input);
       const reference = resolveSelectionReference(parsed);
       const snapshot = reference === undefined ? undefined : renderSnapshots.get(reference.renderId);
-      if (reference === undefined || snapshot === undefined || snapshot.expiresAt <= Date.now()) {
+      if (reference === undefined || snapshot === undefined || snapshot.expiresAt <= now().getTime()) {
         if (reference !== undefined) deleteSnapshot(reference.renderId);
         const message = "Selected product reference is unavailable or expired. Run one new product search, then select a card.";
         return {
@@ -2465,7 +2473,7 @@ export function createShoppingServer(
       if (requested.priceBasis === "DELIVERED_TOTAL") {
         const reference = quoteReference === undefined ? undefined : resolveSelectionReference(quoteReference);
         const snapshot = reference === undefined ? undefined : renderSnapshots.get(reference.renderId);
-        if (snapshot === undefined || snapshot.expiresAt <= Date.now()) {
+        if (snapshot === undefined || snapshot.expiresAt <= now().getTime()) {
           if (reference !== undefined) deleteSnapshot(reference.renderId);
           const message = "The selected product reference expired. Run one new product search, then create the delivered-total watch from that exact card.";
           return { content: [{ type: "text" as const, text: message }], structuredContent: {
@@ -2791,7 +2799,7 @@ export function createShoppingServer(
     },
     async ({ renderId }) => {
       const snapshot = renderSnapshots.get(renderId);
-      if (snapshot === undefined || snapshot.expiresAt <= Date.now()) {
+      if (snapshot === undefined || snapshot.expiresAt <= now().getTime()) {
         deleteSnapshot(renderId);
         return {
           isError: true,
@@ -2829,7 +2837,7 @@ export function createShoppingServer(
     async (input) => {
       const telemetry = ProductCardTelemetryInputSchema.parse(input);
       const snapshot = renderSnapshots.get(telemetry.renderId);
-      if (snapshot === undefined || snapshot.expiresAt <= Date.now()) {
+      if (snapshot === undefined || snapshot.expiresAt <= now().getTime()) {
         deleteSnapshot(telemetry.renderId);
         return {
           isError: true,

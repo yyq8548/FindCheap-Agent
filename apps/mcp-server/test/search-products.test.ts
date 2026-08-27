@@ -71,11 +71,20 @@ describe("unified product search", () => {
     }), { awin: awinPort, shopify: shopifyPort });
 
     expect(result.candidates.map((candidate) => candidate.source)).toEqual([
+      "SHOPIFY_GLOBAL_CATALOG",
       "AWIN_PRODUCT_FEED",
       "AWIN_PRODUCT_FEED",
       "AWIN_PRODUCT_FEED"
     ]);
+    expect(result.candidates[0]).toMatchObject({ presentationGroup: "TRUSTED_MATCH" });
+    expect(result.candidates.slice(1)).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        recommendationTier: "GENERAL_UNVERIFIED",
+        presentationGroup: "BEST_VALUE"
+      })
+    ]));
     expect(shopifyPort.search).toHaveBeenCalledTimes(1);
+    expect(shopifyPort.search).toHaveBeenCalledWith(expect.objectContaining({ limit: 12 }));
   });
 
   it("fills missing affiliate results with Shopify without commission scoring", async () => {
@@ -390,7 +399,36 @@ describe("unified product search", () => {
       "HIGH_RATED_UNVERIFIED",
       "GENERAL_UNVERIFIED"
     ]);
+    expect(result.candidates.map((candidate) => candidate.presentationGroup)).toEqual([
+      "TRUSTED_MATCH",
+      "TRUSTED_MATCH",
+      "BEST_VALUE"
+    ]);
     expect(result.chromeFallbackEligible).toBe(false);
+  });
+
+  it("places only products hosted on verified official domains in the official group", async () => {
+    const offDomain = shopifyProduct("off-domain", 3000, "NEW", {
+      merchant: "SKIMS",
+      sourceHost: "skims.com",
+      merchantTrust: {
+        level: "OFFICIAL",
+        verification: "INDEPENDENT",
+        evidence: ["official merchant domain"]
+      },
+      merchantUrl: "https://marketplace.example/products/off-domain"
+    });
+
+    const result = await searchProducts(SearchProductsInputSchema.parse({
+      query: "dress",
+      limit: 3
+    }), { awin: awin([]), shopify: shopify([offDomain]) });
+
+    expect(result.candidates[0]).toMatchObject({
+      presentationGroup: "TRUSTED_MATCH",
+      shopifyProduct: { handle: "off-domain" }
+    });
+    expect(result.candidates.some((candidate) => candidate.presentationGroup === "OFFICIAL_STORE")).toBe(false);
   });
 
   it("does not promote a 3.8 rating or a product with only one review", async () => {

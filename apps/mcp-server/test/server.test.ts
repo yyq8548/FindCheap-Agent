@@ -3,6 +3,8 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ComparisonResult } from "../../../packages/contracts/src/index.js";
 import {
+  MAX_PRODUCT_SELECTION_SNAPSHOTS,
+  PRODUCT_SELECTION_SNAPSHOT_TTL_MS,
   createShoppingServer,
   createUnavailableComparePort,
   type ComparePort,
@@ -149,6 +151,10 @@ const comparison: ComparisonResult = {
 };
 
 describe("shopping MCP server", () => {
+  it("keeps stable product selections for two hours within a bounded snapshot cache", () => {
+    expect(PRODUCT_SELECTION_SNAPSHOT_TTL_MS).toBe(2 * 60 * 60_000);
+    expect(MAX_PRODUCT_SELECTION_SNAPSHOTS).toBe(128);
+  });
   it("binds product cards directly to Shopify search and hides legacy rendering from the model", async () => {
     const client = await connect({ compare: async () => comparison });
 
@@ -159,12 +165,12 @@ describe("shopping MCP server", () => {
     const renderTool = tools.tools.find((candidate) => candidate.name === "render_product_cards");
     const metricsTool = tools.tools.find((candidate) => candidate.name === "report_product_card_metrics");
     expect(searchTool?._meta).toMatchObject({
-      ui: { resourceUri: "ui://findcheap/product-cards/v27.html" },
-      "openai/outputTemplate": "ui://findcheap/product-cards/v27.html"
+      ui: { resourceUri: "ui://findcheap/product-cards/v28.html" },
+      "openai/outputTemplate": "ui://findcheap/product-cards/v28.html"
     });
     expect(renderTool?._meta).toMatchObject({
       ui: {
-        resourceUri: "ui://findcheap/product-cards/v27.html",
+        resourceUri: "ui://findcheap/product-cards/v28.html",
         visibility: ["app"]
       }
     });
@@ -181,11 +187,11 @@ describe("shopping MCP server", () => {
     const resources = await client.listResources();
     expect(resources.resources).toEqual([expect.objectContaining({
       name: "findcheap-product-cards",
-      uri: "ui://findcheap/product-cards/v27.html",
+      uri: "ui://findcheap/product-cards/v28.html",
       mimeType: "text/html;profile=mcp-app"
     })]);
 
-    const resource = await client.readResource({ uri: "ui://findcheap/product-cards/v27.html" });
+    const resource = await client.readResource({ uri: "ui://findcheap/product-cards/v28.html" });
     const content = resource.contents[0];
     const html = content !== undefined && "text" in content ? content.text : "";
     expect(html).toContain("ui/notifications/tool-result");
@@ -446,7 +452,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.12.8",
+        version: "0.13.0",
         terminalStage: "DOM_RENDERED",
         stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
       }
@@ -455,7 +461,7 @@ describe("shopping MCP server", () => {
     expect(result.structuredContent).toEqual({ status: "RECORDED" });
     expect(record).toHaveBeenCalledWith(expect.objectContaining({
       renderId,
-      version: "0.12.8",
+      version: "0.13.0",
       terminalStage: "DOM_RENDERED",
       stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
     }));
@@ -463,7 +469,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.12.8",
+        version: "0.13.0",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 14 }
       }
@@ -473,7 +479,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.12.8",
+        version: "0.13.0",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 300_001 }
       }
@@ -484,7 +490,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId: "22222222-2222-4222-8222-222222222222",
-        version: "0.12.8",
+        version: "0.13.0",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 1 }
       }
@@ -1931,12 +1937,12 @@ describe("Coupon and Watch tools", () => {
     expect(awinProduct).toMatchObject({
       sourceKind: "AWIN_PRODUCT_FEED",
       merchantTrust: {
-        level: "ESTABLISHED_RETAILER",
-        verification: "INDEPENDENT"
+        level: "UNKNOWN",
+        verification: "UNVERIFIED"
       },
       quoteCapability: "ZIP_ESTIMATE_ONLY",
       card: {
-        merchantTrustBadge: "ESTABLISHED_RETAILER",
+        merchantTrustBadge: "MERCHANT_UNVERIFIED",
         quoteCapability: "ZIP_ESTIMATE_ONLY"
       },
       quoteReference: { selectionId: expect.any(String) }

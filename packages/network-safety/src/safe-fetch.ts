@@ -132,7 +132,7 @@ export function createPinnedRequest(
         headers: {
           connection: "close",
           "accept-encoding": "identity",
-          "user-agent": "FindCheap-Agent/0.8.4 (+https://github.com/yyq8548/FindCheap-Agent)"
+          "user-agent": "FindCheap-Agent/0.13.0 (+https://github.com/yyq8548/FindCheap-Agent)"
         },
         lookup: (_hostname, options, callback) => {
           const requestedFamily = typeof options === "number" ? options : options.family;

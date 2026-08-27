@@ -343,6 +343,49 @@ describe("Awin Feed service", () => {
     }
   });
 
+  it("proxies only image URLs present in the validated Feed snapshot", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "findcheap-awin-image-"));
+    directories.push(directory);
+    const token = "i".repeat(32);
+    const environment = parseAwinFeedServiceEnvironment({
+      AWIN_SOURCE_FEED_URL: "https://productdata.awin.com/private/feed.csv.gz",
+      AWIN_FEED_API_TOKEN: token,
+      AWIN_FEED_DATA_PATH: join(directory, "current.csv.gz")
+    });
+    const controller = createAwinFeedController(environment, {
+      fetch: async () => new Response(responseBody(fixtureArchive()), { status: 200 }),
+      now: () => new Date("2026-08-25T05:30:00.000Z")
+    });
+    await controller.refresh();
+    const imageFetch = vi.fn(async (url: string) => {
+      expect(url).toBe("https://cdn.shopify.com/image.jpg");
+      return new Response(new Uint8Array([1, 2, 3]), {
+        status: 200,
+        headers: { "content-type": "image/jpeg" }
+      });
+    });
+    const server = createAwinFeedHttpServer(controller, token, { imageFetch });
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const address = server.address();
+    if (address === null || typeof address === "string") throw new Error("test server did not bind TCP");
+    const origin = `http://127.0.0.1:${address.port}`;
+    try {
+      const image = await fetch(`${origin}/v1/images?merchantId=20282&merchantProductId=sku-1`);
+      expect(image.status).toBe(200);
+      expect(image.headers.get("content-type")).toBe("image/jpeg");
+      expect(image.headers.get("x-content-type-options")).toBe("nosniff");
+      expect(new Uint8Array(await image.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3]));
+      expect(imageFetch).toHaveBeenCalledOnce();
+
+      expect((await fetch(`${origin}/v1/images?merchantId=20282&merchantProductId=missing`)).status).toBe(404);
+      expect((await fetch(`${origin}/v1/images?merchantId=bad&merchantProductId=sku-1`)).status).toBe(400);
+      expect(imageFetch).toHaveBeenCalledOnce();
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    }
+  });
+
   it("keeps liveness healthy while reporting a missing Feed as not ready", async () => {
     const environment = parseAwinFeedServiceEnvironment({
       AWIN_SOURCE_FEED_URL: "https://productdata.awin.com/private/feed.csv.gz",

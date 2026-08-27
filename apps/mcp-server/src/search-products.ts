@@ -331,7 +331,7 @@ export async function searchProducts(
 
   await Promise.all([
     queryAwin(sourceQuery, 12, false),
-    queryShopify(sourceQuery, input.limit, false),
+    queryShopify(sourceQuery, 12, false),
     queryEbay(sourceQuery, input.selectionMode === "MERCHANT_DIVERSE" ? 1 : 12, false)
   ]);
 
@@ -571,10 +571,12 @@ function awinCandidate(
     productType: product.category
   }, key, visualExcludedKeys);
   if (visual === null) return undefined;
+  const merchantUrl = new URL(product.merchantUrl);
+  const merchantTrust = resolveMerchantTrust(merchantUrl.hostname, product.merchant);
   return {
     source: "AWIN_PRODUCT_FEED",
     affiliateState: "APPROVED",
-    recommendationTier: "TRUSTED_OR_AFFILIATE",
+    recommendationTier: merchantRecommendationTier(merchantTrust, undefined),
     featureEvidence: unique([...evidence.matched, ...brand.requiredEvidence]),
     preferenceEvidence: unique([...evidence.preferences, ...brand.preferenceEvidence]),
     requiredFeatureLimitations: evidence.unknown,
@@ -1131,7 +1133,10 @@ function selectPresentationCandidates(
   const trusted = candidates
     .filter((candidate) => !isOfficialCandidate(candidate))
     .filter(isHighMatch)
-    .filter((candidate) => candidate.recommendationTier === "TRUSTED_OR_AFFILIATE")
+    .filter((candidate) =>
+      candidate.recommendationTier === "TRUSTED_OR_AFFILIATE" ||
+      candidate.recommendationTier === "HIGH_RATED_UNVERIFIED"
+    )
     .slice(0, limit)
     .map((candidate) => ({ ...candidate, presentationGroup: "TRUSTED_MATCH" as const }));
   const selectedKeys = new Set([...official, ...trusted].map(candidateKey));
@@ -1139,7 +1144,7 @@ function selectPresentationCandidates(
     .filter((candidate) => !selectedKeys.has(candidateKey(candidate)))
     .filter((candidate) => !isOfficialCandidate(candidate))
     .filter(isHighMatch)
-    .filter((candidate) => candidate.recommendationTier !== "TRUSTED_OR_AFFILIATE")
+    .filter((candidate) => candidate.recommendationTier === "GENERAL_UNVERIFIED")
     .sort(compareBestValue)
     .slice(0, limit)
     .map((candidate) => ({ ...candidate, presentationGroup: "BEST_VALUE" as const }));
@@ -1150,8 +1155,17 @@ function selectPresentationCandidates(
 
 function isOfficialCandidate(candidate: UnifiedCandidate): boolean {
   if (candidate.source !== "SHOPIFY_GLOBAL_CATALOG") return false;
-  return candidate.shopifyProduct.merchantTrust.level === "OFFICIAL" &&
-    candidate.shopifyProduct.merchantTrust.verification === "INDEPENDENT";
+  try {
+    const merchantUrl = new URL(candidate.shopifyProduct.merchantUrl);
+    const websiteTrust = resolveMerchantTrust(merchantUrl.hostname, candidate.shopifyProduct.merchant);
+    return merchantUrl.protocol === "https:" &&
+      candidate.shopifyProduct.merchantTrust.level === "OFFICIAL" &&
+      candidate.shopifyProduct.merchantTrust.verification === "INDEPENDENT" &&
+      websiteTrust.level === "OFFICIAL" &&
+      websiteTrust.verification === "INDEPENDENT";
+  } catch {
+    return false;
+  }
 }
 
 function isHighMatch(candidate: UnifiedCandidate): boolean {

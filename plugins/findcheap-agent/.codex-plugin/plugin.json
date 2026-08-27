@@ -1,6 +1,6 @@
 {
   "name": "findcheap-agent",
-  "version": "0.12.8+codex.20260827040919",
+  "version": "0.13.0+codex.20260827060153",
   "description": "Search products from text or visual evidence, compare verified offers, find deals, and monitor prices, promotions, and stock.",
   "author": {
     "name": "yyq8548"
@@ -12,7 +12,7 @@
   "interface": {
     "displayName": "FindCheap Agent",
     "shortDescription": "Verified cards, pricing, coupons, and safe links.",
-    "longDescription": "FindCheap Agent is a Codex Plugin Agent. v0.12.8 prevents detailed visual descriptions from triggering avoidable search retries, improves product-card result recovery, and keeps product images inside verified cards instead of unreliable Markdown embeds. Results remain grouped into official-store, trusted-match, and best-value high-match options. Current deal checks use stable selected-product identity, current price, inventory, verified deal candidates, and optional delivered-price evidence; price-history and buy-or-wait forecasting are disabled. Authorized bounded Chrome search remains a user-approved fallback only after eligible API searches return no usable result. Search ranking remains independent of affiliate relationships. The agent never invents identity, discount eligibility, stacking, or delivered totals; it never checks out, reserves inventory, purchases, or pays.",
+    "longDescription": "FindCheap Agent is a Codex Plugin Agent. v0.13.0 adds localized English and Chinese product cards, safe merchant-image proxying, wider Shopify recall before unified ranking, and longer-lived stable product selections. Official-store results remain separate from trusted exact and similar matches. Affiliate relationships are disclosed but never affect eligibility or ranking. Current deal checks use stable selected-product identity, current price, inventory, verified deal candidates, and optional delivered-price evidence; price-history and buy-or-wait forecasting remain disabled. Authorized bounded Chrome search remains a user-approved fallback only after eligible API searches return no usable result. The agent never invents identity, discount eligibility, stacking, or delivered totals; it never checks out, reserves inventory, purchases, or pays.",
     "developerName": "yyq8548",
     "category": "Productivity",
     "capabilities": [

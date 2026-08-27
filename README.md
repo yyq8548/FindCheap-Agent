@@ -9,7 +9,7 @@ Product form: **Codex Plugin Agent**.
 
 FindCheap Agent is a read-only Codex plugin for product search, offer matching, price checks, product cards, verified deals, and shopping watches. It returns up to three products with images, merchant links, price evidence, match labels, condition, and availability.
 
-Codex calls one public `search_products` tool through a local stdio MCP server. The router considers relevant products from approved affiliate programs first, fills remaining slots from Shopify Global Catalog, and automatically runs one broader internal search when the first pass cannot fill the requested cards. It offers an authorized bounded Chrome search only after both API passes return no usable verified product.
+Codex calls one public `search_products` tool through a local stdio MCP server. The router searches eligible Awin, Shopify, eBay, and verified official-store sources, then ranks qualifying products without using affiliate status. It automatically runs one broader internal search when the first pass cannot fill the requested cards. It offers an authorized bounded Chrome search only after both API passes return no usable verified product.
 
 The plugin does not order, check out, or submit payment. It also does not reserve inventory.
 
@@ -51,7 +51,7 @@ Ask whether to buy a selected product now:
 Is this worth buying now, or should I wait?
 ```
 
-For a follow-up quote, refer to a result by its number or choose it from the card. FindCheap Agent reuses the original product and variant instead of searching its title again.
+For a follow-up quote, refer to a result by its number or choose it from the card. FindCheap Agent reuses the original product and variant instead of searching its title again. Stable selections remain available for up to two hours in the active MCP process; the cache keeps at most 128 recent search snapshots and asks for a new search after expiry.
 
 ## Product search
 
@@ -80,8 +80,8 @@ Visual similarity is not exact product identity. A visual result remains `DISCOV
 FindCheap Agent keeps product identity, merchant trust, condition, and price evidence separate:
 
 - Match labels describe product identity only. `EXACT` requires strong identity evidence. `DISCOVERY_MATCH` and `SIMILAR` do not prove that two listings are the same product.
-- Normal discovery orders merchants in three tiers. Independently reviewed official, authorized, or established retailers and approved Awin programs come first. Shopify products rated above `3.8` with at least `2` reviews come next when the merchant has not been independently verified. Other relevant merchants may appear last with a limited-trust warning. A product rating does not verify the merchant. Domains classified as `RISKY` are excluded.
-- Awin approval confirms the configured affiliate program and link path. It is not an independent endorsement of the merchant or product. Commission does not affect relevance or ranking.
+- Results use three presentation groups. The first contains only products hosted on independently verified official brand websites, with at most two cards. The second contains high-match products from reviewed merchants or Shopify products rated above `3.8` with at least `2` reviews. Affiliate approval alone never promotes a merchant into this group. Other relevant products appear in the best-value group with a limited-trust warning. A product rating does not independently verify the merchant. Domains classified as `RISKY` are excluded.
+- Awin approval confirms only the configured affiliate program and link path. It is not an independent endorsement of the merchant or product. Commercial relationships do not affect source eligibility, merchant tier, relevance, or ranking.
 - A displayed item price is the value returned by the configured source at observation time. Shipping, tax, mandatory fees, member price, coupons, and delivered total stay unavailable until the relevant merchant evidence or a successful quote provides them. ZIP tax may be labeled as an estimate, and checkout can change the final amount.
 - `UNKNOWN` condition means the source did not verify condition. It must not be described as new. For merchants with limited trust evidence, users should check seller identity, returns, and payment protection before buying.
 

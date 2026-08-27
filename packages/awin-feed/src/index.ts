@@ -493,7 +493,23 @@ async function fetchPublicSearch(
   } catch {
     throw new Error("Awin Search service returned invalid JSON");
   }
-  return parseAwinSearchResult(decoded);
+  const result = parseAwinSearchResult(decoded);
+  return {
+    ...result,
+    products: result.products.map((product) => product.imageUrl === undefined
+      ? product
+      : {
+          ...product,
+          imageUrl: publicImageProxyUrl(configuration.url, product.merchantId, product.merchantProductId)
+        })
+  };
+}
+
+function publicImageProxyUrl(searchUrl: string, merchantId: string, merchantProductId: string): string {
+  const url = new URL("/v1/images", new URL(searchUrl).origin);
+  url.searchParams.set("merchantId", merchantId);
+  url.searchParams.set("merchantProductId", merchantProductId);
+  return url.href;
 }
 
 export function parseAwinSearchResult(value: unknown): AwinSearchResult {

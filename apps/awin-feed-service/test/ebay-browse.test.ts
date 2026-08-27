@@ -125,7 +125,8 @@ describe("eBay Browse gateway", () => {
       loadExisting: async () => {},
       refresh: async () => {},
       getState: () => ({}),
-      search: () => undefined
+      search: () => undefined,
+      getImageSource: () => undefined
     } satisfies AwinFeedController;
     const server = createAwinFeedHttpServer(awin, "a".repeat(32), { ebay });
     server.listen(0, "127.0.0.1");
