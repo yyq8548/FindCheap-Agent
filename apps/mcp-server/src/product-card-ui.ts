@@ -1,4 +1,4 @@
-export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v23.html";
+export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v24.html";
 
 export const PRODUCT_CARD_RESOURCE_DOMAINS = [
   "https://cdn.shopify.com",
@@ -99,9 +99,15 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       line-height: 1.3;
     }
     .exact, .discovery, .similar, .trusted, .unverified { color: var(--fc-muted); }
-    .details, .evidence, .limitations, .disclosure, .observed {
+    .details, .evidence, .limitations, .observed {
       color: var(--fc-muted);
       font-size: 11px;
+      line-height: 1.45;
+    }
+    .disclosure {
+      color: var(--fc-text);
+      font-size: 12px;
+      font-weight: 650;
       line-height: 1.45;
     }
     .evidence { color: var(--fc-text); }
@@ -170,7 +176,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     const uiStartedAt = typeof performance === "object" && typeof performance.now === "function"
       ? performance.now()
       : Date.now();
-    const cardMetrics = { version: "0.10.2", stages: {} };
+    const cardMetrics = { version: "0.10.3", stages: {} };
     window.__findcheapCardMetrics = cardMetrics;
     const notify = (method, params = {}) => {
       window.parent.postMessage({ jsonrpc: "2.0", method, params }, "*");
@@ -453,6 +459,12 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
           body.append(make("div", "limitations notice", (product?.pricing?.scope === "SHOPIFY_CART_ESTIMATE"
             ? "Shopify Cart estimate for supplied ZIP. Tax is Shopify-reported or clearly labeled as a ZIP state-average estimate. Some merchants require a full address or checkout before calculating tax. Final checkout total may change."
             : "Verified public item price. Shipping, tax, fees, membership and delivered price remain unavailable unless separately verified.") + couponNotice));
+          if (product?.sourceEnvironment === "SANDBOX") {
+            body.append(make("div", "disclosure", "eBay Sandbox review only. This test link does not earn a commission."));
+          } else if (product?.purchaseLink?.kind === "APPROVED_AFFILIATE" && typeof product.purchaseLink.disclosure === "string") {
+            const disclosure = product.purchaseLink.disclosure.trim();
+            if (disclosure) body.append(make("div", "disclosure", disclosure));
+          }
           const purchaseUrl = safeHttps(product?.purchaseLink?.url || product?.merchantUrl);
           if (purchaseUrl) {
             const link = make("a", "", cardData.actionLabel || "View at merchant");
@@ -559,7 +571,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     warmCompatibilityBridge();
     const initializeParams = {
       protocolVersion: "2026-01-26",
-      appInfo: { name: "FindCheap Agent product cards", version: "0.10.2" },
+      appInfo: { name: "FindCheap Agent product cards", version: "0.10.3" },
       appCapabilities: { availableDisplayModes: ["inline"] }
     };
     const finishInitialization = () => {

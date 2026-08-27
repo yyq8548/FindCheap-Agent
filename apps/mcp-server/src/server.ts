@@ -89,7 +89,7 @@ const ProductCardStagesSchema = z.object({
 
 const ProductCardTelemetryInputSchema = z.object({
   renderId: z.string().uuid(),
-  version: z.literal("0.10.2"),
+  version: z.literal("0.10.3"),
   terminalStage: z.enum([
     "DOM_RENDERED",
     "FIRST_IMAGE_SETTLED",
@@ -271,6 +271,7 @@ const CompareProductsOutputShape = {
 
 const ShopifyProductOutputSchema = z.object({
   sourceKind: z.enum(["AWIN_PRODUCT_FEED", "SHOPIFY_GLOBAL_CATALOG", "EBAY_BROWSE"]).optional(),
+  sourceEnvironment: z.enum(["PRODUCTION", "SANDBOX"]).optional(),
   affiliateState: z.enum(["APPROVED", "NONE"]).optional(),
   featureEvidence: z.array(z.string()).optional(),
   preferenceEvidence: z.array(z.string()).optional(),
@@ -1038,6 +1039,7 @@ function ebayCardProduct(candidate: UnifiedCandidate): ProductCardProduct {
   const purchaseUrl = product.affiliateUrl ?? product.merchantUrl;
   return {
     sourceKind: "EBAY_BROWSE",
+    sourceEnvironment: product.environment,
     affiliateState: candidate.affiliateState,
     recommendationTier: "GENERAL_UNVERIFIED",
     featureEvidence: candidate.featureEvidence,
@@ -1046,7 +1048,7 @@ function ebayCardProduct(candidate: UnifiedCandidate): ProductCardProduct {
     merchantId: `ebay:${product.sellerName}`,
     merchant: "eBay",
     sellerName: product.sellerName,
-    sourceHost: "www.ebay.com",
+    sourceHost: product.environment === "SANDBOX" ? "www.sandbox.ebay.com" : "www.ebay.com",
     merchantTrust: {
       level: "UNKNOWN",
       verification: "UNVERIFIED",
@@ -1090,7 +1092,7 @@ function ebayCardProduct(candidate: UnifiedCandidate): ProductCardProduct {
           kind: "APPROVED_AFFILIATE",
           providerName: "eBay Partner Network",
           url: purchaseUrl,
-          disclosure: "Affiliate link. FindCheap may earn a commission."
+          disclosure: "As an eBay Partner, FindCheap may be compensated if you make a purchase."
         },
     quoteCapability: "MERCHANT_CHECKOUT_ONLY",
     card: {
@@ -1542,7 +1544,7 @@ export function createShoppingServer(
   dependencies: ShoppingServerDependencies = {}
 ): McpServer {
   void comparePort;
-  const server = new McpServer({ name: "findcheap-agent", version: "0.10.2" });
+  const server = new McpServer({ name: "findcheap-agent", version: "0.10.3" });
   const dealPort = dependencies.deals ?? createUnavailableDealPort();
   const awinPort = dependencies.awin ?? createUnavailableAwinPort();
   const ebayPort = dependencies.ebay;

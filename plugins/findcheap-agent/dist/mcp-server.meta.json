@@ -4222,7 +4222,7 @@
   },
   "outputs": {
     "../../plugins/findcheap-agent/dist/mcp-server.js": {
-      "bytes": 565036,
+      "bytes": 566342,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
@@ -4856,13 +4856,13 @@
           "bytesInOutput": 3803
         },
         "src/ebay-client.ts": {
-          "bytesInOutput": 3216
+          "bytesInOutput": 3766
         },
         "src/merchant-trust.ts": {
           "bytesInOutput": 6834
         },
         "src/product-card-ui.ts": {
-          "bytesInOutput": 28002
+          "bytesInOutput": 28591
         },
         "src/product-constraint-matcher.ts": {
           "bytesInOutput": 10702
@@ -4874,7 +4874,7 @@
           "bytesInOutput": 9753
         },
         "src/server.ts": {
-          "bytesInOutput": 74277
+          "bytesInOutput": 74444
         },
         "src/shopify-cart-quote.ts": {
           "bytesInOutput": 10335

@@ -1,10 +1,22 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 
-const EBAY_TOKEN_ENDPOINT = "https://api.ebay.com/identity/v1/oauth2/token";
-const EBAY_BROWSE_ENDPOINT = "https://api.ebay.com/buy/browse/v1/item_summary/search";
 const EBAY_SCOPE = "https://api.ebay.com/oauth/api_scope";
 const MAX_RESPONSE_BYTES = 1024 * 1024;
+
+const EbayEnvironmentSchema = z.enum(["PRODUCTION", "SANDBOX"]);
+type EbayEnvironment = z.infer<typeof EbayEnvironmentSchema>;
+
+const EBAY_ENDPOINTS: Record<EbayEnvironment, { token: string; browse: string }> = {
+  PRODUCTION: {
+    token: "https://api.ebay.com/identity/v1/oauth2/token",
+    browse: "https://api.ebay.com/buy/browse/v1/item_summary/search"
+  },
+  SANDBOX: {
+    token: "https://api.sandbox.ebay.com/identity/v1/oauth2/token",
+    browse: "https://api.sandbox.ebay.com/buy/browse/v1/item_summary/search"
+  }
+};
 
 const QuerySchema = z.string().trim().min(2).max(300)
   .regex(/^[\p{L}\p{N}\s._+'-]+$/u)
@@ -54,9 +66,10 @@ const TokenEnvelopeSchema = z.object({
 }).passthrough();
 
 export type EbayBrowseEnvironment = {
+  environment: EbayEnvironment;
   clientId: string;
   clientSecret: string;
-  campaignId: string;
+  campaignId?: string;
   marketplaceId: "EBAY_US";
   timeoutMs: number;
   cacheTtlMs: number;
@@ -65,6 +78,7 @@ export type EbayBrowseEnvironment = {
 export type EbaySearchInput = z.infer<typeof EbaySearchInputSchema>;
 
 export type EbayProduct = {
+  environment: EbayEnvironment;
   itemId: string;
   productRef: string;
   title: string;
@@ -86,6 +100,7 @@ export type EbayProduct = {
 
 export type EbaySearchResult = {
   source: "EBAY_BROWSE";
+  environment: EbayEnvironment;
   coverage: "COMPLETE";
   snapshotAt: string;
   diagnostics: {
@@ -109,18 +124,25 @@ export function parseEbayBrowseEnvironment(
     throw new Error("EBAY_BROWSE_ENABLED must be true or false");
   }
   if (enabled === "false") return undefined;
+  const environment = EbayEnvironmentSchema.parse(
+    input.EBAY_ENVIRONMENT?.trim().toLocaleUpperCase("en-US") || "PRODUCTION"
+  );
   const clientId = boundedSecret(input.EBAY_CLIENT_ID, "EBAY_CLIENT_ID", 8, 512);
   const clientSecret = boundedSecret(input.EBAY_CLIENT_SECRET, "EBAY_CLIENT_SECRET", 8, 4_096);
   const campaignId = input.EBAY_EPN_CAMPAIGN_ID?.trim();
-  if (campaignId === undefined || !/^\d{1,20}$/u.test(campaignId)) {
+  if (environment === "PRODUCTION" && (campaignId === undefined || !/^\d{1,20}$/u.test(campaignId))) {
+    throw new Error("EBAY_EPN_CAMPAIGN_ID must be numeric");
+  }
+  if (campaignId !== undefined && !/^\d{1,20}$/u.test(campaignId)) {
     throw new Error("EBAY_EPN_CAMPAIGN_ID must be numeric");
   }
   const marketplaceId = input.EBAY_MARKETPLACE_ID?.trim() || "EBAY_US";
-  if (marketplaceId !== "EBAY_US") throw new Error("v0.10.2 supports only EBAY_US");
+  if (marketplaceId !== "EBAY_US") throw new Error("v0.10.3 supports only EBAY_US");
   return {
+    environment,
     clientId,
     clientSecret,
-    campaignId,
+    ...(campaignId === undefined ? {} : { campaignId }),
     marketplaceId,
     timeoutMs: integerInRange(input.EBAY_BROWSE_TIMEOUT_MS ?? "5000", 1_000, 10_000, "EBAY_BROWSE_TIMEOUT_MS"),
     cacheTtlMs: integerInRange(input.EBAY_BROWSE_CACHE_SECONDS ?? "60", 15, 300, "EBAY_BROWSE_CACHE_SECONDS") * 1_000
@@ -182,7 +204,7 @@ async function fetchApplicationToken(
   fetchRequest: typeof fetch,
   now: () => Date
 ): Promise<{ value: string; expiresAt: number }> {
-  const response = await fetchRequest(EBAY_TOKEN_ENDPOINT, {
+  const response = await fetchRequest(EBAY_ENDPOINTS[environment.environment].token, {
     method: "POST",
     redirect: "error",
     headers: {
@@ -208,7 +230,7 @@ async function runSearch(
   fetchRequest: typeof fetch,
   now: () => Date
 ): Promise<EbaySearchResult> {
-  const endpoint = new URL(EBAY_BROWSE_ENDPOINT);
+  const endpoint = new URL(EBAY_ENDPOINTS[environment.environment].browse);
   endpoint.searchParams.set("q", input.query);
   endpoint.searchParams.set("limit", String(input.limit));
   const filters = ["buyingOptions:{FIXED_PRICE}", "deliveryCountry:US"];
@@ -218,7 +240,9 @@ async function runSearch(
   if (input.zipCode !== undefined) filters.push(`deliveryPostalCode:${input.zipCode}`);
   endpoint.searchParams.set("filter", filters.join(","));
   const endUserContext = [
-    `affiliateCampaignId=${environment.campaignId}`,
+    ...(environment.environment === "PRODUCTION" && environment.campaignId !== undefined
+      ? [`affiliateCampaignId=${environment.campaignId}`]
+      : []),
     ...(input.zipCode === undefined
       ? []
       : [`contextualLocation=${encodeURIComponent(`country=US,zip=${input.zipCode}`)}`])
@@ -229,7 +253,7 @@ async function runSearch(
     headers: {
       accept: "application/json",
       authorization: `Bearer ${token}`,
-      "x-ebay-c-enduserctx": endUserContext,
+      ...(endUserContext === "" ? {} : { "x-ebay-c-enduserctx": endUserContext }),
       "x-ebay-c-marketplace-id": environment.marketplaceId
     },
     signal: AbortSignal.timeout(environment.timeoutMs)
@@ -246,13 +270,14 @@ async function runSearch(
       continue;
     }
     try {
-      products.push(normalizeItem(parsed.data, environment.campaignId, checkedAt));
+      products.push(normalizeItem(parsed.data, environment, checkedAt));
     } catch {
       rejectedItems += 1;
     }
   }
   return {
     source: "EBAY_BROWSE",
+    environment: environment.environment,
     coverage: "COMPLETE",
     snapshotAt: checkedAt,
     diagnostics: {
@@ -267,19 +292,20 @@ async function runSearch(
 
 function normalizeItem(
   item: z.infer<typeof EbayItemSchema>,
-  campaignId: string,
+  environment: EbayBrowseEnvironment,
   checkedAt: string
 ): EbayProduct {
   if (item.price.currency !== "USD") throw new Error("eBay item currency is unsupported");
-  const merchantUrl = ebayItemUrl(item.itemWebUrl);
-  const affiliateUrl = item.itemAffiliateWebUrl === undefined
+  const merchantUrl = ebayItemUrl(item.itemWebUrl, environment.environment);
+  const affiliateUrl = environment.environment === "SANDBOX" || item.itemAffiliateWebUrl === undefined || environment.campaignId === undefined
     ? undefined
-    : ebayAffiliateUrl(item.itemAffiliateWebUrl, campaignId);
+    : ebayAffiliateUrl(item.itemAffiliateWebUrl, environment.campaignId);
   const imageUrl = item.image === undefined ? undefined : ebayImageUrl(item.image.imageUrl);
   const attributes = (item.localizedAspects ?? []).map(({ name, value }) => `${name}: ${value}`);
   const category = item.categories?.[0]?.categoryName ?? "eBay marketplace listing";
   const feedbackPercentage = parsePercentage(item.seller.feedbackPercentage);
   return {
+    environment: environment.environment,
     itemId: item.itemId,
     productRef: `ebay-${createHash("sha256").update(item.itemId).digest("hex").slice(0, 32)}`,
     title: item.title,
@@ -289,7 +315,9 @@ function normalizeItem(
     ...(feedbackPercentage === undefined ? {} : { sellerFeedbackPercentage: feedbackPercentage }),
     ...(item.seller.feedbackScore === undefined ? {} : { sellerFeedbackScore: item.seller.feedbackScore }),
     matchStatus: "DISCOVERY_MATCH",
-    matchEvidence: ["live eBay fixed-price listing returned by Browse API"],
+    matchEvidence: [environment.environment === "SANDBOX"
+      ? "eBay Sandbox fixed-price listing returned by Browse API"
+      : "live eBay fixed-price listing returned by Browse API"],
     condition: normalizeCondition(item.condition),
     ...(imageUrl === undefined ? {} : { imageUrl }),
     itemPrice: { amountCents: decimalDollarsToCents(item.price.value), currency: "USD" },
@@ -309,9 +337,12 @@ function normalizeCondition(value: string | undefined): EbayProduct["condition"]
   return "UNKNOWN";
 }
 
-function ebayItemUrl(value: string): string {
+function ebayItemUrl(value: string, environment: EbayEnvironment): string {
   const url = safeUrl(value);
-  if (url.hostname !== "www.ebay.com" && url.hostname !== "ebay.com") {
+  const hosts = environment === "PRODUCTION"
+    ? ["www.ebay.com", "ebay.com"]
+    : ["www.sandbox.ebay.com", "sandbox.ebay.com"];
+  if (!hosts.includes(url.hostname)) {
     throw new Error("eBay item URL host is invalid");
   }
   url.hash = "";
@@ -319,7 +350,7 @@ function ebayItemUrl(value: string): string {
 }
 
 function ebayAffiliateUrl(value: string, campaignId: string): string {
-  const url = new URL(ebayItemUrl(value));
+  const url = new URL(ebayItemUrl(value, "PRODUCTION"));
   if (url.searchParams.get("campid") !== campaignId) {
     throw new Error("eBay affiliate URL campaign is invalid");
   }

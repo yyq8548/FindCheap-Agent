@@ -13,10 +13,12 @@ describe("eBay public search client", () => {
   it("validates the complete public response before returning it", async () => {
     const fetchRequest = vi.fn(async () => jsonResponse({
       source: "EBAY_BROWSE",
+      environment: "PRODUCTION",
       coverage: "COMPLETE",
       snapshotAt: "2026-08-26T12:00:00.000Z",
       diagnostics: { queryMatches: 1, itemsReturned: 1, validItems: 1, rejectedItems: 0 },
       products: [{
+        environment: "PRODUCTION",
         itemId: "v1|1|0",
         productRef: "ebay-0123456789abcdef0123456789abcdef",
         title: "Headphones",
@@ -52,10 +54,12 @@ describe("eBay public search client", () => {
       EBAY_PRODUCT_SEARCH_URL: "https://findcheap.example/v1/ebay/search"
     }, { fetch: async () => jsonResponse({
       source: "EBAY_BROWSE",
+      environment: "PRODUCTION",
       coverage: "COMPLETE",
       snapshotAt: "2026-08-26T12:00:00.000Z",
       diagnostics: { queryMatches: 1, itemsReturned: 1, validItems: 1, rejectedItems: 0 },
       products: [{
+        environment: "PRODUCTION",
         itemId: "1",
         productRef: "ebay-0123456789abcdef0123456789abcdef",
         title: "Headphones",

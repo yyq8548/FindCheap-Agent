@@ -159,12 +159,12 @@ describe("shopping MCP server", () => {
     const renderTool = tools.tools.find((candidate) => candidate.name === "render_product_cards");
     const metricsTool = tools.tools.find((candidate) => candidate.name === "report_product_card_metrics");
     expect(searchTool?._meta).toMatchObject({
-      ui: { resourceUri: "ui://findcheap/product-cards/v23.html" },
-      "openai/outputTemplate": "ui://findcheap/product-cards/v23.html"
+      ui: { resourceUri: "ui://findcheap/product-cards/v24.html" },
+      "openai/outputTemplate": "ui://findcheap/product-cards/v24.html"
     });
     expect(renderTool?._meta).toMatchObject({
       ui: {
-        resourceUri: "ui://findcheap/product-cards/v23.html",
+        resourceUri: "ui://findcheap/product-cards/v24.html",
         visibility: ["app"]
       }
     });
@@ -181,11 +181,11 @@ describe("shopping MCP server", () => {
     const resources = await client.listResources();
     expect(resources.resources).toEqual([expect.objectContaining({
       name: "findcheap-product-cards",
-      uri: "ui://findcheap/product-cards/v23.html",
+      uri: "ui://findcheap/product-cards/v24.html",
       mimeType: "text/html;profile=mcp-app"
     })]);
 
-    const resource = await client.readResource({ uri: "ui://findcheap/product-cards/v23.html" });
+    const resource = await client.readResource({ uri: "ui://findcheap/product-cards/v24.html" });
     const content = resource.contents[0];
     const html = content !== undefined && "text" in content ? content.text : "";
     expect(html).toContain("ui/notifications/tool-result");
@@ -432,7 +432,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.10.2",
+        version: "0.10.3",
         terminalStage: "DOM_RENDERED",
         stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
       }
@@ -441,7 +441,7 @@ describe("shopping MCP server", () => {
     expect(result.structuredContent).toEqual({ status: "RECORDED" });
     expect(record).toHaveBeenCalledWith(expect.objectContaining({
       renderId,
-      version: "0.10.2",
+      version: "0.10.3",
       terminalStage: "DOM_RENDERED",
       stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
     }));
@@ -449,7 +449,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.10.2",
+        version: "0.10.3",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 14 }
       }
@@ -459,7 +459,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.10.2",
+        version: "0.10.3",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 300_001 }
       }
@@ -470,7 +470,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId: "22222222-2222-4222-8222-222222222222",
-        version: "0.10.2",
+        version: "0.10.3",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 1 }
       }
@@ -1679,10 +1679,12 @@ describe("Coupon and Watch tools", () => {
       awin: { search: async () => { throw new Error("unavailable"); } },
       ebay: { search: async () => ({
         source: "EBAY_BROWSE",
+        environment: "PRODUCTION",
         coverage: "COMPLETE",
         snapshotAt: "2026-08-26T12:00:00.000Z",
         diagnostics: { queryMatches: 1, itemsReturned: 1, validItems: 1, rejectedItems: 0 },
         products: [{
+          environment: "PRODUCTION",
           itemId: "v1|123|0",
           productRef: "ebay-0123456789abcdef0123456789abcdef",
           title: "Sony WH-1000XM5 Headphones",
@@ -1713,11 +1715,16 @@ describe("Coupon and Watch tools", () => {
 
     expect(product).toMatchObject({
       merchant: "eBay",
+      sourceEnvironment: "PRODUCTION",
       sellerName: "audio_store",
       recommendationTier: "GENERAL_UNVERIFIED",
       merchantTrust: { level: "UNKNOWN", verification: "UNVERIFIED" },
       quoteCapability: "MERCHANT_CHECKOUT_ONLY",
-      purchaseLink: { kind: "APPROVED_AFFILIATE", providerName: "eBay Partner Network" },
+      purchaseLink: {
+        kind: "APPROVED_AFFILIATE",
+        providerName: "eBay Partner Network",
+        disclosure: "As an eBay Partner, FindCheap may be compensated if you make a purchase."
+      },
       card: { merchant: "eBay", sellerName: "audio_store", merchantTrustBadge: "MERCHANT_UNVERIFIED" }
     });
   });

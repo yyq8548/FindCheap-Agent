@@ -39,7 +39,7 @@ function nodes(node: FakeNode): FakeNode[] {
 
 describe("product-card MCP Apps UI", () => {
   it("uses an embedded Codex-native surface with responsive cards", () => {
-    expect(PRODUCT_CARD_UI_URI).toBe("ui://findcheap/product-cards/v23.html");
+    expect(PRODUCT_CARD_UI_URI).toBe("ui://findcheap/product-cards/v24.html");
     expect(PRODUCT_CARD_HTML).toContain("--fc-surface:");
     expect(PRODUCT_CARD_HTML).toContain("background: var(--fc-action);");
     expect(PRODUCT_CARD_HTML).toContain("@media (max-width: 640px)");
@@ -66,6 +66,7 @@ describe("product-card MCP Apps UI", () => {
       openai: { toolOutput: {
         renderId: "11111111-1111-4111-8111-111111111111",
         products: [{
+          sourceEnvironment: "SANDBOX",
           merchant: "Fixture Merchant",
           title: "Fixture Product",
           matchStatus: "EXACT",
@@ -118,7 +119,7 @@ describe("product-card MCP Apps UI", () => {
       params: expect.objectContaining({
         name: "report_product_card_metrics",
         arguments: expect.objectContaining({
-          version: "0.10.2",
+          version: "0.10.3",
           terminalStage: "DOM_RENDERED",
           stages: expect.objectContaining({ DOM_RENDERED: expect.any(Number) })
         })
@@ -127,6 +128,7 @@ describe("product-card MCP Apps UI", () => {
     expect(messages.some((message) => message.method === "notifications/message")).toBe(false);
     expect(text(app)).toContain("Not verified: genuine leather");
     expect(text(app)).toContain("Preference match: daily wear");
+    expect(text(app)).toContain("eBay Sandbox review only. This test link does not earn a commission.");
   });
 
   it("fails a stalled snapshot request instead of waiting forever", async () => {
@@ -414,7 +416,7 @@ describe("product-card MCP Apps UI", () => {
       method: "ui/initialize",
       params: {
         protocolVersion: "2026-01-26",
-        appInfo: { name: "FindCheap Agent product cards", version: "0.10.2" },
+        appInfo: { name: "FindCheap Agent product cards", version: "0.10.3" },
         appCapabilities: { availableDisplayModes: ["inline"] }
       }
     });
@@ -487,7 +489,7 @@ describe("product-card MCP Apps UI", () => {
     expect(text(app)).toContain("Verified Coffee");
     expect(text(app)).toContain("$14.99");
     expect(text(app)).toContain("1 product card");
-    expect(text(app)).not.toContain("commission");
+    expect(text(app)).toContain("We may earn a commission if you buy through this link. This does not raise your price or affect ranking.");
     expect(text(app)).toContain("Shipping, tax, and final total are available at merchant checkout.");
 
     listeners.get("openai:set_globals")?.({

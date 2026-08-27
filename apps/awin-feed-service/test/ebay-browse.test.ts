@@ -16,6 +16,47 @@ describe("eBay Browse gateway", () => {
       .toThrow("EBAY_CLIENT_ID");
   });
 
+  it("uses isolated Sandbox endpoints without EPN tracking", async () => {
+    const requests: Array<{ url: string; init: RequestInit }> = [];
+    const fetchRequest = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      requests.push({ url, init: init ?? {} });
+      if (url.includes("/oauth2/token")) return jsonResponse({ access_token: "sandbox-token", expires_in: 7200 });
+      return jsonResponse({
+        total: 1,
+        itemSummaries: [{
+          itemId: "v1|sandbox|0",
+          title: "Sandbox headphones",
+          price: { value: "10.00", currency: "USD" },
+          itemWebUrl: "https://www.sandbox.ebay.com/itm/110552106822",
+          itemAffiliateWebUrl: "https://www.ebay.com/itm/110552106822?campid=5339000012",
+          seller: { username: "sandbox_seller" }
+        }]
+      });
+    });
+    const environment = parseEbayBrowseEnvironment({
+      EBAY_BROWSE_ENABLED: "true",
+      EBAY_ENVIRONMENT: "SANDBOX",
+      EBAY_CLIENT_ID: "sandbox-client-id",
+      EBAY_CLIENT_SECRET: "sandbox-client-secret"
+    })!;
+    const result = await createEbayBrowseController(environment, { fetch: fetchRequest, now })
+      .search({ query: "headphones", limit: 1 });
+
+    expect(requests[0]?.url).toBe("https://api.sandbox.ebay.com/identity/v1/oauth2/token");
+    expect(requests[1]?.url).toContain("https://api.sandbox.ebay.com/buy/browse/v1/item_summary/search");
+    expect(requests[1]?.init.headers).not.toHaveProperty("x-ebay-c-enduserctx");
+    expect(result).toMatchObject({
+      environment: "SANDBOX",
+      products: [{
+        environment: "SANDBOX",
+        merchantUrl: "https://www.sandbox.ebay.com/itm/110552106822",
+        matchEvidence: ["eBay Sandbox fixed-price listing returned by Browse API"]
+      }]
+    });
+    expect(result.products[0]).not.toHaveProperty("affiliateUrl");
+  });
+
   it("uses one cached OAuth token and returns normalized EPN listings", async () => {
     const requests: Array<{ url: string; init: RequestInit }> = [];
     const fetchRequest = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
@@ -61,6 +102,7 @@ describe("eBay Browse gateway", () => {
       "x-ebay-c-enduserctx": expect.stringContaining("affiliateCampaignId=5339000012")
     });
     expect(first.products[0]).toMatchObject({
+      environment: "PRODUCTION",
       productRef: expect.stringMatching(/^ebay-[a-f0-9]{32}$/u),
       sellerName: "audio_store",
       sellerFeedbackPercentage: 99.8,
@@ -73,6 +115,7 @@ describe("eBay Browse gateway", () => {
   it("exposes the public eBay route without exposing credentials", async () => {
     const ebay = { search: vi.fn(async () => ({
       source: "EBAY_BROWSE" as const,
+      environment: "PRODUCTION" as const,
       coverage: "COMPLETE" as const,
       snapshotAt: "2026-08-26T12:00:00.000Z",
       diagnostics: { queryMatches: 0, itemsReturned: 0, validItems: 0, rejectedItems: 0 },

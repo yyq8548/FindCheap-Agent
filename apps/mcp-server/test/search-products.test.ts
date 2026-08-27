@@ -36,6 +36,7 @@ function shopify(products = [shopifyProduct("101", 2500)]): ShopifyPort {
 function ebay(products = [ebayProduct("1", 2100)]): EbayBrowsePort {
   return { search: vi.fn(async () => ({
     source: "EBAY_BROWSE" as const,
+    environment: "PRODUCTION" as const,
     coverage: "COMPLETE" as const,
     snapshotAt: now,
     diagnostics: { queryMatches: products.length, itemsReturned: products.length, validItems: products.length, rejectedItems: 0 },
@@ -559,6 +560,7 @@ function shopifyResult(products: ReturnType<typeof shopifyProduct>[]): ShopifySe
 
 function ebayProduct(id: string, amountCents: number) {
   return {
+    environment: "PRODUCTION" as const,
     itemId: `v1|${id}|0`,
     productRef: `ebay-${id.padStart(32, "0")}`,
     title: `eBay headphones ${id}`,

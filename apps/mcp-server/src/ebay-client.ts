@@ -3,8 +3,10 @@ import { z } from "zod";
 const MAX_RESPONSE_BYTES = 256 * 1024;
 
 export type EbayCondition = "NEW" | "USED" | "REFURBISHED" | "OPEN_BOX" | "UNKNOWN";
+export type EbayEnvironment = "PRODUCTION" | "SANDBOX";
 
 export type EbayProduct = {
+  environment: EbayEnvironment;
   itemId: string;
   productRef: string;
   title: string;
@@ -26,6 +28,7 @@ export type EbayProduct = {
 
 export type EbaySearchResult = {
   source: "EBAY_BROWSE";
+  environment: EbayEnvironment;
   coverage: "COMPLETE";
   snapshotAt: string;
   diagnostics: {
@@ -47,6 +50,7 @@ export interface EbayBrowsePort {
 }
 
 const ProductSchema = z.object({
+  environment: z.enum(["PRODUCTION", "SANDBOX"]),
   itemId: z.string().min(1).max(300),
   productRef: z.string().regex(/^ebay-[a-f0-9]{32}$/u),
   title: z.string().trim().min(1).max(500),
@@ -65,8 +69,19 @@ const ProductSchema = z.object({
   affiliateUrl: z.string().url().max(4_096).optional(),
   checkedAt: z.string().datetime({ offset: true })
 }).strict().superRefine((product, context) => {
-  validateUrl(product.merchantUrl, ["ebay.com", "www.ebay.com"], "merchantUrl", context);
+  const merchantHosts = product.environment === "PRODUCTION"
+    ? ["ebay.com", "www.ebay.com"]
+    : ["sandbox.ebay.com", "www.sandbox.ebay.com"];
+  validateUrl(product.merchantUrl, merchantHosts, "merchantUrl", context);
   if (product.affiliateUrl !== undefined) {
+    if (product.environment !== "PRODUCTION") {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["affiliateUrl"],
+        message: "affiliateUrl is forbidden in eBay Sandbox"
+      });
+      return;
+    }
     validateUrl(product.affiliateUrl, ["ebay.com", "www.ebay.com"], "affiliateUrl", context);
   }
   if (product.imageUrl !== undefined) validateUrl(product.imageUrl, ["i.ebayimg.com"], "imageUrl", context);
@@ -74,6 +89,7 @@ const ProductSchema = z.object({
 
 const ResultSchema = z.object({
   source: z.literal("EBAY_BROWSE"),
+  environment: z.enum(["PRODUCTION", "SANDBOX"]),
   coverage: z.literal("COMPLETE"),
   snapshotAt: z.string().datetime({ offset: true }),
   diagnostics: z.object({
@@ -83,7 +99,17 @@ const ResultSchema = z.object({
     rejectedItems: z.number().int().nonnegative()
   }).strict(),
   products: z.array(ProductSchema).max(24)
-}).strict();
+}).strict().superRefine((result, context) => {
+  result.products.forEach((product, index) => {
+    if (product.environment !== result.environment) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["products", index, "environment"],
+        message: "product environment does not match result environment"
+      });
+    }
+  });
+});
 
 export function createEbayPortFromEnvironment(
   environment: Readonly<Record<string, string | undefined>>,
