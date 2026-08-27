@@ -30,6 +30,10 @@
     { "id": "model-accessory-irrelevant", "query": "Sony WH-1000XM5", "candidate": { "title": "Replacement Cable for Sony WH-1000XM5", "brand": "Generic", "sku": "WH1000XM5-CABLE", "productType": "Accessories" }, "expected": "IRRELEVANT" },
     { "id": "explicit-accessory-discovery", "query": "Sony WH-1000XM5 cable", "candidate": { "title": "Replacement Cable for Sony WH-1000XM5", "brand": "Generic", "productType": "Accessories" }, "expected": "DISCOVERY_MATCH" },
     { "id": "used-title-keeps-identity", "query": "Sony WH-1000XM5 used", "candidate": { "title": "Used Wireless Headphones", "brand": "Sony", "sku": "WH1000XM5", "productType": "Headphones" }, "expected": "EXACT" },
-    { "id": "category-color-discovery", "query": "blue jeans", "candidate": { "title": "High Rise Jeans", "productType": "Jeans", "variantDimensions": { "Color": "Blue" } }, "expected": "DISCOVERY_MATCH" }
+    { "id": "category-color-discovery", "query": "blue jeans", "candidate": { "title": "High Rise Jeans", "productType": "Jeans", "variantDimensions": { "Color": "Blue" } }, "expected": "DISCOVERY_MATCH" },
+    { "id": "skims-soft-lounge-requested-product", "query": "SKIMS Soft Lounge Mini Dress Onyx size 0", "candidate": { "title": "Soft Lounge Mini Dress", "brand": "SKIMS", "productType": "Dresses", "variantDimensions": { "Color": "Onyx", "Size": "0" } }, "expected": "DISCOVERY_MATCH" },
+    { "id": "skims-lace-dress-irrelevant", "query": "SKIMS Soft Lounge Mini Dress Onyx size 0", "candidate": { "title": "Black Lace Sweater Spaghetti Strap Bodycon Mini Dress", "brand": "Solace", "productType": "Dresses", "variantDimensions": { "Color": "Black", "Size": "S" } }, "expected": "IRRELEVANT" },
+    { "id": "alo-suit-up-requested-product", "query": "Alo Suit Up Trouser Navy size S", "candidate": { "title": "Suit Up Trouser Regular", "brand": "Alo", "productType": "Pants", "variantDimensions": { "Color": "Navy", "Size": "S" } }, "expected": "DISCOVERY_MATCH" },
+    { "id": "alo-trouser-dress-irrelevant", "query": "Alo Suit Up Trouser Navy size S", "candidate": { "title": "Suit Up Mini Dress", "brand": "Alo", "productType": "Dresses", "variantDimensions": { "Color": "Navy", "Size": "S" } }, "expected": "IRRELEVANT" }
   ]
 }

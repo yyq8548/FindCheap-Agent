@@ -176,7 +176,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     const uiStartedAt = typeof performance === "object" && typeof performance.now === "function"
       ? performance.now()
       : Date.now();
-    const cardMetrics = { version: "0.10.3", stages: {} };
+    const cardMetrics = { version: "0.10.4", stages: {} };
     window.__findcheapCardMetrics = cardMetrics;
     const notify = (method, params = {}) => {
       window.parent.postMessage({ jsonrpc: "2.0", method, params }, "*");
@@ -296,7 +296,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       line.append(make("span", "price-value", value));
       container.append(line);
     };
-    const groupDefinitions = [
+    const trustGroupDefinitions = [
       { tier: "TRUSTED_OR_AFFILIATE", title: "Trusted merchants and approved affiliate programs" },
       {
         tier: "HIGH_RATED_UNVERIFIED",
@@ -309,6 +309,23 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
         notice: "Merchant trust evidence is limited. Verify seller identity, returns, and payment protection before purchasing."
       }
     ];
+    const resultGroupDefinitions = [
+      { group: "REQUESTED_PRODUCT", title: "Requested product candidates" },
+      { group: "DISCOVERY", title: "Discovery results" },
+      {
+        group: "ALTERNATIVE",
+        title: "Alternative products",
+        notice: "Alternatives are shown only when explicitly requested; they are not the same product."
+      }
+    ];
+    const groupDefinitions = resultGroupDefinitions.flatMap((result) =>
+      trustGroupDefinitions.map((trust) => ({
+        group: result.group,
+        tier: trust.tier,
+        title: result.title + " / " + trust.title,
+        notice: [result.notice, trust.notice].filter(Boolean).join(" ")
+      }))
+    );
     const recommendationTier = (product) => {
       if (typeof product?.recommendationTier === "string") return product.recommendationTier;
       if (product?.merchantTrust?.verification === "INDEPENDENT" || product?.affiliateState === "APPROVED") {
@@ -318,6 +335,14 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       return rating && Number(rating.value) > 3.8 && Number(rating.count) >= 2
         ? "HIGH_RATED_UNVERIFIED"
         : "GENERAL_UNVERIFIED";
+    };
+    const resultGroup = (product) => {
+      if (["REQUESTED_PRODUCT", "DISCOVERY", "ALTERNATIVE"].includes(product?.resultGroup)) {
+        return product.resultGroup;
+      }
+      return product?.matchStatus === "SIMILAR"
+        ? "ALTERNATIVE"
+        : product?.matchStatus === "EXACT" ? "REQUESTED_PRODUCT" : "DISCOVERY";
     };
     function render(output) {
       hasResult = true;
@@ -354,7 +379,9 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
         app.append(quoteSummary);
       }
       for (const definition of groupDefinitions) {
-        const grouped = products.filter((product) => recommendationTier(product) === definition.tier);
+        const grouped = products.filter((product) =>
+          resultGroup(product) === definition.group && recommendationTier(product) === definition.tier
+        );
         if (grouped.length === 0) continue;
         const group = make("section", "group");
         group.append(make("h2", "", definition.title));
@@ -571,7 +598,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     warmCompatibilityBridge();
     const initializeParams = {
       protocolVersion: "2026-01-26",
-      appInfo: { name: "FindCheap Agent product cards", version: "0.10.3" },
+      appInfo: { name: "FindCheap Agent product cards", version: "0.10.4" },
       appCapabilities: { availableDisplayModes: ["inline"] }
     };
     const finishInitialization = () => {

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   classifyShopifyCandidate,
+  hasNamedProductIntent,
   hasSpecificProductIdentity,
   type ShopifyMatchCandidate,
   type ShopifyMatchStatus
@@ -21,8 +22,8 @@ describe("FindCheap v0.5.4 Shopify product matching gate", () => {
       }>;
     };
 
-    expect(golden.tasks).toHaveLength(30);
-    expect(new Set(golden.tasks.map((task) => task.id)).size).toBe(30);
+    expect(golden.tasks).toHaveLength(34);
+    expect(new Set(golden.tasks.map((task) => task.id)).size).toBe(34);
     for (const task of golden.tasks) {
       expect(classifyShopifyCandidate(task.query, task.candidate).status, task.id).toBe(task.expected);
     }
@@ -172,5 +173,14 @@ describe("FindCheap v0.5.4 Shopify product matching gate", () => {
     ["Valhalla Java coffee", true]
   ] as const)("classifies same-product query specificity for %s", (query, expected) => {
     expect(hasSpecificProductIdentity(query)).toBe(expected);
+  });
+
+  it.each([
+    ["SKIMS Soft Lounge Mini Dress Onyx size 0", true],
+    ["Alo Suit Up Trouser Navy size S", true],
+    ["women leather ballet flats", false],
+    ["keratin hair mask", false]
+  ] as const)("detects named-product intent for %s", (query, expected) => {
+    expect(hasNamedProductIntent(query)).toBe(expected);
   });
 });

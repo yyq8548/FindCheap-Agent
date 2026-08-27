@@ -113,6 +113,7 @@ describe("installed plugin stdio", () => {
         text: expect.stringContaining("ui/notifications/tool-result")
       })]);
       expect(Object.keys(shopifyTool?.inputSchema.properties ?? {}).sort()).toEqual([
+        "allowAlternatives",
         "comparisonMode",
         "conditionPreference",
         "featureMode",

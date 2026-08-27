@@ -23,6 +23,13 @@ import {
 } from "./merchant-trust.js";
 import type { MerchantRecommendationTier } from "./merchant-trust.js";
 import { evaluateFeature } from "./product-constraint-matcher.js";
+import {
+  classifyShopifyCandidate,
+  hasNamedProductIntent,
+  hasStrongProductIdentifier,
+  type ShopifyMatchCandidate,
+  type ShopifyMatchStatus
+} from "./shopify-match.js";
 
 const QuerySchema = z.string().trim().min(2).max(300)
   .regex(/^[\p{L}\p{N}\s._+'-]+$/u)
@@ -37,6 +44,7 @@ export const SearchProductsInputSchema = z.object({
     .refine((values) => new Set(values).size === values.length, "membership IDs must be unique")
     .optional(),
   comparisonMode: z.enum(["DISCOVERY", "SAME_PRODUCT"]).default("DISCOVERY"),
+  allowAlternatives: z.boolean().default(false),
   selectionMode: z.enum(["LOWEST_PRICE", "MERCHANT_DIVERSE"]).default("MERCHANT_DIVERSE"),
   conditionPreference: z.enum(["ANY", "NEW", "USED", "REFURBISHED", "OPEN_BOX", "UNKNOWN"])
     .default("ANY"),
@@ -63,7 +71,12 @@ type CandidateBase = {
   preferenceEvidence: string[];
   requiredFeatureLimitations: string[];
   verifiedCoupons: VerifiedDeal[];
+  identityStatus: Exclude<ShopifyMatchStatus, "IRRELEVANT">;
+  identityEvidence: string[];
+  resultGroup: "REQUESTED_PRODUCT" | "DISCOVERY" | "ALTERNATIVE";
 };
+
+export type ProductSearchIntent = "EXACT_PRODUCT" | "CATEGORY_DISCOVERY";
 
 export type UnifiedCandidate = CandidateBase & (
   | { source: "AWIN_PRODUCT_FEED"; awinProduct: AwinProduct; shopifyProduct?: undefined; ebayProduct?: undefined }
@@ -88,6 +101,8 @@ export type UnifiedSearchExecution = {
   };
   searchPasses: 1 | 2;
   featureProductsExcluded: number;
+  identityProductsExcluded: number;
+  searchIntent: ProductSearchIntent;
   chromeFallbackEligible: boolean;
 };
 
@@ -111,6 +126,8 @@ export async function searchProducts(
       ...(rawInput.featureMode === "PREFERRED" ? rawInput.features : [])
     ])
   };
+  const searchIntent = resolveSearchIntent(input);
+  const identityQuery = buildSourceQuery(input);
   const sourceQuery = buildSourceQuery(input);
   const affiliateEligible = shouldQueryAwin(sourceQuery);
   let awinResult: AwinSearchResult | undefined;
@@ -130,6 +147,7 @@ export async function searchProducts(
   let shopifyCandidates: UnifiedCandidate[] = [];
   let ebayCandidates: UnifiedCandidate[] = [];
   const featureExcludedKeys = new Set<string>();
+  const identityExcludedKeys = new Set<string>();
 
   const queryAwin = async (query: string, limit: number, merge: boolean): Promise<void> => {
     if (!affiliateEligible) return;
@@ -142,7 +160,14 @@ export async function searchProducts(
       awinResult = result;
       awinStatus = "COMPLETE";
       const incoming = result.products
-        .map((product) => awinCandidate(product, input, featureExcludedKeys))
+        .map((product) => awinCandidate(
+          product,
+          input,
+          searchIntent,
+          identityQuery,
+          featureExcludedKeys,
+          identityExcludedKeys
+        ))
         .filter((candidate): candidate is UnifiedCandidate => candidate !== undefined);
       affiliateCandidates = merge ? mergeCandidates(affiliateCandidates, incoming) : incoming;
     } catch {
@@ -166,7 +191,14 @@ export async function searchProducts(
       shopifyResult = result;
       shopifyStatus = result.coverage;
       const incoming = result.products
-        .map((product) => shopifyCandidate(product, input, featureExcludedKeys))
+        .map((product) => shopifyCandidate(
+          product,
+          input,
+          searchIntent,
+          identityQuery,
+          featureExcludedKeys,
+          identityExcludedKeys
+        ))
         .filter((candidate): candidate is UnifiedCandidate => candidate !== undefined);
       shopifyCandidates = merge ? mergeCandidates(shopifyCandidates, incoming) : incoming;
     } catch (error) {
@@ -186,7 +218,14 @@ export async function searchProducts(
       ebayResult = result;
       ebayStatus = "COMPLETE";
       const incoming = result.products
-        .map((product) => ebayCandidate(product, input, featureExcludedKeys))
+        .map((product) => ebayCandidate(
+          product,
+          input,
+          searchIntent,
+          identityQuery,
+          featureExcludedKeys,
+          identityExcludedKeys
+        ))
         .filter((candidate): candidate is UnifiedCandidate => candidate !== undefined);
       ebayCandidates = merge ? mergeCandidates(ebayCandidates, incoming) : incoming;
     } catch (error) {
@@ -253,6 +292,8 @@ export async function searchProducts(
         }),
     searchPasses,
     featureProductsExcluded: featureExcludedKeys.size,
+    identityProductsExcluded: identityExcludedKeys.size,
+    searchIntent,
     chromeFallbackEligible
   };
 }
@@ -283,12 +324,26 @@ function explicitConditionPreference(
 function awinCandidate(
   product: AwinProduct,
   input: SearchProductsInput,
-  featureExcludedKeys: Set<string>
+  searchIntent: ProductSearchIntent,
+  identityQuery: string,
+  featureExcludedKeys: Set<string>,
+  identityExcludedKeys: Set<string>
 ): UnifiedCandidate | undefined {
+  const key = `AWIN:${product.merchantId}:${product.merchantProductId}`;
   if (!conditionMatches(product.condition, input.conditionPreference)) return undefined;
+  const identity = candidateIdentity(
+    searchIntent,
+    input.allowAlternatives,
+    identityQuery,
+    { title: product.title, productType: product.category },
+    product.matchStatus,
+    key,
+    identityExcludedKeys
+  );
+  if (identity === undefined) return undefined;
   const evidence = evaluateConstraints(`${product.title} ${product.category}`, input);
   if (evidence.contradicted.length > 0) {
-    featureExcludedKeys.add(`AWIN:${product.merchantId}:${product.merchantProductId}`);
+    featureExcludedKeys.add(key);
     return undefined;
   }
   return {
@@ -299,10 +354,20 @@ function awinCandidate(
     preferenceEvidence: evidence.preferences,
     requiredFeatureLimitations: evidence.unknown,
     verifiedCoupons: [],
-    awinProduct: evidence.unknown.length === 0 ? product : {
+    identityStatus: identity.status,
+    identityEvidence: identity.evidence,
+    resultGroup: candidateResultGroup(searchIntent, identity.status),
+    awinProduct: evidence.unknown.length === 0 ? {
+      ...product,
+      matchEvidence: unique([...product.matchEvidence, ...identity.evidence])
+    } : {
       ...product,
       matchStatus: "DISCOVERY_MATCH",
-      matchEvidence: [...product.matchEvidence, `required features not verified: ${evidence.unknown.join(", ")}`]
+      matchEvidence: unique([
+        ...product.matchEvidence,
+        ...identity.evidence,
+        `required features not verified: ${evidence.unknown.join(", ")}`
+      ])
     }
   };
 }
@@ -310,13 +375,36 @@ function awinCandidate(
 function shopifyCandidate(
   product: ShopifyProduct,
   input: SearchProductsInput,
-  featureExcludedKeys: Set<string>
+  searchIntent: ProductSearchIntent,
+  identityQuery: string,
+  featureExcludedKeys: Set<string>,
+  identityExcludedKeys: Set<string>
 ): UnifiedCandidate | undefined {
+  const key = `SHOPIFY:${product.merchantId}:${product.handle}`;
   if (product.merchantTrust.level === "RISKY") return undefined;
   if (!conditionMatches(product.condition, input.conditionPreference)) return undefined;
+  const identity = candidateIdentity(
+    searchIntent,
+    input.allowAlternatives,
+    identityQuery,
+    {
+      title: product.title,
+      ...(product.brand === undefined ? {} : { brand: product.brand }),
+      ...(product.sku === undefined ? {} : { sku: product.sku }),
+      handle: product.handle,
+      gtins: product.gtins,
+      ...(product.productType === undefined ? {} : { productType: product.productType }),
+      tags: product.description === undefined ? [] : [product.description],
+      variantDimensions: product.variantDimensions
+    },
+    product.matchStatus,
+    key,
+    identityExcludedKeys
+  );
+  if (identity === undefined) return undefined;
   const evidence = evaluateConstraints(shopifyEvidenceText(product), input);
   if (evidence.contradicted.length > 0) {
-    featureExcludedKeys.add(`SHOPIFY:${product.merchantId}:${product.handle}`);
+    featureExcludedKeys.add(key);
     return undefined;
   }
   return {
@@ -327,26 +415,88 @@ function shopifyCandidate(
     preferenceEvidence: evidence.preferences,
     requiredFeatureLimitations: evidence.unknown,
     verifiedCoupons: [],
-    shopifyProduct: evidence.unknown.length === 0 ? product : {
+    identityStatus: identity.status,
+    identityEvidence: identity.evidence,
+    resultGroup: candidateResultGroup(searchIntent, identity.status),
+    shopifyProduct: evidence.unknown.length === 0 ? {
+      ...product,
+      matchEvidence: unique([...product.matchEvidence, ...identity.evidence])
+    } : {
       ...product,
       matchStatus: "DISCOVERY_MATCH",
-      matchEvidence: [...product.matchEvidence, `required features not verified: ${evidence.unknown.join(", ")}`]
+      matchEvidence: unique([
+        ...product.matchEvidence,
+        ...identity.evidence,
+        `required features not verified: ${evidence.unknown.join(", ")}`
+      ])
     }
   };
+}
+
+export function resolveSearchIntent(
+  input: Pick<SearchProductsInput, "query" | "comparisonMode">
+): ProductSearchIntent {
+  return input.comparisonMode === "SAME_PRODUCT" ||
+    hasStrongProductIdentifier(input.query) ||
+    hasNamedProductIntent(input.query)
+    ? "EXACT_PRODUCT"
+    : "CATEGORY_DISCOVERY";
+}
+
+function candidateIdentity(
+  searchIntent: ProductSearchIntent,
+  allowAlternatives: boolean,
+  query: string,
+  candidate: ShopifyMatchCandidate,
+  sourceStatus: Exclude<ShopifyMatchStatus, "IRRELEVANT">,
+  key: string,
+  excluded: Set<string>
+): { status: Exclude<ShopifyMatchStatus, "IRRELEVANT">; evidence: string[] } | undefined {
+  if (searchIntent === "CATEGORY_DISCOVERY") {
+    return { status: sourceStatus, evidence: [] };
+  }
+  const identity = classifyShopifyCandidate(query, candidate);
+  if (identity.status === "IRRELEVANT" || (identity.status === "SIMILAR" && !allowAlternatives)) {
+    excluded.add(key);
+    return undefined;
+  }
+  return { status: identity.status, evidence: identity.evidence };
+}
+
+function candidateResultGroup(
+  searchIntent: ProductSearchIntent,
+  identityStatus: Exclude<ShopifyMatchStatus, "IRRELEVANT">
+): CandidateBase["resultGroup"] {
+  if (identityStatus === "SIMILAR") return "ALTERNATIVE";
+  return searchIntent === "EXACT_PRODUCT" ? "REQUESTED_PRODUCT" : "DISCOVERY";
 }
 
 function ebayCandidate(
   product: EbayProduct,
   input: SearchProductsInput,
-  featureExcludedKeys: Set<string>
+  searchIntent: ProductSearchIntent,
+  identityQuery: string,
+  featureExcludedKeys: Set<string>,
+  identityExcludedKeys: Set<string>
 ): UnifiedCandidate | undefined {
+  const key = `EBAY:${product.itemId}`;
   if (!conditionMatches(product.condition, input.conditionPreference)) return undefined;
+  const identity = candidateIdentity(
+    searchIntent,
+    input.allowAlternatives,
+    identityQuery,
+    { title: product.title, productType: product.category, tags: product.attributes },
+    product.matchStatus,
+    key,
+    identityExcludedKeys
+  );
+  if (identity === undefined) return undefined;
   const evidence = evaluateConstraints(
     [product.title, product.category, ...product.attributes].join(" "),
     input
   );
   if (evidence.contradicted.length > 0) {
-    featureExcludedKeys.add(`EBAY:${product.itemId}`);
+    featureExcludedKeys.add(key);
     return undefined;
   }
   return {
@@ -357,9 +507,19 @@ function ebayCandidate(
     preferenceEvidence: evidence.preferences,
     requiredFeatureLimitations: evidence.unknown,
     verifiedCoupons: [],
-    ebayProduct: evidence.unknown.length === 0 ? product : {
+    identityStatus: identity.status,
+    identityEvidence: identity.evidence,
+    resultGroup: candidateResultGroup(searchIntent, identity.status),
+    ebayProduct: evidence.unknown.length === 0 ? {
       ...product,
-      matchEvidence: [...product.matchEvidence, `required features not verified: ${evidence.unknown.join(", ")}`]
+      matchEvidence: unique([...product.matchEvidence, ...identity.evidence])
+    } : {
+      ...product,
+      matchEvidence: unique([
+        ...product.matchEvidence,
+        ...identity.evidence,
+        `required features not verified: ${evidence.unknown.join(", ")}`
+      ])
     }
   };
 }
@@ -453,15 +613,19 @@ function compareRankedCandidates(
   left: UnifiedCandidate,
   right: UnifiedCandidate
 ): number {
+  const groupDifference = resultGroupRank(left.resultGroup) - resultGroupRank(right.resultGroup);
+  if (groupDifference !== 0) return groupDifference;
+  const matchDifference = matchRank(right) - matchRank(left);
+  if (matchDifference !== 0) return matchDifference;
   const limitationDifference = left.requiredFeatureLimitations.length - right.requiredFeatureLimitations.length;
   if (limitationDifference !== 0) return limitationDifference;
   const featureDifference = right.featureEvidence.length - left.featureEvidence.length;
   if (featureDifference !== 0) return featureDifference;
-  const matchDifference = matchRank(right) - matchRank(left);
-  if (matchDifference !== 0) return matchDifference;
   const tierDifference = merchantRecommendationRank(left.recommendationTier) -
     merchantRecommendationRank(right.recommendationTier);
   if (tierDifference !== 0) return tierDifference;
+  const availabilityDifference = availabilityRank(left) - availabilityRank(right);
+  if (availabilityDifference !== 0) return availabilityDifference;
   const preferenceDifference = right.preferenceEvidence.length - left.preferenceEvidence.length;
   if (preferenceDifference !== 0) return preferenceDifference;
   const couponDifference = Number(right.verifiedCoupons.length > 0) - Number(left.verifiedCoupons.length > 0);
@@ -471,6 +635,23 @@ function compareRankedCandidates(
   const ratingDifference = productRating(right) - productRating(left);
   if (ratingDifference !== 0) return ratingDifference;
   return title(left).localeCompare(title(right));
+}
+
+function resultGroupRank(group: CandidateBase["resultGroup"]): number {
+  switch (group) {
+    case "REQUESTED_PRODUCT": return 0;
+    case "DISCOVERY": return 1;
+    case "ALTERNATIVE": return 2;
+  }
+}
+
+function availabilityRank(candidate: UnifiedCandidate): number {
+  const value = candidate.source === "AWIN_PRODUCT_FEED"
+    ? candidate.awinProduct.availability
+    : candidate.source === "SHOPIFY_GLOBAL_CATALOG"
+      ? candidate.shopifyProduct.availability
+      : candidate.ebayProduct.availability;
+  return value === "IN_STOCK" ? 0 : value === "UNKNOWN" ? 1 : 2;
 }
 
 function productRating(candidate: UnifiedCandidate): number {
@@ -484,11 +665,7 @@ function compareLowestPrice(left: UnifiedCandidate, right: UnifiedCandidate): nu
 }
 
 function matchRank(candidate: UnifiedCandidate): number {
-  const status = candidate.source === "AWIN_PRODUCT_FEED"
-    ? candidate.awinProduct.matchStatus
-    : candidate.source === "SHOPIFY_GLOBAL_CATALOG"
-      ? candidate.shopifyProduct.matchStatus
-      : candidate.ebayProduct.matchStatus;
+  const status = candidate.identityStatus;
   return status === "EXACT" ? 3 : status === "DISCOVERY_MATCH" ? 2 : 1;
 }
 

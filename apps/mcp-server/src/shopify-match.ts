@@ -19,6 +19,17 @@ export type ShopifyMatchResult = {
 
 const CATEGORY_GROUPS = [
   { terms: ["shirt", "shirts", "tee", "tees", "tshirt", "tshirts"] },
+  { terms: ["dress", "dresses", "gown", "gowns"] },
+  { terms: ["trouser", "trousers", "pant", "pants", "slack", "slacks"] },
+  { terms: ["skirt", "skirts"] },
+  { terms: ["bodysuit", "bodysuits"] },
+  { terms: ["top", "tops", "blouse", "blouses"] },
+  { terms: ["sweater", "sweaters", "cardigan", "cardigans", "pullover", "pullovers"] },
+  { terms: ["jumpsuit", "jumpsuits", "romper", "rompers"] },
+  { terms: ["coat", "coats", "jacket", "jackets", "blazer", "blazers"] },
+  { terms: ["jean", "jeans", "denim"] },
+  { terms: ["swimsuit", "swimsuits", "swimwear", "bikini", "bikinis"] },
+  { terms: ["bra", "bras", "bralette", "bralettes", "lingerie"] },
   {
     terms: [
       "shoe", "shoes", "sneaker", "sneakers", "trainer", "trainers", "flat", "flats",
@@ -38,7 +49,8 @@ const CATEGORY_GROUPS = [
   { terms: ["coffee", "coffees"], productTypeOnly: true },
   { terms: ["water", "waters"], productTypeOnly: true },
   { terms: ["bracelet", "bracelets", "bangle", "bangles"] },
-  { terms: ["sheet", "sheets", "bedding"] }
+  { terms: ["sheet", "sheets", "bedding"] },
+  { terms: ["hairmask", "mask", "masks"], candidateEvidenceTerms: ["haircare", "hair"] }
 ] as const;
 
 const IGNORED_QUERY_TERMS = new Set([
@@ -62,7 +74,9 @@ const GENERIC_IDENTITY_TERMS = new Set([
   ...CATEGORY_GROUPS.flatMap((group) => [...group.terms]),
   "apparel", "anime", "boot", "boots", "clothing", "dress", "dresses", "hoodie", "hoodies",
   "jean", "jeans", "men", "mens", "open", "pants", "refurbished", "renewed", "sweater",
-  "sweaters", "sweatshirt", "sweatshirts", "top", "tops", "used", "women", "womens"
+  "sweaters", "sweatshirt", "sweatshirts", "top", "tops", "used", "women", "womens",
+  "bodycon", "casual", "classic", "everyday", "flat", "flats", "leather", "maxi", "midi",
+  "mini", "regular", "slip", "strap", "strappy", "wear"
 ]);
 
 export function hasSpecificProductIdentity(query: string): boolean {
@@ -78,6 +92,14 @@ export function hasStrongProductIdentifier(query: string): boolean {
   const tokens = tokenize(query);
   return tokens.some((token) => /^\d{8,14}$/u.test(token)) ||
     tokens.some((token) => token.length >= 4 && /\p{L}/u.test(token) && /\d/u.test(token));
+}
+
+export function hasNamedProductIntent(query: string): boolean {
+  if (hasStrongProductIdentifier(query)) return true;
+  const identityTerms = new Set(tokenize(query).filter((token) =>
+    token.length >= 2 && !GENERIC_IDENTITY_TERMS.has(token) && !CONDITION_TERMS.has(token)
+  ));
+  return identityTerms.size >= 3;
 }
 
 export function classifyShopifyCandidate(

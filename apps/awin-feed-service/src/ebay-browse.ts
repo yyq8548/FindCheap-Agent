@@ -137,7 +137,7 @@ export function parseEbayBrowseEnvironment(
     throw new Error("EBAY_EPN_CAMPAIGN_ID must be numeric");
   }
   const marketplaceId = input.EBAY_MARKETPLACE_ID?.trim() || "EBAY_US";
-  if (marketplaceId !== "EBAY_US") throw new Error("v0.10.3 supports only EBAY_US");
+  if (marketplaceId !== "EBAY_US") throw new Error("v0.10.4 supports only EBAY_US");
   return {
     environment,
     clientId,

@@ -89,7 +89,7 @@ const ProductCardStagesSchema = z.object({
 
 const ProductCardTelemetryInputSchema = z.object({
   renderId: z.string().uuid(),
-  version: z.literal("0.10.3"),
+  version: z.literal("0.10.4"),
   terminalStage: z.enum([
     "DOM_RENDERED",
     "FIRST_IMAGE_SETTLED",
@@ -276,6 +276,7 @@ const ShopifyProductOutputSchema = z.object({
   featureEvidence: z.array(z.string()).optional(),
   preferenceEvidence: z.array(z.string()).optional(),
   requiredFeatureLimitations: z.array(z.string()).optional(),
+  resultGroup: z.enum(["REQUESTED_PRODUCT", "DISCOVERY", "ALTERNATIVE"]).optional(),
   merchantId: z.string(),
   merchant: z.string(),
   sellerName: z.string().optional(),
@@ -426,6 +427,7 @@ const ShopifyProductsOutputShape = {
     shopify: z.enum(["SKIPPED", "COMPLETE", "PARTIAL", "UNAVAILABLE"]),
     ebay: z.enum(["SKIPPED", "COMPLETE", "UNAVAILABLE"])
   }).optional(),
+  searchIntent: z.enum(["EXACT_PRODUCT", "CATEGORY_DISCOVERY"]).optional(),
   sourceErrors: z.object({
     awin: z.literal("DATA_SOURCE_UNAVAILABLE").optional(),
     shopify: z.enum(["CATALOG_SCHEMA_CHANGED", "DATA_SOURCE_UNAVAILABLE"]).optional(),
@@ -856,6 +858,7 @@ function unifiedResult(
       featureEvidence: candidate.featureEvidence,
       preferenceEvidence: candidate.preferenceEvidence,
       requiredFeatureLimitations: candidate.requiredFeatureLimitations,
+      resultGroup: candidate.resultGroup,
       recommendationTier: candidate.recommendationTier
     }, candidate.verifiedCoupons)];
   });
@@ -873,7 +876,9 @@ function unifiedResult(
   const merchantCount = new Set(products.map((product) => product.merchantId)).size;
   const coverage = unavailableSource || partialSource ? "PARTIAL" as const : "COMPLETE" as const;
   const chromeAdvice = execution.chromeFallbackEligible
-    ? "No configured source returned a qualifying product. The user may authorize one bounded Chrome whole-web fallback."
+    ? execution.searchIntent === "EXACT_PRODUCT"
+      ? "No configured source returned a qualifying match for the requested product; unrelated alternatives were not substituted. The user may authorize one bounded Chrome whole-web fallback."
+      : "No configured source returned a qualifying product. The user may authorize one bounded Chrome whole-web fallback."
     : "";
   const sourceFailureMessage = execution.sourceErrors?.shopify === "CATALOG_SCHEMA_CHANGED"
     ? "Shopify Catalog response schema changed and could not be safely parsed. No zero-result conclusion was made; retry after the connector is updated."
@@ -881,7 +886,9 @@ function unifiedResult(
       ? "A configured product source is unavailable. No zero-result conclusion was made."
       : "";
   const message = products.length === 0
-    ? sourceFailureMessage || chromeAdvice || "No qualifying product returned."
+    ? sourceFailureMessage || chromeAdvice || (execution.searchIntent === "EXACT_PRODUCT"
+      ? "No qualifying match for the requested product returned; unrelated alternatives were not substituted."
+      : "No qualifying product returned.")
     : [
         `Returned ${products.length} ranked product card(s) from ${merchantCount} merchant(s); never claim more merchants than this count.`,
         ...(highRatedUnverifiedCount === 0
@@ -908,6 +915,7 @@ function unifiedResult(
       message,
       source: "UNIFIED_PRODUCT_SEARCH" as const,
       sources: execution.sourceStatus,
+      searchIntent: execution.searchIntent,
       ...(execution.sourceErrors === undefined ? {} : { sourceErrors: execution.sourceErrors }),
       coverage,
       priceScope: cartQuoteCoverage.succeeded === 0
@@ -960,6 +968,7 @@ function unifiedResult(
       diagnostics: {
         ...shopifyResponse.structuredContent.diagnostics,
         featureProductsExcluded: execution.featureProductsExcluded,
+        identityProductsExcluded: shopifyResponse.structuredContent.diagnostics.identityProductsExcluded + execution.identityProductsExcluded,
         chromeFallbackEligible: execution.chromeFallbackEligible
       },
       products
@@ -978,6 +987,7 @@ function awinCardProduct(candidate: UnifiedCandidate): ProductCardProduct {
     featureEvidence: candidate.featureEvidence,
     preferenceEvidence: candidate.preferenceEvidence,
     requiredFeatureLimitations: candidate.requiredFeatureLimitations,
+    resultGroup: candidate.resultGroup,
     merchantId: product.merchantId,
     merchant: product.merchant,
     sourceHost,
@@ -990,7 +1000,7 @@ function awinCardProduct(candidate: UnifiedCandidate): ProductCardProduct {
     title: product.title,
     gtins: [],
     variantDimensions: {},
-    matchStatus: product.matchStatus,
+    matchStatus: candidate.identityStatus === "SIMILAR" ? "SIMILAR" : product.matchStatus,
     matchEvidence: product.matchEvidence,
     condition: product.condition,
     ...(product.imageUrl === undefined ? {} : { imageUrl: product.imageUrl }),
@@ -1023,7 +1033,7 @@ function awinCardProduct(candidate: UnifiedCandidate): ProductCardProduct {
       primaryPrice: product.itemPrice,
       priceLabel: "Verified item price",
       itemPrice: product.itemPrice,
-      matchBadge: product.matchStatus,
+      matchBadge: candidate.identityStatus === "SIMILAR" ? "SIMILAR" : product.matchStatus,
       conditionBadge: product.condition,
       availability: product.availability,
       merchantTrustBadge: "ESTABLISHED_RETAILER",
@@ -1045,6 +1055,7 @@ function ebayCardProduct(candidate: UnifiedCandidate): ProductCardProduct {
     featureEvidence: candidate.featureEvidence,
     preferenceEvidence: candidate.preferenceEvidence,
     requiredFeatureLimitations: candidate.requiredFeatureLimitations,
+    resultGroup: candidate.resultGroup,
     merchantId: `ebay:${product.sellerName}`,
     merchant: "eBay",
     sellerName: product.sellerName,
@@ -1067,7 +1078,7 @@ function ebayCardProduct(candidate: UnifiedCandidate): ProductCardProduct {
     productType: product.category,
     gtins: [],
     variantDimensions: {},
-    matchStatus: product.matchStatus,
+    matchStatus: candidate.identityStatus === "SIMILAR" ? "SIMILAR" : product.matchStatus,
     matchEvidence: product.matchEvidence,
     condition: product.condition,
     ...(product.imageUrl === undefined ? {} : { imageUrl: product.imageUrl }),
@@ -1103,7 +1114,7 @@ function ebayCardProduct(candidate: UnifiedCandidate): ProductCardProduct {
       primaryPrice: product.itemPrice,
       priceLabel: "Live item price",
       itemPrice: product.itemPrice,
-      matchBadge: product.matchStatus,
+      matchBadge: candidate.identityStatus === "SIMILAR" ? "SIMILAR" : product.matchStatus,
       conditionBadge: product.condition,
       availability: product.availability,
       merchantTrustBadge: "MERCHANT_UNVERIFIED",
@@ -1544,7 +1555,7 @@ export function createShoppingServer(
   dependencies: ShoppingServerDependencies = {}
 ): McpServer {
   void comparePort;
-  const server = new McpServer({ name: "findcheap-agent", version: "0.10.3" });
+  const server = new McpServer({ name: "findcheap-agent", version: "0.10.4" });
   const dealPort = dependencies.deals ?? createUnavailableDealPort();
   const awinPort = dependencies.awin ?? createUnavailableAwinPort();
   const ebayPort = dependencies.ebay;
@@ -1714,7 +1725,7 @@ export function createShoppingServer(
     "search_products",
     {
       title: "Search products",
-      description: "For live shopping, use only the user request and this tool contract. Do not read Memory, Skill files, repository files, logs, or plugin caches, and do not narrate internal rules. Say at most one neutral progress sentence before calling: '正在搜索合适商品。' This is the single product-search entrypoint; call once. Awin, Shopify, and configured eBay searches start in parallel. Put the product family in productType. Put only objective must-have attributes in requiredFeatures: dimensions, capacity, quantity, resolution, power, exact size, color, generation, compatibility, or explicitly required material/construction. Put subjective intent such as everyday, casual, stylish, versatile, comfortable, or office wear in preferences; preferences rank and never exclude. Never invent a required feature. Evidence may come from title, product type/category, description, and structured variant attributes. Missing evidence remains a limitation-labeled DISCOVERY_MATCH; only explicit contradiction is excluded. Never infer condition. Default ranking prioritizes match evidence, merchant reliability, preferences, verified coupons, then lower item price. Use selectionMode=LOWEST_PRICE only when requested; pass a price ceiling as maxItemPriceCents. Never subtract a coupon from displayed price unless its value and applicability are verified. Commercial relationships never affect relevance or ranking. Reuse selectionId for follow-ups; never search a selected title again.",
+      description: "For live shopping, use only the user request and this tool contract. Do not read Memory, Skill files, repository files, logs, or plugin caches, and do not narrate internal rules. Say at most one neutral progress sentence before calling: '正在搜索合适商品。' This is the single product-search entrypoint; call once. Awin, Shopify, and configured eBay searches start in parallel. Use SAME_PRODUCT for a named product, model, SKU, or style; exact-product safety also detects strong identity automatically. Set allowAlternatives=true only when the user explicitly asks for similar or substitute products. Exact-product search never pads cards with a conflicting or merely similar item. Put the product family in productType. Put only objective must-have attributes in requiredFeatures: dimensions, capacity, quantity, resolution, power, exact size, color, generation, compatibility, or explicitly required material/construction. Put subjective intent such as everyday, casual, stylish, versatile, comfortable, or office wear in preferences; preferences rank and never exclude. Never invent a required feature. Evidence may come from title, product type/category, description, and structured variant attributes. Missing evidence remains a limitation-labeled DISCOVERY_MATCH; explicit identity or feature contradiction is excluded. Never infer condition. Default ranking prioritizes requested-product identity, match evidence, merchant reliability, availability, preferences, verified coupons, then lower item price. Use selectionMode=LOWEST_PRICE only when requested; pass a price ceiling as maxItemPriceCents. Never subtract a coupon from displayed price unless its value and applicability are verified. Commercial relationships never affect relevance or ranking. Reuse selectionId for follow-ups; never search a selected title again.",
       inputSchema: SearchProductsInputSchema,
       outputSchema: ShopifyProductsOutputShape,
       annotations: {

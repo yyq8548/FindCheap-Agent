@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { AwinProductPort } from "../../../packages/awin-feed/src/index.js";
 import {
   SearchProductsInputSchema,
+  resolveSearchIntent,
   shouldQueryAwin,
   searchProducts
 } from "../src/search-products.js";
@@ -129,7 +130,11 @@ describe("unified product search", () => {
       query: "Apple MacBook Pro",
       limit: 1,
       conditionPreference: "NEW"
-    }), { awin: awin([]), shopify: shopify([shopifyProduct("macbook", 199_900)]) });
+    }), { awin: awin([]), shopify: shopify([shopifyProduct("macbook", 199_900, "UNKNOWN", {
+      title: "Apple MacBook Pro 14-inch",
+      brand: "Apple",
+      productType: "Computers"
+    })]) });
 
     expect(result.candidates).toHaveLength(1);
     expect(result.candidates[0]?.shopifyProduct?.condition).toBe("UNKNOWN");
@@ -464,9 +469,106 @@ describe("unified product search", () => {
     expect(result.sourceErrors).toBeUndefined();
     expect(result.chromeFallbackEligible).toBe(true);
   });
+
+  it("routes named SKIMS and Alo requests to exact-product safety", () => {
+    expect(resolveSearchIntent(SearchProductsInputSchema.parse({
+      query: "SKIMS Soft Lounge Mini Dress Onyx size 0"
+    }))).toBe("EXACT_PRODUCT");
+    expect(resolveSearchIntent(SearchProductsInputSchema.parse({
+      query: "Alo Suit Up Trouser Navy size S"
+    }))).toBe("EXACT_PRODUCT");
+    expect(resolveSearchIntent(SearchProductsInputSchema.parse({
+      query: "women leather ballet flats"
+    }))).toBe("CATEGORY_DISCOVERY");
+  });
+
+  it("returns only the requested SKIMS product and never pads with unrelated dresses", async () => {
+    const requested = shopifyProduct("skims-soft-lounge", 8000, "NEW", {
+      title: "Soft Lounge Mini Dress",
+      brand: "SKIMS",
+      productType: "Dresses",
+      variantDimensions: { Color: "Onyx", Size: "0" }
+    });
+    const unrelated = shopifyProduct("black-lace", 3900, "NEW", {
+      title: "Black Lace Sweater Spaghetti Strap Bodycon Mini Dress",
+      brand: "Solace",
+      productType: "Dresses",
+      variantDimensions: { Color: "Black", Size: "S" }
+    });
+    const result = await searchProducts(SearchProductsInputSchema.parse({
+      query: "SKIMS Soft Lounge Mini Dress Onyx size 0",
+      limit: 3
+    }), {
+      awin: awin([awinProduct("lace", 2900, {
+        title: "Black Lace Spaghetti Strap Mini Dress",
+        category: "Dresses"
+      })]),
+      ebay: ebay([ebayProduct("9", 3500, {
+        title: "Black Lace Bodycon Mini Dress",
+        category: "Dresses"
+      })]),
+      shopify: shopify([requested, unrelated])
+    });
+
+    expect(result.searchIntent).toBe("EXACT_PRODUCT");
+    expect(result.searchPasses).toBe(2);
+    expect(result.candidates).toHaveLength(1);
+    expect(result.candidates[0]).toMatchObject({
+      source: "SHOPIFY_GLOBAL_CATALOG",
+      resultGroup: "REQUESTED_PRODUCT",
+      shopifyProduct: { handle: "skims-soft-lounge" }
+    });
+    expect(result.identityProductsExcluded).toBeGreaterThanOrEqual(3);
+  });
+
+  it("returns zero instead of substituting a different product for an Alo request", async () => {
+    const result = await searchProducts(SearchProductsInputSchema.parse({
+      query: "Alo Suit Up Trouser Navy size S",
+      limit: 3
+    }), {
+      awin: awin([]),
+      ebay: ebay([]),
+      shopify: shopify([shopifyProduct("alo-dress", 9900, "NEW", {
+        title: "Alo Suit Up Mini Dress",
+        brand: "Alo",
+        productType: "Dresses",
+        variantDimensions: { Color: "Navy", Size: "S" }
+      })])
+    });
+
+    expect(result.candidates).toEqual([]);
+    expect(result.chromeFallbackEligible).toBe(true);
+    expect(result.identityProductsExcluded).toBe(1);
+  });
+
+  it("keeps alternatives separate and only when explicitly enabled", async () => {
+    const requested = shopifyProduct("alo-suit-up", 14_800, "NEW", {
+      title: "Suit Up Trouser Regular",
+      brand: "Alo",
+      productType: "Pants",
+      variantDimensions: { Color: "Navy", Size: "S" }
+    });
+    const alternative = shopifyProduct("alo-airbrush", 11_800, "NEW", {
+      title: "Airbrush High-Waist Trouser",
+      brand: "Alo",
+      productType: "Pants",
+      variantDimensions: { Color: "Navy", Size: "S" }
+    });
+    const result = await searchProducts(SearchProductsInputSchema.parse({
+      query: "Alo Suit Up Trouser Navy size S",
+      limit: 3,
+      allowAlternatives: true
+    }), { awin: awin([]), shopify: shopify([alternative, requested]) });
+
+    expect(result.candidates.map((candidate) => candidate.resultGroup)).toEqual([
+      "REQUESTED_PRODUCT",
+      "ALTERNATIVE"
+    ]);
+    expect(result.candidates[0]?.shopifyProduct?.handle).toBe("alo-suit-up");
+  });
 });
 
-function awinProduct(id: string, amountCents: number) {
+function awinProduct(id: string, amountCents: number, overrides: Record<string, unknown> = {}) {
   return {
     merchantId: "20282",
     merchant: "Amazonliss (US)",
@@ -480,7 +582,8 @@ function awinProduct(id: string, amountCents: number) {
     availability: "IN_STOCK" as const,
     merchantUrl: `https://www.nutreecosmetics.com/products/${id}`,
     affiliateUrl: `https://www.awin1.com/cread.php?awinmid=20282&awinaffid=3047955&ued=https%3A%2F%2Fwww.nutreecosmetics.com%2Fproducts%2F${id}`,
-    checkedAt: now
+    checkedAt: now,
+    ...overrides
   };
 }
 
@@ -558,7 +661,7 @@ function shopifyResult(products: ReturnType<typeof shopifyProduct>[]): ShopifySe
   };
 }
 
-function ebayProduct(id: string, amountCents: number) {
+function ebayProduct(id: string, amountCents: number, overrides: Record<string, unknown> = {}) {
   return {
     environment: "PRODUCTION" as const,
     itemId: `v1|${id}|0`,
@@ -574,7 +677,8 @@ function ebayProduct(id: string, amountCents: number) {
     availability: "UNKNOWN" as const,
     merchantUrl: `https://www.ebay.com/itm/${id}`,
     affiliateUrl: `https://www.ebay.com/itm/${id}?campid=5339000012`,
-    checkedAt: now
+    checkedAt: now,
+    ...overrides
   };
 }
 
