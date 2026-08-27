@@ -1,35 +1,6 @@
-import { z } from "zod";
-
 import { safeFetchWithProvenance } from "../../../packages/network-safety/src/safe-fetch.js";
 import type { ShopifyProduct } from "./shopify-client.js";
-
-const VariantIdSchema = z.union([
-  z.number().int().positive().transform(String),
-  z.string().regex(/^\d{1,30}$/u)
-]);
-const ProductOptionSchema = z.object({
-  name: z.string().trim().min(1).max(100),
-  position: z.number().int().min(1).max(3),
-  values: z.array(z.string().trim().min(1).max(300)).max(100)
-}).passthrough();
-const ProductVariantSchema = z.object({
-  id: VariantIdSchema,
-  title: z.string().trim().min(1).max(1_000),
-  available: z.boolean(),
-  price: z.number().int().nonnegative().max(100_000_000),
-  sku: z.string().trim().max(300).nullable().optional(),
-  options: z.array(z.string().trim().min(1).max(300)).max(3).optional(),
-  option1: z.string().trim().min(1).max(300).nullable().optional(),
-  option2: z.string().trim().min(1).max(300).nullable().optional(),
-  option3: z.string().trim().min(1).max(300).nullable().optional()
-}).passthrough();
-const ProductJsonSchema = z.object({
-  title: z.string().trim().min(1).max(1_000),
-  handle: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,200}$/u),
-  vendor: z.string().trim().max(300).optional(),
-  options: z.array(ProductOptionSchema).max(3).default([]),
-  variants: z.array(ProductVariantSchema).min(1).max(100)
-}).passthrough();
+import { ShopifyProductJsonSchema, shopifyVariantDimensions } from "./shopify-product-json.js";
 
 export type SelectedProductInspection = {
   productTitle: string;
@@ -69,7 +40,7 @@ export function createShopifySelectedProductInspector(
         throw new Error("selected product path changed");
       }
       if (!fetched.response.ok) throw new Error("selected product document unavailable");
-      const product = ProductJsonSchema.parse(JSON.parse(await fetched.response.text()));
+      const product = ShopifyProductJsonSchema.parse(JSON.parse(await fetched.response.text()));
       if (product.handle !== target.productHandle) {
         throw new Error("selected product handle changed");
       }
@@ -80,7 +51,7 @@ export function createShopifySelectedProductInspector(
       const checkedAt = clock.now().toISOString();
       const hasRequestedDimensions = Object.keys(requestedVariantDimensions).length > 0;
       const variants = product.variants
-        .map((variant) => ({ variant, dimensions: variantDimensions(product.options, variant) }))
+        .map((variant) => ({ variant, dimensions: shopifyVariantDimensions(product.options, variant) }))
         .filter(({ variant, dimensions }) => hasRequestedDimensions
           ? matchesDimensions(dimensions, requestedVariantDimensions)
           : variant.id === selected.handle)
@@ -143,18 +114,6 @@ function canonicalHref(value: string): string {
   const url = new URL(value);
   url.hash = "";
   return url.href;
-}
-
-function variantDimensions(
-  productOptions: z.infer<typeof ProductOptionSchema>[],
-  variant: z.infer<typeof ProductVariantSchema>
-): Record<string, string> {
-  const values = variant.options ?? [variant.option1, variant.option2, variant.option3]
-    .filter((value): value is string => value !== undefined && value !== null && value !== "");
-  return Object.fromEntries(productOptions
-    .sort((left, right) => left.position - right.position)
-    .map((option, index) => [option.name, values[index]])
-    .filter((entry): entry is [string, string] => entry[1] !== undefined));
 }
 
 function matchesDimensions(

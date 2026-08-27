@@ -9,6 +9,7 @@ import {
 } from "../src/search-products.js";
 import type { ShopifyPort, ShopifySearchResult } from "../src/shopify-client.js";
 import type { EbayBrowsePort } from "../src/ebay-client.js";
+import type { OfficialShopifySearchPort } from "../src/shopify-official-store-search.js";
 
 const now = "2026-08-24T12:00:00.000Z";
 
@@ -46,6 +47,16 @@ function ebay(products = [ebayProduct("1", 2100)]): EbayBrowsePort {
 }
 
 describe("unified product search", () => {
+  it("normalizes natural punctuation instead of rejecting a valid product query", () => {
+    const input = SearchProductsInputSchema.parse({
+      query: "DOEN dress, black (mini) & lace!",
+      brand: "DOEN"
+    });
+
+    expect(input.query).toBe("DOEN dress black mini and lace");
+    expect(input.brand).toBe("DÔEN");
+  });
+
   it("queries Shopify in parallel even when Awin fills the result", async () => {
     const awinPort = awin([
       awinProduct("1", 1800),
@@ -614,6 +625,319 @@ describe("unified product search", () => {
     ]);
     expect(result.candidates.every((candidate) => candidate.identityStatus !== "EXACT")).toBe(true);
     expect(result.visualProductsExcluded).toBe(1);
+  });
+
+  it("enforces an explicit DÔEN brand and preserves it in the bounded visual second pass", async () => {
+    const candidate = shopifyProduct("doen-black-lace", 27_800, "UNKNOWN", {
+      merchant: "DÔEN",
+      sourceHost: "www.shopdoen.com",
+      merchantTrust: {
+        level: "OFFICIAL",
+        verification: "INDEPENDENT",
+        evidence: ["official merchant domain"]
+      },
+      title: "DÔEN Black Lace Tiered Mini Dress",
+      productType: "Dresses",
+      description: "Black mini dress with tiered lace panels"
+    });
+    const otherBrand = shopifyProduct("other-black-lace", 13_900, "UNKNOWN", {
+      title: "Black Lace Tiered Mini Dress",
+      brand: "Other Brand",
+      productType: "Dresses",
+      description: "Black mini dress with tiered lace panels"
+    });
+    const shopifySearch = vi.fn()
+      .mockResolvedValueOnce(shopifyResult([otherBrand]))
+      .mockResolvedValueOnce(shopifyResult([candidate, otherBrand]));
+
+    const result = await searchProducts(SearchProductsInputSchema.parse({
+      query: "DÔEN black lace tiered mini dress",
+      limit: 3,
+      brand: "DÔEN",
+      brandMode: "REQUIRED",
+      comparisonMode: "SAME_PRODUCT",
+      visualInput: {
+        productType: "女士迷你连衣裙",
+        colors: ["黑色"],
+        patterns: ["蕾丝"],
+        silhouette: "收腰A字",
+        length: "迷你",
+        styleClues: ["船领", "分层裙摆"]
+      }
+    }), { awin: awin([]), shopify: { search: shopifySearch } });
+
+    expect(result.candidates[0]).toMatchObject({
+      source: "SHOPIFY_GLOBAL_CATALOG",
+      visualMatchGroup: "POSSIBLE_SAME_ITEM",
+      shopifyProduct: { sourceHost: "www.shopdoen.com" }
+    });
+    expect(result.candidates).toHaveLength(1);
+    expect(result.brandProductsExcluded).toBe(1);
+    expect(shopifySearch.mock.calls[0]?.[0].comparisonMode).toBe("SAME_PRODUCT");
+    expect(shopifySearch.mock.calls[1]?.[0].comparisonMode).toBe("SAME_PRODUCT");
+    expect(shopifySearch.mock.calls[1]?.[0].query).toBe("DÔEN dress");
+    expect(result.sourcePassDiagnostics).toEqual([
+      expect.objectContaining({ pass: 1, acceptedCandidates: expect.objectContaining({ shopify: 0 }) }),
+      expect.objectContaining({ pass: 2, query: "DÔEN dress", acceptedCandidates: expect.objectContaining({ shopify: 1 }) })
+    ]);
+  });
+
+  it("returns no cards when both passes only find other brands", async () => {
+    const otherBrand = shopifyProduct("other-black-lace", 13_900, "UNKNOWN", {
+      title: "Black Lace Tiered Mini Dress",
+      brand: "Other Brand",
+      productType: "Dresses"
+    });
+    const shopifySearch = vi.fn(async (_input: Parameters<ShopifyPort["search"]>[0]) => shopifyResult([otherBrand]));
+
+    const result = await searchProducts(SearchProductsInputSchema.parse({
+      query: "DÔEN black lace mini dress",
+      limit: 3,
+      brand: "DÔEN",
+      brandMode: "REQUIRED",
+      productType: "dress",
+      visualInput: { productType: "dress", colors: ["black"], patterns: ["lace"] }
+    }), { awin: awin([]), shopify: { search: shopifySearch } });
+
+    expect(result.candidates).toEqual([]);
+    expect(result.searchPasses).toBe(2);
+    expect(result.brandProductsExcluded).toBe(1);
+    expect(result.chromeFallbackEligible).toBe(true);
+    expect(shopifySearch.mock.calls[1]?.[0].query).toBe("DÔEN dress");
+  });
+
+  it("searches one independently verified official Shopify store when the catalog lacks a strong visual match", async () => {
+    const officialSeed = shopifyProduct("nevita", 24_800, "UNKNOWN", {
+      merchant: "DÔEN",
+      sourceHost: "www.shopdoen.com",
+      merchantTrust: {
+        level: "OFFICIAL",
+        verification: "INDEPENDENT",
+        evidence: ["official merchant domain"]
+      },
+      title: "Nevita Floral Maxi Dress",
+      brand: "DÔEN",
+      productType: "Dresses",
+      description: "Floral maxi dress"
+    });
+    const cornella = shopifyProduct("472002", 59_800, "UNKNOWN", {
+      merchantId: officialSeed.merchantId,
+      merchant: "DÔEN",
+      sourceHost: "www.shopdoen.com",
+      merchantTrust: officialSeed.merchantTrust,
+      title: "Cornella Dress -- Black",
+      brand: "DÔEN",
+      productType: "Dresses",
+      description: "Black lace mini dress with a tiered skirt",
+      variantDimensions: { Size: "S" },
+      merchantUrl: "https://www.shopdoen.com/products/cornella-dress-black?variant=472002"
+    });
+    const shopifySearch = vi.fn(async () => shopifyResult([officialSeed]));
+    const officialSearch = vi.fn<OfficialShopifySearchPort["search"]>(async () => [cornella]);
+
+    const result = await searchProducts(SearchProductsInputSchema.parse({
+      query: "DÔEN black lace tiered mini dress",
+      limit: 3,
+      brand: "DÔEN",
+      brandMode: "REQUIRED",
+      comparisonMode: "SAME_PRODUCT",
+      visualInput: {
+        productType: "女士迷你连衣裙",
+        colors: ["黑色"],
+        patterns: ["蕾丝"],
+        length: "迷你",
+        styleClues: ["分层裙摆"]
+      }
+    }), {
+      awin: awin([]),
+      shopify: { search: shopifySearch },
+      officialShopify: { search: officialSearch }
+    });
+
+    expect(officialSearch).toHaveBeenCalledOnce();
+    expect(officialSearch).toHaveBeenCalledWith({
+      seed: officialSeed,
+      query: "women mini dress lace black mini tiered skirt",
+      limit: 6
+    });
+    expect(result.candidates[0]).toMatchObject({
+      source: "SHOPIFY_GLOBAL_CATALOG",
+      visualMatchGroup: "POSSIBLE_SAME_ITEM",
+      shopifyProduct: { title: "Cornella Dress -- Black", handle: "472002" }
+    });
+    expect(result.officialStoreFallback).toEqual({
+      status: "COMPLETE",
+      productsReturned: 1,
+      sourceHost: "www.shopdoen.com",
+      diagnostic: {
+        outcome: "ACCEPTED",
+        attempts: [{
+          stage: "FULL",
+          query: "women mini dress lace black mini tiered skirt",
+          productsReturned: 1,
+          acceptedCandidates: 1
+        }]
+      }
+    });
+    expect(result.shopifyResult?.products).toEqual(expect.arrayContaining([
+      expect.objectContaining({ handle: "472002" })
+    ]));
+    expect(result.chromeFallbackEligible).toBe(false);
+  });
+
+  it("progressively broadens an official storefront query until a usable product is found", async () => {
+    const officialSeed = shopifyProduct("nevita", 24_800, "UNKNOWN", {
+      merchant: "DÔEN",
+      sourceHost: "www.shopdoen.com",
+      merchantTrust: {
+        level: "OFFICIAL",
+        verification: "INDEPENDENT",
+        evidence: ["official merchant domain"]
+      },
+      title: "Nevita Floral Maxi Dress",
+      brand: "DÔEN",
+      productType: "Dresses",
+      description: "Floral maxi dress"
+    });
+    const cornella = shopifyProduct("472002", 59_800, "UNKNOWN", {
+      merchantId: officialSeed.merchantId,
+      merchant: "DÔEN",
+      sourceHost: "www.shopdoen.com",
+      merchantTrust: officialSeed.merchantTrust,
+      title: "Cornella Dress -- Black",
+      brand: "DÔEN",
+      productType: "Dresses",
+      description: "Black lace mini dress with a tiered skirt",
+      merchantUrl: "https://www.shopdoen.com/products/cornella-dress-black?variant=472002"
+    });
+    const officialSearch = vi.fn<OfficialShopifySearchPort["search"]>()
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([cornella]);
+
+    const result = await searchProducts(SearchProductsInputSchema.parse({
+      query: "DOEN black lace tiered mini dress",
+      brand: "DOEN",
+      brandMode: "REQUIRED",
+      comparisonMode: "SAME_PRODUCT",
+      visualInput: {
+        productType: "女士迷你连衣裙",
+        colors: ["黑色"],
+        patterns: ["蕾丝"],
+        length: "迷你",
+        styleClues: ["分层裙摆"]
+      }
+    }), {
+      awin: awin([]),
+      shopify: { search: vi.fn(async () => shopifyResult([officialSeed])) },
+      officialShopify: { search: officialSearch }
+    });
+
+    expect(officialSearch.mock.calls.map(([input]) => input.query)).toEqual([
+      "women mini dress lace black mini tiered skirt",
+      "dress lace black",
+      "dress"
+    ]);
+    expect(result.candidates[0]?.source).toBe("SHOPIFY_GLOBAL_CATALOG");
+    expect(result.officialStoreFallback.diagnostic).toEqual({
+      outcome: "ACCEPTED",
+      attempts: [
+        expect.objectContaining({ stage: "FULL", productsReturned: 0 }),
+        expect.objectContaining({ stage: "CORE", productsReturned: 0 }),
+        expect.objectContaining({ stage: "CATEGORY", productsReturned: 1, acceptedCandidates: 1 })
+      ]
+    });
+  });
+
+  it("keeps an explicitly named product exact even when visual evidence is present", async () => {
+    const onyx = shopifyProduct("onyx-other", 10_300, "UNKNOWN", {
+      merchant: "SKIMS",
+      sourceHost: "skims.com",
+      merchantTrust: {
+        level: "OFFICIAL",
+        verification: "INDEPENDENT",
+        evidence: ["official merchant domain"]
+      },
+      title: "SKIMS Body Mesh Plunge Midi Dress | Onyx",
+      brand: "SKIMS",
+      productType: "Dresses",
+      description: "A black plunge midi dress"
+    });
+    const heatherGrey = shopifyProduct("34535377404036", 3_400, "UNKNOWN", {
+      merchant: "SKIMS",
+      sourceHost: "skims.com",
+      merchantTrust: onyx.merchantTrust,
+      title: "SOFT LOUNGE LONG SLIP DRESS | HEATHER GREY",
+      brand: "SKIMS",
+      productType: "Dresses",
+      description: "A soft body-hugging long slip dress",
+      variantDimensions: { Size: "XL" },
+      merchantUrl: "https://skims.com/products/soft-lounge-long-slip-dress-heather-grey?variant=34535377404036"
+    });
+    const officialSearch = vi.fn<OfficialShopifySearchPort["search"]>(async () => [heatherGrey]);
+
+    const result = await searchProducts(SearchProductsInputSchema.parse({
+      query: "SKIMS Soft Lounge Slip Dress gray",
+      brand: "SKIMS",
+      brandMode: "REQUIRED",
+      productType: "slip maxi dress",
+      requiredFeatures: ["gray"],
+      featureMode: "REQUIRED",
+      comparisonMode: "SAME_PRODUCT",
+      allowAlternatives: false,
+      visualInput: {
+        brand: "SKIMS",
+        colors: ["heather gray"],
+        productType: "slip dress",
+        length: "maxi / floor length",
+        patterns: ["solid"],
+        styleClues: ["Soft Lounge Slip Dress", "square neckline"]
+      }
+    }), {
+      awin: awin([]),
+      shopify: { search: vi.fn(async () => shopifyResult([onyx])) },
+      officialShopify: { search: officialSearch }
+    });
+
+    expect(result.searchIntent).toBe("EXACT_PRODUCT");
+    expect(result.candidates).toHaveLength(1);
+    expect(result.candidates[0]).toMatchObject({
+      source: "SHOPIFY_GLOBAL_CATALOG",
+      resultGroup: "REQUESTED_PRODUCT",
+      shopifyProduct: {
+        title: "SOFT LOUNGE LONG SLIP DRESS | HEATHER GREY",
+        handle: "34535377404036"
+      }
+    });
+    expect(result.candidates.some((candidate) =>
+      candidate.source === "SHOPIFY_GLOBAL_CATALOG" && candidate.shopifyProduct.handle === "onyx-other"
+    )).toBe(false);
+  });
+
+  it("does not query a storefront that lacks independent official-domain evidence", async () => {
+    const unverified = shopifyProduct("dress", 10_000, "UNKNOWN", {
+      merchant: "DÔEN Official Store",
+      sourceHost: "doen-official.example",
+      merchantTrust: { level: "UNKNOWN", verification: "UNVERIFIED", evidence: ["self-described"] },
+      title: "DÔEN Maxi Dress",
+      brand: "DÔEN",
+      productType: "Dresses"
+    });
+    const officialSearch = vi.fn<OfficialShopifySearchPort["search"]>(async () => []);
+
+    const result = await searchProducts(SearchProductsInputSchema.parse({
+      query: "DÔEN black lace mini dress",
+      brand: "DÔEN",
+      brandMode: "REQUIRED",
+      visualInput: { productType: "dress", colors: ["black"], patterns: ["lace"] }
+    }), {
+      awin: awin([]),
+      shopify: { search: vi.fn(async () => shopifyResult([unverified])) },
+      officialShopify: { search: officialSearch }
+    });
+
+    expect(officialSearch).not.toHaveBeenCalled();
+    expect(result.officialStoreFallback).toEqual({ status: "NOT_USED", productsReturned: 0 });
   });
 });
 

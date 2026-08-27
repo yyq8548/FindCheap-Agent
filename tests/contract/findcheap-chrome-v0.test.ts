@@ -67,6 +67,8 @@ describe("FindCheap Agent plugin contract", () => {
     expect(skill).toContain("Always pass `limit: 3`");
     expect(skill).toContain("Pass ceilings in integer cents");
     expect(skill).toContain("objective must-haves in `requiredFeatures`");
+    expect(skill).toContain("`brandMode: REQUIRED`");
+    expect(skill).toContain("Never put brand in `productType` or `requiredFeatures`");
     expect(skill).toContain("`preferences`. Preferences rank but never exclude");
     expect(skill).toContain("Missing evidence does not create a zero result");
     expect(skill).toContain("Payment-plan, trade-in, coupon, member, or `from` text");
@@ -160,7 +162,7 @@ describe("FindCheap Agent plugin contract", () => {
     };
 
     expect(manifest.name).toBe("findcheap-agent");
-    expect(manifest.version).toMatch(/^0\.12\.0(?:\+codex\.)?/u);
+    expect(manifest.version).toMatch(/^0\.12\.4(?:\+codex\.)?/u);
     expect(manifest.interface.displayName).toBe("FindCheap Agent");
     expect(manifest.interface.longDescription).toMatch(/Codex Plugin Agent/u);
     expect(manifest.interface.longDescription).toMatch(/[Aa]uthorized.*Chrome/u);

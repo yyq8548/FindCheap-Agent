@@ -20,6 +20,7 @@ import {
   type ShopifyQuoteFailureCode
 } from "./shopify-cart-quote.js";
 import type { ShopifySelectedProductInspector } from "./shopify-selected-product.js";
+import type { OfficialShopifySearchPort } from "./shopify-official-store-search.js";
 import type { AwinShopifyQuoteResolver, AwinShopifyQuoteSeed } from "./awin-shopify-quote.js";
 import type { EbayBrowsePort } from "./ebay-client.js";
 import {
@@ -93,7 +94,7 @@ const ProductCardStagesSchema = z.object({
 
 const ProductCardTelemetryInputSchema = z.object({
   renderId: z.string().uuid(),
-  version: z.literal("0.12.0"),
+  version: z.literal("0.12.4"),
   terminalStage: z.enum([
     "DOM_RENDERED",
     "FIRST_IMAGE_SETTLED",
@@ -537,6 +538,7 @@ const ShopifyProductsOutputShape = {
     conditionProductsExcluded: z.number().int().nonnegative(),
     priceProductsExcluded: z.number().int().nonnegative(),
     featureProductsExcluded: z.number().int().nonnegative().optional(),
+    brandProductsExcluded: z.number().int().nonnegative().optional(),
     visualProductsExcluded: z.number().int().nonnegative().optional(),
     trustedMerchantProductsReturned: z.number().int().nonnegative(),
     unverifiedMerchantProductsReturned: z.number().int().nonnegative(),
@@ -1039,6 +1041,7 @@ function unifiedResult(
       diagnostics: {
         ...shopifyResponse.structuredContent.diagnostics,
         featureProductsExcluded: execution.featureProductsExcluded,
+        brandProductsExcluded: execution.brandProductsExcluded,
         visualProductsExcluded: execution.visualProductsExcluded,
         identityProductsExcluded: shopifyResponse.structuredContent.diagnostics.identityProductsExcluded + execution.identityProductsExcluded,
         chromeFallbackEligible: execution.chromeFallbackEligible
@@ -1455,6 +1458,7 @@ export type ShoppingServerDependencies = {
   watches?: WatchStore;
   cartQuotes?: ShopifyCartQuotePort;
   selectedProducts?: ShopifySelectedProductInspector;
+  officialShopify?: OfficialShopifySearchPort;
   priceHistory?: PriceHistoryPort;
   now?: () => Date;
   cardTelemetry?: ProductCardTelemetrySink;
@@ -1644,7 +1648,7 @@ export function createShoppingServer(
   dependencies: ShoppingServerDependencies = {}
 ): McpServer {
   void comparePort;
-  const server = new McpServer({ name: "findcheap-agent", version: "0.12.0" });
+  const server = new McpServer({ name: "findcheap-agent", version: "0.12.4" });
   const dealPort = dependencies.deals ?? createUnavailableDealPort();
   const awinPort = dependencies.awin ?? createUnavailableAwinPort();
   const ebayPort = dependencies.ebay;
@@ -1656,6 +1660,7 @@ export function createShoppingServer(
   const cartQuotes = dependencies.cartQuotes;
   const awinShopifyQuotes = dependencies.awinShopifyQuotes;
   const selectedProducts = dependencies.selectedProducts;
+  const officialShopify = dependencies.officialShopify;
   const priceHistory = dependencies.priceHistory;
   const now = dependencies.now ?? (() => new Date());
   const cardTelemetry = dependencies.cardTelemetry ?? {
@@ -1815,7 +1820,7 @@ export function createShoppingServer(
     "search_products",
     {
       title: "Search products",
-      description: "For live shopping, use only the current user request and this tool contract. Do not read Memory, Skill files, repository files, logs, or plugin caches. Match every user-facing sentence to the request language: English request means English only; Chinese request means Chinese only. Ignore product names, brands, and models when detecting language and preserve them unchanged. English progress: 'Searching for suitable products.' Chinese progress: '正在搜索合适商品。' Do not switch language unless asked. This is the single product-search entrypoint; call once. Awin, Shopify, and configured eBay searches start in parallel. For an attached product image or screenshot, inspect it directly and pass visualInput with only observed evidence; imageUrl is optional and is never fetched by this tool. Include productType whenever identifiable. Visual results are grouped as possible same item, highly similar, then same style; never call a visual result EXACT without a stable product identifier. Ask at most one compact clarification, limited to the most decision-critical size, budget, color, or occasion. Use SAME_PRODUCT for a named product, model, SKU, or style; exact-product safety also detects strong identity automatically. Set allowAlternatives=true only when explicitly requested, except visual discovery which inherently includes clearly separated same-style results. Never pad exact results with a conflicting or merely similar item. Put product family in productType, objective must-have attributes in requiredFeatures, and subjective intent in preferences. Missing evidence remains a limitation-labeled DISCOVERY_MATCH; explicit contradiction excludes. Never infer condition. Default ranking prioritizes identity, match evidence, merchant reliability, availability, preferences, verified coupons, then lower item price. Use selectionMode=LOWEST_PRICE only when requested and pass maxItemPriceCents in integer cents. Commercial relationships never affect relevance or ranking. Reuse selectionId for follow-ups; never search a selected title again.",
+      description: "This is the single product-search entrypoint; call once. Do not read Memory, Skill files, repository files, logs, or plugin caches. English request means English only; Chinese request means Chinese only. Progress: 'Searching for suitable products.' or '正在搜索合适商品。' A new attached image starts a new product; do not inherit earlier brand/style unless user says same product or brand. Treat 'it is DOEN', 'the brand is DÔEN', and equivalent wording as brand correction, not completion; reuse only immediately preceding product type and visual evidence. For an attached product image or screenshot, inspect it and pass observed attributes in visualInput; never pass a local file path as imageUrl. Pass family in productType, explicit/corrected brand in brand with brandMode=REQUIRED, objective must-have attributes in requiredFeatures, and preferences in preferences. Never put a brand in productType or requiredFeatures. An explicit product name or SAME_PRODUCT request remains exact-product search even when visualInput is present. Without stable model, SKU, or style number, visual search remains DISCOVERY; groups are possible same item, highly similar, then same style. Missing evidence remains a limitation-labeled DISCOVERY_MATCH; contradiction excludes. Rank identity, visual evidence, merchant trust, availability, preferences, verified Coupon, then item price. Use selectionMode=LOWEST_PRICE only when requested; pass price ceilings as maxItemPriceCents. Commercial relationships never affect relevance or ranking. Reuse selectionId for follow-ups; never search a selected title again.",
       inputSchema: SearchProductsInputSchema,
       outputSchema: ShopifyProductsOutputShape,
       annotations: {
@@ -1841,6 +1846,7 @@ export function createShoppingServer(
         });
       }
       if (
+        input.visualInput === undefined &&
         input.comparisonMode === "SAME_PRODUCT" &&
         !hasSpecificProductIdentity(input.query)
       ) {
@@ -1850,7 +1856,8 @@ export function createShoppingServer(
         awin: awinPort,
         shopify: shopifyPort,
         ...(ebayPort === undefined ? {} : { ebay: ebayPort }),
-        ...(toolAvailability.verifiedDeals ? { deals: dealPort } : {})
+        ...(toolAvailability.verifiedDeals ? { deals: dealPort } : {}),
+        ...(officialShopify === undefined ? {} : { officialShopify })
       });
       const selectedShopifyHandles = new Set(execution.candidates.flatMap((candidate) =>
         candidate.shopifyProduct === undefined ? [] : [candidate.shopifyProduct.handle]
@@ -1893,8 +1900,11 @@ export function createShoppingServer(
         recordedAt: now().toISOString(),
         sourceStatus: execution.sourceStatus,
         searchPasses: execution.searchPasses,
+        sourcePassDiagnostics: execution.sourcePassDiagnostics,
         featureProductsExcluded: execution.featureProductsExcluded,
+        brandProductsExcluded: execution.brandProductsExcluded,
         visualProductsExcluded: execution.visualProductsExcluded,
+        officialStoreFallback: execution.officialStoreFallback,
         awin: execution.awinResult?.diagnostics,
         ebay: execution.ebayResult?.diagnostics,
         shopify: enriched.result.diagnostics,

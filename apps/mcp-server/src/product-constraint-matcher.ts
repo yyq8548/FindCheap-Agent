@@ -332,6 +332,8 @@ function contextAround(value: string, index: number, length: number): string {
 
 function normalize(value: string): string {
   return value.normalize("NFKC").toLocaleLowerCase("en-US")
+    .replace(/\bonyx\b/gu, " black ")
+    .replace(/\bheather\s+gr(?:a|e)y\b/gu, " grey ")
     .replace(/(\d+(?:\.\d+)?)\s*(?:英寸|寸)/gu, "$1 inch")
     .replace(/(\d+(?:\.\d+)?)\s*厘米/gu, "$1 cm")
     .replace(/(\d+(?:\.\d+)?)\s*毫米/gu, "$1 mm")

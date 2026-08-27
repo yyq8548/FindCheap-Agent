@@ -32,6 +32,11 @@ export type VisualMatch = {
   evidence: string[];
 };
 
+export type VisualOfficialStoreQuery = {
+  stage: "FULL" | "CORE" | "CATEGORY";
+  query: string;
+};
+
 type CandidateEvidence = {
   title: string;
   productType?: string | undefined;
@@ -42,6 +47,8 @@ type CandidateEvidence = {
 };
 
 const ALIAS_GROUPS = [
+  ["women", "womens", "female", "女士", "女款"],
+  ["men", "mens", "male", "男士", "男款"],
   ["dress", "dresses", "裙", "裙子", "连衣裙"],
   ["skirt", "skirts", "半身裙"],
   ["trouser", "trousers", "pants", "pant", "长裤", "裤子", "西裤"],
@@ -66,7 +73,9 @@ const ALIAS_GROUPS = [
   ["wool", "羊毛", "毛呢"],
   ["silk", "真丝", "丝绸"],
   ["linen", "亚麻"],
-  ["black", "黑", "黑色"],
+  ["lace", "蕾丝"],
+  ["black", "onyx", "黑", "黑色"],
+  ["gray", "grey", "heather gray", "heather grey", "灰", "灰色"],
   ["white", "白", "白色"],
   ["blue", "navy", "蓝", "蓝色", "藏青", "海军蓝"],
   ["red", "红", "红色"],
@@ -82,8 +91,16 @@ const ALIAS_GROUPS = [
   ["maxi", "long", "长款"],
   ["slim", "slim fit", "修身"],
   ["relaxed", "loose", "oversized", "宽松", "廓形"],
-  ["bodycon", "紧身", "包臀"]
+  ["bodycon", "紧身", "包臀"],
+  ["fitted flared", "fit and flare", "a line", "a-line", "收腰a字", "a字", "伞形"],
+  ["bateau neckline", "boat neck", "船领"],
+  ["tiered skirt", "layered skirt", "分层裙摆", "层叠裙摆"]
 ] as const;
+
+const PRODUCT_FAMILIES = new Set([
+  "dress", "skirt", "trouser", "jeans", "shirt", "t shirt", "top", "jacket", "coat",
+  "shoe", "ballet flat", "sneaker", "boot", "handbag", "backpack", "headphone", "earbud", "watch"
+]);
 
 const ALIASES = new Map<string, string>();
 for (const group of ALIAS_GROUPS) {
@@ -96,7 +113,10 @@ export function classifyVisualProduct(
   candidate: CandidateEvidence
 ): VisualMatch | undefined {
   const productType = visual.productType;
-  if (productType !== undefined && !matches(candidateText(candidate, false), productType)) return undefined;
+  const typeStatus = productType === undefined
+    ? "UNKNOWN"
+    : productTypeStatus(productType, candidateText(candidate, false));
+  if (typeStatus === "CONTRADICTED") return undefined;
 
   const fullText = candidateText(candidate, true);
   const evidence: string[] = [];
@@ -116,7 +136,8 @@ export function classifyVisualProduct(
     }
   }
   evidence.push(...matchedAttributes.map((value) => `visual attribute matched: ${value}`));
-  if (productType !== undefined) evidence.unshift(`product type matched: ${productType}`);
+  if (productType !== undefined && typeStatus === "MATCHED") evidence.unshift(`product type matched: ${productType}`);
+  if (productType !== undefined && typeStatus === "UNKNOWN") evidence.unshift(`product type not independently verified: ${productType}`);
 
   if (modelMatched || (brandMatched && matchedAttributes.length >= 2)) {
     return { group: "POSSIBLE_SAME_ITEM", score: 100 + matchedAttributes.length, evidence };
@@ -124,7 +145,11 @@ export function classifyVisualProduct(
   if (matchedAttributes.length >= 3 || (brandMatched && matchedAttributes.length >= 1)) {
     return { group: "HIGHLY_SIMILAR", score: 70 + matchedAttributes.length, evidence };
   }
-  if (productType !== undefined && (matchedAttributes.length >= 1 || visualAttributeCount(visual) === 0)) {
+  if (
+    (typeStatus === "MATCHED" && (matchedAttributes.length >= 1 || visualAttributeCount(visual) === 0)) ||
+    (typeStatus === "UNKNOWN" && matchedAttributes.length >= 1) ||
+    brandMatched
+  ) {
     return {
       group: "SAME_STYLE",
       score: 40 + matchedAttributes.length,
@@ -153,7 +178,67 @@ export function visualSearchTerms(visual: VisualProductInput): string[] {
 }
 
 export function visualBroadSearchTerms(visual: VisualProductInput): string[] {
-  return unique([visual.productType, visual.styleClues[0]]);
+  return unique([visual.brand ?? visual.logoText, coreProductType(visual.productType)]);
+}
+
+export function visualOfficialStoreSearchQueries(visual: VisualProductInput): VisualOfficialStoreQuery[] {
+  const normalizedType = searchTerm(visual.productType);
+  const category = coreProductType(normalizedType);
+  const primaryDetails = unique([
+    visual.patterns[0],
+    visual.colors[0],
+    visual.materials[0],
+    visual.length,
+    visual.styleClues[0]
+  ].map(searchTerm));
+  const queries: VisualOfficialStoreQuery[] = [
+    {
+      stage: "FULL",
+      query: unique([normalizedType, ...primaryDetails]).join(" ")
+    },
+    {
+      stage: "CORE",
+      query: unique([category, ...primaryDetails.slice(0, 2)]).join(" ")
+    },
+    {
+      stage: "CATEGORY",
+      query: category ?? normalizedType ?? ""
+    }
+  ];
+  const seen = new Set<string>();
+  return queries.filter(({ query }) => {
+    const key = normalize(query);
+    if (key === "" || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function searchTerm(value: string | undefined): string | undefined {
+  return value === undefined ? undefined : normalize(value);
+}
+
+function coreProductType(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  return productFamilies(value)[0] ?? value;
+}
+
+function productTypeStatus(
+  requested: string,
+  candidate: string
+): "MATCHED" | "CONTRADICTED" | "UNKNOWN" {
+  const requestedFamilies = productFamilies(requested);
+  const candidateFamilies = productFamilies(candidate);
+  if (requestedFamilies.length === 0) return matches(candidate, requested) ? "MATCHED" : "UNKNOWN";
+  if (candidateFamilies.length === 0) return "UNKNOWN";
+  return requestedFamilies.some((family) => candidateFamilies.includes(family)) ? "MATCHED" : "CONTRADICTED";
+}
+
+function productFamilies(value: string): string[] {
+  const normalized = normalize(value);
+  return [...PRODUCT_FAMILIES].filter((family) =>
+    normalized === family || normalized.split(/\s+/u).includes(family) || normalized.includes(` ${family} `)
+  );
 }
 
 function visualAttributes(visual: VisualProductInput): Array<readonly [string, string[]]> {
@@ -188,9 +273,11 @@ function matches(candidateTextValue: string, clue: string): boolean {
 function normalize(value: string): string {
   let output = ` ${normalizeRaw(value)} `;
   for (const [alias, canonicalValue] of [...ALIASES].sort((left, right) => right[0].length - left[0].length)) {
-    output = output.replaceAll(` ${alias} `, ` ${canonicalValue} `);
+    output = containsCjk(alias)
+      ? output.replaceAll(alias, ` ${canonicalValue} `)
+      : output.replaceAll(` ${alias} `, ` ${canonicalValue} `);
   }
-  return output.trim();
+  return output.replace(/\s+/gu, " ").trim();
 }
 
 function canonical(value: string): string {
@@ -199,7 +286,7 @@ function canonical(value: string): string {
 }
 
 function normalizeRaw(value: string): string {
-  return value.normalize("NFKC").toLocaleLowerCase("en-US")
+  return value.normalize("NFKD").replace(/\p{M}+/gu, "").toLocaleLowerCase("en-US")
     .replace(/[’']/gu, "")
     .replace(/[^\p{L}\p{N}]+/gu, " ")
     .trim();
@@ -207,6 +294,10 @@ function normalizeRaw(value: string): string {
 
 function tokens(value: string): string[] {
   return value.split(/\s+/u).filter((token) => token.length > 0);
+}
+
+function containsCjk(value: string): boolean {
+  return /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u.test(value);
 }
 
 function unique(values: Array<string | undefined>): string[] {

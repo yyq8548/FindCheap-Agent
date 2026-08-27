@@ -330,6 +330,15 @@ describe("Shopify Global Catalog client", () => {
     expect(request.params.arguments.catalog.query).toBe("DÔEN dress");
   });
 
+  it("translates compound Chinese fashion queries without leaving mixed-language constraints", async () => {
+    expect(planCatalogQueries("DÔEN 女士迷你连衣裙 黑色 蕾丝")).toEqual([
+      { kind: "PRIMARY", query: "DÔEN women mini dress black lace" }
+    ]);
+    expect(planCatalogQueries("DÔEN 女士迷你连衣裙")).toEqual([
+      { kind: "PRIMARY", query: "DÔEN women mini dress" }
+    ]);
+  });
+
   it("omits the available-only Catalog filter and retains out-of-stock variants for Watch checks", async () => {
     const fetch = vi.fn(async (_input: string, _init: RequestInit) => catalogResponse([
       product({ shopId: "4", merchant: "Unavailable", host: "unavailable.example", price: 100, available: false })

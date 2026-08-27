@@ -115,6 +115,8 @@ describe("installed plugin stdio", () => {
       })]);
       expect(Object.keys(shopifyTool?.inputSchema.properties ?? {}).sort()).toEqual([
         "allowAlternatives",
+        "brand",
+        "brandMode",
         "comparisonMode",
         "conditionPreference",
         "featureMode",

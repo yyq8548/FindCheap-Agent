@@ -12,6 +12,7 @@ import { createAwinFeedPort } from "../../../packages/awin-feed/src/index.js";
 import { createAwinShopifyQuoteResolver } from "./awin-shopify-quote.js";
 import { createEbayPortFromEnvironment } from "./ebay-client.js";
 import { createPriceHistoryPortFromEnvironment } from "./deal-concierge.js";
+import { createOfficialShopifySearchPort } from "./shopify-official-store-search.js";
 
 const comparePort = createComparePortFromEnvironment(process.env, createUnavailableComparePort);
 const shopifyPort = createShopifyPortFromEnvironment(process.env);
@@ -28,6 +29,7 @@ const server = createShoppingServer(comparePort, shopifyPort, undefined, {
   deals: dealPort,
   cartQuotes: cartQuotePort,
   selectedProducts: createShopifySelectedProductInspector(),
+  officialShopify: createOfficialShopifySearchPort(),
   ...(priceHistoryPort === undefined ? {} : { priceHistory: priceHistoryPort }),
   watches: createJsonWatchStore(stateDirectory),
   toolAvailability: {

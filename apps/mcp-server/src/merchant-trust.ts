@@ -28,7 +28,7 @@ export type MerchantRecommendationTier =
 export const HIGH_PRODUCT_RATING_THRESHOLD = 3.8;
 export const HIGH_PRODUCT_RATING_MIN_COUNT = 2;
 
-export const MERCHANT_TRUST_REGISTRY_VERSION = "merchant-trust-2026-08-24";
+export const MERCHANT_TRUST_REGISTRY_VERSION = "merchant-trust-2026-08-27";
 
 type MerchantTrustRecord = {
   host: string;
@@ -43,6 +43,7 @@ const MERCHANT_TRUST_RECORDS: readonly MerchantTrustRecord[] = [
   // Official brand stores.
   { host: "electronics.sony.com", level: "OFFICIAL", evidenceUrl: "https://electronics.sony.com/", reviewedAt: "2026-08-20" },
   { host: "shopdoen.com", level: "OFFICIAL", evidenceUrl: "https://www.shopdoen.com/", reviewedAt: "2026-08-20" },
+  { host: "skims.com", level: "OFFICIAL", evidenceUrl: "https://skims.com/", reviewedAt: "2026-08-27" },
   { host: "deathwishcoffee.com", level: "OFFICIAL", evidenceUrl: "https://www.deathwishcoffee.com/", reviewedAt: "2026-08-20" },
   { host: "blkandbold.com", level: "OFFICIAL", evidenceUrl: "https://blkandbold.com/", reviewedAt: "2026-08-20" },
   { host: "vervecoffee.com", level: "OFFICIAL", evidenceUrl: "https://www.vervecoffee.com/", reviewedAt: "2026-08-20" },

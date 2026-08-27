@@ -4119,7 +4119,7 @@
       "format": "esm",
       "imports": []
     },
-    "src/shopify-selected-product.ts": {
+    "src/shopify-official-store-search.ts": {
       "format": "esm",
       "imports": [
         {
@@ -4131,6 +4131,41 @@
           "kind": "import-statement",
           "original": "../../../packages/network-safety/src/safe-fetch.js",
           "path": "../../packages/network-safety/src/safe-fetch.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./merchant-trust.js",
+          "path": "src/merchant-trust.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./shopify-product-json.js",
+          "path": "src/shopify-product-json.ts"
+        }
+      ]
+    },
+    "src/shopify-product-json.ts": {
+      "format": "esm",
+      "imports": [
+        {
+          "kind": "import-statement",
+          "original": "zod",
+          "path": "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/index.js"
+        }
+      ]
+    },
+    "src/shopify-selected-product.ts": {
+      "format": "esm",
+      "imports": [
+        {
+          "kind": "import-statement",
+          "original": "../../../packages/network-safety/src/safe-fetch.js",
+          "path": "../../packages/network-safety/src/safe-fetch.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./shopify-product-json.js",
+          "path": "src/shopify-product-json.ts"
         }
       ]
     },
@@ -4206,6 +4241,11 @@
           "kind": "import-statement",
           "original": "./deal-concierge.js",
           "path": "src/deal-concierge.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./shopify-official-store-search.js",
+          "path": "src/shopify-official-store-search.ts"
         }
       ]
     },
@@ -4267,7 +4307,7 @@
   },
   "outputs": {
     "../../plugins/findcheap-agent/dist/mcp-server.js": {
-      "bytes": 592849,
+      "bytes": 610107,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
@@ -4589,7 +4629,7 @@
           "bytesInOutput": 2381
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/discriminator/index.js": {
-          "bytesInOutput": 2290
+          "bytesInOutput": 2293
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/discriminator/types.js": {
           "bytesInOutput": 181
@@ -4598,7 +4638,7 @@
           "bytesInOutput": 235
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/format/format.js": {
-          "bytesInOutput": 1950
+          "bytesInOutput": 1953
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/format/index.js": {
           "bytesInOutput": 121
@@ -4778,7 +4818,7 @@
           "bytesInOutput": 54
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/external.js": {
-          "bytesInOutput": 1769
+          "bytesInOutput": 1772
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/helpers/errorUtil.js": {
           "bytesInOutput": 129
@@ -4793,7 +4833,7 @@
           "bytesInOutput": 3029
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/types.js": {
-          "bytesInOutput": 49911
+          "bytesInOutput": 49949
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v4/classic/checks.js": {
           "bytesInOutput": 0
@@ -4907,43 +4947,49 @@
           "bytesInOutput": 3766
         },
         "src/merchant-trust.ts": {
-          "bytesInOutput": 6834
+          "bytesInOutput": 6927
         },
         "src/product-card-ui.ts": {
           "bytesInOutput": 30431
         },
         "src/product-constraint-matcher.ts": {
-          "bytesInOutput": 10702
+          "bytesInOutput": 10781
         },
         "src/sales-tax-estimator.ts": {
           "bytesInOutput": 1784
         },
         "src/search-products.ts": {
-          "bytesInOutput": 13617
+          "bytesInOutput": 18645
         },
         "src/server.ts": {
-          "bytesInOutput": 82371
+          "bytesInOutput": 82247
         },
         "src/shopify-cart-quote.ts": {
-          "bytesInOutput": 10338
+          "bytesInOutput": 10340
         },
         "src/shopify-client.ts": {
           "bytesInOutput": 181
         },
         "src/shopify-global-catalog-client.ts": {
-          "bytesInOutput": 20227
+          "bytesInOutput": 21457
         },
         "src/shopify-match.ts": {
-          "bytesInOutput": 5940
+          "bytesInOutput": 6026
+        },
+        "src/shopify-official-store-search.ts": {
+          "bytesInOutput": 8851
+        },
+        "src/shopify-product-json.ts": {
+          "bytesInOutput": 1432
         },
         "src/shopify-selected-product.ts": {
-          "bytesInOutput": 3250
+          "bytesInOutput": 2070
         },
         "src/stdio.ts": {
-          "bytesInOutput": 659
+          "bytesInOutput": 680
         },
         "src/visual-product-discovery.ts": {
-          "bytesInOutput": 5021
+          "bytesInOutput": 6714
         },
         "src/watch-service.ts": {
           "bytesInOutput": 6032

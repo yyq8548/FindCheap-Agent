@@ -122,7 +122,9 @@ export function classifyShopifyCandidate(
     ...tokenize(variantValues.join(" ")),
     ...variantValues.map(compact).filter((value) => value !== "")
   ]);
-  const variantsExact = [...requestedVariantTerms].every((term) => variantTokens.has(term));
+  const variantTermMatches = (term: string): boolean => variantTokens.has(term) ||
+    (VARIANT_COLORS.has(term) && candidateTokens.has(term));
+  const variantsExact = [...requestedVariantTerms].every(variantTermMatches);
   if (
     [...ACCESSORY_TERMS].some((term) => candidateTokens.has(term)) &&
     !queryTokens.some((term) => ACCESSORY_TERMS.has(term))
@@ -149,7 +151,7 @@ export function classifyShopifyCandidate(
   if (gtinQueries.length > 0) {
     const gtins = new Set((candidate.gtins ?? []).map(compact));
     if (!gtinQueries.every((gtin) => gtins.has(gtin))) return irrelevant("GTIN does not match");
-    const missingVariants = [...requestedVariantTerms].filter((term) => !variantTokens.has(term));
+    const missingVariants = [...requestedVariantTerms].filter((term) => !variantTermMatches(term));
     return variantsExact
       ? { status: "EXACT", evidence: ["GTIN exact", ...(requestedVariantTerms.size === 0 ? [] : ["requested variant exact"])], missingTerms: [] }
       : { status: "SIMILAR", evidence: ["GTIN exact", `requested variant differs: ${missingVariants.join(", ")}`], missingTerms: missingVariants };
@@ -160,7 +162,7 @@ export function classifyShopifyCandidate(
     !IGNORED_QUERY_TERMS.has(token) && !categoryTerms.has(token)
   ))];
   const matched = required.filter((token) => requestedVariantTerms.has(token)
-    ? variantTokens.has(token)
+    ? variantTermMatches(token)
     : termMatches(token, candidateTokens, candidateIdentifiers));
   const missingTerms = required.filter((token) => !matched.includes(token));
   const brandTokens = tokenize(candidate.brand ?? "");
@@ -255,9 +257,11 @@ function containsContiguousIdentity(tokens: readonly string[], identity: string)
 }
 
 function tokenize(value: string): string[] {
-  return (value.normalize("NFKC").toLocaleLowerCase("en-US").match(/[\p{L}\p{N}]+/gu) ?? [])
+  return (value.normalize("NFKD").replace(/\p{M}+/gu, "").toLocaleLowerCase("en-US")
+    .match(/[\p{L}\p{N}]+/gu) ?? [])
     .map((token) => /^\d+(?:st|nd|rd|th)$/u.test(token) ? token.replace(/(?:st|nd|rd|th)$/u, "") : token)
-    .map((token) => token === "generation" ? "gen" : token);
+    .map((token) => token === "generation" ? "gen" : token)
+    .map((token) => token === "gray" ? "grey" : token === "onyx" ? "black" : token);
 }
 
 function compact(value: string): string {
