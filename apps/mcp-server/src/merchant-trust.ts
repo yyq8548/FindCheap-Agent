@@ -49,7 +49,7 @@ export type VerifiedOfficialStorefront = {
 const MERCHANT_TRUST_RECORDS: readonly MerchantTrustRecord[] = [
   // Official brand stores.
   { host: "electronics.sony.com", level: "OFFICIAL", evidenceUrl: "https://electronics.sony.com/", reviewedAt: "2026-08-20" },
-  { host: "shopdoen.com", level: "OFFICIAL", evidenceUrl: "https://www.shopdoen.com/", reviewedAt: "2026-08-20", storefrontBrands: ["DÔEN", "DOEN"] },
+  { host: "shopdoen.com", level: "OFFICIAL", evidenceUrl: "https://www.shopdoen.com/", reviewedAt: "2026-08-20", storefrontHost: "www.shopdoen.com", storefrontBrands: ["DÔEN", "DOEN"] },
   { host: "skims.com", level: "OFFICIAL", evidenceUrl: "https://skims.com/", reviewedAt: "2026-08-27", storefrontBrands: ["SKIMS", "NikeSKIMS"] },
   { host: "deathwishcoffee.com", level: "OFFICIAL", evidenceUrl: "https://www.deathwishcoffee.com/", reviewedAt: "2026-08-27", storefrontHost: "www.deathwishcoffee.com", storefrontBrands: ["Death Wish Coffee", "Death Wish"] },
   { host: "blkandbold.com", level: "OFFICIAL", evidenceUrl: "https://blkandbold.com/", reviewedAt: "2026-08-27", storefrontBrands: ["BLK & Bold", "BLK and Bold"] },

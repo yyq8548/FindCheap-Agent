@@ -73,6 +73,12 @@ export const SearchProductsInputSchema = z.object({
   preferences: z.array(z.string().trim().min(1).max(80)).max(10)
     .refine((values) => new Set(values.map(normalize)).size === values.length, "preferences must be unique")
     .default([]),
+  contextMode: z.enum([
+    "NEW_PRODUCT",
+    "CONTINUE_PREVIOUS_PRODUCT",
+    "CORRECT_PREVIOUS_PRODUCT",
+    "AMBIGUOUS"
+  ]).default("NEW_PRODUCT"),
   visualInput: VisualProductInputSchema.optional(),
   // Backward-compatible input for clients installed before v0.9.5.
   features: z.array(z.string().trim().min(1).max(80)).max(10)
@@ -96,7 +102,10 @@ type CandidateBase = {
   visualMatchGroup?: VisualMatchGroup | undefined;
   visualMatchEvidence?: string[] | undefined;
   visualMatchScore?: number | undefined;
+  presentationGroup?: ProductPresentationGroup | undefined;
 };
+
+export type ProductPresentationGroup = "OFFICIAL_STORE" | "TRUSTED_MATCH" | "BEST_VALUE";
 
 export type ProductSearchIntent = "EXACT_PRODUCT" | "CATEGORY_DISCOVERY" | "VISUAL_DISCOVERY";
 
@@ -364,7 +373,7 @@ export async function searchProducts(
   if (
     ports.officialShopify !== undefined &&
     officialSeed !== undefined &&
-    lacksStrongMatch([...affiliateCandidates, ...shopifyCandidates, ...ebayCandidates], searchIntent)
+    (input.brandMode === "REQUIRED" || lacksStrongMatch([...affiliateCandidates, ...shopifyCandidates, ...ebayCandidates], searchIntent))
   ) {
     const attempts: NonNullable<UnifiedSearchExecution["officialStoreFallback"]["diagnostic"]>["attempts"] = [];
     const officialProducts: ShopifyProduct[] = [];
@@ -438,9 +447,7 @@ export async function searchProducts(
   );
   const sortedCandidates = enrichedCandidates
     .sort(input.selectionMode === "LOWEST_PRICE" ? compareLowestPrice : compareRankedCandidates);
-  const candidates = input.visualInput === undefined
-    ? sortedCandidates.slice(0, input.limit)
-    : selectVisualCandidates(sortedCandidates, input.limit);
+  const candidates = selectPresentationCandidates(sortedCandidates, input.limit, input.selectionMode);
   const queriedSourcesComplete =
     awinStatus !== "UNAVAILABLE" &&
     ebayStatus !== "UNAVAILABLE" &&
@@ -1103,19 +1110,67 @@ function visualIdentityStatus(
   return visual.group === "SAME_STYLE" ? "SIMILAR" : "DISCOVERY_MATCH";
 }
 
-function selectVisualCandidates(candidates: UnifiedCandidate[], limit: number): UnifiedCandidate[] {
-  const selected: UnifiedCandidate[] = [];
-  const groups: VisualMatchGroup[] = ["POSSIBLE_SAME_ITEM", "HIGHLY_SIMILAR", "SAME_STYLE"];
-  for (const group of groups) {
-    const candidate = candidates.find((entry) => entry.visualMatchGroup === group && !selected.includes(entry));
-    if (candidate !== undefined) selected.push(candidate);
-    if (selected.length === limit) return selected;
+function selectPresentationCandidates(
+  candidates: UnifiedCandidate[],
+  limit: number,
+  selectionMode: SearchProductsInput["selectionMode"]
+): UnifiedCandidate[] {
+  const official = candidates
+    .filter(isOfficialCandidate)
+    .slice(0, 2)
+    .map((candidate) => ({ ...candidate, presentationGroup: "OFFICIAL_STORE" as const }));
+  if (selectionMode === "LOWEST_PRICE") {
+    const bestValue = candidates
+      .filter((candidate) => !isOfficialCandidate(candidate))
+      .filter(isHighMatch)
+      .sort(compareLowestPrice)
+      .slice(0, limit)
+      .map((candidate) => ({ ...candidate, presentationGroup: "BEST_VALUE" as const }));
+    return [...official, ...bestValue];
   }
-  for (const candidate of candidates) {
-    if (!selected.includes(candidate)) selected.push(candidate);
-    if (selected.length === limit) break;
+  const trusted = candidates
+    .filter((candidate) => !isOfficialCandidate(candidate))
+    .filter(isHighMatch)
+    .filter((candidate) => candidate.recommendationTier === "TRUSTED_OR_AFFILIATE")
+    .slice(0, limit)
+    .map((candidate) => ({ ...candidate, presentationGroup: "TRUSTED_MATCH" as const }));
+  const selectedKeys = new Set([...official, ...trusted].map(candidateKey));
+  const bestValue = candidates
+    .filter((candidate) => !selectedKeys.has(candidateKey(candidate)))
+    .filter((candidate) => !isOfficialCandidate(candidate))
+    .filter(isHighMatch)
+    .filter((candidate) => candidate.recommendationTier !== "TRUSTED_OR_AFFILIATE")
+    .sort(compareBestValue)
+    .slice(0, limit)
+    .map((candidate) => ({ ...candidate, presentationGroup: "BEST_VALUE" as const }));
+  const grouped = [...official, ...trusted, ...bestValue];
+  if (grouped.length > 0) return grouped;
+  return candidates.slice(0, limit);
+}
+
+function isOfficialCandidate(candidate: UnifiedCandidate): boolean {
+  if (candidate.source !== "SHOPIFY_GLOBAL_CATALOG") return false;
+  return candidate.shopifyProduct.merchantTrust.level === "OFFICIAL" &&
+    candidate.shopifyProduct.merchantTrust.verification === "INDEPENDENT";
+}
+
+function isHighMatch(candidate: UnifiedCandidate): boolean {
+  return candidate.visualMatchGroup === undefined || candidate.visualMatchGroup !== "SAME_STYLE";
+}
+
+function compareBestValue(left: UnifiedCandidate, right: UnifiedCandidate): number {
+  return Number(right.verifiedCoupons.length > 0) - Number(left.verifiedCoupons.length > 0) ||
+    merchantRecommendationRank(left.recommendationTier) - merchantRecommendationRank(right.recommendationTier) ||
+    price(left) - price(right) ||
+    compareRankedCandidates(left, right);
+}
+
+function candidateKey(candidate: UnifiedCandidate): string {
+  if (candidate.source === "AWIN_PRODUCT_FEED") {
+    return `${candidate.source}:${candidate.awinProduct.merchantId}:${candidate.awinProduct.merchantProductId}`;
   }
-  return selected;
+  if (candidate.source === "EBAY_BROWSE") return `${candidate.source}:${candidate.ebayProduct.itemId}`;
+  return `${candidate.source}:${candidate.shopifyProduct.sourceHost}:${candidate.shopifyProduct.handle}`;
 }
 
 function resultGroupRank(group: CandidateBase["resultGroup"]): number {

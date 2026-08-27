@@ -159,12 +159,12 @@ describe("shopping MCP server", () => {
     const renderTool = tools.tools.find((candidate) => candidate.name === "render_product_cards");
     const metricsTool = tools.tools.find((candidate) => candidate.name === "report_product_card_metrics");
     expect(searchTool?._meta).toMatchObject({
-      ui: { resourceUri: "ui://findcheap/product-cards/v25.html" },
-      "openai/outputTemplate": "ui://findcheap/product-cards/v25.html"
+      ui: { resourceUri: "ui://findcheap/product-cards/v26.html" },
+      "openai/outputTemplate": "ui://findcheap/product-cards/v26.html"
     });
     expect(renderTool?._meta).toMatchObject({
       ui: {
-        resourceUri: "ui://findcheap/product-cards/v25.html",
+        resourceUri: "ui://findcheap/product-cards/v26.html",
         visibility: ["app"]
       }
     });
@@ -181,11 +181,11 @@ describe("shopping MCP server", () => {
     const resources = await client.listResources();
     expect(resources.resources).toEqual([expect.objectContaining({
       name: "findcheap-product-cards",
-      uri: "ui://findcheap/product-cards/v25.html",
+      uri: "ui://findcheap/product-cards/v26.html",
       mimeType: "text/html;profile=mcp-app"
     })]);
 
-    const resource = await client.readResource({ uri: "ui://findcheap/product-cards/v25.html" });
+    const resource = await client.readResource({ uri: "ui://findcheap/product-cards/v26.html" });
     const content = resource.contents[0];
     const html = content !== undefined && "text" in content ? content.text : "";
     expect(html).toContain("ui/notifications/tool-result");
@@ -242,6 +242,7 @@ describe("shopping MCP server", () => {
       "brandMode",
       "comparisonMode",
       "conditionPreference",
+      "contextMode",
       "featureMode",
       "features",
       "limit",
@@ -445,7 +446,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.12.6",
+        version: "0.12.7",
         terminalStage: "DOM_RENDERED",
         stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
       }
@@ -454,7 +455,7 @@ describe("shopping MCP server", () => {
     expect(result.structuredContent).toEqual({ status: "RECORDED" });
     expect(record).toHaveBeenCalledWith(expect.objectContaining({
       renderId,
-      version: "0.12.6",
+      version: "0.12.7",
       terminalStage: "DOM_RENDERED",
       stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
     }));
@@ -462,7 +463,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.12.6",
+        version: "0.12.7",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 14 }
       }
@@ -472,7 +473,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.12.6",
+        version: "0.12.7",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 300_001 }
       }
@@ -483,7 +484,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId: "22222222-2222-4222-8222-222222222222",
-        version: "0.12.6",
+        version: "0.12.7",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 1 }
       }
@@ -1262,6 +1263,71 @@ describe("Coupon and Watch tools", () => {
     });
     expect((await client.callTool({ name: "list_watches", arguments: {} })).structuredContent)
       .toEqual({ watches: [] });
+  });
+
+  it("renders an official-store fallback card when the catalog source is unavailable", async () => {
+    const base = (await shopifyPort.search({
+      query: "placeholder",
+      limit: 1,
+      comparisonMode: "DISCOVERY",
+      selectionMode: "MERCHANT_DIVERSE",
+      membershipIds: []
+    })).products[0]!;
+    const officialProduct = {
+      ...base,
+      merchantId: "official-skims.com",
+      merchant: "SKIMS",
+      sourceHost: "skims.com",
+      merchantTrust: {
+        level: "OFFICIAL" as const,
+        verification: "INDEPENDENT" as const,
+        evidence: ["official merchant domain"]
+      },
+      handle: "soft-lounge-long-slip-dress",
+      title: "SKIMS Soft Lounge Long Slip Dress",
+      brand: "SKIMS",
+      productType: "Dresses",
+      merchantUrl: "https://skims.com/products/soft-lounge-long-slip-dress"
+    };
+    const client = await connect(
+      { compare: async () => comparison },
+      { search: async () => { throw new Error("offline"); } },
+      undefined,
+      { officialShopify: { search: async () => [officialProduct] } }
+    );
+
+    const found = await client.callTool({ name: "search_products", arguments: {
+      query: "SKIMS Soft Lounge Long Slip Dress",
+      brand: "SKIMS",
+      brandMode: "REQUIRED",
+      productType: "long slip dress",
+      comparisonMode: "SAME_PRODUCT"
+    } });
+
+    expect(found.structuredContent).toMatchObject({
+      products: [{
+        title: "SKIMS Soft Lounge Long Slip Dress",
+        sourceHost: "skims.com",
+        presentationGroup: "OFFICIAL_STORE"
+      }]
+    });
+  });
+
+  it("asks for product context before searching an ambiguous new image reference", async () => {
+    const search = vi.fn(shopifyPort.search);
+    const client = await connect({ compare: async () => comparison }, { search });
+
+    const found = await client.callTool({ name: "search_products", arguments: {
+      query: "this dress",
+      contextMode: "AMBIGUOUS",
+      productType: "dress"
+    } });
+
+    expect(search).not.toHaveBeenCalled();
+    expect(found.structuredContent).toMatchObject({
+      status: "NEEDS_CLARIFICATION",
+      questions: ["Is this a new product, or a follow-up about the previous product?"]
+    });
   });
 
   it("returns only current verified Coupon evidence", async () => {

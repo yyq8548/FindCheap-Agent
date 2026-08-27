@@ -94,7 +94,7 @@ const ProductCardStagesSchema = z.object({
 
 const ProductCardTelemetryInputSchema = z.object({
   renderId: z.string().uuid(),
-  version: z.literal("0.12.6"),
+  version: z.literal("0.12.7"),
   terminalStage: z.enum([
     "DOM_RENDERED",
     "FIRST_IMAGE_SETTLED",
@@ -337,6 +337,7 @@ const ShopifyProductOutputSchema = z.object({
   preferenceEvidence: z.array(z.string()).optional(),
   requiredFeatureLimitations: z.array(z.string()).optional(),
   resultGroup: z.enum(["REQUESTED_PRODUCT", "DISCOVERY", "ALTERNATIVE"]).optional(),
+  presentationGroup: z.enum(["OFFICIAL_STORE", "TRUSTED_MATCH", "BEST_VALUE"]).optional(),
   visualMatchGroup: z.enum(["POSSIBLE_SAME_ITEM", "HIGHLY_SIMILAR", "SAME_STYLE"]).optional(),
   visualMatchEvidence: z.array(z.string()).optional(),
   merchantId: z.string(),
@@ -923,6 +924,7 @@ function unifiedResult(
       preferenceEvidence: candidate.preferenceEvidence,
       requiredFeatureLimitations: candidate.requiredFeatureLimitations,
       resultGroup: candidate.resultGroup,
+      presentationGroup: candidate.presentationGroup,
       ...(candidate.visualMatchGroup === undefined ? {} : {
         visualMatchGroup: candidate.visualMatchGroup,
         visualMatchEvidence: candidate.visualMatchEvidence ?? []
@@ -1066,6 +1068,7 @@ function awinCardProduct(candidate: UnifiedCandidate): ProductCardProduct {
     preferenceEvidence: candidate.preferenceEvidence,
     requiredFeatureLimitations: candidate.requiredFeatureLimitations,
     resultGroup: candidate.resultGroup,
+    presentationGroup: candidate.presentationGroup,
     ...(candidate.visualMatchGroup === undefined ? {} : {
       visualMatchGroup: candidate.visualMatchGroup,
       visualMatchEvidence: candidate.visualMatchEvidence ?? []
@@ -1138,6 +1141,7 @@ function ebayCardProduct(candidate: UnifiedCandidate): ProductCardProduct {
     preferenceEvidence: candidate.preferenceEvidence,
     requiredFeatureLimitations: candidate.requiredFeatureLimitations,
     resultGroup: candidate.resultGroup,
+    presentationGroup: candidate.presentationGroup,
     ...(candidate.visualMatchGroup === undefined ? {} : {
       visualMatchGroup: candidate.visualMatchGroup,
       visualMatchEvidence: candidate.visualMatchEvidence ?? []
@@ -1648,7 +1652,7 @@ export function createShoppingServer(
   dependencies: ShoppingServerDependencies = {}
 ): McpServer {
   void comparePort;
-  const server = new McpServer({ name: "findcheap-agent", version: "0.12.6" });
+  const server = new McpServer({ name: "findcheap-agent", version: "0.12.7" });
   const dealPort = dependencies.deals ?? createUnavailableDealPort();
   const awinPort = dependencies.awin ?? createUnavailableAwinPort();
   const ebayPort = dependencies.ebay;
@@ -1820,7 +1824,7 @@ export function createShoppingServer(
     "search_products",
     {
       title: "Search products",
-      description: "This is the single product-search entrypoint; call once. Do not read Memory, Skill files, repository files, logs, or plugin caches. English request means English only; Chinese request means Chinese only. Progress: 'Searching for suitable products.' or '正在搜索合适商品。' A new attached image starts a new product; do not inherit earlier brand/style unless user says same product or brand. Treat 'it is DOEN', 'the brand is DÔEN', and equivalent wording as brand correction, not completion; reuse only immediately preceding product type and visual evidence. For an attached product image or screenshot, inspect it and pass observed attributes in visualInput; never pass a local file path as imageUrl. Pass family in productType, explicit/corrected brand in brand with brandMode=REQUIRED, objective must-have attributes in requiredFeatures, and preferences in preferences. Never put a brand in productType or requiredFeatures. An explicit product name or SAME_PRODUCT request remains exact-product search even when visualInput is present. Without stable model, SKU, or style number, visual search remains DISCOVERY; groups are possible same item, highly similar, then same style. Missing evidence remains a limitation-labeled DISCOVERY_MATCH; contradiction excludes. Rank identity, visual evidence, merchant trust, availability, preferences, verified Coupon, then item price. Use selectionMode=LOWEST_PRICE only when requested; pass price ceilings as maxItemPriceCents. Commercial relationships never affect relevance or ranking. Reuse selectionId for follow-ups; never search a selected title again.",
+      description: "This is the single product-search entrypoint; call once. Do not read Memory, Skill files, repository files, logs, or plugin caches. English request means English only; Chinese request means Chinese only. Progress: 'Searching for suitable products.' or '正在搜索合适商品。' Set contextMode=NEW_PRODUCT for every newly attached image and clear all earlier brand/style evidence, even when the user says only 'this one' or 'this dress'. Use CONTINUE_PREVIOUS_PRODUCT only when the user explicitly says it is the same item; use CORRECT_PREVIOUS_PRODUCT only for an immediate no-new-image correction such as 'it is DÔEN'. If unclear, set AMBIGUOUS and ask whether it is a new product before searching. For an attached product image or screenshot, inspect it and pass observed attributes in visualInput; never pass a local file path as imageUrl. Pass family in productType, explicit/corrected brand in brand with brandMode=REQUIRED, objective must-have attributes in requiredFeatures, and preferences in preferences. Never put a brand in productType or requiredFeatures. An explicit product name or SAME_PRODUCT request remains exact-product search even when visualInput is present. Without stable model, SKU, or style number, visual search remains DISCOVERY; evidence levels remain possible same item, highly similar, then same style. Results are presented as official-store matches, trusted matches, and best-value high-match options; same-style-only results are not padded into high-match groups. Missing evidence remains a limitation-labeled DISCOVERY_MATCH; contradiction excludes. Rank identity, visual evidence, merchant trust, availability, preferences, verified Coupon, then item price. Use selectionMode=LOWEST_PRICE only when requested; pass price ceilings as maxItemPriceCents. Commercial relationships never affect relevance or ranking. Reuse selectionId for follow-ups; never search a selected title again.",
       inputSchema: SearchProductsInputSchema,
       outputSchema: ShopifyProductsOutputShape,
       annotations: {
@@ -1838,6 +1842,13 @@ export function createShoppingServer(
     },
     async (rawInput) => {
       const input = SearchProductsInputSchema.parse(rawInput);
+      if (input.contextMode === "AMBIGUOUS") {
+        return shopifyClarificationResult(input.selectionMode, input, {
+          question: "Is this a new product, or a follow-up about the previous product?",
+          evidence: "product context is ambiguous",
+          source: "UNIFIED_PRODUCT_SEARCH"
+        });
+      }
       if (input.visualInput !== undefined && input.visualInput.productType === undefined && input.productType === undefined) {
         return shopifyClarificationResult(input.selectionMode, input, {
           question: "Identify the product type shown; if one detail is decision-critical, also provide the size, budget, color, or occasion.",
@@ -1862,18 +1873,21 @@ export function createShoppingServer(
       const selectedShopifyHandles = new Set(execution.candidates.flatMap((candidate) =>
         candidate.shopifyProduct === undefined ? [] : [candidate.shopifyProduct.handle]
       ));
+      const selectedShopifyProducts = execution.candidates.flatMap((candidate) =>
+        candidate.shopifyProduct === undefined ? [] : [candidate.shopifyProduct]
+      );
       const initialShopify = execution.shopifyResult === undefined
-        ? emptyShopifySearchResult(input)
+        ? { ...emptyShopifySearchResult(input), products: selectedShopifyProducts }
         : {
             ...execution.shopifyResult,
             products: execution.shopifyResult.products.filter((product) =>
               selectedShopifyHandles.has(product.handle)
             )
           };
-      const enriched = execution.shopifyResult === undefined
+      const enriched = selectedShopifyProducts.length === 0 && execution.shopifyResult === undefined
         ? { result: initialShopify, attempted: 0, succeeded: 0 }
         : await enrichShopifyCartQuotes(initialShopify, input.zipCode, cartQuotes);
-      if (execution.shopifyResult !== undefined) {
+      if (enriched.result.products.length > 0) {
         const enrichedByHandle = new Map(enriched.result.products.map((product) => [product.handle, product]));
         execution.shopifyResult = enriched.result;
         execution.candidates = execution.candidates.map((candidate) =>

@@ -39,7 +39,7 @@ function nodes(node: FakeNode): FakeNode[] {
 
 describe("product-card MCP Apps UI", () => {
   it("uses an embedded Codex-native surface with responsive cards", () => {
-    expect(PRODUCT_CARD_UI_URI).toBe("ui://findcheap/product-cards/v25.html");
+    expect(PRODUCT_CARD_UI_URI).toBe("ui://findcheap/product-cards/v26.html");
     expect(PRODUCT_CARD_HTML).toContain("--fc-surface:");
     expect(PRODUCT_CARD_HTML).toContain("background: var(--fc-action);");
     expect(PRODUCT_CARD_HTML).toContain("@media (max-width: 640px)");
@@ -122,7 +122,7 @@ describe("product-card MCP Apps UI", () => {
       params: expect.objectContaining({
         name: "report_product_card_metrics",
         arguments: expect.objectContaining({
-          version: "0.12.6",
+          version: "0.12.7",
           terminalStage: "DOM_RENDERED",
           stages: expect.objectContaining({ DOM_RENDERED: expect.any(Number) })
         })
@@ -384,6 +384,54 @@ describe("product-card MCP Apps UI", () => {
     expect(output).toContain("Observed Aug 19, 2026");
   });
 
+  it("renders official, trusted, and best-value presentation groups in that order", () => {
+    const script = PRODUCT_CARD_HTML.match(/<script>([\s\S]*)<\/script>/u)?.[1];
+    const app = new FakeNode();
+    const product = (title: string, presentationGroup: string) => ({
+      merchant: "Merchant",
+      title,
+      matchStatus: "DISCOVERY_MATCH",
+      condition: "UNKNOWN",
+      availability: "IN_STOCK",
+      presentationGroup,
+      merchantUrl: "https://example.com/products/item",
+      card: {
+        merchant: "Merchant",
+        title,
+        primaryPrice: { amountCents: 1299, currency: "USD" },
+        matchBadge: "DISCOVERY_MATCH",
+        conditionBadge: "UNKNOWN",
+        availability: "IN_STOCK"
+      }
+    });
+    const window = {
+      parent: { postMessage: () => undefined },
+      openai: { toolOutput: { products: [
+        product("Official Product", "OFFICIAL_STORE"),
+        product("Trusted Product", "TRUSTED_MATCH"),
+        product("Value Product", "BEST_VALUE")
+      ] } },
+      addEventListener: () => undefined,
+      setTimeout: () => 1,
+      ResizeObserver: undefined
+    };
+    const document = {
+      getElementById: () => app,
+      createElement: () => new FakeNode(),
+      documentElement: { scrollWidth: 700, scrollHeight: 320 },
+      body: { scrollWidth: 700, scrollHeight: 320 }
+    };
+
+    vm.runInNewContext(script!, { window, document, URL, Intl, Number, String, Array, Object, Promise, Map, Math, Date });
+
+    const output = text(app);
+    expect(output).toContain("Official website matches");
+    expect(output).toContain("Trusted exact and similar matches");
+    expect(output).toContain("Best-value high-match options");
+    expect(output.indexOf("Official Product")).toBeLessThan(output.indexOf("Trusted Product"));
+    expect(output.indexOf("Trusted Product")).toBeLessThan(output.indexOf("Value Product"));
+  });
+
   it("loads the immutable snapshot when Codex forwards tool input without tool output", async () => {
     const script = PRODUCT_CARD_HTML.match(/<script>([\s\S]*)<\/script>/u)?.[1];
     expect(script).toBeDefined();
@@ -419,7 +467,7 @@ describe("product-card MCP Apps UI", () => {
       method: "ui/initialize",
       params: {
         protocolVersion: "2026-01-26",
-        appInfo: { name: "FindCheap Agent product cards", version: "0.12.6" },
+        appInfo: { name: "FindCheap Agent product cards", version: "0.12.7" },
         appCapabilities: { availableDisplayModes: ["inline"] }
       }
     });

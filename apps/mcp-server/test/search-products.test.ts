@@ -578,7 +578,7 @@ describe("unified product search", () => {
     expect(result.candidates[0]?.shopifyProduct?.handle).toBe("alo-suit-up");
   });
 
-  it("groups visual discovery as possible same item, highly similar, then same style", async () => {
+  it("keeps possible-same and highly-similar visual results without padding same-style cards", async () => {
     const result = await searchProducts(SearchProductsInputSchema.parse({
       query: "navy wool wide leg trousers",
       limit: 3,
@@ -620,8 +620,7 @@ describe("unified product search", () => {
     expect(result.searchIntent).toBe("VISUAL_DISCOVERY");
     expect(result.candidates.map((candidate) => candidate.visualMatchGroup)).toEqual([
       "POSSIBLE_SAME_ITEM",
-      "HIGHLY_SIMILAR",
-      "SAME_STYLE"
+      "HIGHLY_SIMILAR"
     ]);
     expect(result.candidates.every((candidate) => candidate.identityStatus !== "EXACT")).toBe(true);
     expect(result.visualProductsExcluded).toBe(1);
@@ -971,6 +970,7 @@ describe("unified product search", () => {
     expect(result.officialStoreFallback.diagnostic?.outcome).toBe("ACCEPTED");
     expect(result.candidates).toHaveLength(1);
     expect(result.candidates[0]).toMatchObject({
+      presentationGroup: "OFFICIAL_STORE",
       shopifyProduct: { handle: "34535377404036" }
     });
   });

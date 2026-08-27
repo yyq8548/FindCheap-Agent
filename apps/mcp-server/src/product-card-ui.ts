@@ -1,4 +1,4 @@
-export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v25.html";
+export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v26.html";
 
 export const PRODUCT_CARD_RESOURCE_DOMAINS = [
   "https://cdn.shopify.com",
@@ -176,7 +176,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     const uiStartedAt = typeof performance === "object" && typeof performance.now === "function"
       ? performance.now()
       : Date.now();
-    const cardMetrics = { version: "0.12.6", stages: {} };
+    const cardMetrics = { version: "0.12.7", stages: {} };
     window.__findcheapCardMetrics = cardMetrics;
     const notify = (method, params = {}) => {
       window.parent.postMessage({ jsonrpc: "2.0", method, params }, "*");
@@ -318,6 +318,23 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
         notice: "Alternatives are shown only when explicitly requested; they are not the same product."
       }
     ];
+    const presentationGroupDefinitions = [
+      {
+        group: "OFFICIAL_STORE",
+        title: "Official website matches",
+        notice: "Products from the independently verified official brand website."
+      },
+      {
+        group: "TRUSTED_MATCH",
+        title: "Trusted exact and similar matches",
+        notice: "High-match products from reviewed merchants or approved affiliate programs."
+      },
+      {
+        group: "BEST_VALUE",
+        title: "Best-value high-match options",
+        notice: "High-match products ordered by verified Coupon evidence, then item price."
+      }
+    ];
     const visualGroupDefinitions = [
       {
         group: "POSSIBLE_SAME_ITEM",
@@ -361,7 +378,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       if (typeof output?.renderId === "string") currentRenderId = output.renderId;
       markStage("RENDER_STARTED");
       app.replaceChildren();
-      const products = Array.isArray(output?.products) ? output.products.slice(0, 3) : [];
+      const products = Array.isArray(output?.products) ? output.products.slice(0, 8) : [];
       if (products.length === 0) {
         app.append(make("div", "empty", output?.message || "No verified products returned."));
         markStage("DOM_RENDERED");
@@ -369,11 +386,16 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
         reportMetrics("DOM_RENDERED");
         return;
       }
-      const groupDefinitions = combinedGroupDefinitions(
-        products.some((product) => typeof product?.visualMatchGroup === "string")
-          ? visualGroupDefinitions
-          : resultGroupDefinitions
+      const usesPresentationGroups = products.some((product) =>
+        ["OFFICIAL_STORE", "TRUSTED_MATCH", "BEST_VALUE"].includes(product?.presentationGroup)
       );
+      const groupDefinitions = usesPresentationGroups
+        ? presentationGroupDefinitions
+        : combinedGroupDefinitions(
+            products.some((product) => typeof product?.visualMatchGroup === "string")
+              ? visualGroupDefinitions
+              : resultGroupDefinitions
+          );
       const quoteCount = products.filter((product) => product?.pricing?.scope === "SHOPIFY_CART_ESTIMATE").length;
       const priceSummary = quoteCount === 0
         ? "public item prices only"
@@ -396,8 +418,9 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
         app.append(quoteSummary);
       }
       for (const definition of groupDefinitions) {
-        const grouped = products.filter((product) =>
-          resultGroup(product) === definition.group && recommendationTier(product) === definition.tier
+        const grouped = products.filter((product) => usesPresentationGroups
+          ? product?.presentationGroup === definition.group
+          : resultGroup(product) === definition.group && recommendationTier(product) === definition.tier
         );
         if (grouped.length === 0) continue;
         const group = make("section", "group");
@@ -615,7 +638,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     warmCompatibilityBridge();
     const initializeParams = {
       protocolVersion: "2026-01-26",
-      appInfo: { name: "FindCheap Agent product cards", version: "0.12.6" },
+      appInfo: { name: "FindCheap Agent product cards", version: "0.12.7" },
       appCapabilities: { availableDisplayModes: ["inline"] }
     };
     const finishInitialization = () => {

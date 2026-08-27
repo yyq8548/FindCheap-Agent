@@ -5,7 +5,8 @@ import { z } from "zod";
 
 import {
   VisualProductInputSchema,
-  classifyVisualProduct
+  classifyVisualProduct,
+  visualOfficialStoreSearchQueries
 } from "../src/visual-product-discovery.js";
 
 const GoldenTaskSchema = z.object({
@@ -128,5 +129,36 @@ describe("visual product discovery", () => {
     });
 
     expect(result).toBeUndefined();
+  });
+
+  it("keeps short sleeves distinct from mini length and searches a ribbed top as a t shirt", () => {
+    const queries = visualOfficialStoreSearchQueries({
+      productType: "women's fitted short-sleeve top",
+      colors: ["olive brown"],
+      materials: [],
+      patterns: ["solid", "fine vertical rib knit"],
+      styleClues: ["crew neck", "short sleeves"]
+    });
+
+    expect(queries[0]?.query).toContain("t shirt");
+    expect(queries[0]?.query).toContain("ribbed");
+    expect(queries[0]?.query).toContain("short sleeve");
+    expect(queries[0]?.query).not.toContain("mini");
+  });
+
+  it("treats a catalog t shirt as compatible with an observed top", () => {
+    const result = classifyVisualProduct({
+      productType: "fitted top",
+      colors: ["olive"],
+      materials: [],
+      patterns: ["ribbed"],
+      styleClues: ["crew neck", "short sleeve"]
+    }, {
+      title: "NikeSKIMS Ribbed Seamless Baby T-Shirt Dusty Oakmoss",
+      productType: "T-Shirts",
+      description: "A fitted ribbed short sleeve crew-neck tee"
+    });
+
+    expect(result?.group).toBe("HIGHLY_SIMILAR");
   });
 });

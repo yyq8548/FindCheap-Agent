@@ -67,7 +67,7 @@ describe("merchant trust evidence", () => {
 
   it("resolves only reviewed Shopify storefront brands", () => {
     expect(resolveVerifiedOfficialStorefront("SKIMS")).toEqual({ host: "skims.com", brand: "SKIMS" });
-    expect(resolveVerifiedOfficialStorefront("doen")).toEqual({ host: "shopdoen.com", brand: "DÔEN" });
+    expect(resolveVerifiedOfficialStorefront("doen")).toEqual({ host: "www.shopdoen.com", brand: "DÔEN" });
     expect(resolveVerifiedOfficialStorefront("Death Wish")).toEqual({
       host: "www.deathwishcoffee.com",
       brand: "Death Wish Coffee"

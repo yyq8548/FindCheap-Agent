@@ -53,8 +53,8 @@ const ALIAS_GROUPS = [
   ["skirt", "skirts", "半身裙"],
   ["trouser", "trousers", "pants", "pant", "长裤", "裤子", "西裤"],
   ["jeans", "denim pants", "牛仔裤"],
+  ["t shirt", "tshirt", "tee", "tees", "short sleeve top", "short sleeve shirt", "短袖", "t恤"],
   ["shirt", "shirts", "衬衫"],
-  ["t shirt", "tshirt", "tee", "tees", "短袖", "t恤"],
   ["top", "tops", "上衣"],
   ["jacket", "jackets", "夹克", "外套"],
   ["coat", "coats", "大衣", "风衣"],
@@ -79,14 +79,15 @@ const ALIAS_GROUPS = [
   ["white", "白", "白色"],
   ["blue", "navy", "蓝", "蓝色", "藏青", "海军蓝"],
   ["red", "红", "红色"],
-  ["green", "绿", "绿色"],
+  ["green", "olive", "olive green", "olive brown", "brown olive", "khaki green", "oakmoss", "dusty oakmoss", "绿", "绿色", "橄榄绿"],
   ["brown", "tan", "棕", "棕色", "褐色", "驼色"],
   ["pink", "粉", "粉色"],
   ["solid", "plain", "纯色", "素色"],
+  ["ribbed", "rib knit", "vertical rib knit", "fine vertical rib knit", "罗纹", "细罗纹", "坑条"],
   ["striped", "stripe", "条纹"],
   ["plaid", "check", "checked", "格纹", "格子"],
   ["floral", "flower", "花卉", "碎花"],
-  ["mini", "short", "短款", "迷你"],
+  ["mini", "短款", "迷你"],
   ["midi", "中长款"],
   ["maxi", "long", "长款"],
   ["slim", "slim fit", "修身"],
@@ -94,11 +95,14 @@ const ALIAS_GROUPS = [
   ["bodycon", "紧身", "包臀"],
   ["fitted flared", "fit and flare", "a line", "a-line", "收腰a字", "a字", "伞形"],
   ["bateau neckline", "boat neck", "船领"],
+  ["crew neck", "crewneck", "round neck", "圆领"],
+  ["short sleeve", "short sleeves", "cap sleeve", "cap sleeves", "短袖袖型"],
+  ["long sleeve", "long sleeves", "长袖"],
   ["tiered skirt", "layered skirt", "分层裙摆", "层叠裙摆"]
 ] as const;
 
 const PRODUCT_FAMILIES = new Set([
-  "dress", "skirt", "trouser", "jeans", "shirt", "t shirt", "top", "jacket", "coat",
+  "dress", "skirt", "trouser", "jeans", "t shirt", "shirt", "top", "jacket", "coat",
   "shoe", "ballet flat", "sneaker", "boot", "handbag", "backpack", "headphone", "earbud", "watch"
 ]);
 
@@ -119,6 +123,7 @@ export function classifyVisualProduct(
   if (typeStatus === "CONTRADICTED") return undefined;
 
   const fullText = candidateText(candidate, true);
+  if (hasSleeveLengthConflict(visual, fullText) || hasNecklineConflict(visual, fullText)) return undefined;
   const evidence: string[] = [];
   const matchedAttributes: string[] = [];
   const brandClue = visual.brand ?? visual.logoText;
@@ -183,13 +188,16 @@ export function visualBroadSearchTerms(visual: VisualProductInput): string[] {
 
 export function visualOfficialStoreSearchQueries(visual: VisualProductInput): VisualOfficialStoreQuery[] {
   const normalizedType = searchTerm(visual.productType);
-  const category = coreProductType(normalizedType);
+  const category = officialSearchProductType(visual, normalizedType);
+  const informativePattern = visual.patterns
+    .map(searchTerm)
+    .find((pattern) => pattern !== undefined && pattern !== "solid");
   const primaryDetails = unique([
-    visual.patterns[0],
+    informativePattern,
     visual.colors[0],
     visual.materials[0],
-    visual.length,
-    visual.styleClues[0]
+    ...visual.styleClues,
+    visual.length
   ].map(searchTerm));
   const queries: VisualOfficialStoreQuery[] = [
     {
@@ -198,7 +206,7 @@ export function visualOfficialStoreSearchQueries(visual: VisualProductInput): Vi
     },
     {
       stage: "CORE",
-      query: unique([category, ...primaryDetails.slice(0, 2)]).join(" ")
+      query: unique([category, ...primaryDetails.slice(0, 1)]).join(" ")
     },
     {
       stage: "CATEGORY",
@@ -212,6 +220,19 @@ export function visualOfficialStoreSearchQueries(visual: VisualProductInput): Vi
     seen.add(key);
     return true;
   });
+}
+
+function officialSearchProductType(
+  visual: VisualProductInput,
+  normalizedType: string | undefined
+): string | undefined {
+  const category = coreProductType(normalizedType);
+  if (category !== "top") return category;
+  const details = [...visual.styleClues, ...visual.patterns, visual.silhouette ?? ""]
+    .map((value) => normalize(value));
+  return details.some((value) => value.includes("short sleeve") || value.includes("ribbed"))
+    ? "t shirt"
+    : category;
 }
 
 function searchTerm(value: string | undefined): string | undefined {
@@ -231,13 +252,37 @@ function productTypeStatus(
   const candidateFamilies = productFamilies(candidate);
   if (requestedFamilies.length === 0) return matches(candidate, requested) ? "MATCHED" : "UNKNOWN";
   if (candidateFamilies.length === 0) return "UNKNOWN";
-  return requestedFamilies.some((family) => candidateFamilies.includes(family)) ? "MATCHED" : "CONTRADICTED";
+  return requestedFamilies.some((requestedFamily) => candidateFamilies.some((candidateFamily) =>
+    requestedFamily === candidateFamily || compatibleProductFamilies(requestedFamily, candidateFamily)
+  )) ? "MATCHED" : "CONTRADICTED";
+}
+
+function compatibleProductFamilies(left: string, right: string): boolean {
+  const upperBody = new Set(["top", "shirt", "t shirt"]);
+  return upperBody.has(left) && upperBody.has(right);
+}
+
+function hasSleeveLengthConflict(visual: VisualProductInput, candidate: string): boolean {
+  const requested = normalizeRaw([visual.productType, ...visual.styleClues].filter(Boolean).join(" "));
+  const observed = normalizeRaw(candidate);
+  return (requested.includes("short sleeve") && observed.includes("long sleeve")) ||
+    (requested.includes("long sleeve") && observed.includes("short sleeve"));
+}
+
+function hasNecklineConflict(visual: VisualProductInput, candidate: string): boolean {
+  const requested = normalizeRaw([visual.productType, ...visual.styleClues].filter(Boolean).join(" "));
+  const observed = normalizeRaw(candidate);
+  const requestedCrew = requested.includes("crew neck") || requested.includes("round neck");
+  const conflictingObserved = ["mock neck", "v neck", "square neck", "boat neck", "bateau neckline"]
+    .some((neckline) => observed.includes(neckline));
+  return requestedCrew && conflictingObserved;
 }
 
 function productFamilies(value: string): string[] {
   const normalized = normalize(value);
+  const padded = ` ${normalized} `;
   return [...PRODUCT_FAMILIES].filter((family) =>
-    normalized === family || normalized.split(/\s+/u).includes(family) || normalized.includes(` ${family} `)
+    normalized === family || padded.includes(` ${family} `)
   );
 }
 
