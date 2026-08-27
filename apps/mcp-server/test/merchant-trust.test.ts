@@ -3,7 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   isHighRatedProduct,
   merchantRecommendationTier,
-  resolveMerchantTrust
+  resolveMerchantTrust,
+  resolveVerifiedOfficialStorefront
 } from "../src/merchant-trust.js";
 
 describe("merchant trust evidence", () => {
@@ -62,6 +63,12 @@ describe("merchant trust evidence", () => {
     for (const host of ["127.0.0.1", "203.0.113.10", "localhost", "xn--d1acpjx3f.example"]) {
       expect(resolveMerchantTrust(host).level).toBe("RISKY");
     }
+  });
+
+  it("resolves only reviewed Shopify storefront brands", () => {
+    expect(resolveVerifiedOfficialStorefront("SKIMS")).toEqual({ host: "skims.com", brand: "SKIMS" });
+    expect(resolveVerifiedOfficialStorefront("doen")).toEqual({ host: "shopdoen.com", brand: "DÔEN" });
+    expect(resolveVerifiedOfficialStorefront("Unknown Brand")).toBeUndefined();
   });
 
   it("requires a rating above 3.8 with at least two reviews", () => {

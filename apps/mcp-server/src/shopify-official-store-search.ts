@@ -48,8 +48,13 @@ const JsonLdProductGroupSchema = z.object({
 
 type StorefrontProductReference = z.infer<typeof PredictiveProductSchema>;
 
+export type OfficialShopifyStoreSeed = Pick<
+  ShopifyProduct,
+  "merchantId" | "merchant" | "sourceHost" | "merchantUrl" | "brand"
+>;
+
 export type OfficialShopifySearchInput = {
-  seed: ShopifyProduct;
+  seed: ShopifyProduct | OfficialShopifyStoreSeed;
   query: string;
   limit: number;
 };
@@ -155,7 +160,7 @@ async function hydrateStorefrontProduct(
   fetchDocument: OfficialShopifyFetch,
   host: string,
   candidate: StorefrontProductReference,
-  seed: ShopifyProduct,
+  seed: ShopifyProduct | OfficialShopifyStoreSeed,
   checkedAt: Date
 ): Promise<ShopifyProduct> {
   const productUrl = exactProductUrl(host, candidate.url, candidate.handle);
@@ -221,7 +226,7 @@ async function hydrateStorefrontProduct(
 }
 
 function officialProduct(
-  seed: ShopifyProduct,
+  seed: ShopifyProduct | OfficialShopifyStoreSeed,
   host: string,
   checkedAt: Date,
   product: {
@@ -266,7 +271,7 @@ function officialProduct(
   };
 }
 
-function verifiedOfficialHost(seed: ShopifyProduct): string {
+function verifiedOfficialHost(seed: ShopifyProduct | OfficialShopifyStoreSeed): string {
   const host = normalizeHost(seed.sourceHost);
   const url = new URL(seed.merchantUrl);
   if (normalizeHost(url.hostname) !== host) throw new Error("official storefront host mismatch");
@@ -274,7 +279,6 @@ function verifiedOfficialHost(seed: ShopifyProduct): string {
   if (trust.level !== "OFFICIAL" || trust.verification !== "INDEPENDENT") {
     throw new Error("official storefront was not independently verified");
   }
-  if (seed.itemPrice?.currency !== "USD") throw new Error("official storefront currency was not verified");
   return host;
 }
 

@@ -675,10 +675,10 @@ describe("unified product search", () => {
     expect(result.brandProductsExcluded).toBe(1);
     expect(shopifySearch.mock.calls[0]?.[0].comparisonMode).toBe("SAME_PRODUCT");
     expect(shopifySearch.mock.calls[1]?.[0].comparisonMode).toBe("SAME_PRODUCT");
-    expect(shopifySearch.mock.calls[1]?.[0].query).toBe("DÔEN dress");
+    expect(shopifySearch.mock.calls[1]?.[0].query).toBe("DÔEN black lace tiered mini dress");
     expect(result.sourcePassDiagnostics).toEqual([
       expect.objectContaining({ pass: 1, acceptedCandidates: expect.objectContaining({ shopify: 0 }) }),
-      expect.objectContaining({ pass: 2, query: "DÔEN dress", acceptedCandidates: expect.objectContaining({ shopify: 1 }) })
+      expect.objectContaining({ pass: 2, query: "DÔEN black lace tiered mini dress", acceptedCandidates: expect.objectContaining({ shopify: 1 }) })
     ]);
   });
 
@@ -757,7 +757,7 @@ describe("unified product search", () => {
     expect(officialSearch).toHaveBeenCalledOnce();
     expect(officialSearch).toHaveBeenCalledWith({
       seed: officialSeed,
-      query: "women mini dress lace black mini tiered skirt",
+      query: "black lace tiered mini dress",
       limit: 6
     });
     expect(result.candidates[0]).toMatchObject({
@@ -773,7 +773,7 @@ describe("unified product search", () => {
         outcome: "ACCEPTED",
         attempts: [{
           stage: "FULL",
-          query: "women mini dress lace black mini tiered skirt",
+          query: "black lace tiered mini dress",
           productsReturned: 1,
           acceptedCandidates: 1
         }]
@@ -834,8 +834,8 @@ describe("unified product search", () => {
     });
 
     expect(officialSearch.mock.calls.map(([input]) => input.query)).toEqual([
-      "women mini dress lace black mini tiered skirt",
-      "dress lace black",
+      "black lace tiered mini dress",
+      "dress black lace tiered",
       "dress"
     ]);
     expect(result.candidates[0]?.source).toBe("SHOPIFY_GLOBAL_CATALOG");
@@ -875,6 +875,7 @@ describe("unified product search", () => {
       merchantUrl: "https://skims.com/products/soft-lounge-long-slip-dress-heather-grey?variant=34535377404036"
     });
     const officialSearch = vi.fn<OfficialShopifySearchPort["search"]>(async () => [heatherGrey]);
+    const shopifySearch = vi.fn<ShopifyPort["search"]>(async () => shopifyResult([onyx]));
 
     const result = await searchProducts(SearchProductsInputSchema.parse({
       query: "SKIMS Soft Lounge Slip Dress gray",
@@ -895,7 +896,7 @@ describe("unified product search", () => {
       }
     }), {
       awin: awin([]),
-      shopify: { search: vi.fn(async () => shopifyResult([onyx])) },
+      shopify: { search: shopifySearch },
       officialShopify: { search: officialSearch }
     });
 
@@ -912,22 +913,82 @@ describe("unified product search", () => {
     expect(result.candidates.some((candidate) =>
       candidate.source === "SHOPIFY_GLOBAL_CATALOG" && candidate.shopifyProduct.handle === "onyx-other"
     )).toBe(false);
+    expect(shopifySearch.mock.calls[0]?.[0].query).toBe("SKIMS Soft Lounge Slip Dress gray");
+    expect(officialSearch.mock.calls[0]?.[0].query).toBe("Soft Lounge Slip Dress gray");
+  });
+
+  it("uses verified official storefront registry when Catalog returns zero products", async () => {
+    const heatherGrey = shopifyProduct("34535377404036", 3_400, "UNKNOWN", {
+      merchantId: "official-skims.com",
+      merchant: "SKIMS",
+      sourceHost: "skims.com",
+      merchantTrust: {
+        level: "OFFICIAL",
+        verification: "INDEPENDENT",
+        evidence: ["official merchant domain"]
+      },
+      title: "SOFT LOUNGE LONG SLIP DRESS | HEATHER GREY",
+      brand: "SKIMS",
+      productType: "Dresses",
+      description: "A soft body-hugging long slip dress",
+      variantDimensions: { Size: "XL" },
+      merchantUrl: "https://skims.com/products/soft-lounge-long-slip-dress-heather-grey?variant=34535377404036"
+    });
+    const officialSearch = vi.fn<OfficialShopifySearchPort["search"]>(async () => [heatherGrey]);
+    const shopifySearch = vi.fn<ShopifyPort["search"]>(async () => shopifyResult([]));
+
+    const result = await searchProducts(SearchProductsInputSchema.parse({
+      query: "SKIMS Soft Lounge Long Slip Dress",
+      brand: "SKIMS",
+      brandMode: "REQUIRED",
+      productType: "long slip dress",
+      requiredFeatures: ["Soft Lounge", "Long Slip Dress"],
+      featureMode: "REQUIRED",
+      comparisonMode: "SAME_PRODUCT",
+      allowAlternatives: false,
+      visualInput: {
+        brand: "SKIMS",
+        colors: ["heather gray"],
+        productType: "long slip dress",
+        styleClues: ["square neckline", "thin shoulder straps"]
+      }
+    }), {
+      awin: awin([]),
+      shopify: { search: shopifySearch },
+      officialShopify: { search: officialSearch }
+    });
+
+    expect(shopifySearch.mock.calls[0]?.[0].query).toBe("SKIMS Soft Lounge Long Slip Dress");
+    expect(officialSearch.mock.calls[0]?.[0]).toMatchObject({
+      seed: {
+        merchantId: "official-skims.com",
+        merchant: "SKIMS",
+        sourceHost: "skims.com",
+        merchantUrl: "https://skims.com/"
+      },
+      query: "Soft Lounge Long Slip Dress"
+    });
+    expect(result.officialStoreFallback.diagnostic?.outcome).toBe("ACCEPTED");
+    expect(result.candidates).toHaveLength(1);
+    expect(result.candidates[0]).toMatchObject({
+      shopifyProduct: { handle: "34535377404036" }
+    });
   });
 
   it("does not query a storefront that lacks independent official-domain evidence", async () => {
     const unverified = shopifyProduct("dress", 10_000, "UNKNOWN", {
-      merchant: "DÔEN Official Store",
+      merchant: "Unknown Label Official Store",
       sourceHost: "doen-official.example",
       merchantTrust: { level: "UNKNOWN", verification: "UNVERIFIED", evidence: ["self-described"] },
-      title: "DÔEN Maxi Dress",
-      brand: "DÔEN",
+      title: "Unknown Label Maxi Dress",
+      brand: "Unknown Label",
       productType: "Dresses"
     });
     const officialSearch = vi.fn<OfficialShopifySearchPort["search"]>(async () => []);
 
     const result = await searchProducts(SearchProductsInputSchema.parse({
-      query: "DÔEN black lace mini dress",
-      brand: "DÔEN",
+      query: "Unknown Label black lace mini dress",
+      brand: "Unknown Label",
       brandMode: "REQUIRED",
       visualInput: { productType: "dress", colors: ["black"], patterns: ["lace"] }
     }), {

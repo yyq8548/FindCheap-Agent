@@ -35,6 +35,12 @@ type MerchantTrustRecord = {
   level: Exclude<MerchantTrustLevel, "UNKNOWN" | "RISKY">;
   evidenceUrl: string;
   reviewedAt: string;
+  storefrontBrands?: readonly string[];
+};
+
+export type VerifiedOfficialStorefront = {
+  host: string;
+  brand: string;
 };
 
 // Every entry is an exact registrable host with manually reviewed merchant-identity evidence.
@@ -42,8 +48,8 @@ type MerchantTrustRecord = {
 const MERCHANT_TRUST_RECORDS: readonly MerchantTrustRecord[] = [
   // Official brand stores.
   { host: "electronics.sony.com", level: "OFFICIAL", evidenceUrl: "https://electronics.sony.com/", reviewedAt: "2026-08-20" },
-  { host: "shopdoen.com", level: "OFFICIAL", evidenceUrl: "https://www.shopdoen.com/", reviewedAt: "2026-08-20" },
-  { host: "skims.com", level: "OFFICIAL", evidenceUrl: "https://skims.com/", reviewedAt: "2026-08-27" },
+  { host: "shopdoen.com", level: "OFFICIAL", evidenceUrl: "https://www.shopdoen.com/", reviewedAt: "2026-08-20", storefrontBrands: ["DÔEN", "DOEN"] },
+  { host: "skims.com", level: "OFFICIAL", evidenceUrl: "https://skims.com/", reviewedAt: "2026-08-27", storefrontBrands: ["SKIMS", "NikeSKIMS"] },
   { host: "deathwishcoffee.com", level: "OFFICIAL", evidenceUrl: "https://www.deathwishcoffee.com/", reviewedAt: "2026-08-20" },
   { host: "blkandbold.com", level: "OFFICIAL", evidenceUrl: "https://blkandbold.com/", reviewedAt: "2026-08-20" },
   { host: "vervecoffee.com", level: "OFFICIAL", evidenceUrl: "https://www.vervecoffee.com/", reviewedAt: "2026-08-20" },
@@ -139,6 +145,16 @@ export function merchantTrustRank(value: MerchantTrustLevel): number {
   }
 }
 
+export function resolveVerifiedOfficialStorefront(brand: string): VerifiedOfficialStorefront | undefined {
+  const requested = normalizeBrand(brand);
+  const record = MERCHANT_TRUST_RECORDS.find((candidate) =>
+    candidate.level === "OFFICIAL" &&
+    candidate.storefrontBrands?.some((alias) => normalizeBrand(alias) === requested) === true
+  );
+  if (record === undefined) return undefined;
+  return { host: record.host, brand: record.storefrontBrands?.[0] ?? brand.trim() };
+}
+
 export function isHighRatedProduct(rating: ProductRating | undefined): boolean {
   return rating !== undefined &&
     rating.value > HIGH_PRODUCT_RATING_THRESHOLD &&
@@ -166,6 +182,13 @@ function normalizeHost(value: string): string | undefined {
   const normalized = value.normalize("NFKC").trim().toLocaleLowerCase("en-US").replace(/\.$/u, "");
   if (normalized === "" || normalized.length > 253 || /[^a-z0-9.:[\]-]/u.test(normalized)) return undefined;
   return normalized.startsWith("www.") ? normalized.slice(4) : normalized;
+}
+
+function normalizeBrand(value: string): string {
+  return value.normalize("NFKD")
+    .replace(/\p{M}+/gu, "")
+    .toLocaleLowerCase("en-US")
+    .replace(/[^a-z0-9]+/gu, "");
 }
 
 function isRiskyHost(host: string): boolean {

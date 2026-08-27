@@ -20,6 +20,7 @@ import {
 import {
   merchantRecommendationRank,
   merchantRecommendationTier,
+  resolveVerifiedOfficialStorefront,
   resolveMerchantTrust
 } from "./merchant-trust.js";
 import type { MerchantRecommendationTier } from "./merchant-trust.js";
@@ -41,7 +42,10 @@ import {
   type ShopifyMatchCandidate,
   type ShopifyMatchStatus
 } from "./shopify-match.js";
-import type { OfficialShopifySearchPort } from "./shopify-official-store-search.js";
+import type {
+  OfficialShopifySearchPort,
+  OfficialShopifyStoreSeed
+} from "./shopify-official-store-search.js";
 
 const QuerySchema = z.string().trim().min(2).max(300)
   .refine((value) => /[\p{L}\p{N}]/u.test(value), "query must contain a letter or number")
@@ -192,7 +196,7 @@ export async function searchProducts(
         input.query
       ]).join(" ").slice(0, 300).trim()
     : buildSourceQuery(input);
-  const sourceQuery = buildSourceQuery(input);
+  const sourceQuery = searchIntent === "EXACT_PRODUCT" ? identityQuery : buildSourceQuery(input);
   const affiliateEligible = shouldQueryAwin(sourceQuery);
   let awinResult: AwinSearchResult | undefined;
   let shopifyResult: ShopifySearchResult | undefined;
@@ -334,7 +338,7 @@ export async function searchProducts(
   )];
 
   let searchPasses: 1 | 2 = 1;
-  const expandedQuery = buildExpandedQuery(input);
+  const expandedQuery = buildExpandedQuery(input, searchIntent, identityQuery);
   if (affiliateCandidates.length + ebayCandidates.length + shopifyCandidates.length < input.limit) {
     searchPasses = 2;
     await Promise.all([
@@ -367,7 +371,7 @@ export async function searchProducts(
     const officialCandidates: UnifiedCandidate[] = [];
     const visualExcludedBefore = visualExcludedKeys.size;
     try {
-      for (const attempt of buildOfficialStoreQueries(input)) {
+      for (const attempt of buildOfficialStoreQueries(input, searchIntent)) {
         const products = await ports.officialShopify.search({
           seed: officialSeed,
           query: attempt.query,
@@ -806,7 +810,18 @@ function conditionMatches(
   return expected === "ANY" || actual === expected;
 }
 
-function buildExpandedQuery(input: SearchProductsInput): string {
+function buildExpandedQuery(
+  input: SearchProductsInput,
+  searchIntent: ProductSearchIntent,
+  identityQuery: string
+): string {
+  if (searchIntent === "EXACT_PRODUCT") {
+    return unique([
+      identityQuery,
+      input.productType ?? "",
+      ...input.requiredFeatures
+    ]).filter((part) => part !== "").join(" ").slice(0, 300).trim();
+  }
   if (input.visualInput !== undefined) {
     return visualBroadSearchTerms(input.visualInput).join(" ").slice(0, 300).trim() || input.query;
   }
@@ -838,8 +853,11 @@ function buildSourceQuery(input: Pick<SearchProductsInput, "query" | "brand" | "
   ]).join(" ").slice(0, 300).trim();
 }
 
-function buildOfficialStoreQueries(input: SearchProductsInput): VisualOfficialStoreQuery[] {
-  if (input.visualInput !== undefined) {
+function buildOfficialStoreQueries(
+  input: SearchProductsInput,
+  searchIntent: ProductSearchIntent
+): VisualOfficialStoreQuery[] {
+  if (input.visualInput !== undefined && searchIntent !== "EXACT_PRODUCT") {
     return visualOfficialStoreSearchQueries(input.visualInput)
       .map((attempt) => ({ ...attempt, query: attempt.query.slice(0, 300).trim() }));
   }
@@ -848,7 +866,11 @@ function buildOfficialStoreQueries(input: SearchProductsInput): VisualOfficialSt
     .filter((token) => !brandTokens(token).some((part) => requestedBrandTokens.has(part)))
     .join(" ")
     .trim();
-  const category = input.productType?.trim();
+  const visualCategory = input.visualInput === undefined
+    ? undefined
+    : visualOfficialStoreSearchQueries(input.visualInput)
+      .find((attempt) => attempt.stage === "CATEGORY")?.query;
+  const category = input.productType?.trim() || visualCategory;
   const queries: VisualOfficialStoreQuery[] = [
     { stage: "FULL", query: withoutBrand || category || input.query },
     { stage: "CORE", query: unique([category ?? "", ...withoutBrand.split(/\s+/u).slice(0, 3)]).join(" ") },
@@ -877,15 +899,25 @@ function hasSufficientOfficialMatches(candidates: UnifiedCandidate[], limit: num
 function officialStoreSeed(
   products: ShopifyProduct[],
   input: Pick<SearchProductsInput, "brand" | "brandMode">
-): ShopifyProduct | undefined {
+): OfficialShopifyStoreSeed | undefined {
   if (input.brand === undefined || input.brandMode !== "REQUIRED") return undefined;
-  return products.find((product) => {
+  const observed = products.find((product) => {
     const trust = resolveMerchantTrust(product.sourceHost, product.merchant);
     return trust.level === "OFFICIAL" &&
       trust.verification === "INDEPENDENT" &&
       [product.brand, product.merchant, product.title]
         .some((value) => value !== undefined && containsBrand(value, input.brand!));
   });
+  if (observed !== undefined) return observed;
+  const storefront = resolveVerifiedOfficialStorefront(input.brand);
+  if (storefront === undefined) return undefined;
+  return {
+    merchantId: `official-${storefront.host}`,
+    merchant: storefront.brand,
+    sourceHost: storefront.host,
+    brand: storefront.brand,
+    merchantUrl: `https://${storefront.host}/`
+  };
 }
 
 function lacksStrongMatch(candidates: UnifiedCandidate[], intent: ProductSearchIntent): boolean {
