@@ -3,7 +3,7 @@ name: deals-and-watch
 description: Find verified Coupon, promotion, membership, Cashback, and offline-barcode evidence, or create and manage shopping watches with Codex Automation.
 ---
 
-# FindCheap Agent v0.12.7 Deals and Watch
+# FindCheap Agent v0.12.8 Deals and Watch
 
 A clear live Coupon or Watch request is self-contained. Do not read Memory, repository files, logs, task files, or plugin cache. Send at most one short progress sentence before the first tool call; do not narrate the tool sequence between calls.
 
@@ -11,9 +11,9 @@ A clear live Coupon or Watch request is self-contained. Do not read Memory, repo
 
 Call `find_coupons` once when available. It includes active Awin Promotions for joined advertisers, including advertisers without Product Feeds. Return only verified deals with source, eligibility, expiry, and checked time. Keep Coupon, Promo Code, promotion, membership, Cashback, and offline barcode distinct. Never invent a code, stacking, discount, or Cashback. `DATA_SOURCE_UNAVAILABLE` is not “no Coupon.” Chrome requires explicit single-use authorization and may inspect only public HTTPS merchant promotion pages; never apply codes, sign in, enter checkout, or persist data.
 
-## Deal Concierge
+## Current deal check
 
-For buy/wait/cheapest-path on a selected card, call `research_selected_product_deal` with stable `selectionId`; never search its title. Pass only supplied ZIP and memberships. Return `BUY_NOW`, `WAIT`, or `WATCH` with confidence, evidence window, deal candidates, and limits. A deal does not prove eligibility or stacking. Never invent price history, sale cadence, discount probability, or delivered total. `WATCH` is advice only; monitor only after explicit authorization.
+For current deal or cheapest-current-path questions about a selected card, call `research_selected_product_deal` with stable `selectionId`; never search its title. Pass only supplied ZIP and memberships. Return current item or delivered price, inventory, verified deal candidates, and limits. Do not discuss price history, sale cadence, or buy-or-wait forecasting. A deal does not prove eligibility or stacking. Monitor only after explicit Watch authorization.
 
 ## Create Watch
 

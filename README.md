@@ -118,17 +118,15 @@ The Coupon and promotion path fails closed. It returns a Coupon, promo code, mem
 
 Without that evidence, the plugin reports the deal source as unavailable. It does not invent codes, discounts, expiration dates, or Cashback rates.
 
-The default plugin exposes unified product search, product cards, Deal Concierge, and Watch tools. Commerce comparison and the standalone verified Deals tool appear only when their complete provider URL and token are configured.
+The default plugin exposes unified product search, product cards, current deal checks, and Watch tools. Commerce comparison and the standalone verified Deals tool appear only when their complete provider URL and token are configured.
 
-## Deal Concierge
+## Current deal check
 
-After the user selects a product card, Deal Concierge keeps that stable product and variant identity. It checks current item price, inventory, current verified merchant deal candidates, optional ZIP delivered-price evidence, and an available bounded price-history sample. It never searches the selected title again.
+After the user selects a product card, the deal checker keeps that stable product and variant identity. It checks current item price, inventory, current verified merchant deal candidates, and optional ZIP delivered-price evidence. It never searches the selected title again.
 
-The result is `BUY_NOW`, `WAIT`, or `WATCH`, with confidence, reasons, sample count and date window, and explicit limitations. Historical-low and typical-range claims require at least five observations across five distinct days. Sale cadence is reported only from at least three observed sale events; the plugin never invents a future discount probability. A merchant promotion remains a candidate until the merchant confirms product eligibility and stacking.
+Price-history collection and buy-or-wait forecasting are disabled. A merchant promotion remains a candidate until the merchant confirms product eligibility and stacking.
 
-When the protected price-history service is configured, each real current item-price or delivered-total observation is appended under the same stable product identity. ZIP and memberships are represented only by an irreversible context hash. A new product begins with insufficient evidence and remains `WATCH / LOW` until the multi-day threshold is satisfied.
-
-A `WATCH` recommendation does not create monitoring. Codex creates a recurring Watch only after the user explicitly asks to be notified or monitored.
+Codex creates a recurring Watch only after the user explicitly asks to be notified or monitored.
 
 ## Shopping watches
 

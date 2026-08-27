@@ -18,7 +18,7 @@ export const VisualProductInputSchema = z.object({
   patterns: z.array(VisualTextSchema).max(4).default([]),
   silhouette: VisualTextSchema.optional(),
   length: VisualTextSchema.optional(),
-  styleClues: z.array(VisualTextSchema).max(6).default([])
+  styleClues: z.array(VisualTextSchema).max(12).default([])
 }).strict().refine((value) => Object.entries(value).some(([key, entry]) =>
   key !== "imageUrl" && key !== "sourcePageUrl" && (Array.isArray(entry) ? entry.length > 0 : entry !== undefined)
 ), "visual input must include at least one observed product attribute");

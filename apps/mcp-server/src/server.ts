@@ -39,10 +39,7 @@ import {
   type DealPort,
   type VerifiedDeal
 } from "./deal-client.js";
-import {
-  researchSelectedProductDeal,
-  type PriceHistoryPort
-} from "./deal-concierge.js";
+import { researchSelectedProductDeal } from "./deal-concierge.js";
 import {
   WatchSpecSchema,
   WatchSpecInputSchema,
@@ -94,7 +91,7 @@ const ProductCardStagesSchema = z.object({
 
 const ProductCardTelemetryInputSchema = z.object({
   renderId: z.string().uuid(),
-  version: z.literal("0.12.7"),
+  version: z.literal("0.12.8"),
   terminalStage: z.enum([
     "DOM_RENDERED",
     "FIRST_IMAGE_SETTLED",
@@ -173,7 +170,7 @@ const DealConciergeInputSchema = z.object({
   selectionId: SelectionIdSchema,
   zipCode: z.string().regex(/^\d{5}(?:-\d{4})?$/u).optional(),
   membershipIds: MembershipIdsSchema.optional(),
-  objective: z.enum(["BUY_OR_WAIT", "CHEAPEST_PATH"]).default("BUY_OR_WAIT")
+  objective: z.enum(["CURRENT_DEALS", "CHEAPEST_PATH"]).default("CURRENT_DEALS")
 }).strict();
 
 const DealConciergeOutputShape = {
@@ -194,25 +191,8 @@ const DealConciergeOutputShape = {
     checkedAt: z.string()
   }).strict().optional(),
   quoteStatus: z.enum(["NOT_REQUESTED", "ESTIMATED", "UNAVAILABLE"]),
-  recommendation: z.enum(["BUY_NOW", "WAIT", "WATCH"]).optional(),
-  confidence: z.enum(["LOW", "MEDIUM", "HIGH"]).optional(),
-  reasons: z.array(z.string()),
+  dealStatus: z.enum(["CURRENT_DEAL_FOUND", "NO_CURRENT_DEAL", "OUT_OF_STOCK", "CURRENT_PRICE_UNAVAILABLE"]).optional(),
   limitations: z.array(z.string()),
-  watchSuggested: z.boolean(),
-  history: z.object({
-    status: z.enum(["AVAILABLE", "INSUFFICIENT_EVIDENCE", "UNAVAILABLE"]),
-    basis: z.enum(["ITEM_PRICE", "DELIVERED_TOTAL"]),
-    sampleCount: z.number().int().nonnegative(),
-    sampleFrom: z.string().optional(),
-    sampleTo: z.string().optional(),
-    historicalLowCents: z.number().int().positive().optional(),
-    typicalMedianCents: z.number().int().positive().optional(),
-    saleCadence: z.object({
-      status: z.enum(["OBSERVED_INTERVAL", "INSUFFICIENT_EVIDENCE"]),
-      observedSaleEvents: z.number().int().nonnegative(),
-      medianIntervalDays: z.number().int().nonnegative().optional()
-    }).strict()
-  }).strict().optional(),
   deals: z.array(z.object({
     dealId: z.string(), merchant: z.string(), kind: z.string(), title: z.string(), description: z.string(),
     code: z.string().optional(), barcodeUrl: z.string().url().optional(), discountPercent: z.number().optional(),
@@ -221,7 +201,7 @@ const DealConciergeOutputShape = {
     validFrom: z.string(), validTo: z.string(), verificationStatus: z.literal("VERIFIED"),
     applicability: z.literal("REQUIRES_MERCHANT_CONFIRMATION")
   }).strict()),
-  objective: z.enum(["BUY_OR_WAIT", "CHEAPEST_PATH"]).optional()
+  objective: z.enum(["CURRENT_DEALS", "CHEAPEST_PATH"]).optional()
 };
 
 function quoteFailureMessage(code: ShopifyQuoteFailureCode): string {
@@ -1463,7 +1443,6 @@ export type ShoppingServerDependencies = {
   cartQuotes?: ShopifyCartQuotePort;
   selectedProducts?: ShopifySelectedProductInspector;
   officialShopify?: OfficialShopifySearchPort;
-  priceHistory?: PriceHistoryPort;
   now?: () => Date;
   cardTelemetry?: ProductCardTelemetrySink;
   toolAvailability?: {
@@ -1652,7 +1631,7 @@ export function createShoppingServer(
   dependencies: ShoppingServerDependencies = {}
 ): McpServer {
   void comparePort;
-  const server = new McpServer({ name: "findcheap-agent", version: "0.12.7" });
+  const server = new McpServer({ name: "findcheap-agent", version: "0.12.8" });
   const dealPort = dependencies.deals ?? createUnavailableDealPort();
   const awinPort = dependencies.awin ?? createUnavailableAwinPort();
   const ebayPort = dependencies.ebay;
@@ -1665,7 +1644,6 @@ export function createShoppingServer(
   const awinShopifyQuotes = dependencies.awinShopifyQuotes;
   const selectedProducts = dependencies.selectedProducts;
   const officialShopify = dependencies.officialShopify;
-  const priceHistory = dependencies.priceHistory;
   const now = dependencies.now ?? (() => new Date());
   const cardTelemetry = dependencies.cardTelemetry ?? {
     record: (event: ProductCardTelemetry) => {
@@ -2306,8 +2284,8 @@ export function createShoppingServer(
   server.registerTool(
     "research_selected_product_deal",
     {
-      title: "Research whether to buy, wait, or watch",
-      description: "Research one exact prior selectionId for current merchant deals, delivered-price evidence, inventory, and bounded price history. Never search the selected title again. Return BUY_NOW, WAIT, or WATCH with explicit confidence and sample limits. A WATCH recommendation is not authorization to create monitoring.",
+      title: "Check current price and deals",
+      description: "Check one exact prior selectionId for current verified merchant deals, current price, optional delivered-price evidence, and inventory. Never search the selected title again. Return current evidence only; do not make historical or buy-or-wait claims. Monitoring is created only after an explicit Watch request.",
       inputSchema: DealConciergeInputSchema,
       outputSchema: DealConciergeOutputShape,
       annotations: {
@@ -2330,9 +2308,7 @@ export function createShoppingServer(
             status: "SELECTION_UNAVAILABLE" as const,
             message,
             quoteStatus: "NOT_REQUESTED" as const,
-            reasons: [],
             limitations: ["No product title fallback search was performed."],
-            watchSuggested: false,
             deals: []
           }
         };
@@ -2346,9 +2322,7 @@ export function createShoppingServer(
             status: "SELECTION_UNAVAILABLE" as const,
             message,
             quoteStatus: "NOT_REQUESTED" as const,
-            reasons: [],
             limitations: ["No product title fallback search was performed."],
-            watchSuggested: false,
             deals: []
           }
         };
@@ -2359,25 +2333,26 @@ export function createShoppingServer(
         : snapshot.sourceResult.products.find((product) => product.handle === reference.variantId);
       const research = await researchSelectedProductDeal({
         selected: {
-          merchantId: selectedCard.merchantId,
-          merchantProductId: selectedCard.handle,
           merchant: selectedCard.merchant,
           availability: selectedCard.availability,
           ...(selectedCard.itemPrice === undefined ? {} : { itemPrice: selectedCard.itemPrice }),
           checkedAt: selectedCard.checkedAt,
           quoteCapability: selectedCard.quoteCapability,
-          sourceKind: selectedCard.sourceKind ?? "SHOPIFY_GLOBAL_CATALOG",
           ...(quoteProduct === undefined ? {} : { quoteProduct })
         },
         ...(parsed.zipCode === undefined ? {} : { zipCode: parsed.zipCode }),
         membershipIds: parsed.membershipIds ?? [],
         dealPort,
         ...(cartQuotes === undefined ? {} : { cartQuotes }),
-        ...(priceHistory === undefined ? {} : { priceHistory }),
         now: now()
       });
-      const { decision } = research;
-      const message = `${decision.recommendation} (${decision.confidence} confidence) for the exact selected product. ${decision.reasons.join(" ")}`;
+      const message = research.dealStatus === "CURRENT_DEAL_FOUND"
+        ? `Found ${research.deals.length} current verified deal candidate(s) for the exact selected product.`
+        : research.dealStatus === "OUT_OF_STOCK"
+          ? "The exact selected product is currently out of stock."
+          : research.dealStatus === "CURRENT_PRICE_UNAVAILABLE"
+            ? "A current price for the exact selected product is unavailable."
+            : "Current price checked; no current verified merchant deal was found.";
       return {
         content: [{ type: "text" as const, text: message }],
         structuredContent: {
@@ -2394,13 +2369,9 @@ export function createShoppingServer(
           },
           ...(research.currentPrice === undefined ? {} : { currentPrice: research.currentPrice }),
           quoteStatus: research.quoteStatus,
-          recommendation: decision.recommendation,
-          confidence: decision.confidence,
-          reasons: decision.reasons,
-          limitations: [...decision.limitations, ...research.quoteLimitations],
-          watchSuggested: decision.watchSuggested,
-          history: decision.history,
-          deals: decision.deals,
+          dealStatus: research.dealStatus,
+          limitations: research.limitations,
+          deals: research.deals,
           objective: parsed.objective
         }
       };

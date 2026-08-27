@@ -1,4 +1,4 @@
-export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v26.html";
+export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v27.html";
 
 export const PRODUCT_CARD_RESOURCE_DOMAINS = [
   "https://cdn.shopify.com",
@@ -176,7 +176,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     const uiStartedAt = typeof performance === "object" && typeof performance.now === "function"
       ? performance.now()
       : Date.now();
-    const cardMetrics = { version: "0.12.7", stages: {} };
+    const cardMetrics = { version: "0.12.8", stages: {} };
     window.__findcheapCardMetrics = cardMetrics;
     const notify = (method, params = {}) => {
       window.parent.postMessage({ jsonrpc: "2.0", method, params }, "*");
@@ -285,6 +285,15 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     const safeHttps = (value) => {
       try { const url = new URL(value); return url.protocol === "https:" ? url.href : null; }
       catch { return null; }
+    };
+    const extractStructuredContent = (value, depth = 0) => {
+      if (!value || typeof value !== "object" || depth > 4) return undefined;
+      if (Array.isArray(value.products)) return value;
+      for (const key of ["structuredContent", "toolOutput", "result", "output", "toolResult", "mcp_tool_result", "call_tool_result"]) {
+        const nested = extractStructuredContent(value[key], depth + 1);
+        if (nested) return nested;
+      }
+      return undefined;
     };
     const observedAt = (value) => {
       const date = new Date(value);
@@ -560,9 +569,10 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
           name: "render_product_cards",
           arguments: { renderId }
         }, 4000);
-        if (!result?.structuredContent) throw new Error("snapshot missing");
+        const output = extractStructuredContent(result);
+        if (!output) throw new Error("snapshot missing");
         markStage("TOOL_OUTPUT_RECEIVED");
-        render(result.structuredContent);
+        render(output);
       } catch (error) {
         const terminalStage = error instanceof Error && error.message === "tools/call timed out"
           ? "TOOL_OUTPUT_TIMEOUT"
@@ -596,7 +606,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       }
       if (message.method === "ui/notifications/tool-input") receiveInput(message.params);
       if (message.method === "ui/notifications/tool-result") {
-        const output = message.params?.structuredContent;
+        const output = extractStructuredContent(message.params);
         if (output) {
           markStage("TOOL_OUTPUT_RECEIVED");
           render(output);
@@ -605,7 +615,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       }
     }, { passive: true });
     window.addEventListener("openai:set_globals", (event) => {
-      const output = event.detail?.globals?.toolOutput;
+      const output = extractStructuredContent(event.detail?.globals);
       if (output) {
         markStage("TOOL_OUTPUT_RECEIVED");
         render(output);
@@ -617,10 +627,8 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       if (!bridge) return false;
       markStage("COMPAT_BRIDGE_READY");
       receiveInput(bridge.toolInput);
-      const responseMetadata = bridge.toolResponseMetadata;
-      const output = bridge.toolOutput
-        || responseMetadata?.mcp_tool_result?.structuredContent
-        || responseMetadata?.call_tool_result?.structuredContent;
+      const output = extractStructuredContent(bridge)
+        || extractStructuredContent(bridge.toolResponseMetadata);
       if (!hasResult && output) {
         markStage("COMPAT_OUTPUT_RECEIVED");
         markStage("TOOL_OUTPUT_RECEIVED");
@@ -638,7 +646,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     warmCompatibilityBridge();
     const initializeParams = {
       protocolVersion: "2026-01-26",
-      appInfo: { name: "FindCheap Agent product cards", version: "0.12.7" },
+      appInfo: { name: "FindCheap Agent product cards", version: "0.12.8" },
       appCapabilities: { availableDisplayModes: ["inline"] }
     };
     const finishInitialization = () => {

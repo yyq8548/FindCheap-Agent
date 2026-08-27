@@ -38,6 +38,21 @@ describe("visual product discovery", () => {
     expect(() => VisualProductInputSchema.parse({ imageUrl: "https://example.com/item.jpg" })).toThrow();
   });
 
+  it("accepts detailed visual descriptions without forcing a failed retry", () => {
+    expect(VisualProductInputSchema.parse({
+      productType: "women's mini dress",
+      styleClues: [
+        "wide ruffled lace shoulder straps",
+        "low square scoop neckline",
+        "gathered bust",
+        "empire seam",
+        "long center-front tie",
+        "vertical scalloped lace panel",
+        "wide ruffled mini hem"
+      ]
+    }).styleClues).toHaveLength(7);
+  });
+
   it("matches Chinese compound fashion types against English catalog evidence", () => {
     const result = classifyVisualProduct({
       productType: "女士迷你连衣裙",

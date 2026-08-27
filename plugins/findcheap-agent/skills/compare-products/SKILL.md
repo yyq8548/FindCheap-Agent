@@ -3,7 +3,7 @@ name: compare-products
 description: For live shopping, match all prose to the user's language. When named, say only "Searching for suitable products." for English or "正在使用 FindCheap 搜索合适商品。" for Chinese; never narrate Skill or Memory reads.
 ---
 
-# FindCheap Agent v0.12.7 Product Search
+# FindCheap Agent v0.12.8 Product Search
 
 Search/Chrome are `R0`; ZIP quote is `R1`. Never checkout, reserve, buy, pay, persist, or request street address.
 
@@ -21,7 +21,7 @@ Cards return stable `selectionId`. Once chosen, `search_products` is forbidden f
 
 - Size/color/stock: call `inspect_selected_shopify_product` once with `selectionId` and `variantDimensions`.
 - Total: for supported `quoteCapability`, ask only missing ZIP, then call `quote_selected_shopify_product` once. For `MERCHANT_CHECKOUT_ONLY`, do not ask for ZIP or call quote; final total needs checkout.
-- Buy/wait: call `research_selected_product_deal` with stable `selectionId`. No Watch unless requested.
+- Current deals/cheapest current path: call `research_selected_product_deal` with stable `selectionId`. Return current evidence only; do not discuss price history or buy-or-wait forecasting. No Watch unless requested.
 - On quote error, explain returned code; offer checkout or existing card. Never invent total or search replacement.
 - Expired reference: report failure and require one new user-initiated search.
 
@@ -31,4 +31,4 @@ Only when the router has completed its automatic broader second pass, returns `s
 
 ## Output
 
-After cards, give one same-language recommendation/clarification. State actual counts; never describe multiple products from one merchant as merchant-diverse. Do not duplicate every card field. `quality`, timing, exclusions, ranking, fallback are backend diagnostics logged by MCP; never print them.
+After cards, give one same-language recommendation/clarification. State actual counts; never describe multiple products from one merchant as merchant-diverse. Do not duplicate every card field or embed Markdown product images; product images belong only in returned cards. `quality`, timing, exclusions, ranking, fallback are backend diagnostics logged by MCP; never print them.

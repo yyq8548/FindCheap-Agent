@@ -8,7 +8,6 @@ import {
 import { createDatabase, type Database } from "../../../packages/db/src/client.js";
 import { buildApp } from "./app.js";
 import { createCurrentOfferStore } from "./current-offer-store.js";
-import { createPriceHistoryRepository } from "./price-history.js";
 import { parseCommerceEnvironment } from "./environment.js";
 
 export type CommerceRuntime = {
@@ -50,7 +49,7 @@ export async function startCommerceRuntime(
     ...options.factories
   };
   const configs = await factories.loadConfigs(gatePaths(resolve(options.root ?? process.cwd())));
-  if (configs.length === 0 && environment.databaseUrl === undefined) {
+  if (configs.length === 0) {
     return { status: "disabled", async close() {} };
   }
   if (environment.databaseUrl === undefined || environment.bearerToken === undefined) {
@@ -68,7 +67,6 @@ export async function startCommerceRuntime(
   const app = buildApp({
     offers: store,
     quoteExactOffer: store.quoteExactOffer,
-    priceHistory: createPriceHistoryRepository(db),
     clock: { now: () => new Date() }
   }, { bearerToken: environment.bearerToken });
   try {

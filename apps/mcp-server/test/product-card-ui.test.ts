@@ -39,7 +39,7 @@ function nodes(node: FakeNode): FakeNode[] {
 
 describe("product-card MCP Apps UI", () => {
   it("uses an embedded Codex-native surface with responsive cards", () => {
-    expect(PRODUCT_CARD_UI_URI).toBe("ui://findcheap/product-cards/v26.html");
+    expect(PRODUCT_CARD_UI_URI).toBe("ui://findcheap/product-cards/v27.html");
     expect(PRODUCT_CARD_HTML).toContain("--fc-surface:");
     expect(PRODUCT_CARD_HTML).toContain("background: var(--fc-action);");
     expect(PRODUCT_CARD_HTML).toContain("@media (max-width: 640px)");
@@ -122,7 +122,7 @@ describe("product-card MCP Apps UI", () => {
       params: expect.objectContaining({
         name: "report_product_card_metrics",
         arguments: expect.objectContaining({
-          version: "0.12.7",
+          version: "0.12.8",
           terminalStage: "DOM_RENDERED",
           stages: expect.objectContaining({ DOM_RENDERED: expect.any(Number) })
         })
@@ -467,7 +467,7 @@ describe("product-card MCP Apps UI", () => {
       method: "ui/initialize",
       params: {
         protocolVersion: "2026-01-26",
-        appInfo: { name: "FindCheap Agent product cards", version: "0.12.7" },
+        appInfo: { name: "FindCheap Agent product cards", version: "0.12.8" },
         appCapabilities: { availableDisplayModes: ["inline"] }
       }
     });
@@ -553,24 +553,26 @@ describe("product-card MCP Apps UI", () => {
         jsonrpc: "2.0",
         method: "ui/notifications/tool-result",
         params: {
-          structuredContent: {
-            products: [{
-              merchant: "Notification Merchant",
-              title: "Notification Coffee",
-              matchStatus: "EXACT",
-              condition: "UNKNOWN",
-              availability: "IN_STOCK",
-              merchantUrl: "https://example.com/products/notification-coffee",
-              card: {
+          result: {
+            structuredContent: {
+              products: [{
                 merchant: "Notification Merchant",
                 title: "Notification Coffee",
-                primaryPrice: { amountCents: 1599, currency: "USD" },
-                matchBadge: "EXACT",
-                conditionBadge: "UNKNOWN",
+                matchStatus: "EXACT",
+                condition: "UNKNOWN",
                 availability: "IN_STOCK",
-                actionLabel: "View at merchant"
-              }
-            }]
+                merchantUrl: "https://example.com/products/notification-coffee",
+                card: {
+                  merchant: "Notification Merchant",
+                  title: "Notification Coffee",
+                  primaryPrice: { amountCents: 1599, currency: "USD" },
+                  matchBadge: "EXACT",
+                  conditionBadge: "UNKNOWN",
+                  availability: "IN_STOCK",
+                  actionLabel: "View at merchant"
+                }
+              }]
+            }
           }
         }
       }
