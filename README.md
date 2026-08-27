@@ -27,6 +27,12 @@ Or ask in plain language after enabling the plugin:
 Find me three trusted offers for AirPods Pro 2.
 ```
 
+Attach a product photo or screenshot and ask for visual discovery:
+
+```text
+Find this item, then show highly similar and same-style options.
+```
+
 Add a ZIP code when you want available shipping, tax, and estimated-total details:
 
 ```text
@@ -37,6 +43,12 @@ Create a shopping watch:
 
 ```text
 Watch this product and notify me when a new item falls below $170.
+```
+
+Ask whether to buy a selected product now:
+
+```text
+Is this worth buying now, or should I wait?
 ```
 
 For a follow-up quote, refer to a result by its number or choose it from the card. FindCheap Agent reuses the original product and variant instead of searching its title again.
@@ -56,6 +68,12 @@ Results use three match labels:
 - `EXACT` requires strong UPID, GTIN, or brand plus MPN/SKU evidence for the requested variant.
 - `DISCOVERY_MATCH` is relevant but does not have enough evidence for a same-product claim.
 - `SIMILAR` is an alternative, not the same item.
+
+### Visual product discovery
+
+For an attached product image or screenshot, Codex extracts only visible product type, brand or logo text, model/style clues, color, material, pattern, silhouette, and length. The same `search_products` router searches eligible sources and keeps results in three visibly separate groups: `POSSIBLE_SAME_ITEM`, `HIGHLY_SIMILAR`, and `SAME_STYLE`.
+
+Visual similarity is not exact product identity. A visual result remains `DISCOVERY_MATCH` or `SIMILAR` unless a stable model, style number, SKU, or GTIN independently confirms identity. If the image lacks one decision-critical detail, the agent asks at most one compact clarification about product type, size, budget, color, or occasion. The v0.12 matcher is covered by 30 visual-attribute Golden Tasks with an 80% minimum grouping gate; live human-rated screenshot relevance remains a release evaluation metric rather than an automatic identity claim.
 
 ### Result reliability
 
@@ -100,7 +118,17 @@ The Coupon and promotion path fails closed. It returns a Coupon, promo code, mem
 
 Without that evidence, the plugin reports the deal source as unavailable. It does not invent codes, discounts, expiration dates, or Cashback rates.
 
-The default plugin exposes the unified product search, product-card, and Watch tools. Commerce comparison and verified Deals tools appear only when their complete provider URL and token are configured.
+The default plugin exposes unified product search, product cards, Deal Concierge, and Watch tools. Commerce comparison and the standalone verified Deals tool appear only when their complete provider URL and token are configured.
+
+## Deal Concierge
+
+After the user selects a product card, Deal Concierge keeps that stable product and variant identity. It checks current item price, inventory, current verified merchant deal candidates, optional ZIP delivered-price evidence, and an available bounded price-history sample. It never searches the selected title again.
+
+The result is `BUY_NOW`, `WAIT`, or `WATCH`, with confidence, reasons, sample count and date window, and explicit limitations. Historical-low and typical-range claims require at least five observations across five distinct days. Sale cadence is reported only from at least three observed sale events; the plugin never invents a future discount probability. A merchant promotion remains a candidate until the merchant confirms product eligibility and stacking.
+
+When the protected price-history service is configured, each real current item-price or delivered-total observation is appended under the same stable product identity. ZIP and memberships are represented only by an irreversible context hash. A new product begins with insufficient evidence and remains `WATCH / LOW` until the multi-day threshold is satisfied.
+
+A `WATCH` recommendation does not create monitoring. Codex creates a recurring Watch only after the user explicitly asks to be notified or monitored.
 
 ## Shopping watches
 

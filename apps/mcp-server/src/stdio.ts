@@ -11,6 +11,7 @@ import { createShopifySelectedProductInspector } from "./shopify-selected-produc
 import { createAwinFeedPort } from "../../../packages/awin-feed/src/index.js";
 import { createAwinShopifyQuoteResolver } from "./awin-shopify-quote.js";
 import { createEbayPortFromEnvironment } from "./ebay-client.js";
+import { createPriceHistoryPortFromEnvironment } from "./deal-concierge.js";
 
 const comparePort = createComparePortFromEnvironment(process.env, createUnavailableComparePort);
 const shopifyPort = createShopifyPortFromEnvironment(process.env);
@@ -18,6 +19,7 @@ const dealPort = createDealPortFromEnvironment(process.env);
 const cartQuotePort = createShopifyCartQuotePort(process.env);
 const awinPort = createAwinFeedPort(process.env);
 const ebayPort = createEbayPortFromEnvironment(process.env);
+const priceHistoryPort = createPriceHistoryPortFromEnvironment(process.env);
 const stateDirectory = process.env.FINDCHEAP_STATE_DIR ?? join(homedir(), ".findcheap-agent", "watches-v1");
 const server = createShoppingServer(comparePort, shopifyPort, undefined, {
   awin: awinPort,
@@ -26,6 +28,7 @@ const server = createShoppingServer(comparePort, shopifyPort, undefined, {
   deals: dealPort,
   cartQuotes: cartQuotePort,
   selectedProducts: createShopifySelectedProductInspector(),
+  ...(priceHistoryPort === undefined ? {} : { priceHistory: priceHistoryPort }),
   watches: createJsonWatchStore(stateDirectory),
   toolAvailability: {
     commerceCompare: hasCommerceApiConfiguration(process.env),

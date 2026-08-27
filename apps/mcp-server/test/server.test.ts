@@ -159,12 +159,12 @@ describe("shopping MCP server", () => {
     const renderTool = tools.tools.find((candidate) => candidate.name === "render_product_cards");
     const metricsTool = tools.tools.find((candidate) => candidate.name === "report_product_card_metrics");
     expect(searchTool?._meta).toMatchObject({
-      ui: { resourceUri: "ui://findcheap/product-cards/v24.html" },
-      "openai/outputTemplate": "ui://findcheap/product-cards/v24.html"
+      ui: { resourceUri: "ui://findcheap/product-cards/v25.html" },
+      "openai/outputTemplate": "ui://findcheap/product-cards/v25.html"
     });
     expect(renderTool?._meta).toMatchObject({
       ui: {
-        resourceUri: "ui://findcheap/product-cards/v24.html",
+        resourceUri: "ui://findcheap/product-cards/v25.html",
         visibility: ["app"]
       }
     });
@@ -181,11 +181,11 @@ describe("shopping MCP server", () => {
     const resources = await client.listResources();
     expect(resources.resources).toEqual([expect.objectContaining({
       name: "findcheap-product-cards",
-      uri: "ui://findcheap/product-cards/v24.html",
+      uri: "ui://findcheap/product-cards/v25.html",
       mimeType: "text/html;profile=mcp-app"
     })]);
 
-    const resource = await client.readResource({ uri: "ui://findcheap/product-cards/v24.html" });
+    const resource = await client.readResource({ uri: "ui://findcheap/product-cards/v25.html" });
     const content = resource.contents[0];
     const html = content !== undefined && "text" in content ? content.text : "";
     expect(html).toContain("ui/notifications/tool-result");
@@ -225,6 +225,7 @@ describe("shopping MCP server", () => {
       "search_awin_products",
       "inspect_selected_shopify_product",
       "quote_selected_shopify_product",
+      "research_selected_product_deal",
       "find_coupons",
       "create_watch",
       "bind_watch_automation",
@@ -249,6 +250,7 @@ describe("shopping MCP server", () => {
       "query",
       "requiredFeatures",
       "selectionMode",
+      "visualInput",
       "zipCode"
     ]);
     const unifiedTool = tools.tools.find((tool) => tool.name === "search_products");
@@ -257,6 +259,8 @@ describe("shopping MCP server", () => {
     expect(unifiedTool?.description).toContain("Commercial relationships never affect relevance or ranking");
     expect(unifiedTool?.description).toContain("maxItemPriceCents");
     expect(unifiedTool?.description).toContain("objective must-have attributes in requiredFeatures");
+    expect(unifiedTool?.description).toContain("For an attached product image or screenshot");
+    expect(unifiedTool?.description).toContain("possible same item, highly similar, then same style");
     expect(unifiedTool?.description).toContain("single product-search entrypoint");
     expect(unifiedTool?.description).toContain("English request means English only");
     expect(unifiedTool?.description).toContain("Chinese request means Chinese only");
@@ -436,7 +440,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.10.5",
+        version: "0.12.0",
         terminalStage: "DOM_RENDERED",
         stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
       }
@@ -445,7 +449,7 @@ describe("shopping MCP server", () => {
     expect(result.structuredContent).toEqual({ status: "RECORDED" });
     expect(record).toHaveBeenCalledWith(expect.objectContaining({
       renderId,
-      version: "0.10.5",
+      version: "0.12.0",
       terminalStage: "DOM_RENDERED",
       stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
     }));
@@ -453,7 +457,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.10.5",
+        version: "0.12.0",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 14 }
       }
@@ -463,7 +467,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.10.5",
+        version: "0.12.0",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 300_001 }
       }
@@ -474,7 +478,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId: "22222222-2222-4222-8222-222222222222",
-        version: "0.10.5",
+        version: "0.12.0",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 1 }
       }
@@ -1206,6 +1210,54 @@ describe("Coupon and Watch tools", () => {
     validTo: "2026-08-20T00:00:00.000Z",
     verificationStatus: "VERIFIED" as const
   };
+
+  it("researches the stable selected product without a title search or automatic Watch", async () => {
+    const search = vi.fn(shopifyPort.search);
+    const watches = createMemoryWatchStore();
+    const client = await connect({ compare: async () => comparison }, { search }, undefined, {
+      now: () => current,
+      watches,
+      deals: { search: async () => [{ ...verifiedDeal, merchant: "Death Wish Coffee" }] },
+      priceHistory: {
+        observe: async () => {},
+        lookup: async ({ merchantProductId, basis }) => {
+        expect(merchantProductId).toBe("42797821853913");
+        expect(basis).toBe("ITEM_PRICE");
+        return [1_450, 1_500, 1_550, 1_600, 1_650].map((amountCents, index) => ({
+          amountCents,
+          currency: "USD" as const,
+          basis: "ITEM_PRICE" as const,
+          observedAt: `2026-08-${String(index + 10).padStart(2, "0")}T12:00:00.000Z`
+        }));
+        }
+      }
+    });
+    const found = await client.callTool({
+      name: "search_shopify_products",
+      arguments: { query: "Valhalla Java", limit: 1, comparisonMode: "DISCOVERY", selectionMode: "MERCHANT_DIVERSE" }
+    });
+    const selectionId = (found.structuredContent as { products: Array<{ selectionId: string }> }).products[0]!.selectionId;
+
+    const result = await client.callTool({
+      name: "research_selected_product_deal",
+      arguments: { selectionId, objective: "BUY_OR_WAIT" }
+    });
+
+    expect(search).toHaveBeenCalledTimes(1);
+    expect(result.structuredContent).toMatchObject({
+      status: "OK",
+      selectionId,
+      selectedProduct: { merchantProductId: "42797821853913", merchant: "Death Wish Coffee" },
+      currentPrice: { basis: "ITEM_PRICE", amount: { amountCents: 1_499 } },
+      recommendation: "WATCH",
+      confidence: "MEDIUM",
+      watchSuggested: true,
+      history: { status: "AVAILABLE", sampleCount: 5, historicalLowCents: 1_450 },
+      deals: [{ dealId: "deal-1", applicability: "REQUIRES_MERCHANT_CONFIRMATION" }]
+    });
+    expect((await client.callTool({ name: "list_watches", arguments: {} })).structuredContent)
+      .toEqual({ watches: [] });
+  });
 
   it("returns only current verified Coupon evidence", async () => {
     const client = await connect({ compare: async () => comparison }, shopifyPort, undefined, {

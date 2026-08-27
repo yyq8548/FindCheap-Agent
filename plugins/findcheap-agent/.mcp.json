@@ -6,7 +6,7 @@
       "args": ["./dist/mcp-server.js"],
       "cwd": ".",
       "enabled": true,
-      "env_vars": ["PATH", "FINDCHEAP_DEALS_API_URL", "FINDCHEAP_DEALS_API_TOKEN", "FINDCHEAP_STATE_DIR", "SHOPPING_COMMERCE_API_URL", "SHOPPING_COMMERCE_API_TOKEN"],
+      "env_vars": ["PATH", "FINDCHEAP_DEALS_API_URL", "FINDCHEAP_DEALS_API_TOKEN", "FINDCHEAP_PRICE_HISTORY_URL", "FINDCHEAP_PRICE_HISTORY_TOKEN", "FINDCHEAP_STATE_DIR", "SHOPPING_COMMERCE_API_URL", "SHOPPING_COMMERCE_API_TOKEN"],
       "startup_timeout_sec": 10,
       "tool_timeout_sec": 30,
       "env": {

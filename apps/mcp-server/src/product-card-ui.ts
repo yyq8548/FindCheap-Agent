@@ -1,4 +1,4 @@
-export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v24.html";
+export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v25.html";
 
 export const PRODUCT_CARD_RESOURCE_DOMAINS = [
   "https://cdn.shopify.com",
@@ -176,7 +176,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     const uiStartedAt = typeof performance === "object" && typeof performance.now === "function"
       ? performance.now()
       : Date.now();
-    const cardMetrics = { version: "0.10.5", stages: {} };
+    const cardMetrics = { version: "0.12.0", stages: {} };
     window.__findcheapCardMetrics = cardMetrics;
     const notify = (method, params = {}) => {
       window.parent.postMessage({ jsonrpc: "2.0", method, params }, "*");
@@ -318,7 +318,16 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
         notice: "Alternatives are shown only when explicitly requested; they are not the same product."
       }
     ];
-    const groupDefinitions = resultGroupDefinitions.flatMap((result) =>
+    const visualGroupDefinitions = [
+      {
+        group: "POSSIBLE_SAME_ITEM",
+        title: "Possible same item",
+        notice: "Visual evidence suggests the same item, but exact identity is not confirmed without a stable product identifier."
+      },
+      { group: "HIGHLY_SIMILAR", title: "Highly similar" },
+      { group: "SAME_STYLE", title: "Same style" }
+    ];
+    const combinedGroupDefinitions = (results) => results.flatMap((result) =>
       trustGroupDefinitions.map((trust) => ({
         group: result.group,
         tier: trust.tier,
@@ -337,6 +346,9 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
         : "GENERAL_UNVERIFIED";
     };
     const resultGroup = (product) => {
+      if (["POSSIBLE_SAME_ITEM", "HIGHLY_SIMILAR", "SAME_STYLE"].includes(product?.visualMatchGroup)) {
+        return product.visualMatchGroup;
+      }
       if (["REQUESTED_PRODUCT", "DISCOVERY", "ALTERNATIVE"].includes(product?.resultGroup)) {
         return product.resultGroup;
       }
@@ -357,6 +369,11 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
         reportMetrics("DOM_RENDERED");
         return;
       }
+      const groupDefinitions = combinedGroupDefinitions(
+        products.some((product) => typeof product?.visualMatchGroup === "string")
+          ? visualGroupDefinitions
+          : resultGroupDefinitions
+      );
       const quoteCount = products.filter((product) => product?.pricing?.scope === "SHOPIFY_CART_ESTIMATE").length;
       const priceSummary = quoteCount === 0
         ? "public item prices only"
@@ -598,7 +615,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     warmCompatibilityBridge();
     const initializeParams = {
       protocolVersion: "2026-01-26",
-      appInfo: { name: "FindCheap Agent product cards", version: "0.10.5" },
+      appInfo: { name: "FindCheap Agent product cards", version: "0.12.0" },
       appCapabilities: { availableDisplayModes: ["inline"] }
     };
     const finishInitialization = () => {

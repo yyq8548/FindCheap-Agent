@@ -2,8 +2,13 @@ import Fastify from "fastify";
 import { createHash, timingSafeEqual } from "node:crypto";
 import type { CompareDeps } from "./compare-products.js";
 import { registerCompareRoute } from "./routes/compare.js";
+import { registerPriceHistoryRoute } from "./routes/price-history.js";
+import type { PriceHistoryRepository } from "./price-history.js";
 
-export function buildApp(deps: CompareDeps, options: { bearerToken?: string } = {}) {
+export function buildApp(
+  deps: CompareDeps & { priceHistory?: PriceHistoryRepository },
+  options: { bearerToken?: string } = {}
+) {
   const app = Fastify({
     bodyLimit: 32 * 1024,
     connectionTimeout: 5_000,
@@ -22,6 +27,7 @@ export function buildApp(deps: CompareDeps, options: { bearerToken?: string } = 
     }
   });
   registerCompareRoute(app, deps);
+  if (deps.priceHistory !== undefined) registerPriceHistoryRoute(app, deps.priceHistory);
   return app;
 }
 

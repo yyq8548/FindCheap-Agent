@@ -1,7 +1,7 @@
 # Commerce API runbook
 
-The Commerce API is a read-only boundary over audited, promoted Commerce data. The repository
-currently has **0 enabled merchants**. Do not turn a merchant on until its separate business,
+The Commerce API is the authenticated boundary for audited Commerce reads and the append-only
+price-observation ledger. The repository currently has **0 enabled comparison merchants**. Do not turn a merchant on until its separate business,
 legal, affiliate, robots/terms, data-quality, and operations audit is approved.
 
 ## Data boundary
@@ -19,6 +19,10 @@ legal, affiliate, robots/terms, data-quality, and operations audit is approved.
 - Similar, ambiguous, pending, staging, expired, or old-revision records are excluded.
 - Affiliate URLs do not participate in product matching, pricing, or ranking.
 - No endpoint orders, starts checkout, or submits payment.
+- `/v1/price-observations` accepts only a recent, stable merchant/product identity and verified
+  current item-price or Shopify cart-estimate observation. ZIP and memberships are stored only as
+  an irreversible context hash. `/v1/price-history` returns at most one observation per UTC day
+  for that exact identity, basis, and context.
 
 ## Commerce API
 
@@ -37,7 +41,9 @@ check, and supports a read-only root filesystem. Mount the approved `config/merc
 Production requires:
 
 - `NODE_ENV=production`
-- `DATABASE_URL` with a password and `sslmode=verify-full`
+- `DATABASE_URL` with a password and `sslmode=verify-full`. Railway private DNS may instead use
+  `sslmode=require&uselibpqcompat=true`; this exception is accepted only for a
+  `*.railway.internal` hostname.
 - `COMMERCE_API_TOKEN` containing 32 through 512 characters
 
 The bearer token is required whenever the API starts, including development/test and loopback
@@ -47,9 +53,10 @@ edge when using a non-loopback bind. Every `/v1` request requires the bearer tok
 is the only unauthenticated endpoint and returns only `{ "status": "ok" }`; it is a process
 liveness check, not a database-readiness guarantee.
 
-With zero gate-approved merchants, the executable exits without listening and prints a
-deterministic disabled event without opening PostgreSQL. Gate validation errors fail startup.
-Production also fails startup without the database URL and token.
+With zero gate-approved merchants and no database, the executable exits without listening. With
+the database and token configured, it starts in price-history-only mode while comparison reads
+remain empty. Gate validation errors fail startup. Production also fails startup without the
+database URL and token.
 
 ## Codex MCP connection
 
@@ -57,6 +64,15 @@ Set both variables in the MCP process environment:
 
 - `SHOPPING_COMMERCE_API_URL`: an HTTPS origin only, or numeric loopback HTTP for local use
 - `SHOPPING_COMMERCE_API_TOKEN`: the matching bearer token
+
+Deal Concierge price history uses a separate fixed route and the same protected service:
+
+- `FINDCHEAP_PRICE_HISTORY_URL`: `https://<commerce-host>/v1/price-history`
+- `FINDCHEAP_PRICE_HISTORY_TOKEN`: the matching bearer token
+
+The MCP records the verified current observation before reading prior evidence. A new installation
+therefore begins with insufficient evidence and safely returns `WATCH / LOW`; historical-low and
+sale-cadence claims become available only after the stated multi-day sample thresholds are met.
 
 The MCP client always calls the fixed `/v1/comparisons` path, rejects redirects, bounds time and
 response size, validates the response schema, and strips internal product, offer, merchant,

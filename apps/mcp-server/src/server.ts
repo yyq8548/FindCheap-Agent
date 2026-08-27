@@ -39,6 +39,10 @@ import {
   type VerifiedDeal
 } from "./deal-client.js";
 import {
+  researchSelectedProductDeal,
+  type PriceHistoryPort
+} from "./deal-concierge.js";
+import {
   WatchSpecSchema,
   WatchSpecInputSchema,
   WatchAutomationIdSchema,
@@ -89,7 +93,7 @@ const ProductCardStagesSchema = z.object({
 
 const ProductCardTelemetryInputSchema = z.object({
   renderId: z.string().uuid(),
-  version: z.literal("0.10.5"),
+  version: z.literal("0.12.0"),
   terminalStage: z.enum([
     "DOM_RENDERED",
     "FIRST_IMAGE_SETTLED",
@@ -163,6 +167,61 @@ const ShopifySelectedQuoteInputSchema = z.object({
   variantId: z.string().regex(/^[A-Za-z0-9._:-]{1,100}$/u).optional(),
   zipCode: z.string().regex(/^\d{5}(?:-\d{4})?$/u),
 }).strict();
+
+const DealConciergeInputSchema = z.object({
+  selectionId: SelectionIdSchema,
+  zipCode: z.string().regex(/^\d{5}(?:-\d{4})?$/u).optional(),
+  membershipIds: MembershipIdsSchema.optional(),
+  objective: z.enum(["BUY_OR_WAIT", "CHEAPEST_PATH"]).default("BUY_OR_WAIT")
+}).strict();
+
+const DealConciergeOutputShape = {
+  status: z.enum(["OK", "SELECTION_UNAVAILABLE"]),
+  message: z.string(),
+  selectionId: SelectionIdSchema.optional(),
+  selectedProduct: z.object({
+    merchantId: z.string(),
+    merchant: z.string(),
+    merchantProductId: z.string(),
+    title: z.string(),
+    availability: z.enum(["IN_STOCK", "OUT_OF_STOCK", "UNKNOWN"]),
+    merchantUrl: z.string().url()
+  }).strict().optional(),
+  currentPrice: z.object({
+    basis: z.enum(["ITEM_PRICE", "DELIVERED_TOTAL"]),
+    amount: z.object({ amountCents: z.number().int(), currency: z.literal("USD") }),
+    checkedAt: z.string()
+  }).strict().optional(),
+  quoteStatus: z.enum(["NOT_REQUESTED", "ESTIMATED", "UNAVAILABLE"]),
+  recommendation: z.enum(["BUY_NOW", "WAIT", "WATCH"]).optional(),
+  confidence: z.enum(["LOW", "MEDIUM", "HIGH"]).optional(),
+  reasons: z.array(z.string()),
+  limitations: z.array(z.string()),
+  watchSuggested: z.boolean(),
+  history: z.object({
+    status: z.enum(["AVAILABLE", "INSUFFICIENT_EVIDENCE", "UNAVAILABLE"]),
+    basis: z.enum(["ITEM_PRICE", "DELIVERED_TOTAL"]),
+    sampleCount: z.number().int().nonnegative(),
+    sampleFrom: z.string().optional(),
+    sampleTo: z.string().optional(),
+    historicalLowCents: z.number().int().positive().optional(),
+    typicalMedianCents: z.number().int().positive().optional(),
+    saleCadence: z.object({
+      status: z.enum(["OBSERVED_INTERVAL", "INSUFFICIENT_EVIDENCE"]),
+      observedSaleEvents: z.number().int().nonnegative(),
+      medianIntervalDays: z.number().int().nonnegative().optional()
+    }).strict()
+  }).strict().optional(),
+  deals: z.array(z.object({
+    dealId: z.string(), merchant: z.string(), kind: z.string(), title: z.string(), description: z.string(),
+    code: z.string().optional(), barcodeUrl: z.string().url().optional(), discountPercent: z.number().optional(),
+    discountAmountCents: z.number().int().optional(), cashbackPercent: z.number().optional(), membershipProgram: z.string().optional(),
+    eligibility: z.array(z.string()), channels: z.array(z.string()), sourceUrl: z.string().url(), checkedAt: z.string(),
+    validFrom: z.string(), validTo: z.string(), verificationStatus: z.literal("VERIFIED"),
+    applicability: z.literal("REQUIRES_MERCHANT_CONFIRMATION")
+  }).strict()),
+  objective: z.enum(["BUY_OR_WAIT", "CHEAPEST_PATH"]).optional()
+};
 
 function quoteFailureMessage(code: ShopifyQuoteFailureCode): string {
   switch (code) {
@@ -277,6 +336,8 @@ const ShopifyProductOutputSchema = z.object({
   preferenceEvidence: z.array(z.string()).optional(),
   requiredFeatureLimitations: z.array(z.string()).optional(),
   resultGroup: z.enum(["REQUESTED_PRODUCT", "DISCOVERY", "ALTERNATIVE"]).optional(),
+  visualMatchGroup: z.enum(["POSSIBLE_SAME_ITEM", "HIGHLY_SIMILAR", "SAME_STYLE"]).optional(),
+  visualMatchEvidence: z.array(z.string()).optional(),
   merchantId: z.string(),
   merchant: z.string(),
   sellerName: z.string().optional(),
@@ -427,7 +488,7 @@ const ShopifyProductsOutputShape = {
     shopify: z.enum(["SKIPPED", "COMPLETE", "PARTIAL", "UNAVAILABLE"]),
     ebay: z.enum(["SKIPPED", "COMPLETE", "UNAVAILABLE"])
   }).optional(),
-  searchIntent: z.enum(["EXACT_PRODUCT", "CATEGORY_DISCOVERY"]).optional(),
+  searchIntent: z.enum(["EXACT_PRODUCT", "CATEGORY_DISCOVERY", "VISUAL_DISCOVERY"]).optional(),
   sourceErrors: z.object({
     awin: z.literal("DATA_SOURCE_UNAVAILABLE").optional(),
     shopify: z.enum(["CATALOG_SCHEMA_CHANGED", "DATA_SOURCE_UNAVAILABLE"]).optional(),
@@ -476,6 +537,7 @@ const ShopifyProductsOutputShape = {
     conditionProductsExcluded: z.number().int().nonnegative(),
     priceProductsExcluded: z.number().int().nonnegative(),
     featureProductsExcluded: z.number().int().nonnegative().optional(),
+    visualProductsExcluded: z.number().int().nonnegative().optional(),
     trustedMerchantProductsReturned: z.number().int().nonnegative(),
     unverifiedMerchantProductsReturned: z.number().int().nonnegative(),
     unverifiedMerchantProductsExcluded: z.number().int().nonnegative(),
@@ -859,6 +921,10 @@ function unifiedResult(
       preferenceEvidence: candidate.preferenceEvidence,
       requiredFeatureLimitations: candidate.requiredFeatureLimitations,
       resultGroup: candidate.resultGroup,
+      ...(candidate.visualMatchGroup === undefined ? {} : {
+        visualMatchGroup: candidate.visualMatchGroup,
+        visualMatchEvidence: candidate.visualMatchEvidence ?? []
+      }),
       recommendationTier: candidate.recommendationTier
     }, candidate.verifiedCoupons)];
   });
@@ -888,9 +954,14 @@ function unifiedResult(
   const message = products.length === 0
     ? sourceFailureMessage || chromeAdvice || (execution.searchIntent === "EXACT_PRODUCT"
       ? "No qualifying match for the requested product returned; unrelated alternatives were not substituted."
-      : "No qualifying product returned.")
+      : execution.searchIntent === "VISUAL_DISCOVERY"
+        ? "No qualifying visual match returned. The image was not treated as proof of exact identity."
+        : "No qualifying product returned.")
     : [
         `Returned ${products.length} ranked product card(s) from ${merchantCount} merchant(s); never claim more merchants than this count.`,
+        ...(execution.searchIntent === "VISUAL_DISCOVERY"
+          ? ["Visual results are separated into possible same item, highly similar, and same style; none is an exact identity claim without a stable product identifier."]
+          : []),
         ...(highRatedUnverifiedCount === 0
           ? []
           : [`${highRatedUnverifiedCount} later result(s) qualify by product rating above 3.8 with at least 2 reviews; product ratings do not verify merchant trust.`]),
@@ -968,9 +1039,13 @@ function unifiedResult(
       diagnostics: {
         ...shopifyResponse.structuredContent.diagnostics,
         featureProductsExcluded: execution.featureProductsExcluded,
+        visualProductsExcluded: execution.visualProductsExcluded,
         identityProductsExcluded: shopifyResponse.structuredContent.diagnostics.identityProductsExcluded + execution.identityProductsExcluded,
         chromeFallbackEligible: execution.chromeFallbackEligible
       },
+      questions: input.visualInput === undefined
+        ? shopifyResponse.structuredContent.questions
+        : shopifyResponse.structuredContent.questions.slice(0, 1),
       products
     }
   };
@@ -988,6 +1063,10 @@ function awinCardProduct(candidate: UnifiedCandidate): ProductCardProduct {
     preferenceEvidence: candidate.preferenceEvidence,
     requiredFeatureLimitations: candidate.requiredFeatureLimitations,
     resultGroup: candidate.resultGroup,
+    ...(candidate.visualMatchGroup === undefined ? {} : {
+      visualMatchGroup: candidate.visualMatchGroup,
+      visualMatchEvidence: candidate.visualMatchEvidence ?? []
+    }),
     merchantId: product.merchantId,
     merchant: product.merchant,
     sourceHost,
@@ -1056,6 +1135,10 @@ function ebayCardProduct(candidate: UnifiedCandidate): ProductCardProduct {
     preferenceEvidence: candidate.preferenceEvidence,
     requiredFeatureLimitations: candidate.requiredFeatureLimitations,
     resultGroup: candidate.resultGroup,
+    ...(candidate.visualMatchGroup === undefined ? {} : {
+      visualMatchGroup: candidate.visualMatchGroup,
+      visualMatchEvidence: candidate.visualMatchEvidence ?? []
+    }),
     merchantId: `ebay:${product.sellerName}`,
     merchant: "eBay",
     sellerName: product.sellerName,
@@ -1372,6 +1455,7 @@ export type ShoppingServerDependencies = {
   watches?: WatchStore;
   cartQuotes?: ShopifyCartQuotePort;
   selectedProducts?: ShopifySelectedProductInspector;
+  priceHistory?: PriceHistoryPort;
   now?: () => Date;
   cardTelemetry?: ProductCardTelemetrySink;
   toolAvailability?: {
@@ -1426,16 +1510,21 @@ function emptyShopifyQuality() {
 
 function shopifyClarificationResult(
   selectionMode: "LOWEST_PRICE" | "MERCHANT_DIVERSE",
-  context: { zipCode?: string | undefined; membershipIds?: string[] | undefined }
+  context: { zipCode?: string | undefined; membershipIds?: string[] | undefined },
+  options: {
+    question?: string;
+    evidence?: string;
+    source?: "SHOPIFY_GLOBAL_CATALOG" | "UNIFIED_PRODUCT_SEARCH";
+  } = {}
 ) {
-  const question = "Provide a brand and exact model/MPN/GTIN, or a direct product URL, before requesting same-product comparison.";
+  const question = options.question ?? "Provide a brand and exact model/MPN/GTIN, or a direct product URL, before requesting same-product comparison.";
   const message = `Comparison status: NEEDS_CLARIFICATION. ${question} No merchant API was queried and Chrome is not eligible.`;
   return {
     content: [{ type: "text" as const, text: message }],
     structuredContent: {
       status: "NEEDS_CLARIFICATION" as const,
       message,
-      source: "SHOPIFY_GLOBAL_CATALOG" as const,
+      source: options.source ?? "SHOPIFY_GLOBAL_CATALOG" as const,
       priceScope: "ITEM_PRICE_ONLY" as const,
       cartQuoteCoverage: { attempted: 0, succeeded: 0 },
       pricingContext: {
@@ -1448,7 +1537,7 @@ function shopifyClarificationResult(
       merchantsSucceeded: 0,
       comparison: {
         status: "NEEDS_CLARIFICATION" as const,
-        evidence: ["specific product identity absent"],
+        evidence: [options.evidence ?? "specific product identity absent"],
         merchantCount: 0,
         offerCount: 0
       },
@@ -1555,7 +1644,7 @@ export function createShoppingServer(
   dependencies: ShoppingServerDependencies = {}
 ): McpServer {
   void comparePort;
-  const server = new McpServer({ name: "findcheap-agent", version: "0.10.5" });
+  const server = new McpServer({ name: "findcheap-agent", version: "0.12.0" });
   const dealPort = dependencies.deals ?? createUnavailableDealPort();
   const awinPort = dependencies.awin ?? createUnavailableAwinPort();
   const ebayPort = dependencies.ebay;
@@ -1567,6 +1656,7 @@ export function createShoppingServer(
   const cartQuotes = dependencies.cartQuotes;
   const awinShopifyQuotes = dependencies.awinShopifyQuotes;
   const selectedProducts = dependencies.selectedProducts;
+  const priceHistory = dependencies.priceHistory;
   const now = dependencies.now ?? (() => new Date());
   const cardTelemetry = dependencies.cardTelemetry ?? {
     record: (event: ProductCardTelemetry) => {
@@ -1725,7 +1815,7 @@ export function createShoppingServer(
     "search_products",
     {
       title: "Search products",
-      description: "For live shopping, use only the current user request and this tool contract. Do not read Memory, Skill files, repository files, logs, or plugin caches. Match every user-facing sentence to the request language: English request means English only; Chinese request means Chinese only. Ignore product names, brands, and models when detecting language and preserve them unchanged. English progress: 'Searching for suitable products.' Chinese progress: '正在搜索合适商品。' Do not switch language unless asked. This is the single product-search entrypoint; call once. Awin, Shopify, and configured eBay searches start in parallel. Use SAME_PRODUCT for a named product, model, SKU, or style; exact-product safety also detects strong identity automatically. Set allowAlternatives=true only when explicitly requested. Never pad exact results with a conflicting or merely similar item. Put product family in productType, objective must-have attributes in requiredFeatures, and subjective intent in preferences. Missing evidence remains a limitation-labeled DISCOVERY_MATCH; explicit contradiction excludes. Never infer condition. Default ranking prioritizes identity, match evidence, merchant reliability, availability, preferences, verified coupons, then lower item price. Use selectionMode=LOWEST_PRICE only when requested and pass maxItemPriceCents in integer cents. Commercial relationships never affect relevance or ranking. Reuse selectionId for follow-ups; never search a selected title again.",
+      description: "For live shopping, use only the current user request and this tool contract. Do not read Memory, Skill files, repository files, logs, or plugin caches. Match every user-facing sentence to the request language: English request means English only; Chinese request means Chinese only. Ignore product names, brands, and models when detecting language and preserve them unchanged. English progress: 'Searching for suitable products.' Chinese progress: '正在搜索合适商品。' Do not switch language unless asked. This is the single product-search entrypoint; call once. Awin, Shopify, and configured eBay searches start in parallel. For an attached product image or screenshot, inspect it directly and pass visualInput with only observed evidence; imageUrl is optional and is never fetched by this tool. Include productType whenever identifiable. Visual results are grouped as possible same item, highly similar, then same style; never call a visual result EXACT without a stable product identifier. Ask at most one compact clarification, limited to the most decision-critical size, budget, color, or occasion. Use SAME_PRODUCT for a named product, model, SKU, or style; exact-product safety also detects strong identity automatically. Set allowAlternatives=true only when explicitly requested, except visual discovery which inherently includes clearly separated same-style results. Never pad exact results with a conflicting or merely similar item. Put product family in productType, objective must-have attributes in requiredFeatures, and subjective intent in preferences. Missing evidence remains a limitation-labeled DISCOVERY_MATCH; explicit contradiction excludes. Never infer condition. Default ranking prioritizes identity, match evidence, merchant reliability, availability, preferences, verified coupons, then lower item price. Use selectionMode=LOWEST_PRICE only when requested and pass maxItemPriceCents in integer cents. Commercial relationships never affect relevance or ranking. Reuse selectionId for follow-ups; never search a selected title again.",
       inputSchema: SearchProductsInputSchema,
       outputSchema: ShopifyProductsOutputShape,
       annotations: {
@@ -1743,6 +1833,13 @@ export function createShoppingServer(
     },
     async (rawInput) => {
       const input = SearchProductsInputSchema.parse(rawInput);
+      if (input.visualInput !== undefined && input.visualInput.productType === undefined && input.productType === undefined) {
+        return shopifyClarificationResult(input.selectionMode, input, {
+          question: "Identify the product type shown; if one detail is decision-critical, also provide the size, budget, color, or occasion.",
+          evidence: "visual product type absent",
+          source: "UNIFIED_PRODUCT_SEARCH"
+        });
+      }
       if (
         input.comparisonMode === "SAME_PRODUCT" &&
         !hasSpecificProductIdentity(input.query)
@@ -1797,6 +1894,7 @@ export function createShoppingServer(
         sourceStatus: execution.sourceStatus,
         searchPasses: execution.searchPasses,
         featureProductsExcluded: execution.featureProductsExcluded,
+        visualProductsExcluded: execution.visualProductsExcluded,
         awin: execution.awinResult?.diagnostics,
         ebay: execution.ebayResult?.diagnostics,
         shopify: enriched.result.diagnostics,
@@ -1806,6 +1904,7 @@ export function createShoppingServer(
         comparisonStatus: response.structuredContent.comparison.status,
         priceScope: response.structuredContent.priceScope,
         comparisonMode: input.comparisonMode,
+        visualDiscovery: input.visualInput !== undefined,
         selectionMode: input.selectionMode,
         chromeFallbackEligible: execution.chromeFallbackEligible
       })}\n`);
@@ -2177,6 +2276,110 @@ export function createShoppingServer(
           `${quoteFailureMessage(failure.code)} Continue at merchant checkout or choose another existing card; no new search is required.`
         );
       }
+    }
+  );
+
+  server.registerTool(
+    "research_selected_product_deal",
+    {
+      title: "Research whether to buy, wait, or watch",
+      description: "Research one exact prior selectionId for current merchant deals, delivered-price evidence, inventory, and bounded price history. Never search the selected title again. Return BUY_NOW, WAIT, or WATCH with explicit confidence and sample limits. A WATCH recommendation is not authorization to create monitoring.",
+      inputSchema: DealConciergeInputSchema,
+      outputSchema: DealConciergeOutputShape,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true
+      }
+    },
+    async (input) => {
+      const parsed = DealConciergeInputSchema.parse(input);
+      const reference = resolveSelectionReference(parsed);
+      const snapshot = reference === undefined ? undefined : renderSnapshots.get(reference.renderId);
+      if (reference === undefined || snapshot === undefined || snapshot.expiresAt <= Date.now()) {
+        if (reference !== undefined) deleteSnapshot(reference.renderId);
+        const message = "Selected product reference is unavailable or expired. Run one new product search, then select a card.";
+        return {
+          content: [{ type: "text" as const, text: message }],
+          structuredContent: {
+            status: "SELECTION_UNAVAILABLE" as const,
+            message,
+            quoteStatus: "NOT_REQUESTED" as const,
+            reasons: [],
+            limitations: ["No product title fallback search was performed."],
+            watchSuggested: false,
+            deals: []
+          }
+        };
+      }
+      const selectedCard = snapshot.content.products.find((product) => product.handle === reference.variantId);
+      if (selectedCard === undefined) {
+        const message = "Selected product does not belong to the immutable prior result.";
+        return {
+          content: [{ type: "text" as const, text: message }],
+          structuredContent: {
+            status: "SELECTION_UNAVAILABLE" as const,
+            message,
+            quoteStatus: "NOT_REQUESTED" as const,
+            reasons: [],
+            limitations: ["No product title fallback search was performed."],
+            watchSuggested: false,
+            deals: []
+          }
+        };
+      }
+
+      const quoteProduct = selectedCard.sourceKind === "AWIN_PRODUCT_FEED"
+        ? snapshot.resolvedAwinProducts.get(selectedCard.handle)
+        : snapshot.sourceResult.products.find((product) => product.handle === reference.variantId);
+      const research = await researchSelectedProductDeal({
+        selected: {
+          merchantId: selectedCard.merchantId,
+          merchantProductId: selectedCard.handle,
+          merchant: selectedCard.merchant,
+          availability: selectedCard.availability,
+          ...(selectedCard.itemPrice === undefined ? {} : { itemPrice: selectedCard.itemPrice }),
+          checkedAt: selectedCard.checkedAt,
+          quoteCapability: selectedCard.quoteCapability,
+          sourceKind: selectedCard.sourceKind ?? "SHOPIFY_GLOBAL_CATALOG",
+          ...(quoteProduct === undefined ? {} : { quoteProduct })
+        },
+        ...(parsed.zipCode === undefined ? {} : { zipCode: parsed.zipCode }),
+        membershipIds: parsed.membershipIds ?? [],
+        dealPort,
+        ...(cartQuotes === undefined ? {} : { cartQuotes }),
+        ...(priceHistory === undefined ? {} : { priceHistory }),
+        now: now()
+      });
+      const { decision } = research;
+      const message = `${decision.recommendation} (${decision.confidence} confidence) for the exact selected product. ${decision.reasons.join(" ")}`;
+      return {
+        content: [{ type: "text" as const, text: message }],
+        structuredContent: {
+          status: "OK" as const,
+          message,
+          selectionId: parsed.selectionId,
+          selectedProduct: {
+            merchantId: selectedCard.merchantId,
+            merchant: selectedCard.merchant,
+            merchantProductId: selectedCard.handle,
+            title: selectedCard.title,
+            availability: selectedCard.availability,
+            merchantUrl: selectedCard.merchantUrl
+          },
+          ...(research.currentPrice === undefined ? {} : { currentPrice: research.currentPrice }),
+          quoteStatus: research.quoteStatus,
+          recommendation: decision.recommendation,
+          confidence: decision.confidence,
+          reasons: decision.reasons,
+          limitations: [...decision.limitations, ...research.quoteLimitations],
+          watchSuggested: decision.watchSuggested,
+          history: decision.history,
+          deals: decision.deals,
+          objective: parsed.objective
+        }
+      };
     }
   );
 

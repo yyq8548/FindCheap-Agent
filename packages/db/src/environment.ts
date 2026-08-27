@@ -1,8 +1,9 @@
-const ALLOWED_DATABASE_QUERY_PARAMETERS = new Set(["sslmode", "application_name"]);
+const ALLOWED_DATABASE_QUERY_PARAMETERS = new Set(["sslmode", "application_name", "uselibpqcompat"]);
 
 export function parseDatabaseUrl(
   value: string | undefined,
-  nodeEnvironment: "development" | "test" | "production"
+  nodeEnvironment: "development" | "test" | "production",
+  options: { allowRailwayPrivateRequire?: boolean } = {}
 ): string | undefined {
   if (value === undefined) return undefined;
   let url: URL;
@@ -33,12 +34,19 @@ export function parseDatabaseUrl(
   )) {
     throw new Error("DATABASE_URL application_name is invalid");
   }
+  const libpqCompatibility = url.searchParams.get("uselibpqcompat");
+  if (libpqCompatibility !== null && libpqCompatibility !== "true") {
+    throw new Error("DATABASE_URL uselibpqcompat must be true when supplied");
+  }
   if (nodeEnvironment === "production") {
     const password = url.password === "" ? undefined : decodeURIComponent(url.password);
     if (password === undefined || password.length === 0) {
       throw new Error("production PostgreSQL password is required");
     }
-    if (url.searchParams.get("sslmode") !== "verify-full") {
+    const railwayPrivateRequire = options.allowRailwayPrivateRequire === true &&
+      url.hostname.endsWith(".railway.internal") && url.searchParams.get("sslmode") === "require" &&
+      libpqCompatibility === "true";
+    if (url.searchParams.get("sslmode") !== "verify-full" && !railwayPrivateRequire) {
       throw new Error("production PostgreSQL must use sslmode=verify-full");
     }
   }

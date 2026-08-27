@@ -9,7 +9,7 @@ export async function runCommerceMain(): Promise<CommerceRuntime> {
     console.log(JSON.stringify({
       event: "commerce.disabled",
       status: "disabled",
-      reason: "no_enabled_merchants",
+      reason: "database_not_configured",
       enabledMerchants: 0,
       acceptingRequests: false
     }));
@@ -28,8 +28,10 @@ export async function runCommerceMain(): Promise<CommerceRuntime> {
 
 const entryPath = process.argv[1];
 if (entryPath !== undefined && resolve(entryPath) === fileURLToPath(import.meta.url)) {
-  void runCommerceMain().catch(() => {
-    console.error("commerce API failed to start");
+  void runCommerceMain().catch((error: unknown) => {
+    const code = typeof error === "object" && error !== null && "code" in error &&
+      typeof error.code === "string" ? error.code : "UNKNOWN";
+    console.error(JSON.stringify({ event: "commerce.start_failed", code }));
     process.exitCode = 1;
   });
 }

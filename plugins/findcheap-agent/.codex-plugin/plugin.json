@@ -1,7 +1,7 @@
 {
   "name": "findcheap-agent",
-  "version": "0.10.5+codex.20260826221420",
-  "description": "Search Shopify Global Catalog, joined Awin Feeds, and approved eBay listings; find verified deals and monitor prices, promotions, and stock.",
+  "version": "0.12.0+codex.20260826231700",
+  "description": "Search products from text or visual evidence, compare verified offers, find deals, and monitor prices, promotions, and stock.",
   "author": {
     "name": "yyq8548"
   },
@@ -12,7 +12,7 @@
   "interface": {
     "displayName": "FindCheap Agent",
     "shortDescription": "Verified cards, pricing, coupons, and safe links.",
-    "longDescription": "FindCheap Agent is a Codex Plugin Agent. v0.10.5 keeps all user-facing prose in the request language: English requests receive English responses and Chinese requests receive Chinese responses, while product names, brands, and models remain unchanged. Exact-product requests remain separate from category discovery: named-product identity anchors are preserved, conflicting apparel types are rejected, unrelated products never pad the top three, and alternatives appear only when explicitly requested. Ranking prioritizes identity, specification fit, merchant quality, availability, verified deals, and price. Awin Feed, Shopify Global Catalog, and approved opt-in eBay listings remain read-only sources. Node.js 24, stable product selection, fail-closed schema handling, neutral affiliate ranking, and bounded authorized Chrome fallback remain in place. The agent never checks out, reserves inventory, purchases, or pays.",
+    "longDescription": "FindCheap Agent is a Codex Plugin Agent. v0.12.0 adds visual product discovery: Codex can inspect an attached product image or screenshot, pass observed attributes into the same safe search router, and return separately labeled possible-same-item, highly-similar, and same-style product cards. Visual evidence never becomes an EXACT identity claim without a stable product identifier. Deal Concierge still reuses stable selected-product identity, current price, inventory, verified deal candidates, optional delivered-price evidence, and bounded price history before returning BUY_NOW, WAIT, or WATCH. English requests receive English responses and Chinese requests receive Chinese responses. Search ranking remains independent of affiliate relationships, and authorized bounded Chrome fallback remains available only after API searches return no usable result. The agent never invents identity, discount eligibility, stacking, price history, or sale probability; it never checks out, reserves inventory, purchases, or pays.",
     "developerName": "yyq8548",
     "category": "Productivity",
     "capabilities": [

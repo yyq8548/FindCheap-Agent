@@ -566,6 +566,55 @@ describe("unified product search", () => {
     ]);
     expect(result.candidates[0]?.shopifyProduct?.handle).toBe("alo-suit-up");
   });
+
+  it("groups visual discovery as possible same item, highly similar, then same style", async () => {
+    const result = await searchProducts(SearchProductsInputSchema.parse({
+      query: "navy wool wide leg trousers",
+      limit: 3,
+      visualInput: {
+        productType: "trousers",
+        brand: "Alo",
+        modelOrStyleNumber: "W51432R",
+        colors: ["navy"],
+        materials: ["wool"],
+        patterns: ["solid"],
+        silhouette: "wide leg"
+      }
+    }), {
+      awin: awin([]),
+      shopify: shopify([
+        shopifyProduct("same", 14_800, "NEW", {
+          title: "Alo Suit Up Trouser Navy Wool",
+          brand: "Alo",
+          sku: "W51432R",
+          productType: "Pants",
+          description: "Solid wide leg tailoring"
+        }),
+        shopifyProduct("similar", 11_800, "NEW", {
+          title: "Navy Wool Wide Leg Trousers",
+          productType: "Pants",
+          description: "Solid tailored pants"
+        }),
+        shopifyProduct("style", 8_800, "NEW", {
+          title: "Navy Relaxed Trousers",
+          productType: "Pants"
+        }),
+        shopifyProduct("irrelevant", 5_800, "NEW", {
+          title: "Navy Wool Mini Dress",
+          productType: "Dresses"
+        })
+      ])
+    });
+
+    expect(result.searchIntent).toBe("VISUAL_DISCOVERY");
+    expect(result.candidates.map((candidate) => candidate.visualMatchGroup)).toEqual([
+      "POSSIBLE_SAME_ITEM",
+      "HIGHLY_SIMILAR",
+      "SAME_STYLE"
+    ]);
+    expect(result.candidates.every((candidate) => candidate.identityStatus !== "EXACT")).toBe(true);
+    expect(result.visualProductsExcluded).toBe(1);
+  });
 });
 
 function awinProduct(id: string, amountCents: number, overrides: Record<string, unknown> = {}) {
