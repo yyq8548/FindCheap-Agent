@@ -1,4 +1,4 @@
-export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v28.html";
+export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v29.html";
 
 export const PRODUCT_CARD_RESOURCE_DOMAINS = [
   "https://cdn.shopify.com",
@@ -191,7 +191,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     const uiStartedAt = typeof performance === "object" && typeof performance.now === "function"
       ? performance.now()
       : Date.now();
-    const cardMetrics = { version: "0.13.2", stages: {} };
+    const cardMetrics = { version: "0.14.0", stages: {} };
     window.__findcheapCardMetrics = cardMetrics;
     const notify = (method, params = {}) => {
       window.parent.postMessage({ jsonrpc: "2.0", method, params }, "*");
@@ -580,6 +580,13 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
           if (Array.isArray(product.matchEvidence) && product.matchEvidence.length > 0) {
             body.append(make("div", "evidence", text("Identity evidence: ", "身份依据：") + product.matchEvidence.join("; ")));
           }
+          if (Array.isArray(product.visualMatchEvidence) && product.visualMatchEvidence.length > 0) {
+            const visualEvidence = product.visualMatchEvidence
+              .filter((entry) => !String(entry).startsWith("candidate-image similarity:"));
+            if (visualEvidence.length > 0) {
+              body.append(make("div", "evidence", text("Visual evidence: ", "视觉依据：") + visualEvidence.join("; ")));
+            }
+          }
           if (Array.isArray(product.requiredFeatureLimitations) && product.requiredFeatureLimitations.length > 0) {
             body.append(make("div", "limitations notice", text("Not verified: ", "尚未验证：") + product.requiredFeatureLimitations.join(", ") + text(". Confirm on the merchant page before purchase.", "。购买前请在商家页面确认。")));
           }
@@ -707,7 +714,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     warmCompatibilityBridge();
     const initializeParams = {
       protocolVersion: "2026-01-26",
-      appInfo: { name: "FindCheap Agent product cards", version: "0.13.2" },
+      appInfo: { name: "FindCheap Agent product cards", version: "0.14.0" },
       appCapabilities: { availableDisplayModes: ["inline"] }
     };
     const finishInitialization = () => {

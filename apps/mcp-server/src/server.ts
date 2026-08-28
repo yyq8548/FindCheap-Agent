@@ -21,6 +21,7 @@ import {
 } from "./shopify-cart-quote.js";
 import type { ShopifySelectedProductInspector } from "./shopify-selected-product.js";
 import type { OfficialShopifySearchPort } from "./shopify-official-store-search.js";
+import type { VisualCandidateImagePort } from "./visual-candidate-images.js";
 import type { AwinShopifyQuoteResolver, AwinShopifyQuoteSeed } from "./awin-shopify-quote.js";
 import type { EbayBrowsePort } from "./ebay-client.js";
 import {
@@ -54,11 +55,19 @@ import {
   resolveMerchantTrust
 } from "./merchant-trust.js";
 import {
+  CodexVisualVerdictSchema,
   SearchProductsInputSchema,
+  candidateImageUrl,
+  candidateMerchant,
+  candidateTitle,
+  finalizeCodexVisualCandidates,
   searchProducts,
+  type CodexVisualVerdict,
+  type SearchProductsInput,
   type UnifiedCandidate,
   type UnifiedSearchExecution
 } from "./search-products.js";
+import { VisualProductInputSchema } from "./visual-product-discovery.js";
 import {
   createUnavailableAwinPort,
   type AwinProductPort,
@@ -72,6 +81,7 @@ export type { AwinProductPort } from "../../../packages/awin-feed/src/index.js";
 
 const CardStageDurationSchema = z.number().nonnegative().max(300_000);
 const SelectionIdSchema = z.string().uuid();
+const VisualSessionIdSchema = z.string().uuid();
 const ProductCardStagesSchema = z.object({
   IFRAME_LOADED: CardStageDurationSchema.optional(),
   RESOURCE_EVALUATED: CardStageDurationSchema.optional(),
@@ -94,7 +104,7 @@ const ProductCardStagesSchema = z.object({
 
 const ProductCardTelemetryInputSchema = z.object({
   renderId: z.string().uuid(),
-  version: z.literal("0.13.2"),
+  version: z.literal("0.14.0"),
   terminalStage: z.enum([
     "DOM_RENDERED",
     "FIRST_IMAGE_SETTLED",
@@ -115,6 +125,9 @@ export type ProductCardTelemetrySink = {
 
 export const PRODUCT_SELECTION_SNAPSHOT_TTL_MS = 2 * 60 * 60_000;
 export const MAX_PRODUCT_SELECTION_SNAPSHOTS = 128;
+export const VISUAL_SEARCH_SNAPSHOT_TTL_MS = 10 * 60_000;
+export const MAX_VISUAL_SEARCH_SNAPSHOTS = 32;
+export const MAX_VISUAL_CANDIDATES = 6;
 
 const unavailableMessage =
   "Live comparison is unavailable because no approved shopping data source is connected.";
@@ -170,6 +183,36 @@ const ShopifySelectedQuoteInputSchema = z.object({
   renderId: z.string().uuid().optional(),
   variantId: z.string().regex(/^[A-Za-z0-9._:-]{1,100}$/u).optional(),
   zipCode: z.string().regex(/^\d{5}(?:-\d{4})?$/u),
+}).strict();
+
+export const VisualCandidateSearchInputSchema = SearchProductsInputSchema
+  .omit({ limit: true })
+  .extend({ visualInput: VisualProductInputSchema });
+
+const VisualCandidateOutputShape = {
+  status: z.enum(["OK", "NO_IMAGE_CANDIDATES", "DATA_SOURCE_UNAVAILABLE"]),
+  message: z.string(),
+  visualSessionId: VisualSessionIdSchema.optional(),
+  expiresAt: z.string().optional(),
+  candidates: z.array(z.object({
+    candidateId: z.string().uuid(),
+    title: z.string(),
+    merchant: z.string(),
+    source: z.enum(["AWIN_PRODUCT_FEED", "SHOPIFY_GLOBAL_CATALOG", "EBAY_BROWSE"]),
+    mimeType: z.enum(["image/jpeg", "image/png", "image/webp"])
+  }).strict()).max(MAX_VISUAL_CANDIDATES)
+};
+
+export const FinalizeVisualSearchInputSchema = z.object({
+  visualSessionId: VisualSessionIdSchema,
+  verdicts: z.array(z.object({
+    candidateId: z.string().uuid(),
+    verdict: CodexVisualVerdictSchema
+  }).strict()).min(1).max(MAX_VISUAL_CANDIDATES)
+    .refine(
+      (entries) => new Set(entries.map((entry) => entry.candidateId)).size === entries.length,
+      "candidate IDs must be unique"
+    )
 }).strict();
 
 const DealConciergeInputSchema = z.object({
@@ -1450,6 +1493,7 @@ export type ShoppingServerDependencies = {
   cartQuotes?: ShopifyCartQuotePort;
   selectedProducts?: ShopifySelectedProductInspector;
   officialShopify?: OfficialShopifySearchPort;
+  visualCandidateImages?: VisualCandidateImagePort;
   now?: () => Date;
   cardTelemetry?: ProductCardTelemetrySink;
   productCardResourceDomains?: readonly string[];
@@ -1639,7 +1683,7 @@ export function createShoppingServer(
   dependencies: ShoppingServerDependencies = {}
 ): McpServer {
   void comparePort;
-  const server = new McpServer({ name: "findcheap-agent", version: "0.13.2" });
+  const server = new McpServer({ name: "findcheap-agent", version: "0.14.0" });
   const dealPort = dependencies.deals ?? createUnavailableDealPort();
   const awinPort = dependencies.awin ?? createUnavailableAwinPort();
   const ebayPort = dependencies.ebay;
@@ -1652,6 +1696,7 @@ export function createShoppingServer(
   const awinShopifyQuotes = dependencies.awinShopifyQuotes;
   const selectedProducts = dependencies.selectedProducts;
   const officialShopify = dependencies.officialShopify;
+  const visualCandidateImages = dependencies.visualCandidateImages;
   const now = dependencies.now ?? (() => new Date());
   const cardTelemetry = dependencies.cardTelemetry ?? {
     record: (event: ProductCardTelemetry) => {
@@ -1665,6 +1710,12 @@ export function createShoppingServer(
     content: ProductCardContent & { renderId: string };
     sourceResult: ShopifySearchResult;
     resolvedAwinProducts: Map<string, ShopifyProduct>;
+  }>();
+  const visualSearchSnapshots = new Map<string, {
+    expiresAt: number;
+    input: SearchProductsInput;
+    execution: UnifiedSearchExecution;
+    candidates: Map<string, UnifiedCandidate>;
   }>();
   const recordedCardTelemetry = new Set<string>();
   const deleteSnapshot = (renderId: string) => {
@@ -1779,6 +1830,67 @@ export function createShoppingServer(
         : product)
     }
   });
+  const runUnifiedSearch = (input: SearchProductsInput) => searchProducts(input, {
+    awin: awinPort,
+    shopify: shopifyPort,
+    ...(ebayPort === undefined ? {} : { ebay: ebayPort }),
+    ...(toolAvailability.verifiedDeals ? { deals: dealPort } : {}),
+    ...(officialShopify === undefined ? {} : { officialShopify })
+  });
+  const buildUnifiedResponse = async (input: SearchProductsInput, execution: UnifiedSearchExecution) => {
+    const selectedShopifyHandles = new Set(execution.candidates.flatMap((candidate) =>
+      candidate.shopifyProduct === undefined ? [] : [candidate.shopifyProduct.handle]
+    ));
+    const selectedShopifyProducts = execution.candidates.flatMap((candidate) =>
+      candidate.shopifyProduct === undefined ? [] : [candidate.shopifyProduct]
+    );
+    const initialShopify = execution.shopifyResult === undefined
+      ? { ...emptyShopifySearchResult(input), products: selectedShopifyProducts }
+      : {
+          ...execution.shopifyResult,
+          products: execution.shopifyResult.products.filter((product) =>
+            selectedShopifyHandles.has(product.handle)
+          )
+        };
+    const enriched = selectedShopifyProducts.length === 0 && execution.shopifyResult === undefined
+      ? { result: initialShopify, attempted: 0, succeeded: 0 }
+      : await enrichShopifyCartQuotes(initialShopify, input.zipCode, cartQuotes);
+    if (enriched.result.products.length > 0) {
+      const enrichedByHandle = new Map(enriched.result.products.map((product) => [product.handle, product]));
+      execution.shopifyResult = enriched.result;
+      execution.candidates = execution.candidates.map((candidate) =>
+        candidate.shopifyProduct === undefined
+          ? candidate
+          : {
+              ...candidate,
+              shopifyProduct: enrichedByHandle.get(candidate.shopifyProduct.handle) ?? candidate.shopifyProduct
+            }
+      );
+    }
+    const shopifyResponse = shopifyResult(enriched.result, {
+      ...(input.zipCode === undefined ? {} : { zipCode: input.zipCode }),
+      membershipIds: input.membershipIds ?? []
+    }, affiliateLinks, {
+      attempted: enriched.attempted,
+      succeeded: enriched.succeeded
+    });
+    const response = unifiedResult(execution, input, shopifyResponse, {
+      attempted: enriched.attempted,
+      succeeded: enriched.succeeded
+    });
+    return { response, enriched };
+  };
+  const pruneVisualSearchSnapshots = () => {
+    const currentTime = now().getTime();
+    for (const [id, snapshot] of visualSearchSnapshots) {
+      if (snapshot.expiresAt <= currentTime) visualSearchSnapshots.delete(id);
+    }
+    while (visualSearchSnapshots.size > MAX_VISUAL_SEARCH_SNAPSHOTS) {
+      const oldest = visualSearchSnapshots.keys().next().value as string | undefined;
+      if (oldest === undefined) break;
+      visualSearchSnapshots.delete(oldest);
+    }
+  };
 
   server.registerResource(
     "findcheap-product-cards",
@@ -1810,7 +1922,7 @@ export function createShoppingServer(
     "search_products",
     {
       title: "Search products",
-      description: "This is the single product-search entrypoint; call once. Do not read Memory, Skill files, repository files, logs, or plugin caches. English request means English only; Chinese request means Chinese only. Progress: 'Searching for suitable products.' or '正在搜索合适商品。' Set contextMode=NEW_PRODUCT for every newly attached image and clear all earlier brand/style evidence, even when the user says only 'this one' or 'this dress'. Use CONTINUE_PREVIOUS_PRODUCT only when the user explicitly says it is the same item; use CORRECT_PREVIOUS_PRODUCT only for an immediate no-new-image correction such as 'it is DÔEN'. If unclear, set AMBIGUOUS and ask whether it is a new product before searching. For an attached product image or screenshot, inspect it and pass observed attributes in visualInput; never pass a local file path as imageUrl. Put certain visible structure such as product family, sleeve, neckline, length, and pattern in hardClues; uncertain fabric or aesthetic guesses in softClues; visible contradictions in negativeClues. Do not include mutually contradictory clues. Pass family in productType, explicit/corrected brand in brand with brandMode=REQUIRED, objective must-have attributes in requiredFeatures, and preferences in preferences. Never put a brand in productType or requiredFeatures. An explicit product name or SAME_PRODUCT request remains exact-product search even when visualInput is present. Without stable model, SKU, or style number, visual search remains DISCOVERY; evidence levels remain possible same item, highly similar, then same style. Unknown product type cannot become a strong visual match. Official identity never bypasses visual relevance. Results are presented as official-store matches, trusted matches, and best-value high-match options; same-style-only results are not padded into high-match groups. Missing soft evidence remains a limitation-labeled DISCOVERY_MATCH; hard or negative contradiction excludes. Rank identity, visual evidence, merchant trust, availability, preferences, verified Coupon, then item price. Use selectionMode=LOWEST_PRICE only when requested; pass price ceilings as maxItemPriceCents. Commercial relationships never affect relevance or ranking. Reuse selectionId for follow-ups; never search a selected title again.",
+      description: "Text-only product-search entrypoint; call once. For a newly attached image use search_visual_candidates and then finalize_visual_search instead. Do not read Memory, Skill files, repository files, logs, or plugin caches. English request means English only; Chinese request means Chinese only. Progress: 'Searching for suitable products.' or '正在搜索合适商品。' Pass family in productType, explicit brand in brand with brandMode=REQUIRED, objective must-have attributes in requiredFeatures, and preferences in preferences. Never put a brand in productType or requiredFeatures. Missing soft evidence remains a limitation-labeled DISCOVERY_MATCH; hard conflicts exclude. Results are presented as official-store matches, trusted matches, and best-value high-match options. Rank identity, merchant trust, availability, preferences, verified Coupon, then item price. Use selectionMode=LOWEST_PRICE only when requested; pass price ceilings as maxItemPriceCents. Commercial relationships never affect relevance or ranking. Reuse selectionId for follow-ups; never search a selected title again.",
       inputSchema: SearchProductsInputSchema,
       outputSchema: ShopifyProductsOutputShape,
       annotations: {
@@ -1849,53 +1961,8 @@ export function createShoppingServer(
       ) {
         return shopifyClarificationResult(input.selectionMode, input);
       }
-      const execution = await searchProducts(input, {
-        awin: awinPort,
-        shopify: shopifyPort,
-        ...(ebayPort === undefined ? {} : { ebay: ebayPort }),
-        ...(toolAvailability.verifiedDeals ? { deals: dealPort } : {}),
-        ...(officialShopify === undefined ? {} : { officialShopify })
-      });
-      const selectedShopifyHandles = new Set(execution.candidates.flatMap((candidate) =>
-        candidate.shopifyProduct === undefined ? [] : [candidate.shopifyProduct.handle]
-      ));
-      const selectedShopifyProducts = execution.candidates.flatMap((candidate) =>
-        candidate.shopifyProduct === undefined ? [] : [candidate.shopifyProduct]
-      );
-      const initialShopify = execution.shopifyResult === undefined
-        ? { ...emptyShopifySearchResult(input), products: selectedShopifyProducts }
-        : {
-            ...execution.shopifyResult,
-            products: execution.shopifyResult.products.filter((product) =>
-              selectedShopifyHandles.has(product.handle)
-            )
-          };
-      const enriched = selectedShopifyProducts.length === 0 && execution.shopifyResult === undefined
-        ? { result: initialShopify, attempted: 0, succeeded: 0 }
-        : await enrichShopifyCartQuotes(initialShopify, input.zipCode, cartQuotes);
-      if (enriched.result.products.length > 0) {
-        const enrichedByHandle = new Map(enriched.result.products.map((product) => [product.handle, product]));
-        execution.shopifyResult = enriched.result;
-        execution.candidates = execution.candidates.map((candidate) =>
-          candidate.shopifyProduct === undefined
-            ? candidate
-            : {
-                ...candidate,
-                shopifyProduct: enrichedByHandle.get(candidate.shopifyProduct.handle) ?? candidate.shopifyProduct
-              }
-        );
-      }
-      const shopifyResponse = shopifyResult(enriched.result, {
-        ...(input.zipCode === undefined ? {} : { zipCode: input.zipCode }),
-        membershipIds: input.membershipIds ?? []
-      }, affiliateLinks, {
-        attempted: enriched.attempted,
-        succeeded: enriched.succeeded
-      });
-      const response = unifiedResult(execution, input, shopifyResponse, {
-        attempted: enriched.attempted,
-        succeeded: enriched.succeeded
-      });
+      const execution = await runUnifiedSearch(input);
+      const { response, enriched } = await buildUnifiedResponse(input, execution);
       process.stderr.write(`[findcheap-search-debug] ${JSON.stringify({
         recordedAt: now().toISOString(),
         sourceStatus: execution.sourceStatus,
@@ -1918,6 +1985,168 @@ export function createShoppingServer(
         selectionMode: input.selectionMode,
         chromeFallbackEligible: execution.chromeFallbackEligible
       })}\n`);
+      if (response.structuredContent.products.length === 0) return response;
+      const preflight = await preflightQuoteCapabilities(response.structuredContent);
+      const content = rememberSnapshot(preflight.content, enriched.result, preflight.resolvedAwinProducts);
+      const selectionReferences = content.products
+        .map((product, index) => `${index + 1}=${product.selectionId}`)
+        .join(", ");
+      return {
+        ...response,
+        content: [{
+          type: "text" as const,
+          text: `${response.content[0]!.text}\nSelections: ${selectionReferences}. Reuse selectionId; never search titles.`
+        }],
+        structuredContent: content
+      };
+    }
+  );
+
+  server.registerTool(
+    "search_visual_candidates",
+    {
+      title: "Search visual candidates",
+      description: "First stage for a newly attached product image. Inspect the user's image, pass structured visualInput, and call once. The tool returns at most six labeled candidate images from current product sources. Compare the reference image with every returned candidate image, then call finalize_visual_search with structured matches and conflicts. Do not present these candidates as recommendations yet. Do not use this tool for text-only, Watch, or batch searches.",
+      inputSchema: VisualCandidateSearchInputSchema,
+      outputSchema: VisualCandidateOutputShape,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true
+      },
+      _meta: {
+        "openai/toolInvocation/invoking": "Finding visual candidates…",
+        "openai/toolInvocation/invoked": "Visual candidates ready for review."
+      }
+    },
+    async (rawInput) => {
+      const parsed = VisualCandidateSearchInputSchema.parse(rawInput);
+      if (parsed.contextMode === "AMBIGUOUS") {
+        throw new Error("VISUAL_CONTEXT_AMBIGUOUS");
+      }
+      if (parsed.visualInput.productType === undefined && parsed.productType === undefined) {
+        throw new Error("VISUAL_PRODUCT_TYPE_REQUIRED");
+      }
+      if (visualCandidateImages === undefined) {
+        const message = "Candidate-image loading is unavailable. Use text search or try again after the plugin restarts.";
+        return {
+          content: [{ type: "text" as const, text: message }],
+          structuredContent: { status: "DATA_SOURCE_UNAVAILABLE" as const, message, candidates: [] }
+        };
+      }
+      const searchInput: SearchProductsInput = {
+        ...parsed,
+        limit: MAX_VISUAL_CANDIDATES,
+        allowAlternatives: true
+      };
+      const execution = await runUnifiedSearch(searchInput);
+      const attempted = execution.candidates
+        .flatMap((candidate) => candidateImageUrl(candidate) === undefined ? [] : [candidate])
+        .slice(0, MAX_VISUAL_CANDIDATES);
+      const loaded = await Promise.all(attempted.map(async (candidate) => {
+        const imageUrl = candidateImageUrl(candidate)!;
+        try {
+          return { candidate, image: await visualCandidateImages.load(imageUrl) };
+        } catch {
+          return undefined;
+        }
+      }));
+      const available = loaded.filter((entry) => entry !== undefined);
+      if (available.length === 0) {
+        const message = "No safely loadable candidate images were available. No visual recommendation was produced.";
+        return {
+          content: [{ type: "text" as const, text: message }],
+          structuredContent: { status: "NO_IMAGE_CANDIDATES" as const, message, candidates: [] }
+        };
+      }
+      pruneVisualSearchSnapshots();
+      const visualSessionId = randomUUID();
+      const expiresAtMs = now().getTime() + VISUAL_SEARCH_SNAPSHOT_TTL_MS;
+      const candidateEntries = available.map(({ candidate, image }) => ({
+        candidateId: randomUUID(),
+        candidate,
+        image
+      }));
+      const candidateMap = new Map(candidateEntries.map((entry) => [entry.candidateId, entry.candidate]));
+      visualSearchSnapshots.set(visualSessionId, {
+        expiresAt: expiresAtMs,
+        input: { ...searchInput, limit: 3, allowAlternatives: parsed.allowAlternatives },
+        execution: { ...execution, candidates: candidateEntries.map((entry) => entry.candidate) },
+        candidates: candidateMap
+      });
+      pruneVisualSearchSnapshots();
+      const message = `Review all ${candidateEntries.length} labeled candidate images against the user's reference image. Then call finalize_visual_search once with visualSessionId ${visualSessionId}.`;
+      return {
+        content: [
+          { type: "text" as const, text: message },
+          ...candidateEntries.flatMap((entry, index) => [
+            {
+              type: "text" as const,
+              text: `Candidate ${index + 1} | ${entry.candidateId} | ${candidateTitle(entry.candidate)} | ${candidateMerchant(entry.candidate)}`
+            },
+            { type: "image" as const, data: entry.image.data, mimeType: entry.image.mimeType }
+          ])
+        ],
+        structuredContent: {
+          status: "OK" as const,
+          message,
+          visualSessionId,
+          expiresAt: new Date(expiresAtMs).toISOString(),
+          candidates: candidateEntries.map((entry) => ({
+            candidateId: entry.candidateId,
+            title: candidateTitle(entry.candidate),
+            merchant: candidateMerchant(entry.candidate),
+            source: entry.candidate.source,
+            mimeType: entry.image.mimeType
+          }))
+        }
+      };
+    }
+  );
+
+  server.registerTool(
+    "finalize_visual_search",
+    {
+      title: "Finalize visual search",
+      description: "Second and final stage for interactive image search. Use only candidate IDs and images returned by search_visual_candidates. Report directly visible matching and conflicting attributes. A visual verdict can exclude or rerank candidates, but cannot create EXACT identity. The visual session is immutable, expires after ten minutes, and can be finalized only once.",
+      inputSchema: FinalizeVisualSearchInputSchema,
+      outputSchema: ShopifyProductsOutputShape,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false
+      },
+      _meta: {
+        ui: { resourceUri: PRODUCT_CARD_UI_URI },
+        "openai/outputTemplate": PRODUCT_CARD_UI_URI,
+        "openai/toolInvocation/invoking": "Validating visual matches…",
+        "openai/toolInvocation/invoked": "Verified visual matches ready."
+      }
+    },
+    async (rawInput) => {
+      const input = FinalizeVisualSearchInputSchema.parse(rawInput);
+      pruneVisualSearchSnapshots();
+      const snapshot = visualSearchSnapshots.get(input.visualSessionId);
+      if (snapshot === undefined || snapshot.expiresAt <= now().getTime()) {
+        visualSearchSnapshots.delete(input.visualSessionId);
+        throw new Error("VISUAL_SESSION_EXPIRED");
+      }
+      const reviewed: Array<{ candidate: UnifiedCandidate; verdict: CodexVisualVerdict }> = [];
+      for (const entry of input.verdicts) {
+        const candidate = snapshot.candidates.get(entry.candidateId);
+        if (candidate === undefined) throw new Error("VISUAL_CANDIDATE_NOT_IN_SESSION");
+        reviewed.push({ candidate, verdict: entry.verdict });
+      }
+      visualSearchSnapshots.delete(input.visualSessionId);
+      const finalCandidates = finalizeCodexVisualCandidates(
+        reviewed,
+        snapshot.input.allowAlternatives,
+        snapshot.input.limit
+      );
+      const execution: UnifiedSearchExecution = { ...snapshot.execution, candidates: finalCandidates };
+      const { response, enriched } = await buildUnifiedResponse(snapshot.input, execution);
       if (response.structuredContent.products.length === 0) return response;
       const preflight = await preflightQuoteCapabilities(response.structuredContent);
       const content = rememberSnapshot(preflight.content, enriched.result, preflight.resolvedAwinProducts);

@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { AwinProductPort } from "../../../packages/awin-feed/src/index.js";
 import {
   SearchProductsInputSchema,
+  finalizeCodexVisualCandidates,
   resolveSearchIntent,
   shouldQueryAwin,
   searchProducts
@@ -907,6 +908,132 @@ describe("unified product search", () => {
         expect.objectContaining({ acceptedCandidates: 1 })
       ]
     }));
+  });
+
+  it("reranks visual candidates from structured Codex evidence without creating exact identity", async () => {
+    const first = shopifyProduct("first", 4_000, "NEW", {
+      title: "Blue floral sleeveless square neck dress",
+      productType: "Dresses",
+      description: "Blue floral sleeveless square neck mini dress",
+      imageUrl: "https://cdn.example/first.jpg"
+    });
+    const second = shopifyProduct("second", 4_500, "NEW", {
+      title: "Blue floral sleeveless square neck dress two",
+      productType: "Dresses",
+      description: "Blue floral sleeveless square neck mini dress",
+      imageUrl: "https://cdn.example/second.jpg"
+    });
+    const result = await searchProducts(SearchProductsInputSchema.parse({
+      query: "blue floral mini dress",
+      visualInput: {
+        imageUrl: "https://uploads.example/reference.jpg",
+        productType: "women's dress",
+        colors: ["blue"],
+        patterns: ["floral"],
+        length: "mini",
+        neckline: "square neck",
+        sleeveType: "sleeveless",
+        hardClues: ["square neck", "sleeveless"]
+      }
+    }), { awin: awin([]), shopify: shopify([first, second]) });
+    const byHandle = new Map(result.candidates.map((candidate) => [candidate.shopifyProduct?.handle, candidate]));
+    const finalized = finalizeCodexVisualCandidates([
+      {
+        candidate: byHandle.get("second")!,
+        verdict: {
+          classification: "POSSIBLE_SAME_ITEM",
+          matches: [
+            { attribute: "NECKLINE", referenceEvidence: "square", candidateEvidence: "square" },
+            { attribute: "PATTERN", referenceEvidence: "floral", candidateEvidence: "floral" },
+            { attribute: "SLEEVE", referenceEvidence: "sleeveless", candidateEvidence: "sleeveless" }
+          ],
+          conflicts: []
+        }
+      },
+      {
+        candidate: byHandle.get("first")!,
+        verdict: {
+          classification: "HIGHLY_SIMILAR",
+          matches: [
+            { attribute: "NECKLINE", referenceEvidence: "square", candidateEvidence: "square" },
+            { attribute: "COLOR", referenceEvidence: "blue", candidateEvidence: "blue" }
+          ],
+          conflicts: []
+        }
+      }
+    ], false);
+
+    expect(finalized.map((candidate) => candidate.shopifyProduct?.handle)).toEqual(["second", "first"]);
+    expect(finalized[0]).toMatchObject({
+      visualMatchGroup: "POSSIBLE_SAME_ITEM",
+      identityStatus: "DISCOVERY_MATCH"
+    });
+  });
+
+  it("excludes a candidate when image verification reports a visual conflict", async () => {
+    const conflicting = shopifyProduct("conflict", 4_000, "NEW", {
+      title: "Blue floral sleeveless square neck dress",
+      productType: "Dresses",
+      description: "Blue floral sleeveless square neck mini dress",
+      imageUrl: "https://cdn.example/conflict.jpg"
+    });
+    const result = await searchProducts(SearchProductsInputSchema.parse({
+      query: "blue floral mini dress",
+      visualInput: {
+        imageUrl: "https://uploads.example/reference.jpg",
+        productType: "women's dress",
+        colors: ["blue"],
+        patterns: ["floral"],
+        hardClues: ["square neck", "sleeveless"]
+      }
+    }), { awin: awin([]), shopify: shopify([conflicting]) });
+    const finalized = finalizeCodexVisualCandidates([{
+      candidate: result.candidates[0]!,
+      verdict: {
+        classification: "CONFLICT",
+        matches: [],
+        conflicts: [{
+          attribute: "SLEEVE",
+          referenceEvidence: "sleeveless",
+          candidateEvidence: "long sleeve"
+        }]
+      }
+    }], false);
+
+    expect(finalized).toEqual([]);
+  });
+
+  it("requires two unique visual attributes for a high-similarity result", async () => {
+    const product = shopifyProduct("fallback", 4_000, "NEW", {
+      title: "Blue floral sleeveless square neck dress",
+      productType: "Dresses",
+      description: "Blue floral sleeveless square neck mini dress",
+      imageUrl: "https://cdn.example/fallback.jpg"
+    });
+    const result = await searchProducts(SearchProductsInputSchema.parse({
+      query: "blue floral mini dress",
+      visualInput: {
+        imageUrl: "https://uploads.example/reference.jpg",
+        productType: "women's dress",
+        colors: ["blue"],
+        patterns: ["floral"],
+        hardClues: ["square neck", "sleeveless"]
+      }
+    }), { awin: awin([]), shopify: shopify([product]) });
+    const reviewed = [{
+      candidate: result.candidates[0]!,
+      verdict: {
+        classification: "HIGHLY_SIMILAR" as const,
+        matches: [{ attribute: "COLOR" as const, referenceEvidence: "blue", candidateEvidence: "blue" }],
+        conflicts: []
+      }
+    }];
+
+    expect(finalizeCodexVisualCandidates(reviewed, false)).toEqual([]);
+    expect(finalizeCodexVisualCandidates(reviewed, true)[0]).toMatchObject({
+      visualMatchGroup: "SAME_STYLE",
+      identityStatus: "SIMILAR"
+    });
   });
 
   it("progressively broadens an official storefront query until a usable product is found", async () => {

@@ -4,7 +4,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ComparisonResult } from "../../../packages/contracts/src/index.js";
 import {
   MAX_PRODUCT_SELECTION_SNAPSHOTS,
+  MAX_VISUAL_CANDIDATES,
+  MAX_VISUAL_SEARCH_SNAPSHOTS,
   PRODUCT_SELECTION_SNAPSHOT_TTL_MS,
+  VISUAL_SEARCH_SNAPSHOT_TTL_MS,
   createShoppingServer,
   createUnavailableComparePort,
   type ComparePort,
@@ -155,6 +158,11 @@ describe("shopping MCP server", () => {
     expect(PRODUCT_SELECTION_SNAPSHOT_TTL_MS).toBe(2 * 60 * 60_000);
     expect(MAX_PRODUCT_SELECTION_SNAPSHOTS).toBe(128);
   });
+  it("bounds interactive visual sessions", () => {
+    expect(VISUAL_SEARCH_SNAPSHOT_TTL_MS).toBe(10 * 60_000);
+    expect(MAX_VISUAL_CANDIDATES).toBe(6);
+    expect(MAX_VISUAL_SEARCH_SNAPSHOTS).toBe(32);
+  });
   it("binds product cards directly to Shopify search and hides legacy rendering from the model", async () => {
     const client = await connect({ compare: async () => comparison });
 
@@ -165,12 +173,12 @@ describe("shopping MCP server", () => {
     const renderTool = tools.tools.find((candidate) => candidate.name === "render_product_cards");
     const metricsTool = tools.tools.find((candidate) => candidate.name === "report_product_card_metrics");
     expect(searchTool?._meta).toMatchObject({
-      ui: { resourceUri: "ui://findcheap/product-cards/v28.html" },
-      "openai/outputTemplate": "ui://findcheap/product-cards/v28.html"
+      ui: { resourceUri: "ui://findcheap/product-cards/v29.html" },
+      "openai/outputTemplate": "ui://findcheap/product-cards/v29.html"
     });
     expect(renderTool?._meta).toMatchObject({
       ui: {
-        resourceUri: "ui://findcheap/product-cards/v28.html",
+        resourceUri: "ui://findcheap/product-cards/v29.html",
         visibility: ["app"]
       }
     });
@@ -187,11 +195,11 @@ describe("shopping MCP server", () => {
     const resources = await client.listResources();
     expect(resources.resources).toEqual([expect.objectContaining({
       name: "findcheap-product-cards",
-      uri: "ui://findcheap/product-cards/v28.html",
+      uri: "ui://findcheap/product-cards/v29.html",
       mimeType: "text/html;profile=mcp-app"
     })]);
 
-    const resource = await client.readResource({ uri: "ui://findcheap/product-cards/v28.html" });
+    const resource = await client.readResource({ uri: "ui://findcheap/product-cards/v29.html" });
     const content = resource.contents[0];
     const html = content !== undefined && "text" in content ? content.text : "";
     expect(html).toContain("ui/notifications/tool-result");
@@ -226,6 +234,8 @@ describe("shopping MCP server", () => {
 
     expect(tools.tools.map((tool) => tool.name)).toEqual([
       "search_products",
+      "search_visual_candidates",
+      "finalize_visual_search",
       "compare_products",
       "search_shopify_products",
       "search_awin_products",
@@ -268,16 +278,9 @@ describe("shopping MCP server", () => {
     expect(unifiedTool?.description).toContain("Commercial relationships never affect relevance or ranking");
     expect(unifiedTool?.description).toContain("maxItemPriceCents");
     expect(unifiedTool?.description).toContain("objective must-have attributes in requiredFeatures");
-    expect(unifiedTool?.description).toContain("For an attached product image or screenshot");
-    expect(unifiedTool?.description).toContain("hardClues");
-    expect(unifiedTool?.description).toContain("softClues");
-    expect(unifiedTool?.description).toContain("negativeClues");
-    expect(unifiedTool?.description).toContain("Official identity never bypasses visual relevance");
     expect(unifiedTool?.description).toContain("brandMode=REQUIRED");
     expect(unifiedTool?.description).toContain("Never put a brand in productType or requiredFeatures");
-    expect(unifiedTool?.description).toContain("visual search remains DISCOVERY");
-    expect(unifiedTool?.description).toContain("possible same item, highly similar, then same style");
-    expect(unifiedTool?.description).toContain("single product-search entrypoint");
+    expect(unifiedTool?.description).toContain("Text-only product-search entrypoint");
     expect(unifiedTool?.description).toContain("English request means English only");
     expect(unifiedTool?.description).toContain("Chinese request means Chinese only");
     expect(unifiedTool?.description).toContain("Searching for suitable products.");
@@ -285,6 +288,12 @@ describe("shopping MCP server", () => {
     expect(unifiedTool?.description).toContain("Do not read Memory, Skill files, repository files");
     expect(unifiedTool?.description).toContain("Missing soft evidence remains a limitation-labeled DISCOVERY_MATCH");
     expect(unifiedTool?.description).not.toContain("call render_product_cards");
+    const visualCandidateTool = tools.tools.find((tool) => tool.name === "search_visual_candidates");
+    expect(visualCandidateTool?.description).toContain("at most six labeled candidate images");
+    expect(visualCandidateTool?.description).toContain("Do not use this tool for text-only, Watch, or batch searches");
+    const visualFinalizeTool = tools.tools.find((tool) => tool.name === "finalize_visual_search");
+    expect(visualFinalizeTool?.description).toContain("cannot create EXACT identity");
+    expect(visualFinalizeTool?.description).toContain("finalized only once");
     expect(tools.tools.find((tool) => tool.name === "compare_products")?._meta)
       .toMatchObject({ ui: { visibility: ["app"] } });
     const awinTool = tools.tools.find((tool) => tool.name === "search_awin_products");
@@ -456,7 +465,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.13.2",
+        version: "0.14.0",
         terminalStage: "DOM_RENDERED",
         stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
       }
@@ -465,7 +474,7 @@ describe("shopping MCP server", () => {
     expect(result.structuredContent).toEqual({ status: "RECORDED" });
     expect(record).toHaveBeenCalledWith(expect.objectContaining({
       renderId,
-      version: "0.13.2",
+      version: "0.14.0",
       terminalStage: "DOM_RENDERED",
       stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
     }));
@@ -473,7 +482,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.13.2",
+        version: "0.14.0",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 14 }
       }
@@ -483,7 +492,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.13.2",
+        version: "0.14.0",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 300_001 }
       }
@@ -494,7 +503,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId: "22222222-2222-4222-8222-222222222222",
-        version: "0.13.2",
+        version: "0.14.0",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 1 }
       }
@@ -1265,6 +1274,102 @@ describe("Coupon and Watch tools", () => {
     expect(JSON.stringify(result.structuredContent)).not.toMatch(/history|cadence|BUY_NOW|WAIT/u);
     expect((await client.callTool({ name: "list_watches", arguments: {} })).structuredContent)
       .toEqual({ watches: [] });
+  });
+
+  it("uses one immutable visual session to review candidate images before rendering cards", async () => {
+    const visualShopify: ShopifyPort = {
+      search: async (input) => {
+        const result = await shopifyPort.search(input);
+        return {
+          ...result,
+          products: result.products.map((product) => ({
+            ...product,
+            imageUrl: "https://cdn.shopify.com/product.jpg",
+            productType: "coffee pods",
+            description: "single serve coffee pods"
+          }))
+        };
+      }
+    };
+    const load = vi.fn(async () => ({
+      data: Buffer.from("candidate-image").toString("base64"),
+      mimeType: "image/jpeg" as const
+    }));
+    const client = await connect(
+      { compare: async () => comparison },
+      visualShopify,
+      undefined,
+      { visualCandidateImages: { load } }
+    );
+    const first = await client.callTool({
+      name: "search_visual_candidates",
+      arguments: {
+        query: "Valhalla Java single serve pods",
+        productType: "coffee pods",
+        visualInput: {
+          productType: "coffee pods",
+          colors: ["black"],
+          hardClues: ["single serve pods"]
+        }
+      }
+    });
+    expect(first.isError).not.toBe(true);
+    expect(first.content).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "image", mimeType: "image/jpeg" })
+    ]));
+    const structured = first.structuredContent as {
+      visualSessionId: string;
+      candidates: Array<{ candidateId: string }>;
+    };
+    expect(structured.candidates).toHaveLength(1);
+    expect(load).toHaveBeenCalledTimes(1);
+
+    const invalid = await client.callTool({
+      name: "finalize_visual_search",
+      arguments: {
+        visualSessionId: structured.visualSessionId,
+        verdicts: [{
+          candidateId: "11111111-1111-4111-8111-111111111111",
+          verdict: { classification: "HIGHLY_SIMILAR", matches: [], conflicts: [] }
+        }]
+      }
+    });
+    expect(invalid.isError).toBe(true);
+
+    const finalized = await client.callTool({
+      name: "finalize_visual_search",
+      arguments: {
+        visualSessionId: structured.visualSessionId,
+        verdicts: [{
+          candidateId: structured.candidates[0]!.candidateId,
+          verdict: {
+            classification: "HIGHLY_SIMILAR",
+            matches: [
+              { attribute: "PRODUCT_TYPE", referenceEvidence: "coffee pods", candidateEvidence: "coffee pods" },
+              { attribute: "DISTINCTIVE_DETAIL", referenceEvidence: "single serve", candidateEvidence: "single serve" }
+            ],
+            conflicts: []
+          }
+        }]
+      }
+    });
+    expect(finalized.isError).not.toBe(true);
+    expect(finalized.structuredContent).toMatchObject({
+      status: "OK",
+      products: [{ visualMatchGroup: "HIGHLY_SIMILAR", selectionId: expect.any(String) }]
+    });
+
+    const reused = await client.callTool({
+      name: "finalize_visual_search",
+      arguments: {
+        visualSessionId: structured.visualSessionId,
+        verdicts: [{
+          candidateId: structured.candidates[0]!.candidateId,
+          verdict: { classification: "SAME_STYLE", matches: [], conflicts: [] }
+        }]
+      }
+    });
+    expect(reused.isError).toBe(true);
   });
 
   it("renders an official-store fallback card when the catalog source is unavailable", async () => {

@@ -115,6 +115,39 @@ export type UnifiedCandidate = CandidateBase & (
   | { source: "EBAY_BROWSE"; awinProduct?: undefined; shopifyProduct?: undefined; ebayProduct: EbayProduct }
 );
 
+export const VisualEvidenceAttributeSchema = z.enum([
+  "PRODUCT_TYPE",
+  "SILHOUETTE",
+  "NECKLINE",
+  "SLEEVE",
+  "CLOSURE",
+  "COLLAR",
+  "WAIST",
+  "HEM",
+  "LENGTH",
+  "PATTERN",
+  "PRINT_PLACEMENT",
+  "COLOR",
+  "MATERIAL",
+  "VISIBLE_TEXT",
+  "DISTINCTIVE_DETAIL",
+  "MODEL_STYLE_NUMBER"
+]);
+
+const VisualEvidencePairSchema = z.object({
+  attribute: VisualEvidenceAttributeSchema,
+  referenceEvidence: z.string().trim().min(1).max(160),
+  candidateEvidence: z.string().trim().min(1).max(160)
+}).strict();
+
+export const CodexVisualVerdictSchema = z.object({
+  classification: z.enum(["POSSIBLE_SAME_ITEM", "HIGHLY_SIMILAR", "SAME_STYLE", "CONFLICT"]),
+  matches: z.array(VisualEvidencePairSchema).max(16).default([]),
+  conflicts: z.array(VisualEvidencePairSchema).max(16).default([])
+}).strict();
+
+export type CodexVisualVerdict = z.infer<typeof CodexVisualVerdictSchema>;
+
 export type UnifiedSearchExecution = {
   candidates: UnifiedCandidate[];
   awinResult?: AwinSearchResult;
@@ -163,6 +196,44 @@ export type UnifiedSearchExecution = {
   searchIntent: ProductSearchIntent;
   chromeFallbackEligible: boolean;
 };
+
+export function finalizeCodexVisualCandidates(
+  reviewed: Array<{ candidate: UnifiedCandidate; verdict: CodexVisualVerdict }>,
+  allowAlternatives: boolean,
+  limit = 3
+): UnifiedCandidate[] {
+  const accepted = reviewed.flatMap(({ candidate, verdict }) => {
+    if (verdict.classification === "CONFLICT" || verdict.conflicts.length > 0) return [];
+    const uniqueMatches = new Map(verdict.matches.map((entry) => [entry.attribute, entry]));
+    const matchCount = uniqueMatches.size;
+    const group: VisualMatchGroup = verdict.classification === "POSSIBLE_SAME_ITEM" && matchCount >= 3
+      ? "POSSIBLE_SAME_ITEM"
+      : (verdict.classification === "POSSIBLE_SAME_ITEM" || verdict.classification === "HIGHLY_SIMILAR") && matchCount >= 2
+        ? "HIGHLY_SIMILAR"
+        : "SAME_STYLE";
+    if (group === "SAME_STYLE" && !allowAlternatives) return [];
+    const visualEvidence = [...uniqueMatches.values()].map((entry) =>
+      `Codex visual match ${entry.attribute}: ${entry.referenceEvidence} | ${entry.candidateEvidence}`
+    );
+    const stableExact = candidate.identityStatus === "EXACT";
+    return [{
+      ...candidate,
+      visualMatchGroup: group,
+      visualMatchEvidence: unique([...(candidate.visualMatchEvidence ?? []), ...visualEvidence]),
+      visualMatchScore: visualGroupScore(group) + Math.min(matchCount, 16),
+      identityEvidence: unique([...candidate.identityEvidence, ...visualEvidence]),
+      identityStatus: stableExact ? "EXACT" as const : group === "SAME_STYLE" ? "SIMILAR" as const : "DISCOVERY_MATCH" as const,
+      resultGroup: stableExact ? candidate.resultGroup : visualResultGroup(group)
+    }];
+  }).sort(compareRankedCandidates);
+  return selectPresentationCandidates(
+    accepted,
+    limit,
+    "MERCHANT_DIVERSE",
+    allowAlternatives,
+    true
+  ).slice(0, limit);
+}
 
 export function shouldQueryAwin(query: string): boolean {
   return query.normalize("NFKC").trim().length >= 2;
@@ -495,6 +566,28 @@ export async function searchProducts(
     searchIntent,
     chromeFallbackEligible
   };
+}
+
+function visualGroupScore(group: VisualMatchGroup): number {
+  if (group === "POSSIBLE_SAME_ITEM") return 100;
+  if (group === "HIGHLY_SIMILAR") return 70;
+  return 40;
+}
+
+function visualResultGroup(group: VisualMatchGroup): CandidateBase["resultGroup"] {
+  if (group === "POSSIBLE_SAME_ITEM") return "REQUESTED_PRODUCT";
+  if (group === "HIGHLY_SIMILAR") return "DISCOVERY";
+  return "ALTERNATIVE";
+}
+
+export function candidateImageUrl(candidate: UnifiedCandidate): string | undefined {
+  if (candidate.source === "AWIN_PRODUCT_FEED") return candidate.awinProduct.imageUrl;
+  if (candidate.source === "EBAY_BROWSE") return candidate.ebayProduct.imageUrl;
+  return candidate.shopifyProduct.imageUrl;
+}
+
+export function candidateTitle(candidate: UnifiedCandidate): string {
+  return title(candidate);
 }
 
 function sourcePassDiagnostic(
@@ -1084,7 +1177,7 @@ function isCoupon(deal: VerifiedDeal): boolean {
   return deal.kind === "COUPON" || deal.kind === "PROMO_CODE" || deal.kind === "BRAND_PROMOTION";
 }
 
-function candidateMerchant(candidate: UnifiedCandidate): string {
+export function candidateMerchant(candidate: UnifiedCandidate): string {
   if (candidate.source === "AWIN_PRODUCT_FEED") return candidate.awinProduct.merchant;
   if (candidate.source === "EBAY_BROWSE") return "eBay";
   return candidate.shopifyProduct.merchant;

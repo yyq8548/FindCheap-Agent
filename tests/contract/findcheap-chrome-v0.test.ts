@@ -64,7 +64,9 @@ describe("FindCheap Agent plugin contract", () => {
     expect(skill).toContain("Never describe `UNKNOWN` condition as new or pad three cards");
     expect(skill).toContain("`matchEvidence`");
     expect(skill).toContain("`variantDimensions`");
-    expect(skill).toContain("Always pass `limit: 3`");
+    expect(skill).toContain("For text search always pass `limit: 3`");
+    expect(skill).toContain("call `search_visual_candidates` once");
+    expect(skill).toContain("call `finalize_visual_search` once");
     expect(skill).toContain("Pass ceilings in integer cents");
     expect(skill).toContain("objective must-haves in `requiredFeatures`");
     expect(skill).toContain("`brandMode: REQUIRED`");
@@ -162,7 +164,7 @@ describe("FindCheap Agent plugin contract", () => {
     };
 
     expect(manifest.name).toBe("findcheap-agent");
-    expect(manifest.version).toMatch(/^0\.13\.2(?:\+codex\.)?/u);
+    expect(manifest.version).toMatch(/^0\.14\.0(?:\+codex\.)?/u);
     expect(manifest.interface.displayName).toBe("FindCheap Agent");
     expect(manifest.interface.longDescription).toMatch(/Codex Plugin Agent/u);
     expect(manifest.interface.longDescription).toMatch(/[Aa]uthorized.*Chrome/u);

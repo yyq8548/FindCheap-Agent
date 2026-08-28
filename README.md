@@ -71,9 +71,11 @@ Results use three match labels:
 
 ### Visual product discovery
 
-For an attached product image or screenshot, Codex extracts only visible product type, brand or logo text, model/style clues, color, material, pattern, silhouette, and length. The same `search_products` router searches eligible sources and keeps results in three visibly separate groups: `POSSIBLE_SAME_ITEM`, `HIGHLY_SIMILAR`, and `SAME_STYLE`.
+For an attached product image or screenshot, Codex separates direct observations from lower-confidence inferences. It can record product type, brand or logo text, model/style clues, color, material, pattern, silhouette, length, neckline, sleeve, closure, collar, waist, hem, print details, visible text, distinctive construction, image quality, and occlusion. Interactive image search uses two bounded steps: `search_visual_candidates` returns at most six safely loaded candidate images, then the current Codex model compares them with the user's image and submits structured evidence to `finalize_visual_search`. Text search continues to use one `search_products` call; Watch and batch checks do not perform image reranking.
 
-Visual similarity is not exact product identity. A visual result remains `DISCOVERY_MATCH` or `SIMILAR` unless a stable model, style number, SKU, or GTIN independently confirms identity. If the image lacks one decision-critical detail, the agent asks at most one compact clarification about product type, size, budget, color, or occasion. The v0.12 matcher is covered by 30 visual-attribute Golden Tasks with an 80% minimum grouping gate; live human-rated screenshot relevance remains a release evaluation metric rather than an automatic identity claim.
+The finalizer accepts only candidate IDs from one immutable, ten-minute, single-use visual session. Conflicts exclude candidates; `POSSIBLE_SAME_ITEM` requires at least three distinct matching attributes and `HIGHLY_SIMILAR` requires at least two. Weaker evidence becomes `SAME_STYLE` and is hidden unless the user requested alternatives. This local Codex-assisted flow does not require an external visual model or visual-service credentials.
+
+Visual similarity is not exact product identity. A visual result remains `DISCOVERY_MATCH` or `SIMILAR` unless a stable model, style number, SKU, or GTIN independently confirms identity. If the image lacks one decision-critical detail, the agent asks at most one compact clarification about product type, size, budget, color, or occasion. The matcher is covered by 30 visual-attribute Golden Tasks with a 95% minimum grouping gate; live human-rated screenshot relevance remains a release evaluation metric rather than an automatic identity claim.
 
 ### Result reliability
 

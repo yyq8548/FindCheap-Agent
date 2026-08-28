@@ -43,7 +43,7 @@ function nodes(node: FakeNode): FakeNode[] {
 
 describe("product-card MCP Apps UI", () => {
   it("uses an embedded Codex-native surface with responsive cards", () => {
-    expect(PRODUCT_CARD_UI_URI).toBe("ui://findcheap/product-cards/v28.html");
+    expect(PRODUCT_CARD_UI_URI).toBe("ui://findcheap/product-cards/v29.html");
     expect(PRODUCT_CARD_HTML).toContain("--fc-surface:");
     expect(PRODUCT_CARD_HTML).toContain("background: var(--fc-action);");
     expect(PRODUCT_CARD_HTML).toContain("@media (max-width: 640px)");
@@ -89,6 +89,7 @@ describe("product-card MCP Apps UI", () => {
           merchant: "Fixture Merchant",
           title: "Fixture Product",
           matchStatus: "EXACT",
+          visualMatchEvidence: ["candidate-image similarity: 0.91", "same neckline", "same print placement"],
           requiredFeatureLimitations: ["genuine leather"],
           preferenceEvidence: ["daily wear"],
           condition: "UNKNOWN",
@@ -138,7 +139,7 @@ describe("product-card MCP Apps UI", () => {
       params: expect.objectContaining({
         name: "report_product_card_metrics",
         arguments: expect.objectContaining({
-          version: "0.13.2",
+          version: "0.14.0",
           terminalStage: "DOM_RENDERED",
           stages: expect.objectContaining({ DOM_RENDERED: expect.any(Number) })
         })
@@ -147,6 +148,8 @@ describe("product-card MCP Apps UI", () => {
     expect(messages.some((message) => message.method === "notifications/message")).toBe(false);
     expect(text(app)).toContain("Not verified: genuine leather");
     expect(text(app)).toContain("Preference match: daily wear");
+    expect(text(app)).toContain("Visual evidence: same neckline; same print placement");
+    expect(text(app)).not.toContain("candidate-image similarity");
     expect(text(app)).toContain("eBay Sandbox review only. This test link does not earn a commission.");
   });
 
@@ -531,7 +534,7 @@ describe("product-card MCP Apps UI", () => {
       method: "ui/initialize",
       params: {
         protocolVersion: "2026-01-26",
-        appInfo: { name: "FindCheap Agent product cards", version: "0.13.2" },
+        appInfo: { name: "FindCheap Agent product cards", version: "0.14.0" },
         appCapabilities: { availableDisplayModes: ["inline"] }
       }
     });

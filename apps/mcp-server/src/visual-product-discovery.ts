@@ -1,6 +1,12 @@
 import { z } from "zod";
 
 const VisualTextSchema = z.string().trim().min(1).max(100);
+const VisualObservationSchema = z.object({
+  attribute: VisualTextSchema,
+  value: VisualTextSchema,
+  confidence: z.number().min(0).max(1),
+  evidence: VisualTextSchema.optional()
+}).strict();
 const HttpsEvidenceUrlSchema = z.string().url().max(4_096).refine((value) => {
   const url = new URL(value);
   return url.protocol === "https:" && url.username === "" && url.password === "";
@@ -18,6 +24,20 @@ export const VisualProductInputSchema = z.object({
   patterns: z.array(VisualTextSchema).max(4).default([]),
   silhouette: VisualTextSchema.optional(),
   length: VisualTextSchema.optional(),
+  neckline: VisualTextSchema.optional(),
+  sleeveType: VisualTextSchema.optional(),
+  closure: VisualTextSchema.optional(),
+  collar: VisualTextSchema.optional(),
+  waist: VisualTextSchema.optional(),
+  hem: VisualTextSchema.optional(),
+  printDescription: VisualTextSchema.optional(),
+  distinctiveDetails: z.array(VisualTextSchema).max(12).optional(),
+  visibleText: z.array(VisualTextSchema).max(8).optional(),
+  styleNumberCandidates: z.array(VisualTextSchema).max(6).optional(),
+  imageQuality: z.enum(["HIGH", "MEDIUM", "LOW"]).optional(),
+  occlusions: z.array(VisualTextSchema).max(8).optional(),
+  observations: z.array(VisualObservationSchema).max(24).optional(),
+  inferences: z.array(VisualObservationSchema).max(12).optional(),
   styleClues: z.array(VisualTextSchema).max(12).default([]),
   hardClues: z.array(VisualTextSchema).max(12).optional(),
   softClues: z.array(VisualTextSchema).max(12).optional(),
@@ -138,8 +158,10 @@ export function classifyVisualProduct(
   const brandMatched = brandClue !== undefined && matches(fullText, brandClue);
   if (brandMatched) evidence.push(`brand/logo matched: ${brandClue}`);
 
-  const modelMatched = visual.modelOrStyleNumber !== undefined && matches(fullText, visual.modelOrStyleNumber);
-  if (modelMatched) evidence.push(`model/style matched: ${visual.modelOrStyleNumber}`);
+  const matchedStyleNumber = [visual.modelOrStyleNumber, ...(visual.styleNumberCandidates ?? [])]
+    .find((value) => value !== undefined && matches(fullText, value));
+  const modelMatched = matchedStyleNumber !== undefined;
+  if (matchedStyleNumber !== undefined) evidence.push(`model/style matched: ${matchedStyleNumber}`);
 
   for (const [label, values] of hardVisualAttributes(visual)) {
     for (const value of values) {
@@ -187,8 +209,14 @@ export function visualSearchTerms(visual: VisualProductInput): string[] {
   const details = unique([
     ...(visual.hardClues ?? []),
     (visual.patterns ?? [])[0],
+    visual.printDescription,
     visual.silhouette,
     visual.length,
+    visual.neckline,
+    visual.sleeveType,
+    (visual.distinctiveDetails ?? [])[0],
+    (visual.visibleText ?? [])[0],
+    (visual.styleNumberCandidates ?? [])[0],
     (visual.colors ?? [])[0],
     (visual.materials ?? [])[0],
     ...(visual.softClues ?? []),
@@ -216,8 +244,18 @@ export function visualOfficialStoreSearchQueries(visual: VisualProductInput): Vi
   const primaryDetails = unique([
     ...(visual.hardClues ?? []),
     informativePattern,
+    visual.printDescription,
     visual.silhouette,
     visual.length,
+    visual.neckline,
+    visual.sleeveType,
+    visual.closure,
+    visual.collar,
+    visual.waist,
+    visual.hem,
+    ...(visual.distinctiveDetails ?? []),
+    ...(visual.visibleText ?? []),
+    ...(visual.styleNumberCandidates ?? []),
     (visual.colors ?? [])[0],
     (visual.materials ?? [])[0],
     ...(visual.softClues ?? []),
@@ -297,7 +335,14 @@ function hasNegativeClueConflict(visual: VisualProductInput, candidate: string):
 }
 
 function hasExclusiveAttributeConflict(visual: VisualProductInput, candidate: string): boolean {
-  const requested = [visual.productType, visual.length, ...(visual.hardClues ?? []), ...(visual.styleClues ?? [])]
+  const requested = [
+    visual.productType,
+    visual.length,
+    visual.neckline,
+    visual.sleeveType,
+    ...(visual.hardClues ?? []),
+    ...(visual.styleClues ?? [])
+  ]
     .filter((value): value is string => value !== undefined)
     .join(" ");
   return EXCLUSIVE_ATTRIBUTE_GROUPS.some((group) => {
@@ -322,6 +367,20 @@ function hardVisualAttributes(visual: VisualProductInput): Array<readonly [strin
     ["pattern", visual.patterns ?? []],
     ["silhouette", visual.silhouette === undefined ? [] : [visual.silhouette]],
     ["length", visual.length === undefined ? [] : [visual.length]],
+    ["neckline", visual.neckline === undefined ? [] : [visual.neckline]],
+    ["sleeve", visual.sleeveType === undefined ? [] : [visual.sleeveType]],
+    ["closure", visual.closure === undefined ? [] : [visual.closure]],
+    ["collar", visual.collar === undefined ? [] : [visual.collar]],
+    ["waist", visual.waist === undefined ? [] : [visual.waist]],
+    ["hem", visual.hem === undefined ? [] : [visual.hem]],
+    ["print", visual.printDescription === undefined ? [] : [visual.printDescription]],
+    ...(visual.distinctiveDetails ?? [])
+      .map((detail): readonly [string, string[]] => ["distinctive detail", [detail]]),
+    ...(visual.visibleText ?? [])
+      .map((text): readonly [string, string[]] => ["visible text", [text]]),
+    ...(visual.observations ?? [])
+      .filter((observation) => observation.confidence >= 0.8)
+      .map((observation): readonly [string, string[]] => [observation.attribute, [observation.value]]),
     ...(visual.hardClues ?? []).map((clue): readonly [string, string[]] => ["hard clue", [clue]])
   ];
 }
@@ -330,6 +389,7 @@ function softVisualAttributes(visual: VisualProductInput): Array<readonly [strin
   return [
     ["material", visual.materials ?? []],
     ["style", visual.styleClues ?? []],
+    ["inferred detail", (visual.inferences ?? []).map((inference) => inference.value)],
     ["soft clue", visual.softClues ?? []]
   ];
 }

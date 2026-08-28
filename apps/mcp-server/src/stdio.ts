@@ -12,6 +12,7 @@ import { createAwinFeedPort } from "../../../packages/awin-feed/src/index.js";
 import { createAwinShopifyQuoteResolver } from "./awin-shopify-quote.js";
 import { createEbayPortFromEnvironment } from "./ebay-client.js";
 import { createOfficialShopifySearchPort } from "./shopify-official-store-search.js";
+import { createVisualCandidateImagePort } from "./visual-candidate-images.js";
 import { productCardResourceDomains } from "./product-card-ui.js";
 
 const comparePort = createComparePortFromEnvironment(process.env, createUnavailableComparePort);
@@ -29,6 +30,7 @@ const server = createShoppingServer(comparePort, shopifyPort, undefined, {
   cartQuotes: cartQuotePort,
   selectedProducts: createShopifySelectedProductInspector(),
   officialShopify: createOfficialShopifySearchPort(),
+  visualCandidateImages: createVisualCandidateImagePort(),
   watches: createJsonWatchStore(stateDirectory),
   productCardResourceDomains: productCardResourceDomains(process.env.AWIN_PRODUCT_SEARCH_URL),
   toolAvailability: {

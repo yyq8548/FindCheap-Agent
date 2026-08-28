@@ -53,6 +53,48 @@ describe("visual product discovery", () => {
     }).styleClues).toHaveLength(7);
   });
 
+  it("keeps direct observations separate from lower-confidence inferences", () => {
+    const visual = VisualProductInputSchema.parse({
+      productType: "women's dress",
+      neckline: "square neck",
+      sleeveType: "puff short sleeves",
+      closure: "back zipper",
+      distinctiveDetails: ["blue floral placement", "lace neckline trim"],
+      imageQuality: "MEDIUM",
+      occlusions: ["waist partly covered"],
+      observations: [{
+        attribute: "neckline",
+        value: "square neck",
+        confidence: 0.96,
+        evidence: "front neckline visible"
+      }],
+      inferences: [{
+        attribute: "material",
+        value: "silk",
+        confidence: 0.42,
+        evidence: "surface appears shiny"
+      }]
+    });
+
+    expect(visual.observations?.[0]).toMatchObject({ value: "square neck", confidence: 0.96 });
+    expect(visual.inferences?.[0]).toMatchObject({ value: "silk", confidence: 0.42 });
+  });
+
+  it("uses multiple distinctive details as independent same-item evidence", () => {
+    const result = classifyVisualProduct(VisualProductInputSchema.parse({
+      productType: "women's dress",
+      brand: "DÔEN",
+      distinctiveDetails: ["blue floral placement", "smocked back panel", "lace neckline trim"]
+    }), {
+      title: "DÔEN blue floral dress",
+      productType: "Dresses",
+      brand: "DÔEN",
+      description: "Blue floral placement with a smocked back panel and lace neckline trim"
+    });
+
+    expect(result?.group).toBe("POSSIBLE_SAME_ITEM");
+  });
+
   it("matches Chinese compound fashion types against English catalog evidence", () => {
     const result = classifyVisualProduct({
       productType: "女士迷你连衣裙",

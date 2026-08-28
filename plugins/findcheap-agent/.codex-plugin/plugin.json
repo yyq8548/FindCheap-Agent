@@ -1,6 +1,6 @@
 {
   "name": "findcheap-agent",
-  "version": "0.13.2+codex.20260827222244",
+  "version": "0.14.0+codex.20260827235000",
   "description": "Search products from text or visual evidence, compare verified offers, find deals, and monitor prices, promotions, and stock.",
   "author": {
     "name": "yyq8548"
@@ -12,7 +12,7 @@
   "interface": {
     "displayName": "FindCheap Agent",
     "shortDescription": "Verified cards, pricing, coupons, and safe links.",
-    "longDescription": "FindCheap Agent is a Codex Plugin Agent. v0.13.2 adds a visual precision gate: certain structure is separated from soft style guesses, visible contradictions are excluded, unknown product types cannot become strong matches, and official-store identity never bypasses relevance. Exact selected-product follow-ups still reuse stable selection identity. Official-store results remain separate from trusted exact and similar matches. Affiliate relationships are disclosed but never affect eligibility or ranking. Price-history and buy-or-wait forecasting remain disabled. Authorized bounded Chrome search remains a user-approved fallback only after eligible API searches return no usable result. The agent never invents identity, discount eligibility, stacking, or delivered totals; it never checks out, reserves inventory, purchases, or pays.",
+    "longDescription": "FindCheap Agent is a Codex Plugin Agent. v0.14.0 uses the current Codex model for bounded interactive image comparison: one tool returns up to six safe candidate images and a second validates structured evidence from the same immutable, single-use snapshot. Visual conflicts fail closed and visual evidence can never create EXACT identity. Text search remains a one-call path, while Watch and batch checks skip image reranking. No external visual model or visual-service credentials are required. Exact selected-product follow-ups still reuse stable selection identity. Affiliate relationships never affect eligibility or ranking. Price-history and buy-or-wait forecasting remain disabled. Authorized bounded Chrome search remains a user-approved fallback only after eligible API searches return no usable result. The agent never invents identity, discount eligibility, stacking, or delivered totals; it never checks out, reserves inventory, purchases, or pays.",
     "developerName": "yyq8548",
     "category": "Productivity",
     "capabilities": [
