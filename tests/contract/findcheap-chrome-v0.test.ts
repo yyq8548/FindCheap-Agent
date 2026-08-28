@@ -50,7 +50,7 @@ describe("FindCheap Agent plugin contract", () => {
     expect(skill).toContain("Every live shopping request");
     expect(skill).toContain("Do not read Memory, repository files, logs, task files, or plugin cache");
     expect(skill).toContain("use only one neutral progress sentence");
-    expect(skill).toContain("Do not add a plan");
+    expect(skill).toContain("No plan, diagnostics, file explanation");
     expect(skill).toContain("Never call `render_product_cards`");
     expect(skill).toContain("Call `search_products` exactly once");
     expect(skill).toContain("`quote_selected_shopify_product`");
@@ -66,17 +66,18 @@ describe("FindCheap Agent plugin contract", () => {
     expect(skill).toContain("`variantDimensions`");
     expect(skill).toContain("For text search always pass `limit: 3`");
     expect(skill).toContain("call `search_visual_candidates` once");
-    expect(skill).toContain("call `finalize_visual_search` once");
-    expect(skill).toContain("Pass ceilings in integer cents");
-    expect(skill).toContain("objective must-haves in `requiredFeatures`");
-    expect(skill).toContain("`brandMode: REQUIRED`");
+    expect(skill).toContain("`visualReview.stage: RELAXED_REVIEW`");
+    expect(skill).toContain("Never third review");
+    expect(skill).toContain("Price ceilings use integer cents");
+    expect(skill).toContain("user-stated must-haves in `requiredFeatures`");
+    expect(skill).toContain("Explicit brand: `REQUIRED`");
     expect(skill).toContain("Never put brand in `productType` or `requiredFeatures`");
     expect(skill).toContain("`preferences`. Preferences rank but never exclude");
     expect(skill).toContain("Missing evidence does not create a zero result");
     expect(skill).toContain("Payment-plan, trade-in, coupon, member, or `from` text");
     expect(skill).toContain("`SAME_PRODUCT`");
     expect(skill).toContain("`DISCOVERY_ONLY`");
-    expect(skill).toContain("Use `SAME_PRODUCT` only for like-for-like; otherwise `DISCOVERY`");
+    expect(skill).toContain("`SAME_PRODUCT` only for like-for-like");
     expect(skill).toContain("`NEEDS_CLARIFICATION`");
     expect(skill).toContain("LOWEST_PRICE");
     expect(skill).toContain("MERCHANT_DIVERSE");
@@ -85,13 +86,12 @@ describe("FindCheap Agent plugin contract", () => {
     expect(skill).toContain("Do not duplicate every card field");
     expect(skill).toContain("Every live shopping request is self-contained");
     expect(skill).toContain("`Searching for suitable products.`");
-    expect(skill).toContain("English request: English only");
-    expect(skill).toContain("Chinese request: Chinese only");
-    expect(skill).toContain("Keep product names, brands, and models unchanged");
+    expect(skill).toContain("Match user language");
+    expect(skill).toContain("keep product names, brands, models unchanged");
     expect(skill).toContain("`正在搜索合适商品。`");
     expect(skill).toContain("`正在使用 FindCheap 搜索合适商品。`");
     expect(skill).toContain("description: For live shopping, match all prose to the user's language");
-    expect(skill).toContain("Do not open Skill files or narrate file reads");
+    expect(skill).toContain("After load, no further Skill/reference file except eligible Chrome fallback");
     expect(skill).toContain("“Skill requires” wording");
     expect(skill).toContain("trust does not prove brand authorization");
     expect(skill).toContain("For `MERCHANT_CHECKOUT_ONLY`, do not ask for ZIP");
@@ -164,7 +164,7 @@ describe("FindCheap Agent plugin contract", () => {
     };
 
     expect(manifest.name).toBe("findcheap-agent");
-    expect(manifest.version).toMatch(/^0\.14\.0(?:\+codex\.)?/u);
+    expect(manifest.version).toMatch(/^0\.14\.1(?:\+codex\.)?/u);
     expect(manifest.interface.displayName).toBe("FindCheap Agent");
     expect(manifest.interface.longDescription).toMatch(/Codex Plugin Agent/u);
     expect(manifest.interface.longDescription).toMatch(/[Aa]uthorized.*Chrome/u);

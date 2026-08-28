@@ -292,8 +292,9 @@ describe("shopping MCP server", () => {
     expect(visualCandidateTool?.description).toContain("at most six labeled candidate images");
     expect(visualCandidateTool?.description).toContain("Do not use this tool for text-only, Watch, or batch searches");
     const visualFinalizeTool = tools.tools.find((tool) => tool.name === "finalize_visual_search");
-    expect(visualFinalizeTool?.description).toContain("cannot create EXACT identity");
-    expect(visualFinalizeTool?.description).toContain("finalized only once");
+      expect(visualFinalizeTool?.description).toContain("cannot create EXACT identity");
+      expect(visualFinalizeTool?.description).toContain("single-use");
+      expect(visualFinalizeTool?.description).toContain("never retry more than once");
     expect(tools.tools.find((tool) => tool.name === "compare_products")?._meta)
       .toMatchObject({ ui: { visibility: ["app"] } });
     const awinTool = tools.tools.find((tool) => tool.name === "search_awin_products");
@@ -465,7 +466,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.14.0",
+        version: "0.14.1",
         terminalStage: "DOM_RENDERED",
         stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
       }
@@ -474,7 +475,7 @@ describe("shopping MCP server", () => {
     expect(result.structuredContent).toEqual({ status: "RECORDED" });
     expect(record).toHaveBeenCalledWith(expect.objectContaining({
       renderId,
-      version: "0.14.0",
+      version: "0.14.1",
       terminalStage: "DOM_RENDERED",
       stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
     }));
@@ -482,7 +483,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.14.0",
+        version: "0.14.1",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 14 }
       }
@@ -492,7 +493,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.14.0",
+        version: "0.14.1",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 300_001 }
       }
@@ -503,7 +504,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId: "22222222-2222-4222-8222-222222222222",
-        version: "0.14.0",
+        version: "0.14.1",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 1 }
       }
@@ -1370,6 +1371,134 @@ describe("Coupon and Watch tools", () => {
       }
     });
     expect(reused.isError).toBe(true);
+  });
+
+  it("softens uncertain visual text and retries once after every first-pass candidate conflicts", async () => {
+    const baseline = await shopifyPort.search({
+      query: "placeholder",
+      limit: 1,
+      comparisonMode: "DISCOVERY",
+      selectionMode: "MERCHANT_DIVERSE",
+      membershipIds: []
+    });
+    let sourceCall = 0;
+    const search = vi.fn<ShopifyPort["search"]>(async () => {
+      sourceCall += 1;
+      const relaxed = sourceCall > 2;
+      return {
+        ...baseline,
+        products: [{
+          ...baseline.products[0]!,
+          handle: relaxed ? "broader-ivory-dress" : "wrong-black-dress",
+          title: relaxed ? "Broader Ivory Mini Dress" : "Wrong Black Maxi Dress",
+          productType: "dress",
+          description: relaxed ? "ivory mini dress" : "black maxi dress",
+          imageUrl: relaxed
+            ? "https://cdn.shopify.com/broader.jpg"
+            : "https://cdn.shopify.com/wrong.jpg",
+          merchantUrl: relaxed
+            ? "https://deathwishcoffee.com/products/broader-ivory-dress"
+            : "https://deathwishcoffee.com/products/wrong-black-dress"
+        }]
+      };
+    });
+    const load = vi.fn(async () => ({
+      data: Buffer.from("candidate-image").toString("base64"),
+      mimeType: "image/jpeg" as const
+    }));
+    const client = await connect(
+      { compare: async () => comparison },
+      { search },
+      undefined,
+      { visualCandidateImages: { load } }
+    );
+    const first = await client.callTool({
+      name: "search_visual_candidates",
+      arguments: {
+        query: "ivory puff sleeve square neckline lace babydoll mini dress",
+        productType: "dress",
+        requiredFeatures: ["square neckline with lace inset", "small center bow"],
+        featureMode: "REQUIRED",
+        visualInput: {
+          productType: "dress",
+          colors: ["ivory"],
+          patterns: ["solid"],
+          neckline: "square neckline with lace inset",
+          sleeveType: "short puff sleeves",
+          hardClues: ["small center bow"]
+        }
+      }
+    });
+    const firstStructured = first.structuredContent as {
+      visualSessionId: string;
+      candidates: Array<{ candidateId: string }>;
+    };
+    expect(firstStructured.candidates).toHaveLength(1);
+    expect(search.mock.calls[0]?.[0].query).toContain("ivory");
+    expect(search.mock.calls[0]?.[0].query).not.toContain("square neckline");
+
+    const retry = await client.callTool({
+      name: "finalize_visual_search",
+      arguments: {
+        visualSessionId: firstStructured.visualSessionId,
+        verdicts: [{
+          candidateId: firstStructured.candidates[0]!.candidateId,
+          verdict: {
+            classification: "CONFLICT",
+            matches: [{
+              attribute: "PRODUCT_TYPE",
+              referenceEvidence: "dress",
+              candidateEvidence: "dress"
+            }],
+            conflicts: [{
+              attribute: "COLOR",
+              referenceEvidence: "ivory",
+              candidateEvidence: "black"
+            }]
+          }
+        }]
+      }
+    });
+    const retryStructured = retry.structuredContent as {
+      products: unknown[];
+      visualReview: {
+        stage: string;
+        visualSessionId: string;
+        candidates: Array<{ candidateId: string; title: string }>;
+      };
+    };
+    expect(retryStructured.products).toEqual([]);
+    expect(retryStructured.visualReview).toMatchObject({
+      stage: "RELAXED_REVIEW",
+      candidates: [{ title: "Broader Ivory Mini Dress" }]
+    });
+    expect(search.mock.calls[2]?.[0].query).toBe("dress");
+    expect(retry.content).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "image", mimeType: "image/jpeg" })
+    ]));
+
+    const finalized = await client.callTool({
+      name: "finalize_visual_search",
+      arguments: {
+        visualSessionId: retryStructured.visualReview.visualSessionId,
+        verdicts: [{
+          candidateId: retryStructured.visualReview.candidates[0]!.candidateId,
+          verdict: {
+            classification: "HIGHLY_SIMILAR",
+            matches: [
+              { attribute: "PRODUCT_TYPE", referenceEvidence: "dress", candidateEvidence: "dress" },
+              { attribute: "COLOR", referenceEvidence: "ivory", candidateEvidence: "ivory" }
+            ],
+            conflicts: []
+          }
+        }]
+      }
+    });
+    expect(finalized.structuredContent).toMatchObject({
+      status: "OK",
+      products: [{ visualMatchGroup: "HIGHLY_SIMILAR", selectionId: expect.any(String) }]
+    });
+    expect(search).toHaveBeenCalledTimes(4);
   });
 
   it("renders an official-store fallback card when the catalog source is unavailable", async () => {

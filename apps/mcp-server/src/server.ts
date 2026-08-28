@@ -104,7 +104,7 @@ const ProductCardStagesSchema = z.object({
 
 const ProductCardTelemetryInputSchema = z.object({
   renderId: z.string().uuid(),
-  version: z.literal("0.14.0"),
+  version: z.literal("0.14.1"),
   terminalStage: z.enum([
     "DOM_RENDERED",
     "FIRST_IMAGE_SETTLED",
@@ -128,6 +128,50 @@ export const MAX_PRODUCT_SELECTION_SNAPSHOTS = 128;
 export const VISUAL_SEARCH_SNAPSHOT_TTL_MS = 10 * 60_000;
 export const MAX_VISUAL_SEARCH_SNAPSHOTS = 32;
 export const MAX_VISUAL_CANDIDATES = 6;
+
+function uniqueVisualTerms(values: Array<string | undefined>): string[] {
+  return [...new Set(values
+    .filter((value): value is string => value !== undefined)
+    .map((value) => value.normalize("NFKC").trim())
+    .filter(Boolean))];
+}
+
+function visualRetrievalSearchInput(input: SearchProductsInput, relaxed: boolean): SearchProductsInput {
+  const visual = input.visualInput!;
+  const query = uniqueVisualTerms([
+    input.brand ?? visual.brand,
+    visual.modelOrStyleNumber,
+    visual.productType ?? input.productType,
+    ...(relaxed ? [] : [visual.colors[0], visual.patterns[0]])
+  ]).join(" ");
+  return {
+    ...input,
+    query: query.length >= 2 ? query.slice(0, 300) : input.query,
+    limit: MAX_VISUAL_CANDIDATES,
+    allowAlternatives: true,
+    requiredFeatures: [],
+    preferences: uniqueVisualTerms([
+      ...input.preferences,
+      ...input.requiredFeatures,
+      ...input.features
+    ]).slice(0, 10),
+    features: [],
+    featureMode: "PREFERRED",
+    // Candidate retrieval is deliberately metadata-broad. Codex applies the
+    // original visual evidence only after safely loaded candidate images arrive.
+    visualInput: undefined
+  };
+}
+
+function visualCandidateKey(candidate: UnifiedCandidate): string {
+  if (candidate.source === "AWIN_PRODUCT_FEED") {
+    return `${candidate.source}:${candidate.awinProduct.merchantId}:${candidate.awinProduct.merchantProductId}`;
+  }
+  if (candidate.source === "EBAY_BROWSE") {
+    return `${candidate.source}:${candidate.ebayProduct.itemId}`;
+  }
+  return `${candidate.source}:${candidate.shopifyProduct.merchantId}:${candidate.shopifyProduct.handle}`;
+}
 
 const unavailableMessage =
   "Live comparison is unavailable because no approved shopping data source is connected.";
@@ -189,18 +233,20 @@ export const VisualCandidateSearchInputSchema = SearchProductsInputSchema
   .omit({ limit: true })
   .extend({ visualInput: VisualProductInputSchema });
 
+const VisualCandidateDescriptorShape = z.object({
+  candidateId: z.string().uuid(),
+  title: z.string(),
+  merchant: z.string(),
+  source: z.enum(["AWIN_PRODUCT_FEED", "SHOPIFY_GLOBAL_CATALOG", "EBAY_BROWSE"]),
+  mimeType: z.enum(["image/jpeg", "image/png", "image/webp"])
+}).strict();
+
 const VisualCandidateOutputShape = {
   status: z.enum(["OK", "NO_IMAGE_CANDIDATES", "DATA_SOURCE_UNAVAILABLE"]),
   message: z.string(),
   visualSessionId: VisualSessionIdSchema.optional(),
   expiresAt: z.string().optional(),
-  candidates: z.array(z.object({
-    candidateId: z.string().uuid(),
-    title: z.string(),
-    merchant: z.string(),
-    source: z.enum(["AWIN_PRODUCT_FEED", "SHOPIFY_GLOBAL_CATALOG", "EBAY_BROWSE"]),
-    mimeType: z.enum(["image/jpeg", "image/png", "image/webp"])
-  }).strict()).max(MAX_VISUAL_CANDIDATES)
+  candidates: z.array(VisualCandidateDescriptorShape).max(MAX_VISUAL_CANDIDATES)
 };
 
 export const FinalizeVisualSearchInputSchema = z.object({
@@ -588,7 +634,13 @@ const ShopifyProductsOutputShape = {
     ])
   }),
   questions: z.array(z.string()),
-  products: z.array(ShopifyProductOutputSchema)
+  products: z.array(ShopifyProductOutputSchema),
+  visualReview: z.object({
+    stage: z.literal("RELAXED_REVIEW"),
+    visualSessionId: VisualSessionIdSchema,
+    expiresAt: z.string(),
+    candidates: z.array(VisualCandidateDescriptorShape).min(1).max(MAX_VISUAL_CANDIDATES)
+  }).strict().optional()
 };
 const _ShopifyProductsOutputSchemaObject = z.object(ShopifyProductsOutputShape);
 
@@ -1683,7 +1735,7 @@ export function createShoppingServer(
   dependencies: ShoppingServerDependencies = {}
 ): McpServer {
   void comparePort;
-  const server = new McpServer({ name: "findcheap-agent", version: "0.14.0" });
+  const server = new McpServer({ name: "findcheap-agent", version: "0.14.1" });
   const dealPort = dependencies.deals ?? createUnavailableDealPort();
   const awinPort = dependencies.awin ?? createUnavailableAwinPort();
   const ebayPort = dependencies.ebay;
@@ -1716,6 +1768,8 @@ export function createShoppingServer(
     input: SearchProductsInput;
     execution: UnifiedSearchExecution;
     candidates: Map<string, UnifiedCandidate>;
+    attempt: 1 | 2;
+    reviewedCandidateKeys: Set<string>;
   }>();
   const recordedCardTelemetry = new Set<string>();
   const deleteSnapshot = (renderId: string) => {
@@ -1891,6 +1945,53 @@ export function createShoppingServer(
       visualSearchSnapshots.delete(oldest);
     }
   };
+  const loadVisualCandidates = async (
+    execution: UnifiedSearchExecution,
+    excludedKeys: ReadonlySet<string> = new Set()
+  ) => {
+    if (visualCandidateImages === undefined) return [];
+    const attempted = execution.candidates
+      .filter((candidate) => !excludedKeys.has(visualCandidateKey(candidate)))
+      .flatMap((candidate) => candidateImageUrl(candidate) === undefined ? [] : [candidate])
+      .slice(0, MAX_VISUAL_CANDIDATES);
+    const loaded = await Promise.all(attempted.map(async (candidate) => {
+      const imageUrl = candidateImageUrl(candidate)!;
+      try {
+        return { candidate, image: await visualCandidateImages.load(imageUrl) };
+      } catch {
+        return undefined;
+      }
+    }));
+    return loaded.filter((entry) => entry !== undefined);
+  };
+  const visualCandidateContent = (
+    message: string,
+    entries: Array<{
+      candidateId: string;
+      candidate: UnifiedCandidate;
+      image: { data: string; mimeType: "image/jpeg" | "image/png" | "image/webp" };
+    }>
+  ) => [
+    { type: "text" as const, text: message },
+    ...entries.flatMap((entry, index) => [
+      {
+        type: "text" as const,
+        text: `Candidate ${index + 1} | ${entry.candidateId} | ${candidateTitle(entry.candidate)} | ${candidateMerchant(entry.candidate)}`
+      },
+      { type: "image" as const, data: entry.image.data, mimeType: entry.image.mimeType }
+    ])
+  ];
+  const visualCandidateDescriptors = (entries: Array<{
+    candidateId: string;
+    candidate: UnifiedCandidate;
+    image: { mimeType: "image/jpeg" | "image/png" | "image/webp" };
+  }>) => entries.map((entry) => ({
+    candidateId: entry.candidateId,
+    title: candidateTitle(entry.candidate),
+    merchant: candidateMerchant(entry.candidate),
+    source: entry.candidate.source,
+    mimeType: entry.image.mimeType
+  }));
 
   server.registerResource(
     "findcheap-product-cards",
@@ -2006,7 +2107,7 @@ export function createShoppingServer(
     "search_visual_candidates",
     {
       title: "Search visual candidates",
-      description: "First stage for a newly attached product image. Inspect the user's image, pass structured visualInput, and call once. The tool returns at most six labeled candidate images from current product sources. Compare the reference image with every returned candidate image, then call finalize_visual_search with structured matches and conflicts. Do not present these candidates as recommendations yet. Do not use this tool for text-only, Watch, or batch searches.",
+      description: "First stage for a newly attached product image. Use only the current request; do not read Memory, Skill, repository, task, log, or plugin-cache files. Inspect the user's image, pass structured visualInput, and call once. Product family and explicit brand/model are hard; pixel-inferred details are observations or soft clues, not requiredFeatures unless the user explicitly requires them. The tool returns at most six labeled candidate images. Compare every image, then call finalize_visual_search. Do not present candidates as recommendations. Do not use this tool for text-only, Watch, or batch searches.",
       inputSchema: VisualCandidateSearchInputSchema,
       outputSchema: VisualCandidateOutputShape,
       annotations: {
@@ -2035,24 +2136,14 @@ export function createShoppingServer(
           structuredContent: { status: "DATA_SOURCE_UNAVAILABLE" as const, message, candidates: [] }
         };
       }
-      const searchInput: SearchProductsInput = {
+      const finalInput: SearchProductsInput = {
         ...parsed,
-        limit: MAX_VISUAL_CANDIDATES,
-        allowAlternatives: true
+        limit: 3,
+        allowAlternatives: parsed.allowAlternatives
       };
+      const searchInput = visualRetrievalSearchInput(finalInput, false);
       const execution = await runUnifiedSearch(searchInput);
-      const attempted = execution.candidates
-        .flatMap((candidate) => candidateImageUrl(candidate) === undefined ? [] : [candidate])
-        .slice(0, MAX_VISUAL_CANDIDATES);
-      const loaded = await Promise.all(attempted.map(async (candidate) => {
-        const imageUrl = candidateImageUrl(candidate)!;
-        try {
-          return { candidate, image: await visualCandidateImages.load(imageUrl) };
-        } catch {
-          return undefined;
-        }
-      }));
-      const available = loaded.filter((entry) => entry !== undefined);
+      const available = await loadVisualCandidates(execution);
       if (available.length === 0) {
         const message = "No safely loadable candidate images were available. No visual recommendation was produced.";
         return {
@@ -2071,35 +2162,22 @@ export function createShoppingServer(
       const candidateMap = new Map(candidateEntries.map((entry) => [entry.candidateId, entry.candidate]));
       visualSearchSnapshots.set(visualSessionId, {
         expiresAt: expiresAtMs,
-        input: { ...searchInput, limit: 3, allowAlternatives: parsed.allowAlternatives },
+        input: finalInput,
         execution: { ...execution, candidates: candidateEntries.map((entry) => entry.candidate) },
-        candidates: candidateMap
+        candidates: candidateMap,
+        attempt: 1,
+        reviewedCandidateKeys: new Set(candidateEntries.map((entry) => visualCandidateKey(entry.candidate)))
       });
       pruneVisualSearchSnapshots();
       const message = `Review all ${candidateEntries.length} labeled candidate images against the user's reference image. Then call finalize_visual_search once with visualSessionId ${visualSessionId}.`;
       return {
-        content: [
-          { type: "text" as const, text: message },
-          ...candidateEntries.flatMap((entry, index) => [
-            {
-              type: "text" as const,
-              text: `Candidate ${index + 1} | ${entry.candidateId} | ${candidateTitle(entry.candidate)} | ${candidateMerchant(entry.candidate)}`
-            },
-            { type: "image" as const, data: entry.image.data, mimeType: entry.image.mimeType }
-          ])
-        ],
+        content: visualCandidateContent(message, candidateEntries),
         structuredContent: {
           status: "OK" as const,
           message,
           visualSessionId,
           expiresAt: new Date(expiresAtMs).toISOString(),
-          candidates: candidateEntries.map((entry) => ({
-            candidateId: entry.candidateId,
-            title: candidateTitle(entry.candidate),
-            merchant: candidateMerchant(entry.candidate),
-            source: entry.candidate.source,
-            mimeType: entry.image.mimeType
-          }))
+          candidates: visualCandidateDescriptors(candidateEntries)
         }
       };
     }
@@ -2109,14 +2187,14 @@ export function createShoppingServer(
     "finalize_visual_search",
     {
       title: "Finalize visual search",
-      description: "Second and final stage for interactive image search. Use only candidate IDs and images returned by search_visual_candidates. Report directly visible matching and conflicting attributes. A visual verdict can exclude or rerank candidates, but cannot create EXACT identity. The visual session is immutable, expires after ten minutes, and can be finalized only once.",
+      description: "Visual-review stage for interactive image search. Use only candidate IDs and images returned by the latest tool result. Report directly visible matching and conflicting attributes. A visual verdict can exclude or rerank candidates, but cannot create EXACT identity. Each visual session is immutable and single-use. If every first-pass candidate conflicts, the tool may return one relaxed candidate set and a new visualSessionId for one final review; never retry more than once.",
       inputSchema: FinalizeVisualSearchInputSchema,
       outputSchema: ShopifyProductsOutputShape,
       annotations: {
         readOnlyHint: false,
         destructiveHint: false,
         idempotentHint: false,
-        openWorldHint: false
+        openWorldHint: true
       },
       _meta: {
         ui: { resourceUri: PRODUCT_CARD_UI_URI },
@@ -2145,6 +2223,53 @@ export function createShoppingServer(
         snapshot.input.allowAlternatives,
         snapshot.input.limit
       );
+      if (finalCandidates.length === 0 && snapshot.attempt === 1) {
+        const relaxedInput = visualRetrievalSearchInput(snapshot.input, true);
+        const relaxedExecution = await runUnifiedSearch(relaxedInput);
+        const available = await loadVisualCandidates(relaxedExecution, snapshot.reviewedCandidateKeys);
+        if (available.length > 0) {
+          pruneVisualSearchSnapshots();
+          const visualSessionId = randomUUID();
+          const expiresAtMs = now().getTime() + VISUAL_SEARCH_SNAPSHOT_TTL_MS;
+          const candidateEntries = available.map(({ candidate, image }) => ({
+            candidateId: randomUUID(),
+            candidate,
+            image
+          }));
+          visualSearchSnapshots.set(visualSessionId, {
+            expiresAt: expiresAtMs,
+            input: snapshot.input,
+            execution: {
+              ...relaxedExecution,
+              candidates: candidateEntries.map((entry) => entry.candidate)
+            },
+            candidates: new Map(candidateEntries.map((entry) => [entry.candidateId, entry.candidate])),
+            attempt: 2,
+            reviewedCandidateKeys: new Set([
+              ...snapshot.reviewedCandidateKeys,
+              ...candidateEntries.map((entry) => visualCandidateKey(entry.candidate))
+            ])
+          });
+          pruneVisualSearchSnapshots();
+          const message = `Every first-pass candidate conflicted with the reference image. Review all ${candidateEntries.length} relaxed candidates, then call finalize_visual_search once with visualSessionId ${visualSessionId}. Do not relax product family or accept visible conflicts.`;
+          const emptyExecution = { ...relaxedExecution, candidates: [] };
+          const { response } = await buildUnifiedResponse(snapshot.input, emptyExecution);
+          return {
+            ...response,
+            content: visualCandidateContent(message, candidateEntries),
+            structuredContent: {
+              ...response.structuredContent,
+              message,
+              visualReview: {
+                stage: "RELAXED_REVIEW" as const,
+                visualSessionId,
+                expiresAt: new Date(expiresAtMs).toISOString(),
+                candidates: visualCandidateDescriptors(candidateEntries)
+              }
+            }
+          };
+        }
+      }
       const execution: UnifiedSearchExecution = { ...snapshot.execution, candidates: finalCandidates };
       const { response, enriched } = await buildUnifiedResponse(snapshot.input, execution);
       if (response.structuredContent.products.length === 0) return response;
