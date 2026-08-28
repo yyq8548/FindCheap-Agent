@@ -108,7 +108,8 @@ export function createAwinFeedController(
           ? {}
           : {
               ...(environment.sourceFeedRegion === "US" ? { defaultCurrency: "USD" as const } : {}),
-              canonicalizeMerchantNames: true
+              canonicalizeMerchantNames: true,
+              compactRecords: true
             }
       );
       const snapshot = validatedSnapshot(archive, snapshotAt, sourceUrls.length);
@@ -420,11 +421,15 @@ function feedMetadata(state: Readonly<FeedState>): Record<string, unknown> {
 
 function validatedSnapshot(archive: Uint8Array, snapshotAt: string, sourceFeeds: number): FeedSnapshot {
   const index = createAwinFeedIndex(archive, snapshotAt);
+  const productKeys = new Set<string>();
+  for (const product of index.products) {
+    productKeys.add(`${product.merchantId}:${product.merchantProductId}`);
+  }
   if (
     index.feedRows === 0 ||
     index.validRows !== index.feedRows ||
     index.rejectedRows !== 0 ||
-    new Set(index.products.map((product) => `${product.merchantId}:${product.merchantProductId}`)).size !== index.validRows
+    productKeys.size !== index.validRows
   ) {
     throw new Error("Awin Feed failed approved merchant validation");
   }

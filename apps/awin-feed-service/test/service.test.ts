@@ -125,6 +125,30 @@ describe("Awin Feed service", () => {
     });
   });
 
+  it("omits zero-price placeholders from Feed List snapshots", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "findcheap-awin-zero-price-"));
+    directories.push(directory);
+    const feedListUrl = "https://ui.awin.com/private/feedList";
+    const feedUrl = "https://productdata.awin.com/private/zero-price.csv.gz";
+    const archive = enhancedFixtureArchive(["19.99 USD", "0.00 USD"]);
+    const fetchRequest = vi.fn(async (input: string | URL | Request) => String(input) === feedListUrl
+      ? new Response(feedListCsv([
+          ["20282", "Amazonliss (US)", "US", "Joined", "F102", "Default", "English", "General", "2026-08-25 01:00:00", feedUrl]
+        ]), { status: 200 })
+      : new Response(responseBody(archive), { status: 200 }));
+    const controller = createAwinFeedController(parseAwinFeedServiceEnvironment({
+      AWIN_SOURCE_FEED_LIST_URL: feedListUrl,
+      AWIN_FEED_API_TOKEN: "z".repeat(32),
+      AWIN_FEED_DATA_PATH: join(directory, "current.csv.gz")
+    }), { fetch: fetchRequest });
+
+    await controller.refresh();
+
+    expect(controller.getState()).toMatchObject({
+      snapshot: { feedRows: 1, sourceFeeds: 1 }
+    });
+  });
+
   it("downloads, validates, and atomically persists an approved Feed", async () => {
     const directory = await mkdtemp(join(tmpdir(), "findcheap-awin-service-"));
     directories.push(directory);
@@ -458,19 +482,22 @@ function fixtureArchive(overrides: {
   return gzipSync([header, row].map((values) => values.map(csvCell).join(",")).join("\r\n"));
 }
 
-function enhancedFixtureArchive(): Buffer {
+function enhancedFixtureArchive(prices = ["19.99 USD"]): Buffer {
   const header = [
     "\uFEFFadvertiser_id", "advertiser_name", "id", "title", "description", "link", "image_link",
     "aw_deep_link", "google_product_category", "product_type", "gtin", "mpn", "brand",
     "availability", "price", "sale_price", "condition"
   ];
-  const row = [
-    "20282", "Amazonliss (US)", "sku-1", "Amazonliss Keratin Mask", "Amazonliss Keratin Mask",
-    "https://www.nutreecosmetics.com/products/sku-1", "https://cdn.shopify.com/image.jpg",
-    "https://www.awin1.com/cread.php?awinmid=20282&awinaffid=3047955&ued=https%3A%2F%2Fwww.nutreecosmetics.com%2Fproducts%2Fsku-1", "Health & Beauty > Hair Care", "Hair Care",
-    "", "", "Amazonliss", "in_stock", "19.99 USD", "", "new"
-  ];
-  return gzipSync([header, row].map((values) => values.map(csvCell).join(",")).join("\r\n"));
+  const rows = prices.map((price, index) => {
+    const id = `sku-${index + 1}`;
+    return [
+      "20282", "Amazonliss (US)", id, `Amazonliss Keratin Mask ${index + 1}`, "Amazonliss Keratin Mask",
+      `https://www.nutreecosmetics.com/products/${id}`, "https://cdn.shopify.com/image.jpg",
+      `https://www.awin1.com/cread.php?awinmid=20282&awinaffid=3047955&ued=https%3A%2F%2Fwww.nutreecosmetics.com%2Fproducts%2F${id}`, "Health & Beauty > Hair Care", "Hair Care",
+      "", "", "Amazonliss", "in_stock", price, "", "new"
+    ];
+  });
+  return gzipSync([header, ...rows].map((values) => values.map(csvCell).join(",")).join("\r\n"));
 }
 
 function minimalFixtureArchive(overrides: {
