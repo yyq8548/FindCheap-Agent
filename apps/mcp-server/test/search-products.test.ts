@@ -820,7 +820,7 @@ describe("unified product search", () => {
     expect(officialSearch).toHaveBeenCalledWith({
       seed: officialSeed,
       query: "black lace tiered mini dress",
-      limit: 6
+      limit: 12
     });
     expect(result.candidates[0]).toMatchObject({
       source: "SHOPIFY_GLOBAL_CATALOG",
@@ -845,6 +845,68 @@ describe("unified product search", () => {
       expect.objectContaining({ handle: "472002" })
     ]));
     expect(result.chromeFallbackEligible).toBe(false);
+  });
+
+  it("continues official-store search past visually contradictory products", async () => {
+    const trust = {
+      level: "OFFICIAL" as const,
+      verification: "INDEPENDENT" as const,
+      evidence: ["official merchant domain"]
+    };
+    const seed = shopifyProduct("long-sleeve", 8_800, "UNKNOWN", {
+      merchant: "SKIMS",
+      sourceHost: "skims.com",
+      merchantTrust: trust,
+      title: "SKIMS Long Sleeve Brown Dress",
+      brand: "SKIMS",
+      productType: "Dresses",
+      description: "Brown solid long-sleeve dress with a crew neck",
+      merchantUrl: "https://skims.com/products/long-sleeve"
+    });
+    const match = shopifyProduct("sleeveless", 7_800, "UNKNOWN", {
+      merchant: "SKIMS",
+      sourceHost: "skims.com",
+      merchantTrust: trust,
+      title: "SKIMS Sleeveless Brown Slip Dress",
+      brand: "SKIMS",
+      productType: "Dresses",
+      description: "Brown solid sleeveless dress with a square neck",
+      merchantUrl: "https://skims.com/products/sleeveless"
+    });
+    const officialSearch = vi.fn<OfficialShopifySearchPort["search"]>()
+      .mockResolvedValueOnce([seed])
+      .mockResolvedValueOnce([match]);
+
+    const result = await searchProducts(SearchProductsInputSchema.parse({
+      query: "SKIMS brown sleeveless dress",
+      brand: "SKIMS",
+      brandMode: "REQUIRED",
+      visualInput: {
+        productType: "women's dress",
+        colors: ["brown"],
+        patterns: ["solid"],
+        hardClues: ["sleeveless", "square neck"],
+        negativeClues: ["long sleeve"]
+      }
+    }), {
+      awin: awin([]),
+      shopify: { search: vi.fn(async () => shopifyResult([seed])) },
+      officialShopify: { search: officialSearch }
+    });
+
+    expect(officialSearch).toHaveBeenCalledTimes(2);
+    expect(result.candidates.map((candidate) => candidate.shopifyProduct?.handle)).toEqual(["sleeveless"]);
+    expect(result.candidates[0]).toMatchObject({
+      presentationGroup: "OFFICIAL_STORE",
+      visualMatchGroup: "POSSIBLE_SAME_ITEM"
+    });
+    expect(result.officialStoreFallback.diagnostic).toEqual(expect.objectContaining({
+      outcome: "ACCEPTED",
+      attempts: [
+        expect.objectContaining({ acceptedCandidates: 0 }),
+        expect.objectContaining({ acceptedCandidates: 1 })
+      ]
+    }));
   });
 
   it("progressively broadens an official storefront query until a usable product is found", async () => {

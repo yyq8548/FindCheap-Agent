@@ -18,7 +18,10 @@ export const VisualProductInputSchema = z.object({
   patterns: z.array(VisualTextSchema).max(4).default([]),
   silhouette: VisualTextSchema.optional(),
   length: VisualTextSchema.optional(),
-  styleClues: z.array(VisualTextSchema).max(12).default([])
+  styleClues: z.array(VisualTextSchema).max(12).default([]),
+  hardClues: z.array(VisualTextSchema).max(12).optional(),
+  softClues: z.array(VisualTextSchema).max(12).optional(),
+  negativeClues: z.array(VisualTextSchema).max(12).optional()
 }).strict().refine((value) => Object.entries(value).some(([key, entry]) =>
   key !== "imageUrl" && key !== "sourcePageUrl" && (Array.isArray(entry) ? entry.length > 0 : entry !== undefined)
 ), "visual input must include at least one observed product attribute");
@@ -52,6 +55,7 @@ const ALIAS_GROUPS = [
   ["dress", "dresses", "裙", "裙子", "连衣裙"],
   ["skirt", "skirts", "半身裙"],
   ["trouser", "trousers", "pants", "pant", "长裤", "裤子", "西裤"],
+  ["shorts", "boy short", "boy shorts", "短裤"],
   ["jeans", "denim pants", "牛仔裤"],
   ["t shirt", "tshirt", "tee", "tees", "short sleeve top", "short sleeve shirt", "短袖", "t恤"],
   ["shirt", "shirts", "衬衫"],
@@ -102,7 +106,7 @@ const ALIAS_GROUPS = [
 ] as const;
 
 const PRODUCT_FAMILIES = new Set([
-  "dress", "skirt", "trouser", "jeans", "t shirt", "shirt", "top", "jacket", "coat",
+  "dress", "skirt", "trouser", "shorts", "jeans", "t shirt", "shirt", "top", "jacket", "coat",
   "shoe", "ballet flat", "sneaker", "boot", "handbag", "backpack", "headphone", "earbud", "watch"
 ]);
 
@@ -123,9 +127,13 @@ export function classifyVisualProduct(
   if (typeStatus === "CONTRADICTED") return undefined;
 
   const fullText = candidateText(candidate, true);
-  if (hasSleeveLengthConflict(visual, fullText) || hasNecklineConflict(visual, fullText)) return undefined;
+  if (
+    hasNegativeClueConflict(visual, fullText) ||
+    hasExclusiveAttributeConflict(visual, fullText)
+  ) return undefined;
   const evidence: string[] = [];
-  const matchedAttributes: string[] = [];
+  const matchedHardAttributes: string[] = [];
+  const matchedSoftAttributes: string[] = [];
   const brandClue = visual.brand ?? visual.logoText;
   const brandMatched = brandClue !== undefined && matches(fullText, brandClue);
   if (brandMatched) evidence.push(`brand/logo matched: ${brandClue}`);
@@ -133,26 +141,37 @@ export function classifyVisualProduct(
   const modelMatched = visual.modelOrStyleNumber !== undefined && matches(fullText, visual.modelOrStyleNumber);
   if (modelMatched) evidence.push(`model/style matched: ${visual.modelOrStyleNumber}`);
 
-  for (const [label, values] of visualAttributes(visual)) {
+  for (const [label, values] of hardVisualAttributes(visual)) {
     for (const value of values) {
       if (!matches(fullText, value)) continue;
-      matchedAttributes.push(`${label}: ${value}`);
+      matchedHardAttributes.push(`${label}: ${value}`);
       break;
     }
   }
+  for (const [label, values] of softVisualAttributes(visual)) {
+    for (const value of values) {
+      if (!matches(fullText, value)) continue;
+      matchedSoftAttributes.push(`${label}: ${value}`);
+      break;
+    }
+  }
+  const matchedAttributes = [...matchedHardAttributes, ...matchedSoftAttributes];
   evidence.push(...matchedAttributes.map((value) => `visual attribute matched: ${value}`));
   if (productType !== undefined && typeStatus === "MATCHED") evidence.unshift(`product type matched: ${productType}`);
   if (productType !== undefined && typeStatus === "UNKNOWN") evidence.unshift(`product type not independently verified: ${productType}`);
 
-  if (modelMatched || (brandMatched && matchedAttributes.length >= 2)) {
+  if (modelMatched) {
     return { group: "POSSIBLE_SAME_ITEM", score: 100 + matchedAttributes.length, evidence };
   }
-  if (matchedAttributes.length >= 3 || (brandMatched && matchedAttributes.length >= 1)) {
+  if (typeStatus === "UNKNOWN") return undefined;
+  if (brandMatched && matchedHardAttributes.length >= 3) {
+    return { group: "POSSIBLE_SAME_ITEM", score: 100 + matchedAttributes.length, evidence };
+  }
+  if (matchedHardAttributes.length >= 2) {
     return { group: "HIGHLY_SIMILAR", score: 70 + matchedAttributes.length, evidence };
   }
   if (
     (typeStatus === "MATCHED" && (matchedAttributes.length >= 1 || visualAttributeCount(visual) === 0)) ||
-    (typeStatus === "UNKNOWN" && matchedAttributes.length >= 1) ||
     brandMatched
   ) {
     return {
@@ -166,13 +185,15 @@ export function classifyVisualProduct(
 
 export function visualSearchTerms(visual: VisualProductInput): string[] {
   const details = unique([
-    visual.colors[0],
-    visual.materials[0],
-    visual.patterns[0],
+    ...(visual.hardClues ?? []),
+    (visual.patterns ?? [])[0],
     visual.silhouette,
     visual.length,
-    visual.styleClues[0]
-  ]).slice(0, 2);
+    (visual.colors ?? [])[0],
+    (visual.materials ?? [])[0],
+    ...(visual.softClues ?? []),
+    (visual.styleClues ?? [])[0]
+  ]).slice(0, 4);
   return unique([
     visual.brand,
     visual.modelOrStyleNumber,
@@ -189,15 +210,18 @@ export function visualBroadSearchTerms(visual: VisualProductInput): string[] {
 export function visualOfficialStoreSearchQueries(visual: VisualProductInput): VisualOfficialStoreQuery[] {
   const normalizedType = searchTerm(visual.productType);
   const category = officialSearchProductType(visual, normalizedType);
-  const informativePattern = visual.patterns
+  const informativePattern = (visual.patterns ?? [])
     .map(searchTerm)
     .find((pattern) => pattern !== undefined && pattern !== "solid");
   const primaryDetails = unique([
+    ...(visual.hardClues ?? []),
     informativePattern,
-    visual.colors[0],
-    visual.materials[0],
-    ...visual.styleClues,
-    visual.length
+    visual.silhouette,
+    visual.length,
+    (visual.colors ?? [])[0],
+    (visual.materials ?? [])[0],
+    ...(visual.softClues ?? []),
+    ...(visual.styleClues ?? [])
   ].map(searchTerm));
   const queries: VisualOfficialStoreQuery[] = [
     {
@@ -228,7 +252,7 @@ function officialSearchProductType(
 ): string | undefined {
   const category = coreProductType(normalizedType);
   if (category !== "top") return category;
-  const details = [...visual.styleClues, ...visual.patterns, visual.silhouette ?? ""]
+  const details = [...(visual.styleClues ?? []), ...(visual.patterns ?? []), visual.silhouette ?? ""]
     .map((value) => normalize(value));
   return details.some((value) => value.includes("short sleeve") || value.includes("ribbed"))
     ? "t shirt"
@@ -262,20 +286,26 @@ function compatibleProductFamilies(left: string, right: string): boolean {
   return upperBody.has(left) && upperBody.has(right);
 }
 
-function hasSleeveLengthConflict(visual: VisualProductInput, candidate: string): boolean {
-  const requested = normalizeRaw([visual.productType, ...visual.styleClues].filter(Boolean).join(" "));
-  const observed = normalizeRaw(candidate);
-  return (requested.includes("short sleeve") && observed.includes("long sleeve")) ||
-    (requested.includes("long sleeve") && observed.includes("short sleeve"));
+const EXCLUSIVE_ATTRIBUTE_GROUPS = [
+  ["sleeveless", "short sleeve", "long sleeve"],
+  ["boat neck", "crew neck", "mock neck", "v neck", "square neck", "scoop neck", "halter neck", "sweetheart neck"],
+  ["mini", "midi", "maxi"]
+] as const;
+
+function hasNegativeClueConflict(visual: VisualProductInput, candidate: string): boolean {
+  return (visual.negativeClues ?? []).some((clue) => matches(candidate, clue));
 }
 
-function hasNecklineConflict(visual: VisualProductInput, candidate: string): boolean {
-  const requested = normalizeRaw([visual.productType, ...visual.styleClues].filter(Boolean).join(" "));
-  const observed = normalizeRaw(candidate);
-  const requestedCrew = requested.includes("crew neck") || requested.includes("round neck");
-  const conflictingObserved = ["mock neck", "v neck", "square neck", "boat neck", "bateau neckline"]
-    .some((neckline) => observed.includes(neckline));
-  return requestedCrew && conflictingObserved;
+function hasExclusiveAttributeConflict(visual: VisualProductInput, candidate: string): boolean {
+  const requested = [visual.productType, visual.length, ...(visual.hardClues ?? []), ...(visual.styleClues ?? [])]
+    .filter((value): value is string => value !== undefined)
+    .join(" ");
+  return EXCLUSIVE_ATTRIBUTE_GROUPS.some((group) => {
+    const requestedValues = group.filter((value) => matches(requested, value));
+    if (requestedValues.length !== 1) return false;
+    const observedValues = group.filter((value) => matches(candidate, value));
+    return observedValues.length > 0 && !observedValues.includes(requestedValues[0]!);
+  });
 }
 
 function productFamilies(value: string): string[] {
@@ -286,19 +316,27 @@ function productFamilies(value: string): string[] {
   );
 }
 
-function visualAttributes(visual: VisualProductInput): Array<readonly [string, string[]]> {
+function hardVisualAttributes(visual: VisualProductInput): Array<readonly [string, string[]]> {
   return [
-    ["color", visual.colors],
-    ["material", visual.materials],
-    ["pattern", visual.patterns],
+    ["color", visual.colors ?? []],
+    ["pattern", visual.patterns ?? []],
     ["silhouette", visual.silhouette === undefined ? [] : [visual.silhouette]],
     ["length", visual.length === undefined ? [] : [visual.length]],
-    ["style", visual.styleClues]
+    ...(visual.hardClues ?? []).map((clue): readonly [string, string[]] => ["hard clue", [clue]])
+  ];
+}
+
+function softVisualAttributes(visual: VisualProductInput): Array<readonly [string, string[]]> {
+  return [
+    ["material", visual.materials ?? []],
+    ["style", visual.styleClues ?? []],
+    ["soft clue", visual.softClues ?? []]
   ];
 }
 
 function visualAttributeCount(visual: VisualProductInput): number {
-  return visualAttributes(visual).reduce((count, [, values]) => count + values.length, 0);
+  return [...hardVisualAttributes(visual), ...softVisualAttributes(visual)]
+    .reduce((count, [, values]) => count + values.length, 0);
 }
 
 function candidateText(candidate: CandidateEvidence, includeDetails: boolean): string {
@@ -317,11 +355,19 @@ function matches(candidateTextValue: string, clue: string): boolean {
 
 function normalize(value: string): string {
   let output = ` ${normalizeRaw(value)} `;
+  const replacements: string[] = [];
   for (const [alias, canonicalValue] of [...ALIASES].sort((left, right) => right[0].length - left[0].length)) {
-    output = containsCjk(alias)
-      ? output.replaceAll(alias, ` ${canonicalValue} `)
-      : output.replaceAll(` ${alias} `, ` ${canonicalValue} `);
+    const marker = `\uE000${replacements.length}\uE001`;
+    const next = containsCjk(alias)
+      ? output.replaceAll(alias, marker)
+      : output.replaceAll(` ${alias} `, ` ${marker} `);
+    if (next === output) continue;
+    replacements.push(canonicalValue);
+    output = next;
   }
+  replacements.forEach((replacement, index) => {
+    output = output.replaceAll(`\uE000${index}\uE001`, ` ${replacement} `);
+  });
   return output.replace(/\s+/gu, " ").trim();
 }
 

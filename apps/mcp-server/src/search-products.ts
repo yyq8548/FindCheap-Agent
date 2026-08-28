@@ -349,7 +349,12 @@ export async function searchProducts(
 
   let searchPasses: 1 | 2 = 1;
   const expandedQuery = buildExpandedQuery(input, searchIntent, identityQuery);
-  if (affiliateCandidates.length + ebayCandidates.length + shopifyCandidates.length < input.limit) {
+  if (
+    countDisplayEligibleCandidates(
+      [...affiliateCandidates, ...ebayCandidates, ...shopifyCandidates],
+      input.allowAlternatives
+    ) < input.limit
+  ) {
     searchPasses = 2;
     await Promise.all([
       queryAwin(expandedQuery, 24, true),
@@ -385,7 +390,7 @@ export async function searchProducts(
         const products = await ports.officialShopify.search({
           seed: officialSeed,
           query: attempt.query,
-          limit: 6
+          limit: 12
         });
         const newProducts = mergeShopifyProducts(officialProducts, products);
         officialProducts.splice(0, officialProducts.length, ...newProducts);
@@ -448,7 +453,13 @@ export async function searchProducts(
   );
   const sortedCandidates = enrichedCandidates
     .sort(input.selectionMode === "LOWEST_PRICE" ? compareLowestPrice : compareRankedCandidates);
-  const candidates = selectPresentationCandidates(sortedCandidates, input.limit, input.selectionMode);
+  const candidates = selectPresentationCandidates(
+    sortedCandidates,
+    input.limit,
+    input.selectionMode,
+    input.allowAlternatives,
+    input.visualInput !== undefined
+  );
   const queriedSourcesComplete =
     awinStatus !== "UNAVAILABLE" &&
     ebayStatus !== "UNAVAILABLE" &&
@@ -919,7 +930,8 @@ function hasSufficientOfficialMatches(candidates: UnifiedCandidate[], limit: num
     ((candidate.visualMatchScore ?? 0) >= 104 ||
       candidate.visualMatchEvidence?.some((evidence) => evidence.startsWith("model/style matched:")) === true)
   ) ||
-    visualCandidates.filter((candidate) => candidate.visualMatchGroup === "HIGHLY_SIMILAR").length >= limit;
+    visualCandidates.filter((candidate) => candidate.visualMatchGroup === "HIGHLY_SIMILAR").length >=
+      Math.min(limit, 2);
 }
 
 function officialStoreSeed(
@@ -1132,16 +1144,19 @@ function visualIdentityStatus(
 function selectPresentationCandidates(
   candidates: UnifiedCandidate[],
   limit: number,
-  selectionMode: SearchProductsInput["selectionMode"]
+  selectionMode: SearchProductsInput["selectionMode"],
+  allowAlternatives: boolean,
+  visualDiscovery: boolean
 ): UnifiedCandidate[] {
   const official = candidates
     .filter(isOfficialCandidate)
+    .filter((candidate) => passesVisualDisplayGate(candidate, allowAlternatives))
     .slice(0, 2)
     .map((candidate) => ({ ...candidate, presentationGroup: "OFFICIAL_STORE" as const }));
   if (selectionMode === "LOWEST_PRICE") {
     const bestValue = candidates
       .filter((candidate) => !isOfficialCandidate(candidate))
-      .filter(isHighMatch)
+      .filter((candidate) => passesVisualDisplayGate(candidate, allowAlternatives))
       .sort(compareLowestPrice)
       .slice(0, limit)
       .map((candidate) => ({ ...candidate, presentationGroup: "BEST_VALUE" as const }));
@@ -1149,7 +1164,7 @@ function selectPresentationCandidates(
   }
   const trusted = candidates
     .filter((candidate) => !isOfficialCandidate(candidate))
-    .filter(isHighMatch)
+    .filter((candidate) => passesVisualDisplayGate(candidate, allowAlternatives))
     .filter((candidate) =>
       candidate.recommendationTier === "TRUSTED_OR_AFFILIATE" ||
       candidate.recommendationTier === "HIGH_RATED_UNVERIFIED"
@@ -1160,13 +1175,14 @@ function selectPresentationCandidates(
   const bestValue = candidates
     .filter((candidate) => !selectedKeys.has(candidateKey(candidate)))
     .filter((candidate) => !isOfficialCandidate(candidate))
-    .filter(isHighMatch)
+    .filter((candidate) => passesVisualDisplayGate(candidate, allowAlternatives))
     .filter((candidate) => candidate.recommendationTier === "GENERAL_UNVERIFIED")
     .sort(compareBestValue)
     .slice(0, limit)
     .map((candidate) => ({ ...candidate, presentationGroup: "BEST_VALUE" as const }));
   const grouped = [...official, ...trusted, ...bestValue];
   if (grouped.length > 0) return grouped;
+  if (visualDiscovery) return [];
   return candidates.slice(0, limit);
 }
 
@@ -1185,8 +1201,18 @@ function isOfficialCandidate(candidate: UnifiedCandidate): boolean {
   }
 }
 
-function isHighMatch(candidate: UnifiedCandidate): boolean {
-  return candidate.visualMatchGroup === undefined || candidate.visualMatchGroup !== "SAME_STYLE";
+function passesVisualDisplayGate(candidate: UnifiedCandidate, allowAlternatives: boolean): boolean {
+  return candidate.resultGroup === "REQUESTED_PRODUCT" ||
+    candidate.visualMatchGroup === undefined ||
+    candidate.visualMatchGroup !== "SAME_STYLE" ||
+    allowAlternatives;
+}
+
+function countDisplayEligibleCandidates(
+  candidates: UnifiedCandidate[],
+  allowAlternatives: boolean
+): number {
+  return candidates.filter((candidate) => passesVisualDisplayGate(candidate, allowAlternatives)).length;
 }
 
 function compareBestValue(left: UnifiedCandidate, right: UnifiedCandidate): number {

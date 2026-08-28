@@ -269,6 +269,10 @@ describe("shopping MCP server", () => {
     expect(unifiedTool?.description).toContain("maxItemPriceCents");
     expect(unifiedTool?.description).toContain("objective must-have attributes in requiredFeatures");
     expect(unifiedTool?.description).toContain("For an attached product image or screenshot");
+    expect(unifiedTool?.description).toContain("hardClues");
+    expect(unifiedTool?.description).toContain("softClues");
+    expect(unifiedTool?.description).toContain("negativeClues");
+    expect(unifiedTool?.description).toContain("Official identity never bypasses visual relevance");
     expect(unifiedTool?.description).toContain("brandMode=REQUIRED");
     expect(unifiedTool?.description).toContain("Never put a brand in productType or requiredFeatures");
     expect(unifiedTool?.description).toContain("visual search remains DISCOVERY");
@@ -279,7 +283,7 @@ describe("shopping MCP server", () => {
     expect(unifiedTool?.description).toContain("Searching for suitable products.");
     expect(unifiedTool?.description).toContain("正在搜索合适商品。");
     expect(unifiedTool?.description).toContain("Do not read Memory, Skill files, repository files");
-    expect(unifiedTool?.description).toContain("Missing evidence remains a limitation-labeled DISCOVERY_MATCH");
+    expect(unifiedTool?.description).toContain("Missing soft evidence remains a limitation-labeled DISCOVERY_MATCH");
     expect(unifiedTool?.description).not.toContain("call render_product_cards");
     expect(tools.tools.find((tool) => tool.name === "compare_products")?._meta)
       .toMatchObject({ ui: { visibility: ["app"] } });
@@ -452,7 +456,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.13.1",
+        version: "0.13.2",
         terminalStage: "DOM_RENDERED",
         stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
       }
@@ -461,7 +465,7 @@ describe("shopping MCP server", () => {
     expect(result.structuredContent).toEqual({ status: "RECORDED" });
     expect(record).toHaveBeenCalledWith(expect.objectContaining({
       renderId,
-      version: "0.13.1",
+      version: "0.13.2",
       terminalStage: "DOM_RENDERED",
       stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
     }));
@@ -469,7 +473,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.13.1",
+        version: "0.13.2",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 14 }
       }
@@ -479,7 +483,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.13.1",
+        version: "0.13.2",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 300_001 }
       }
@@ -490,7 +494,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId: "22222222-2222-4222-8222-222222222222",
-        version: "0.13.1",
+        version: "0.13.2",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 1 }
       }

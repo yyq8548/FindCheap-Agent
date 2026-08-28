@@ -138,7 +138,7 @@ describe("product-card MCP Apps UI", () => {
       params: expect.objectContaining({
         name: "report_product_card_metrics",
         arguments: expect.objectContaining({
-          version: "0.13.1",
+          version: "0.13.2",
           terminalStage: "DOM_RENDERED",
           stages: expect.objectContaining({ DOM_RENDERED: expect.any(Number) })
         })
@@ -531,7 +531,7 @@ describe("product-card MCP Apps UI", () => {
       method: "ui/initialize",
       params: {
         protocolVersion: "2026-01-26",
-        appInfo: { name: "FindCheap Agent product cards", version: "0.13.1" },
+        appInfo: { name: "FindCheap Agent product cards", version: "0.13.2" },
         appCapabilities: { availableDisplayModes: ["inline"] }
       }
     });

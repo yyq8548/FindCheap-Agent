@@ -24,14 +24,14 @@ const GoldenTaskSchema = z.object({
 });
 
 describe("visual product discovery", () => {
-  it("meets the 80 percent visual-grouping gate on 30 golden tasks", async () => {
+  it("meets the 95 percent visual-grouping gate on 30 golden tasks", async () => {
     const file = new URL("../../../tests/evals/visual-product-discovery-golden.json", import.meta.url);
     const tasks = z.array(GoldenTaskSchema).length(30).parse(JSON.parse(await readFile(file, "utf8")));
     const correct = tasks.filter((task) =>
       (classifyVisualProduct(task.visual, task.candidate)?.group ?? null) === task.expectedGroup
     );
 
-    expect(correct.length / tasks.length).toBeGreaterThanOrEqual(0.8);
+    expect(correct.length / tasks.length).toBeGreaterThanOrEqual(0.95);
   });
 
   it("rejects an image reference without observed product evidence", () => {
@@ -91,7 +91,7 @@ describe("visual product discovery", () => {
     expect(result?.group).toBe("SAME_STYLE");
   });
 
-  it("labels a brand-only candidate as same style instead of a strong visual match", () => {
+  it("rejects a brand candidate with contradictory visual evidence", () => {
     const result = classifyVisualProduct({
       productType: "women's midi dress",
       brand: "DÔEN",
@@ -107,7 +107,63 @@ describe("visual product discovery", () => {
       description: "A plain white full-length cotton dress."
     });
 
-    expect(result?.group).toBe("SAME_STYLE");
+    expect(result).toBeUndefined();
+  });
+
+  it("rejects an unknown product type even when brand and colors overlap", () => {
+    const result = classifyVisualProduct({
+      productType: "pajama pants",
+      brand: "SKIMS",
+      colors: ["gray"],
+      materials: [],
+      patterns: ["plaid"],
+      styleClues: [],
+      hardClues: ["full length"],
+      negativeClues: ["shorts"]
+    }, {
+      title: "SKIMS Boy Short Heather Gray",
+      brand: "SKIMS",
+      description: "Soft gray boy shorts"
+    });
+
+    expect(result).toBeUndefined();
+  });
+
+  it("rejects long sleeves for a sleeveless observed garment", () => {
+    const result = classifyVisualProduct({
+      productType: "women's dress",
+      brand: "SKIMS",
+      colors: ["brown"],
+      materials: [],
+      patterns: [],
+      styleClues: [],
+      hardClues: ["sleeveless", "square neck"]
+    }, {
+      title: "SKIMS Long Sleeve Brown Dress",
+      productType: "Dresses",
+      brand: "SKIMS",
+      description: "Long sleeves and a crew neckline"
+    });
+
+    expect(result).toBeUndefined();
+  });
+
+  it("rejects explicit negative clues", () => {
+    const result = classifyVisualProduct({
+      productType: "women's dress",
+      colors: ["ivory"],
+      materials: [],
+      patterns: [],
+      styleClues: [],
+      hardClues: ["boat neck", "sleeveless"],
+      negativeClues: ["ruffled straps"]
+    }, {
+      title: "Ivory Ruffled Strap Dress",
+      productType: "Dresses",
+      description: "Ivory dress with wide ruffled straps"
+    });
+
+    expect(result).toBeUndefined();
   });
 
   it("matches an ASCII storefront brand and English style evidence to accented Chinese observations", () => {
