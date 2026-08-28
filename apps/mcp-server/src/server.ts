@@ -2237,7 +2237,7 @@ export function createShoppingServer(
     "finalize_visual_search",
     {
       title: "Finalize visual search",
-      description: "Visual-review stage for interactive image search. Use only candidate IDs and images returned by the latest tool result. Report directly visible matching and conflicting attributes. A visual verdict can exclude or rerank candidates, but cannot create EXACT identity. Each visual session is immutable and single-use. If every first-pass candidate conflicts, the tool may return one relaxed candidate set and a new visualSessionId for one final review; never retry more than once.",
+      description: "Visual-review stage for interactive image search. Use only candidate IDs and images returned by the latest tool result. Report directly visible matching and conflicting attributes. Family, sleeve, neckline, length, and negative-clue conflicts exclude. Color or pattern difference alone may remain HIGHLY_SIMILAR only when at least three independent structural attributes match; disclose the difference. A visual verdict can exclude or rerank candidates, but cannot create EXACT identity. Each visual session is immutable and single-use. If every first-pass candidate conflicts, the tool may return one relaxed candidate set and a new visualSessionId for one final review; never retry more than once.",
       inputSchema: FinalizeVisualSearchInputSchema,
       outputSchema: ShopifyProductsOutputShape,
       annotations: {

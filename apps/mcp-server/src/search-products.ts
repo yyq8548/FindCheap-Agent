@@ -211,25 +211,37 @@ export function finalizeCodexVisualCandidates(
   limit = 3
 ): UnifiedCandidate[] {
   const accepted = reviewed.flatMap(({ candidate, verdict }) => {
-    if (verdict.classification === "CONFLICT" || verdict.conflicts.length > 0) return [];
     const uniqueMatches = new Map(verdict.matches.map((entry) => [entry.attribute, entry]));
     const matchCount = uniqueMatches.size;
-    const group: VisualMatchGroup = verdict.classification === "POSSIBLE_SAME_ITEM" && matchCount >= 3
+    const structuralMatchCount = [...uniqueMatches.keys()]
+      .filter((attribute) => attribute !== "COLOR" && attribute !== "PATTERN").length;
+    const colorwayOnlyConflict = verdict.conflicts.length > 0 &&
+      verdict.conflicts.every((entry) => entry.attribute === "COLOR" || entry.attribute === "PATTERN") &&
+      structuralMatchCount >= 3;
+    if (
+      (verdict.classification === "CONFLICT" || verdict.conflicts.length > 0) &&
+      !colorwayOnlyConflict
+    ) return [];
+    const classification = colorwayOnlyConflict ? "HIGHLY_SIMILAR" : verdict.classification;
+    const group: VisualMatchGroup = classification === "POSSIBLE_SAME_ITEM" && matchCount >= 3
       ? "POSSIBLE_SAME_ITEM"
-      : (verdict.classification === "POSSIBLE_SAME_ITEM" || verdict.classification === "HIGHLY_SIMILAR") && matchCount >= 2
+      : (classification === "POSSIBLE_SAME_ITEM" || classification === "HIGHLY_SIMILAR") && matchCount >= 2
         ? "HIGHLY_SIMILAR"
         : "SAME_STYLE";
     if (group === "SAME_STYLE" && !allowAlternatives) return [];
     const visualEvidence = [...uniqueMatches.values()].map((entry) =>
       `Codex visual match ${entry.attribute}: ${entry.referenceEvidence} | ${entry.candidateEvidence}`
     );
+    const visualDifferences = verdict.conflicts.map((entry) =>
+      `Codex visual difference ${entry.attribute}: ${entry.referenceEvidence} | ${entry.candidateEvidence}`
+    );
     const stableExact = candidate.identityStatus === "EXACT";
     return [{
       ...candidate,
       visualMatchGroup: group,
-      visualMatchEvidence: unique([...(candidate.visualMatchEvidence ?? []), ...visualEvidence]),
+      visualMatchEvidence: unique([...(candidate.visualMatchEvidence ?? []), ...visualEvidence, ...visualDifferences]),
       visualMatchScore: visualGroupScore(group) + Math.min(matchCount, 16),
-      identityEvidence: unique([...candidate.identityEvidence, ...visualEvidence]),
+      identityEvidence: unique([...candidate.identityEvidence, ...visualEvidence, ...visualDifferences]),
       identityStatus: stableExact ? "EXACT" as const : group === "SAME_STYLE" ? "SIMILAR" as const : "DISCOVERY_MATCH" as const,
       resultGroup: stableExact ? candidate.resultGroup : visualResultGroup(group)
     }];
@@ -747,6 +759,11 @@ function shopifyCandidate(
     return undefined;
   }
   if (!conditionMatches(product.condition, input.conditionPreference)) return undefined;
+  const evidence = evaluateConstraints(shopifyEvidenceText(product), input);
+  if (evidence.contradicted.length > 0) {
+    featureExcludedKeys.add(key);
+    return undefined;
+  }
   const identity = candidateIdentity(
     searchIntent,
     input.allowAlternatives,
@@ -763,14 +780,10 @@ function shopifyCandidate(
     },
     product.matchStatus,
     key,
-    identityExcludedKeys
+    identityExcludedKeys,
+    allowsConfigurationDiscovery(input, evidence, product.merchantTrust)
   );
   if (identity === undefined) return undefined;
-  const evidence = evaluateConstraints(shopifyEvidenceText(product), input);
-  if (evidence.contradicted.length > 0) {
-    featureExcludedKeys.add(key);
-    return undefined;
-  }
   const visual = visualIdentity(input, {
     title: product.title,
     productType: product.productType,
@@ -830,17 +843,53 @@ function candidateIdentity(
   candidate: ShopifyMatchCandidate,
   sourceStatus: Exclude<ShopifyMatchStatus, "IRRELEVANT">,
   key: string,
-  excluded: Set<string>
+  excluded: Set<string>,
+  allowConfigurationDiscovery = false
 ): { status: Exclude<ShopifyMatchStatus, "IRRELEVANT">; evidence: string[] } | undefined {
   if (searchIntent !== "EXACT_PRODUCT") {
     return { status: sourceStatus, evidence: [] };
   }
   const identity = classifyShopifyCandidate(query, candidate);
-  if (identity.status === "IRRELEVANT" || (identity.status === "SIMILAR" && !allowAlternatives)) {
+  if (
+    identity.status === "IRRELEVANT" ||
+    (identity.status === "SIMILAR" && !allowAlternatives && !allowConfigurationDiscovery)
+  ) {
     excluded.add(key);
     return undefined;
   }
+  if (identity.status === "SIMILAR" && allowConfigurationDiscovery) {
+    return {
+      status: "DISCOVERY_MATCH",
+      evidence: unique([
+        ...identity.evidence,
+        "all required configuration matched; stable product identity unavailable"
+      ])
+    };
+  }
   return { status: identity.status, evidence: identity.evidence };
+}
+
+function allowsConfigurationDiscovery(
+  input: SearchProductsExecutionInput,
+  evidence: ReturnType<typeof evaluateConstraints>,
+  merchantTrust: ShopifyProduct["merchantTrust"]
+): boolean {
+  const required = unique([
+    ...input.requiredFeatures,
+    ...(input.featureMode === "REQUIRED" ? input.features : [])
+  ]);
+  const minimumMatched = Math.max(2, Math.ceil(required.length * 2 / 3));
+  return input.comparisonMode === "DISCOVERY" &&
+    !hasStrongProductIdentifier(input.query) &&
+    input.brand !== undefined &&
+    input.brandMode === "REQUIRED" &&
+    required.length >= 2 &&
+    evidence.matched.length >= minimumMatched &&
+    evidence.matched.length + evidence.unknown.length === required.length &&
+    evidence.contradicted.length === 0 &&
+    merchantTrust.level !== "UNKNOWN" &&
+    merchantTrust.level !== "RISKY" &&
+    merchantTrust.verification === "INDEPENDENT";
 }
 
 function candidateResultGroup(
@@ -1085,7 +1134,7 @@ function assessBrand(
   if (input.brand === undefined) {
     return { excluded: false, requiredEvidence: [], preferenceEvidence: [], matchEvidence: [] };
   }
-  const matched = evidenceValues.some((value) => value !== undefined && containsBrand(value, input.brand!));
+  const matched = evidenceValues.some((value) => value !== undefined && containsBrandEvidence(value, input.brand!));
   if (!matched && input.brandMode === "REQUIRED") {
     return { excluded: true, requiredEvidence: [], preferenceEvidence: [], matchEvidence: [] };
   }
@@ -1105,6 +1154,18 @@ function containsBrand(value: string, brand: string): boolean {
   if (requestedTokens.length === 0) return false;
   return requestedTokens.every((token) => candidateTokens.includes(token));
 }
+
+function containsBrandEvidence(value: string, brand: string): boolean {
+  if (containsBrand(value, brand)) return true;
+  const candidateTokens = brandTokens(value);
+  const requestedTokens = brandTokens(brand);
+  const ownedProductLines = BRAND_OWNED_PRODUCT_LINES[requestedTokens.join(" ")];
+  return ownedProductLines?.some((line) => candidateTokens.includes(line)) === true;
+}
+
+const BRAND_OWNED_PRODUCT_LINES: Readonly<Record<string, readonly string[]>> = {
+  apple: ["airpods", "imac", "ipad", "iphone", "macbook"]
+};
 
 function brandTokens(value: string): string[] {
   return value.normalize("NFKD").toLocaleLowerCase("en-US")

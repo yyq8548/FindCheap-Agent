@@ -65,7 +65,7 @@ export function relaxVisualProductInput(visual: VisualProductInput): VisualProdu
     ...(visual.brand === undefined ? {} : { brand: visual.brand }),
     ...(visual.logoText === undefined ? {} : { logoText: visual.logoText }),
     ...(visual.modelOrStyleNumber === undefined ? {} : { modelOrStyleNumber: visual.modelOrStyleNumber }),
-    ...(visual.productType === undefined ? {} : { productType: coreProductType(visual.productType) })
+    ...(visual.productType === undefined ? {} : { productType: relaxedProductType(visual.productType) })
   });
 }
 
@@ -267,7 +267,7 @@ export function visualOfficialStoreSearchQueries(visual: VisualProductInput): Vi
   const queries: VisualOfficialStoreQuery[] = [
     {
       stage: "FULL",
-      query: unique([category ?? normalizedType, ...primaryDetails]).join(" ")
+      query: unique([officialFullProductType(normalizedType, category), ...primaryDetails]).join(" ")
     },
     {
       stage: "CORE",
@@ -337,6 +337,23 @@ function searchTerm(value: string | undefined): string | undefined {
 function coreProductType(value: string | undefined): string | undefined {
   if (value === undefined) return undefined;
   return productFamilies(value)[0] ?? value;
+}
+
+function relaxedProductType(value: string): string {
+  const family = coreProductType(value) ?? value;
+  if (family !== "dress") return family;
+  const normalized = normalize(value);
+  const length = ["mini", "midi", "maxi"].find((term) => matches(normalized, term));
+  return length === undefined ? family : `${length} ${family}`;
+}
+
+function officialFullProductType(
+  normalizedType: string | undefined,
+  category: string | undefined
+): string | undefined {
+  return normalizedType !== undefined && /^(?:mini|midi|maxi) dress$/u.test(normalizedType)
+    ? normalizedType
+    : category ?? normalizedType;
 }
 
 function productTypeStatus(

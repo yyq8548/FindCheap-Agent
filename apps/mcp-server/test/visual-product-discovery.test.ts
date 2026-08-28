@@ -39,22 +39,23 @@ describe("visual product discovery", () => {
 
     expect(relaxed).toMatchObject({
       brand: "DÔEN",
-      productType: "dress",
+      productType: "mini dress",
       colors: [],
       materials: [],
       patterns: [],
       styleClues: []
     });
     expect(visualOfficialStoreSearchQueries(relaxed)).toEqual([
-      { stage: "FULL", query: "dress" }
+      { stage: "FULL", query: "mini dress" },
+      { stage: "CORE", query: "dress" }
     ]);
   });
 
-  it("reduces detailed visual types to a broad family for the bounded retry", () => {
+  it("preserves a useful subtype before broadening to the family", () => {
     expect(relaxVisualProductInput(VisualProductInputSchema.parse({
       productType: "off-shoulder lace mini dress",
       colors: ["black"]
-    })).productType).toBe("dress");
+    })).productType).toBe("mini dress");
   });
 
   it("meets the 95 percent visual-grouping gate on 30 golden tasks", async () => {

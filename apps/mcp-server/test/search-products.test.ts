@@ -11,6 +11,7 @@ import {
 import type { ShopifyPort, ShopifySearchResult } from "../src/shopify-client.js";
 import type { EbayBrowsePort } from "../src/ebay-client.js";
 import type { OfficialShopifySearchPort } from "../src/shopify-official-store-search.js";
+import { hasStrongProductIdentifier } from "../src/shopify-match.js";
 import { DOEN_VISUAL_GOLDEN_CASES } from "./fixtures/doen-visual-golden.js";
 
 const now = "2026-08-24T12:00:00.000Z";
@@ -513,6 +514,72 @@ describe("unified product search", () => {
       "BEST_VALUE"
     ]);
     expect(result.chromeFallbackEligible).toBe(false);
+  });
+
+  it("keeps trusted fully matched configurations without claiming exact identity", async () => {
+    const configured = shopifyProduct("macbook-m5-pro-24", 234_900, "UNKNOWN", {
+      title: "MacBook Pro 14-inch M5 Pro",
+      productType: "Laptop Computers",
+      variantDimensions: { Memory: "24GB", Display: "14 inch", Chip: "M5 Pro" },
+      matchStatus: "SIMILAR"
+    });
+    const result = await searchProducts(SearchProductsInputSchema.parse({
+      query: "Apple MacBook Pro 14-inch M5 Pro 24GB",
+      brand: "Apple",
+      brandMode: "REQUIRED",
+      productType: "laptop computer",
+      requiredFeatures: ["14-inch display", "M5 Pro chip", "24GB memory"],
+      limit: 3
+    }), { awin: awin([]), shopify: shopify([configured]) });
+
+    expect(hasStrongProductIdentifier("Apple MacBook Pro 14-inch M5 Pro 24GB")).toBe(false);
+    expect(hasStrongProductIdentifier("Sony WH-1000XM6")).toBe(true);
+    expect(result.candidates).toHaveLength(1);
+    expect(result.candidates[0]).toMatchObject({
+      identityStatus: "DISCOVERY_MATCH",
+      resultGroup: "REQUESTED_PRODUCT",
+      requiredFeatureLimitations: ["M5 Pro chip"]
+    });
+    expect(result.candidates[0]?.identityEvidence).toContain(
+      "all required configuration matched; stable product identity unavailable"
+    );
+  });
+
+  it("does not use configuration discovery for explicit same-product comparison", async () => {
+    const result = await searchProducts(SearchProductsInputSchema.parse({
+      query: "Apple MacBook Pro 14-inch M5 Pro 24GB",
+      comparisonMode: "SAME_PRODUCT",
+      brand: "Apple",
+      brandMode: "REQUIRED",
+      requiredFeatures: ["14-inch display", "M5 Pro chip", "24GB memory"]
+    }), {
+      awin: awin([]),
+      shopify: shopify([shopifyProduct("similar-config", 234_900, "UNKNOWN", {
+        title: "MacBook Pro 14-inch M5 Pro",
+        variantDimensions: { Memory: "24GB", Display: "14 inch", Chip: "M5 Pro" },
+        matchStatus: "SIMILAR"
+      })])
+    });
+
+    expect(result.candidates).toEqual([]);
+  });
+
+  it("does not use configuration discovery when the query contains a stable model identifier", async () => {
+    const result = await searchProducts(SearchProductsInputSchema.parse({
+      query: "Sony WH-1000XM6",
+      brand: "Sony",
+      brandMode: "REQUIRED",
+      requiredFeatures: ["wireless", "noise cancelling"]
+    }), {
+      awin: awin([]),
+      shopify: shopify([shopifyProduct("wh-1000xm5", 29_900, "UNKNOWN", {
+        title: "Sony WH-1000XM5 Wireless Noise Cancelling Headphones",
+        brand: "Sony",
+        matchStatus: "SIMILAR"
+      })])
+    });
+
+    expect(result.candidates).toEqual([]);
   });
 
   it("places only products hosted on verified official domains in the official group", async () => {
@@ -1083,6 +1150,53 @@ describe("unified product search", () => {
     }], false);
 
     expect(finalized).toEqual([]);
+  });
+
+  it("keeps a structurally strong match as highly similar when only colorway differs", async () => {
+    const candidate = shopifyProduct("quinn-black", 27_800, "UNKNOWN", {
+      title: "Quinn Dress — Black",
+      productType: "Dresses",
+      description: "Maxi dress with square neckline, cap sleeves, fitted bodice and center keyhole",
+      imageUrl: "https://cdn.example/quinn-black.jpg"
+    });
+    const result = await searchProducts(SearchProductsInputSchema.parse({
+      query: "floral maxi dress",
+      visualInput: {
+        imageUrl: "https://uploads.example/reference.jpg",
+        productType: "maxi dress",
+        colors: ["ivory"],
+        patterns: ["floral"],
+        length: "maxi",
+        neckline: "square neck",
+        sleeveType: "cap sleeve"
+      }
+    }), { awin: awin([]), shopify: shopify([candidate]) });
+    const finalized = finalizeCodexVisualCandidates([{
+      candidate: result.candidates[0]!,
+      verdict: {
+        classification: "CONFLICT",
+        matches: [
+          { attribute: "PRODUCT_TYPE", referenceEvidence: "maxi dress", candidateEvidence: "dress" },
+          { attribute: "LENGTH", referenceEvidence: "maxi", candidateEvidence: "maxi" },
+          { attribute: "NECKLINE", referenceEvidence: "square", candidateEvidence: "square" },
+          { attribute: "SLEEVE", referenceEvidence: "cap", candidateEvidence: "cap" },
+          { attribute: "DISTINCTIVE_DETAIL", referenceEvidence: "center keyhole", candidateEvidence: "center keyhole" }
+        ],
+        conflicts: [
+          { attribute: "COLOR", referenceEvidence: "ivory", candidateEvidence: "black" },
+          { attribute: "PATTERN", referenceEvidence: "floral", candidateEvidence: "solid" }
+        ]
+      }
+    }], false);
+
+    expect(finalized[0]).toMatchObject({
+      visualMatchGroup: "HIGHLY_SIMILAR",
+      identityStatus: "DISCOVERY_MATCH",
+      resultGroup: "DISCOVERY"
+    });
+    expect(finalized[0]?.visualMatchEvidence).toContain(
+      "Codex visual difference COLOR: ivory | black"
+    );
   });
 
   it("requires two unique visual attributes for a high-similarity result", async () => {

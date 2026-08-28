@@ -91,7 +91,12 @@ export function hasSpecificProductIdentity(query: string): boolean {
 export function hasStrongProductIdentifier(query: string): boolean {
   const tokens = tokenize(query);
   return tokens.some((token) => /^\d{8,14}$/u.test(token)) ||
-    tokens.some((token) => token.length >= 4 && /\p{L}/u.test(token) && /\d/u.test(token));
+    tokens.some((token) =>
+      token.length >= 4 &&
+      /\p{L}/u.test(token) &&
+      /\d/u.test(token) &&
+      !/^\d+(?:gb|tb|mb|ml|oz|count|pack|inch|in)$/u.test(token)
+    );
 }
 
 export function hasNamedProductIntent(query: string): boolean {

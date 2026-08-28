@@ -302,6 +302,7 @@ describe("shopping MCP server", () => {
       expect(visualFinalizeTool?.description).toContain("cannot create EXACT identity");
       expect(visualFinalizeTool?.description).toContain("single-use");
       expect(visualFinalizeTool?.description).toContain("never retry more than once");
+      expect(visualFinalizeTool?.description).toContain("Color or pattern difference alone");
     expect(tools.tools.find((tool) => tool.name === "compare_products")?._meta)
       .toMatchObject({ ui: { visibility: ["app"] } });
     const awinTool = tools.tools.find((tool) => tool.name === "search_awin_products");
