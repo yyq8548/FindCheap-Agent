@@ -1381,6 +1381,53 @@ describe("Coupon and Watch tools", () => {
     expect(reused.isError).toBe(true);
   });
 
+  it("returns a stable visual failure code when candidate images cannot be loaded", async () => {
+    const visualShopify: ShopifyPort = {
+      search: async (input) => {
+        const result = await shopifyPort.search(input);
+        return {
+          ...result,
+          products: result.products.map((product) => ({
+            ...product,
+            imageUrl: "https://cdn.shopify.com/unavailable.jpg",
+            productType: "dress"
+          }))
+        };
+      }
+    };
+    const client = await connect(
+      { compare: async () => comparison },
+      visualShopify,
+      undefined,
+      {
+        visualCandidateImages: {
+          load: async () => {
+            throw new Error("IMAGE_UNAVAILABLE");
+          }
+        }
+      }
+    );
+
+    const result = await client.callTool({
+      name: "search_visual_candidates",
+      arguments: {
+        query: "floral dress",
+        productType: "dress",
+        visualInput: { productType: "dress", patterns: ["floral"] }
+      }
+    });
+
+    expect(result.isError).not.toBe(true);
+    expect(result.structuredContent).toMatchObject({
+      status: "NO_IMAGE_CANDIDATES",
+      candidates: [],
+      visualSearchFailure: {
+        code: "NO_LOADABLE_IMAGES",
+        message: expect.stringContaining("no candidate image")
+      }
+    });
+  });
+
   it("softens uncertain visual text and retries once after every first-pass candidate conflicts", async () => {
     const baseline = await shopifyPort.search({
       query: "placeholder",

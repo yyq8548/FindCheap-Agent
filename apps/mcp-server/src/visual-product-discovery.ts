@@ -56,9 +56,25 @@ export type VisualMatch = {
 };
 
 export type VisualOfficialStoreQuery = {
-  stage: "FULL" | "CORE" | "CATEGORY";
+  stage: "FULL" | "CORE" | "SYNONYM" | "CATEGORY";
   query: string;
 };
+
+const OCCLUDED_ATTRIBUTE_PATTERNS: Array<readonly [string, RegExp]> = [
+  ["SLEEVE", /\b(?:arms?|shoulders?|sleeves?|straps?)\b|肩带|肩部|袖/iu],
+  ["NECKLINE", /\b(?:bust|chest|collar|neck|neckline)\b|胸口|胸部|衣领|领口/iu],
+  ["WAIST", /\b(?:midsection|torso|waist)\b|腰|躯干/iu],
+  ["LENGTH", /\b(?:bottom|hem|knee|leg|lower skirt)\b|下摆|裙摆|膝|腿/iu],
+  ["SILHOUETTE", /\b(?:body|silhouette)\b|轮廓|身形/iu]
+];
+
+export function isVisualAttributeOccluded(visual: VisualProductInput, attribute: string): boolean {
+  const key = visualAttributeKey(attribute);
+  if (key === undefined) return false;
+  return (visual.occlusions ?? []).some((occlusion) =>
+    OCCLUDED_ATTRIBUTE_PATTERNS.some(([candidateKey, pattern]) => candidateKey === key && pattern.test(occlusion))
+  );
+}
 
 export function relaxVisualProductInput(visual: VisualProductInput): VisualProductInput {
   return VisualProductInputSchema.parse({
@@ -216,13 +232,14 @@ export function classifyVisualProduct(
 
 export function visualSearchTerms(visual: VisualProductInput): string[] {
   const details = unique([
-    ...(visual.hardClues ?? []),
+    ...(visual.hardClues ?? []).filter((clue) => !isVisualAttributeOccluded(visual, clue)),
     (visual.patterns ?? [])[0],
     visual.printDescription,
-    visual.silhouette,
-    visual.length,
-    visual.neckline,
-    visual.sleeveType,
+    isVisualAttributeOccluded(visual, "SILHOUETTE") ? undefined : visual.silhouette,
+    isVisualAttributeOccluded(visual, "LENGTH") ? undefined : visual.length,
+    isVisualAttributeOccluded(visual, "NECKLINE") ? undefined : visual.neckline,
+    isVisualAttributeOccluded(visual, "SLEEVE") ? undefined : visual.sleeveType,
+    isVisualAttributeOccluded(visual, "WAIST") ? undefined : visual.waist,
     (visual.distinctiveDetails ?? [])[0],
     (visual.visibleText ?? [])[0],
     (visual.styleNumberCandidates ?? [])[0],
@@ -248,22 +265,26 @@ export function visualOfficialStoreSearchQueries(visual: VisualProductInput): Vi
   const normalizedType = searchTerm(visual.productType);
   const category = officialSearchProductType(visual, normalizedType);
   const evidence = unique([
-    ...(visual.hardClues ?? []),
+    ...(visual.hardClues ?? []).filter((clue) => !isVisualAttributeOccluded(visual, clue)),
     ...(visual.patterns ?? []),
     visual.printDescription,
-    visual.silhouette,
-    visual.length,
-    visual.neckline,
-    visual.sleeveType,
+    isVisualAttributeOccluded(visual, "SILHOUETTE") ? undefined : visual.silhouette,
+    isVisualAttributeOccluded(visual, "LENGTH") ? undefined : visual.length,
+    isVisualAttributeOccluded(visual, "NECKLINE") ? undefined : visual.neckline,
+    isVisualAttributeOccluded(visual, "SLEEVE") ? undefined : visual.sleeveType,
+    isVisualAttributeOccluded(visual, "WAIST") ? undefined : visual.waist,
     ...(visual.materials ?? []),
     ...(visual.distinctiveDetails ?? []),
     ...(visual.softClues ?? []),
     ...(visual.styleClues ?? [])
   ].map(searchTerm));
+  const descriptors = officialVisualDescriptors(evidence);
   const primaryDetails = unique([
     searchTerm((visual.colors ?? [])[0]),
-    ...officialVisualDescriptors(evidence)
+    ...descriptors
   ]).slice(0, 6);
+  const coreDetails = unique([...descriptors, searchTerm((visual.colors ?? [])[0])]).slice(0, 3);
+  const synonymDetails = officialVisualSynonymDetails(coreDetails);
   const queries: VisualOfficialStoreQuery[] = [
     {
       stage: "FULL",
@@ -271,8 +292,12 @@ export function visualOfficialStoreSearchQueries(visual: VisualProductInput): Vi
     },
     {
       stage: "CORE",
-      query: unique([category, ...primaryDetails.slice(0, 3)]).join(" ")
+      query: unique([category, ...coreDetails]).join(" ")
     },
+    ...(synonymDetails.length === 0 ? [] : [{
+      stage: "SYNONYM" as const,
+      query: unique([category, ...synonymDetails]).join(" ")
+    }]),
     {
       stage: "CATEGORY",
       query: category ?? normalizedType ?? ""
@@ -291,6 +316,7 @@ function officialVisualDescriptors(evidence: string[]): string[] {
   const text = evidence.join(" ");
   const descriptors: Array<[RegExp, string]> = [
     [/\bfloral\b/u, "floral"],
+    [/\b(?:smock(?:ed|ing)?|shirred|elasticated waist)\b/u, "smocked"],
     [/\blace\b/u, "lace"],
     [/\brib(?:bed|bing)\b/u, "ribbed"],
     [/\bmini\b/u, "mini"],
@@ -315,6 +341,11 @@ function officialVisualDescriptors(evidence: string[]): string[] {
     [/\bcotton\b/u, "cotton"]
   ];
   return descriptors.flatMap(([pattern, descriptor]) => pattern.test(text) ? [descriptor] : []);
+}
+
+function officialVisualSynonymDetails(details: string[]): string[] {
+  if (!details.includes("smocked")) return [];
+  return details.map((detail) => detail === "smocked" ? "shirred" : detail);
 }
 
 function officialSearchProductType(
@@ -381,16 +412,18 @@ const EXCLUSIVE_ATTRIBUTE_GROUPS = [
 ] as const;
 
 function hasNegativeClueConflict(visual: VisualProductInput, candidate: string): boolean {
-  return (visual.negativeClues ?? []).some((clue) => matches(candidate, clue));
+  return (visual.negativeClues ?? []).some((clue) =>
+    !isVisualAttributeOccluded(visual, clue) && matches(candidate, clue)
+  );
 }
 
 function hasExclusiveAttributeConflict(visual: VisualProductInput, candidate: string): boolean {
   const requested = [
     visual.productType,
     visual.length,
-    visual.neckline,
-    visual.sleeveType,
-    ...(visual.hardClues ?? []),
+    isVisualAttributeOccluded(visual, "NECKLINE") ? undefined : visual.neckline,
+    isVisualAttributeOccluded(visual, "SLEEVE") ? undefined : visual.sleeveType,
+    ...(visual.hardClues ?? []).filter((clue) => !isVisualAttributeOccluded(visual, clue)),
     ...(visual.styleClues ?? [])
   ]
     .filter((value): value is string => value !== undefined)
@@ -415,13 +448,13 @@ function hardVisualAttributes(visual: VisualProductInput): Array<readonly [strin
   return [
     ["color", visual.colors ?? []],
     ["pattern", visual.patterns ?? []],
-    ["silhouette", visual.silhouette === undefined ? [] : [visual.silhouette]],
-    ["length", visual.length === undefined ? [] : [visual.length]],
-    ["neckline", visual.neckline === undefined ? [] : [visual.neckline]],
-    ["sleeve", visual.sleeveType === undefined ? [] : [visual.sleeveType]],
+    ["silhouette", visual.silhouette === undefined || isVisualAttributeOccluded(visual, "SILHOUETTE") ? [] : [visual.silhouette]],
+    ["length", visual.length === undefined || isVisualAttributeOccluded(visual, "LENGTH") ? [] : [visual.length]],
+    ["neckline", visual.neckline === undefined || isVisualAttributeOccluded(visual, "NECKLINE") ? [] : [visual.neckline]],
+    ["sleeve", visual.sleeveType === undefined || isVisualAttributeOccluded(visual, "SLEEVE") ? [] : [visual.sleeveType]],
     ["closure", visual.closure === undefined ? [] : [visual.closure]],
     ["collar", visual.collar === undefined ? [] : [visual.collar]],
-    ["waist", visual.waist === undefined ? [] : [visual.waist]],
+    ["waist", visual.waist === undefined || isVisualAttributeOccluded(visual, "WAIST") ? [] : [visual.waist]],
     ["hem", visual.hem === undefined ? [] : [visual.hem]],
     ["print", visual.printDescription === undefined ? [] : [visual.printDescription]],
     ...(visual.distinctiveDetails ?? [])
@@ -429,10 +462,23 @@ function hardVisualAttributes(visual: VisualProductInput): Array<readonly [strin
     ...(visual.visibleText ?? [])
       .map((text): readonly [string, string[]] => ["visible text", [text]]),
     ...(visual.observations ?? [])
-      .filter((observation) => observation.confidence >= 0.8)
+      .filter((observation) => observation.confidence >= 0.8 && !isVisualAttributeOccluded(visual, observation.attribute))
       .map((observation): readonly [string, string[]] => [observation.attribute, [observation.value]]),
-    ...(visual.hardClues ?? []).map((clue): readonly [string, string[]] => ["hard clue", [clue]])
+    ...(visual.hardClues ?? [])
+      .filter((clue) => !isVisualAttributeOccluded(visual, clue))
+      .map((clue): readonly [string, string[]] => ["hard clue", [clue]])
   ];
+}
+
+function visualAttributeKey(value: string): string | undefined {
+  const normalized = normalizeRaw(value);
+  for (const [key, pattern] of OCCLUDED_ATTRIBUTE_PATTERNS) {
+    if (pattern.test(normalized)) return key;
+  }
+  if (normalized.includes("length") || normalized.includes("hem")) return "LENGTH";
+  if (normalized.includes("waist")) return "WAIST";
+  if (normalized.includes("silhouette")) return "SILHOUETTE";
+  return undefined;
 }
 
 function softVisualAttributes(visual: VisualProductInput): Array<readonly [string, string[]]> {

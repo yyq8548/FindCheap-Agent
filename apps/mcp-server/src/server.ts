@@ -200,6 +200,42 @@ const shopifyUnavailableMessage =
 const dealUnavailableMessage =
   "Verified Coupon and Cashback data is unavailable because no approved Deals API is configured or the request failed.";
 
+type VisualSearchFailureCode =
+  | "OFFICIAL_SOURCE_UNAVAILABLE"
+  | "OFFICIAL_ZERO_RESULTS"
+  | "NO_LOADABLE_IMAGES"
+  | "CANDIDATES_CONFLICTED";
+
+function visualSearchFailure(
+  execution: UnifiedSearchExecution,
+  fallbackCode: Extract<VisualSearchFailureCode, "NO_LOADABLE_IMAGES" | "CANDIDATES_CONFLICTED">
+): { code: VisualSearchFailureCode; message: string; sourceHost?: string } {
+  const official = execution.officialStoreFallback;
+  if (official.status === "UNAVAILABLE") {
+    return {
+      code: "OFFICIAL_SOURCE_UNAVAILABLE",
+      message: "Verified official-store search was unavailable. Candidate conflicts do not prove the product is absent.",
+      ...(official.sourceHost === undefined ? {} : { sourceHost: official.sourceHost })
+    };
+  }
+  if (official.diagnostic?.outcome === "OFFICIAL_ZERO_RESULTS") {
+    return {
+      code: "OFFICIAL_ZERO_RESULTS",
+      message: "Verified official-store search completed but returned no candidate for this visual description.",
+      ...(official.sourceHost === undefined ? {} : { sourceHost: official.sourceHost })
+    };
+  }
+  return fallbackCode === "NO_LOADABLE_IMAGES"
+    ? {
+        code: fallbackCode,
+        message: "Product candidates existed, but no candidate image could be loaded safely for visual review."
+      }
+    : {
+        code: fallbackCode,
+        message: "Candidates were found, but every reviewed image had a visible non-occluded conflict."
+      };
+}
+
 const MembershipIdsSchema = z
   .array(z.string().trim().min(1).max(80))
   .max(20)
@@ -266,7 +302,12 @@ const VisualCandidateOutputShape = {
   message: z.string(),
   visualSessionId: VisualSessionIdSchema.optional(),
   expiresAt: z.string().optional(),
-  candidates: z.array(VisualCandidateDescriptorShape).max(MAX_VISUAL_CANDIDATES)
+  candidates: z.array(VisualCandidateDescriptorShape).max(MAX_VISUAL_CANDIDATES),
+  visualSearchFailure: z.object({
+    code: z.enum(["OFFICIAL_SOURCE_UNAVAILABLE", "OFFICIAL_ZERO_RESULTS", "NO_LOADABLE_IMAGES", "CANDIDATES_CONFLICTED"]),
+    message: z.string(),
+    sourceHost: z.string().optional()
+  }).strict().optional()
 };
 
 export const FinalizeVisualSearchInputSchema = z.object({
@@ -661,6 +702,11 @@ const ShopifyProductsOutputShape = {
     visualSessionId: VisualSessionIdSchema,
     expiresAt: z.string(),
     candidates: z.array(VisualCandidateDescriptorShape).min(1).max(MAX_VISUAL_CANDIDATES)
+  }).strict().optional(),
+  visualSearchFailure: z.object({
+    code: z.enum(["OFFICIAL_SOURCE_UNAVAILABLE", "OFFICIAL_ZERO_RESULTS", "NO_LOADABLE_IMAGES", "CANDIDATES_CONFLICTED"]),
+    message: z.string(),
+    sourceHost: z.string().optional()
   }).strict().optional()
 };
 const _ShopifyProductsOutputSchemaObject = z.object(ShopifyProductsOutputShape);
@@ -2157,7 +2203,7 @@ export function createShoppingServer(
     "search_visual_candidates",
     {
       title: "Search visual candidates",
-      description: "First stage for a newly attached product image. Use only the current request; do not read Memory, Skill, repository, task, log, or plugin-cache files. Inspect the user's image, pass structured visualInput, and call once. Product family and explicit brand/model are hard; pixel-inferred details are observations or soft clues, not requiredFeatures unless the user explicitly requires them. The tool returns at most six labeled candidate images. Compare every image, then call finalize_visual_search. Do not present candidates as recommendations. Do not use this tool for text-only, Watch, or batch searches.",
+      description: "First stage for a newly attached product image. Use only the current request; do not read Memory, Skill, repository, task, log, or plugin-cache files. Inspect the user's image, pass structured visualInput, and call once. Product family and explicit brand/model are hard; pixel-inferred details are observations or soft clues, not requiredFeatures unless the user explicitly requires them. Record occlusions; an obscured attribute cannot be a hard clue or conflict. The tool returns at most six labeled candidate images. Compare every image, then call finalize_visual_search. Do not present candidates as recommendations. Do not use this tool for text-only, Watch, or batch searches.",
       inputSchema: VisualCandidateSearchInputSchema,
       outputSchema: VisualCandidateOutputShape,
       annotations: {
@@ -2195,10 +2241,16 @@ export function createShoppingServer(
       const execution = await runUnifiedSearch(searchInput);
       const available = await loadVisualCandidates(execution);
       if (available.length === 0) {
-        const message = "No safely loadable candidate images were available. No visual recommendation was produced.";
+        const failure = visualSearchFailure(execution, "NO_LOADABLE_IMAGES");
+        const message = `${failure.message} No visual recommendation was produced.`;
         return {
           content: [{ type: "text" as const, text: message }],
-          structuredContent: { status: "NO_IMAGE_CANDIDATES" as const, message, candidates: [] }
+          structuredContent: {
+            status: "NO_IMAGE_CANDIDATES" as const,
+            message,
+            candidates: [],
+            visualSearchFailure: failure
+          }
         };
       }
       pruneVisualSearchSnapshots();
@@ -2237,7 +2289,7 @@ export function createShoppingServer(
     "finalize_visual_search",
     {
       title: "Finalize visual search",
-      description: "Visual-review stage for interactive image search. Use only candidate IDs and images returned by the latest tool result. Report directly visible matching and conflicting attributes. Family, sleeve, neckline, length, and negative-clue conflicts exclude. Color or pattern difference alone may remain HIGHLY_SIMILAR only when at least three independent structural attributes match; disclose the difference. A visual verdict can exclude or rerank candidates, but cannot create EXACT identity. Each visual session is immutable and single-use. If every first-pass candidate conflicts, the tool may return one relaxed candidate set and a new visualSessionId for one final review; never retry more than once.",
+      description: "Visual-review stage for interactive image search. Use only candidate IDs and images returned by the latest tool result. Report directly visible matching and conflicting attributes. Obscured or low-confidence attributes cannot match or conflict. Clearly visible family, sleeve, neckline, length, and negative-clue conflicts exclude. Color or pattern difference alone may remain HIGHLY_SIMILAR only when at least three independent structural attributes match; disclose the difference. A visual verdict can exclude or rerank candidates, but cannot create EXACT identity. Each visual session is immutable and single-use. If every first-pass candidate conflicts, the tool may return one relaxed candidate set and a new visualSessionId for one final review; never retry more than once.",
       inputSchema: FinalizeVisualSearchInputSchema,
       outputSchema: ShopifyProductsOutputShape,
       annotations: {
@@ -2271,7 +2323,8 @@ export function createShoppingServer(
       const finalCandidates = finalizeCodexVisualCandidates(
         reviewed,
         snapshot.input.allowAlternatives,
-        snapshot.input.limit
+        snapshot.input.limit,
+        snapshot.input.visualInput
       );
       if (finalCandidates.length === 0 && snapshot.attempt === 1) {
         const relaxedInput = visualRetrievalSearchInput(snapshot.input, true);
@@ -2322,7 +2375,18 @@ export function createShoppingServer(
       }
       const execution: UnifiedSearchExecution = { ...snapshot.execution, candidates: finalCandidates };
       const { response, enriched } = await buildUnifiedResponse(snapshot.input, execution);
-      if (response.structuredContent.products.length === 0) return response;
+      if (response.structuredContent.products.length === 0) {
+        const failure = visualSearchFailure(snapshot.execution, "CANDIDATES_CONFLICTED");
+        return {
+          ...response,
+          content: [{ type: "text" as const, text: failure.message }],
+          structuredContent: {
+            ...response.structuredContent,
+            message: failure.message,
+            visualSearchFailure: failure
+          }
+        };
+      }
       const preflight = await preflightQuoteCapabilities(response.structuredContent);
       const content = rememberSnapshot(preflight.content, enriched.result, preflight.resolvedAwinProducts);
       const selectionReferences = content.products

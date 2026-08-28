@@ -64,5 +64,36 @@ export const DOEN_VISUAL_GOLDEN_CASES: DoenVisualGoldenCase[] = [
     expectedHandle: "cornella-dress-black",
     expectedOfficialUrl: "https://www.shopdoen.com/products/cornella-dress-black",
     requiredQueryTerms: ["dress", "black", "lace", "mini"]
+  },
+  {
+    sourceImage: "codex-clipboard-a320010a-8c18-4f6f-8567-63efa774f8f8.png",
+    sourceImageSha256: "9386670A63412DF28F4BAE350E7C3C0CD5CAD8E5DC8520ABE6C4A6F6D0F1FB72",
+    visualInput: {
+      brand: "DÔEN",
+      productType: "women's mini dress",
+      colors: ["white"],
+      materials: ["ramie", "lace"],
+      patterns: ["solid white with horizontal floral lace inset bands"],
+      silhouette: "loose straight babydoll silhouette",
+      length: "mini length",
+      neckline: "square gathered neckline",
+      sleeveType: "sleeveless with wide straps",
+      distinctiveDetails: [
+        "scalloped lace around neckline and straps",
+        "multiple horizontal floral lace inset bands across lower skirt"
+      ],
+      styleClues: [],
+      hardClues: [
+        "square neckline",
+        "wide shoulder straps",
+        "loose straight silhouette",
+        "horizontal floral lace inset bands",
+        "mini length"
+      ]
+    },
+    expectedTitle: "Aloise Dress — Salt",
+    expectedHandle: "aloise-dress-salt",
+    expectedOfficialUrl: "https://www.shopdoen.com/products/aloise-dress-salt",
+    requiredQueryTerms: ["dress", "white", "floral", "lace"]
   }
 ];

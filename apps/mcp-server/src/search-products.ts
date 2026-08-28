@@ -28,12 +28,14 @@ import { evaluateFeature } from "./product-constraint-matcher.js";
 import {
   VisualProductInputSchema,
   classifyVisualProduct,
+  isVisualAttributeOccluded,
   visualBroadSearchTerms,
   visualOfficialStoreSearchQueries,
   visualSearchTerms,
   type VisualMatch,
   type VisualMatchGroup,
-  type VisualOfficialStoreQuery
+  type VisualOfficialStoreQuery,
+  type VisualProductInput
 } from "./visual-product-discovery.js";
 import {
   classifyShopifyCandidate,
@@ -208,21 +210,37 @@ export type UnifiedSearchExecution = {
 export function finalizeCodexVisualCandidates(
   reviewed: Array<{ candidate: UnifiedCandidate; verdict: CodexVisualVerdict }>,
   allowAlternatives: boolean,
-  limit = 3
+  limit = 3,
+  visualInput?: VisualProductInput
 ): UnifiedCandidate[] {
   const accepted = reviewed.flatMap(({ candidate, verdict }) => {
-    const uniqueMatches = new Map(verdict.matches.map((entry) => [entry.attribute, entry]));
+    const visibleMatches = visualInput === undefined
+      ? verdict.matches
+      : verdict.matches.filter((entry) => !isVisualAttributeOccluded(visualInput, entry.attribute));
+    const visibleConflicts = visualInput === undefined
+      ? verdict.conflicts
+      : verdict.conflicts.filter((entry) => !isVisualAttributeOccluded(visualInput, entry.attribute));
+    const ignoredConflictCount = verdict.conflicts.length - visibleConflicts.length;
+    const uniqueMatches = new Map(visibleMatches.map((entry) => [entry.attribute, entry]));
     const matchCount = uniqueMatches.size;
     const structuralMatchCount = [...uniqueMatches.keys()]
       .filter((attribute) => attribute !== "COLOR" && attribute !== "PATTERN").length;
-    const colorwayOnlyConflict = verdict.conflicts.length > 0 &&
-      verdict.conflicts.every((entry) => entry.attribute === "COLOR" || entry.attribute === "PATTERN") &&
+    const colorwayOnlyConflict = visibleConflicts.length > 0 &&
+      visibleConflicts.every((entry) => entry.attribute === "COLOR" || entry.attribute === "PATTERN") &&
       structuralMatchCount >= 3;
+    const reviewedClassification = verdict.classification === "CONFLICT" &&
+      ignoredConflictCount > 0 && visibleConflicts.length === 0
+      ? matchCount >= 3
+        ? "POSSIBLE_SAME_ITEM" as const
+        : matchCount >= 2
+          ? "HIGHLY_SIMILAR" as const
+          : "SAME_STYLE" as const
+      : verdict.classification;
     if (
-      (verdict.classification === "CONFLICT" || verdict.conflicts.length > 0) &&
+      (reviewedClassification === "CONFLICT" || visibleConflicts.length > 0) &&
       !colorwayOnlyConflict
     ) return [];
-    const classification = colorwayOnlyConflict ? "HIGHLY_SIMILAR" : verdict.classification;
+    const classification = colorwayOnlyConflict ? "HIGHLY_SIMILAR" : reviewedClassification;
     const group: VisualMatchGroup = classification === "POSSIBLE_SAME_ITEM" && matchCount >= 3
       ? "POSSIBLE_SAME_ITEM"
       : (classification === "POSSIBLE_SAME_ITEM" || classification === "HIGHLY_SIMILAR") && matchCount >= 2
@@ -232,7 +250,7 @@ export function finalizeCodexVisualCandidates(
     const visualEvidence = [...uniqueMatches.values()].map((entry) =>
       `Codex visual match ${entry.attribute}: ${entry.referenceEvidence} | ${entry.candidateEvidence}`
     );
-    const visualDifferences = verdict.conflicts.map((entry) =>
+    const visualDifferences = visibleConflicts.map((entry) =>
       `Codex visual difference ${entry.attribute}: ${entry.referenceEvidence} | ${entry.candidateEvidence}`
     );
     const stableExact = candidate.identityStatus === "EXACT";

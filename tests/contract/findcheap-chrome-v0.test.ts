@@ -185,12 +185,12 @@ describe("FindCheap Agent plugin contract", () => {
     };
 
     expect(manifest.name).toBe("findcheap-agent");
-    expect(manifest.version).toMatch(/^0\.14\.5(?:\+codex\.)?/u);
+    expect(manifest.version).toMatch(/^0\.14\.6(?:\+codex\.)?/u);
     expect(manifest.interface.displayName).toBe("FindCheap Agent");
     expect(manifest.interface.longDescription).toMatch(/Codex Plugin Agent/u);
     expect(manifest.interface.longDescription).toMatch(/[Aa]uthorized.*Chrome/u);
     expect(manifest.interface.defaultPrompt).toEqual([
-      "Clear shopping request: call matching tool now. No Memory, repo scan, plan narration, or manual MCP launch."
+      "Call the matching tool. Reply only in request language. No Memory, repo, logs, task, cache, plan, or manual MCP launch."
     ]);
     expect(new TextEncoder().encode(manifest.interface.defaultPrompt[0]).length).toBeLessThanOrEqual(128);
   });

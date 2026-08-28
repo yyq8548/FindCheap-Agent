@@ -293,6 +293,39 @@ describe("visual product discovery", () => {
     expect(queries[0]?.query).not.toContain("mini");
   });
 
+  it("adds one bounded storefront synonym query for smocked and shirred descriptions", () => {
+    const queries = visualOfficialStoreSearchQueries({
+      productType: "women's dress",
+      colors: ["cream"],
+      materials: [],
+      patterns: ["red floral bouquets"],
+      styleClues: [],
+      waist: "wide multi-row smocked waist",
+      silhouette: "gathered full skirt"
+    });
+
+    expect(queries).toContainEqual({ stage: "CORE", query: "dress floral smocked cream" });
+    expect(queries).toContainEqual({ stage: "SYNONYM", query: "dress floral shirred cream" });
+    expect(queries.filter((attempt) => attempt.stage === "SYNONYM")).toHaveLength(1);
+  });
+
+  it("does not use an obscured strap or sleeve as official-search evidence", () => {
+    const queries = visualOfficialStoreSearchQueries({
+      productType: "women's dress",
+      colors: ["cream"],
+      materials: [],
+      patterns: ["red floral"],
+      styleClues: [],
+      sleeveType: "narrow straps",
+      hardClues: ["narrow straps", "smocked waist"],
+      occlusions: ["hair and phone partially obscure the upper straps"]
+    });
+    const combined = queries.map((attempt) => attempt.query).join(" ");
+
+    expect(combined).not.toContain("strap");
+    expect(combined).toContain("smocked");
+  });
+
   it.each(DOEN_VISUAL_GOLDEN_CASES)(
     "builds a compact official-store query for $sourceImage",
     ({ visualInput, requiredQueryTerms }) => {

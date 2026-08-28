@@ -1152,6 +1152,63 @@ describe("unified product search", () => {
     expect(finalized).toEqual([]);
   });
 
+  it("does not exclude a structural match using a conflict from an occluded strap area", async () => {
+    const candidate = shopifyProduct("occluded-strap-match", 36_800, "UNKNOWN", {
+      title: "DÔEN Floral Smocked Dress",
+      productType: "Dresses",
+      description: "Square neckline, smocked waist and gathered full skirt",
+      imageUrl: "https://cdn.example/occluded-strap-match.jpg"
+    });
+    const result = await searchProducts(SearchProductsInputSchema.parse({
+      query: "DÔEN floral smocked dress",
+      brand: "DÔEN",
+      brandMode: "REQUIRED",
+      productType: "dress",
+      visualInput: {
+        brand: "DÔEN",
+        productType: "dress",
+        patterns: ["red floral"],
+        sleeveType: "narrow straps",
+        waist: "smocked waist",
+        occlusions: ["hair and phone partially obscure the upper straps"]
+      }
+    }), { awin: awin([]), shopify: shopify([candidate]) });
+
+    const finalized = finalizeCodexVisualCandidates([{
+      candidate: result.candidates[0]!,
+      verdict: {
+        classification: "CONFLICT",
+        matches: [
+          { attribute: "PRODUCT_TYPE", referenceEvidence: "dress", candidateEvidence: "dress" },
+          { attribute: "NECKLINE", referenceEvidence: "square", candidateEvidence: "square" },
+          { attribute: "WAIST", referenceEvidence: "smocked", candidateEvidence: "smocked" },
+          { attribute: "SILHOUETTE", referenceEvidence: "gathered", candidateEvidence: "gathered" }
+        ],
+        conflicts: [{
+          attribute: "SLEEVE",
+          referenceEvidence: "narrow straps partly obscured",
+          candidateEvidence: "cap sleeve"
+        }]
+      }
+    }], false, 3, {
+      brand: "DÔEN",
+      productType: "dress",
+      colors: [],
+      materials: [],
+      patterns: ["red floral"],
+      styleClues: [],
+      sleeveType: "narrow straps",
+      waist: "smocked waist",
+      occlusions: ["hair and phone partially obscure the upper straps"]
+    });
+
+    expect(finalized[0]).toMatchObject({
+      visualMatchGroup: "POSSIBLE_SAME_ITEM",
+      identityStatus: "DISCOVERY_MATCH"
+    });
+    expect(finalized[0]?.visualMatchEvidence?.join(" ")).not.toContain("cap sleeve");
+  });
+
   it("keeps a structurally strong match as highly similar when only colorway differs", async () => {
     const candidate = shopifyProduct("quinn-black", 27_800, "UNKNOWN", {
       title: "Quinn Dress — Black",
