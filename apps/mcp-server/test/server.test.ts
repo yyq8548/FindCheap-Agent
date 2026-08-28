@@ -287,6 +287,13 @@ describe("shopping MCP server", () => {
     expect(unifiedTool?.description).toContain("正在搜索合适商品。");
     expect(unifiedTool?.description).toContain("Do not read Memory, Skill files, repository files");
     expect(unifiedTool?.description).toContain("Missing soft evidence remains a limitation-labeled DISCOVERY_MATCH");
+    expect(unifiedTool?.description).toContain("CONTINUE_PREVIOUS_PRODUCT when the user adds budget");
+    expect(unifiedTool?.description).toContain("maxItemPriceCents is a ceiling, never a spending target");
+    expect(unifiedTool?.description).toContain("If every merchant is unverified");
+    expect(unifiedTool?.description).toContain("Never recommend a product absent from returned cards");
+    expect(unifiedTool?.inputSchema.properties?.contextMode).toMatchObject({
+      description: expect.stringContaining("CONTINUE for added budget")
+    });
     expect(unifiedTool?.description).not.toContain("call render_product_cards");
     const visualCandidateTool = tools.tools.find((tool) => tool.name === "search_visual_candidates");
     expect(visualCandidateTool?.description).toContain("at most six labeled candidate images");
@@ -466,7 +473,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.14.2",
+        version: "0.14.3",
         terminalStage: "DOM_RENDERED",
         stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
       }
@@ -475,7 +482,7 @@ describe("shopping MCP server", () => {
     expect(result.structuredContent).toEqual({ status: "RECORDED" });
     expect(record).toHaveBeenCalledWith(expect.objectContaining({
       renderId,
-      version: "0.14.2",
+      version: "0.14.3",
       terminalStage: "DOM_RENDERED",
       stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
     }));
@@ -483,7 +490,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.14.2",
+        version: "0.14.3",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 14 }
       }
@@ -493,7 +500,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.14.2",
+        version: "0.14.3",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 300_001 }
       }
@@ -504,7 +511,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId: "22222222-2222-4222-8222-222222222222",
-        version: "0.14.2",
+        version: "0.14.3",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 1 }
       }
@@ -2038,7 +2045,22 @@ describe("Coupon and Watch tools", () => {
   });
 
   it("renders eBay as an unverified marketplace seller with checkout-only pricing", async () => {
-    const client = await connect({ compare: async () => comparison }, shopifyPort, undefined, {
+    const client = await connect({ compare: async () => comparison }, {
+      search: async (input) => {
+        const result = await shopifyPort.search(input);
+        return {
+          ...result,
+          merchantsSucceeded: 0,
+          comparison: {
+            status: "DISCOVERY_ONLY" as const,
+            evidence: ["no independently verified cross-merchant identity"],
+            merchantCount: 0,
+            offerCount: 0
+          },
+          products: []
+        };
+      }
+    }, undefined, {
       awin: { search: async () => { throw new Error("unavailable"); } },
       ebay: { search: async () => ({
         source: "EBAY_BROWSE",
@@ -2071,7 +2093,12 @@ describe("Coupon and Watch tools", () => {
 
     const result = await client.callTool({
       name: "search_products",
-      arguments: { query: "Sony headphones", limit: 3 }
+      arguments: {
+        query: "Sony headphones",
+        limit: 3,
+        maxItemPriceCents: 40_000,
+        preferences: ["everyday work"]
+      }
     });
     const products = (result.structuredContent as { products: Array<Record<string, unknown>> }).products;
     const product = products.find((candidate) => candidate.sourceKind === "EBAY_BROWSE");
@@ -2090,6 +2117,9 @@ describe("Coupon and Watch tools", () => {
       },
       card: { merchant: "eBay", sellerName: "audio_store", merchantTrustBadge: "MERCHANT_UNVERIFIED" }
     });
+    expect(JSON.stringify(result.content)).toContain("research lead only");
+    expect(JSON.stringify(result.content)).toContain("ceiling, not a spending target");
+    expect(JSON.stringify(result.content)).toContain("Do not claim one is the best fit");
   });
 
   it("reports an incompatible Shopify Catalog response without claiming zero results", async () => {

@@ -60,6 +60,15 @@ export type VisualOfficialStoreQuery = {
   query: string;
 };
 
+export function relaxVisualProductInput(visual: VisualProductInput): VisualProductInput {
+  return VisualProductInputSchema.parse({
+    ...(visual.brand === undefined ? {} : { brand: visual.brand }),
+    ...(visual.logoText === undefined ? {} : { logoText: visual.logoText }),
+    ...(visual.modelOrStyleNumber === undefined ? {} : { modelOrStyleNumber: visual.modelOrStyleNumber }),
+    ...(visual.productType === undefined ? {} : { productType: visual.productType })
+  });
+}
+
 type CandidateEvidence = {
   title: string;
   productType?: string | undefined;

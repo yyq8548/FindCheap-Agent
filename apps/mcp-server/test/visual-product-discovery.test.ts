@@ -6,6 +6,7 @@ import { z } from "zod";
 import {
   VisualProductInputSchema,
   classifyVisualProduct,
+  relaxVisualProductInput,
   visualOfficialStoreSearchQueries
 } from "../src/visual-product-discovery.js";
 import { DOEN_VISUAL_GOLDEN_CASES } from "./fixtures/doen-visual-golden.js";
@@ -25,6 +26,30 @@ const GoldenTaskSchema = z.object({
 });
 
 describe("visual product discovery", () => {
+  it("removes uncertain visual details from the one allowed relaxed official search", () => {
+    const relaxed = relaxVisualProductInput({
+      brand: "DÔEN",
+      productType: "women's mini dress",
+      colors: ["black"],
+      materials: ["lace"],
+      patterns: ["horizontal lace bands"],
+      styleClues: ["romantic vintage"],
+      hardClues: ["boat neck", "cap sleeves"]
+    });
+
+    expect(relaxed).toMatchObject({
+      brand: "DÔEN",
+      productType: "women's mini dress",
+      colors: [],
+      materials: [],
+      patterns: [],
+      styleClues: []
+    });
+    expect(visualOfficialStoreSearchQueries(relaxed)).toEqual([
+      { stage: "FULL", query: "dress" }
+    ]);
+  });
+
   it("meets the 95 percent visual-grouping gate on 30 golden tasks", async () => {
     const file = new URL("../../../tests/evals/visual-product-discovery-golden.json", import.meta.url);
     const tasks = z.array(GoldenTaskSchema).length(30).parse(JSON.parse(await readFile(file, "utf8")));

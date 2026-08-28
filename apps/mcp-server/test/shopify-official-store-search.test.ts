@@ -77,8 +77,7 @@ describe("official Shopify storefront search", () => {
     expect(fetchDocument.mock.calls[0]?.[0]).toBe(
       "https://www.shopdoen.com/search/suggest.json?q=women+mini+dress+black+lace&resources%5Btype%5D=product&resources%5Blimit%5D=6"
     );
-    expect(fetchDocument).toHaveBeenNthCalledWith(
-      2,
+    expect(fetchDocument).toHaveBeenCalledWith(
       "https://www.shopdoen.com/products/cornella-dress-black.js",
       "www.shopdoen.com"
     );
@@ -100,6 +99,57 @@ describe("official Shopify storefront search", () => {
       merchantUrl: "https://www.shopdoen.com/products/cornella-dress-black?variant=472002",
       checkedAt: "2026-08-27T01:02:03.000Z"
     })]);
+  });
+
+  it("merges predictive and sitemap candidates before visual review", async () => {
+    const henriettaJson = {
+      ...productJson,
+      title: "Henrietta Dress -- Black",
+      handle: "henrietta-dress-black",
+      description: "A black mini dress with a deep V neckline and vertical front ruffle.",
+      variants: [{ id: 473001, title: "S", available: true, price: 49_800, sku: "HEN-S", options: ["S"] }]
+    };
+    const fetchDocument = vi.fn<OfficialShopifyFetch>(async (url) => {
+      if (url.includes("search/suggest")) {
+        return {
+          response: new Response(JSON.stringify({
+            resources: { results: { products: [{ handle: "henrietta-dress-black", url: "/products/henrietta-dress-black" }] } }
+          }), { status: 200 }),
+          finalUrl: url
+        };
+      }
+      if (url === "https://www.shopdoen.com/sitemap.xml") {
+        return {
+          response: new Response("<sitemapindex><sitemap><loc>https://www.shopdoen.com/sitemap-products.xml</loc></sitemap></sitemapindex>"),
+          finalUrl: url
+        };
+      }
+      if (url === "https://www.shopdoen.com/sitemap-products.xml") {
+        return {
+          response: new Response(`<urlset>
+            <url><loc>https://www.shopdoen.com/products/henrietta-dress-black</loc><image:title>Henrietta Dress Black</image:title></url>
+            <url><loc>https://www.shopdoen.com/products/cornella-dress-black</loc><image:title>Cornella Dress Black Lace Mini</image:title></url>
+          </urlset>`),
+          finalUrl: url
+        };
+      }
+      const body = url.includes("cornella-dress-black.js") ? productJson : henriettaJson;
+      return { response: new Response(JSON.stringify(body), { status: 200 }), finalUrl: url };
+    });
+    const port = createOfficialShopifySearchPort({
+      fetchDocument,
+      clock: { now: () => new Date("2026-08-27T01:02:03.000Z") }
+    });
+
+    const products = await port.search({ seed, query: "dress black lace mini boat neck", limit: 6 });
+
+    expect(products.map((product) => product.title)).toEqual([
+      "Henrietta Dress -- Black",
+      "Cornella Dress -- Black"
+    ]);
+    expect(products[1]).toMatchObject({
+      merchantUrl: "https://www.shopdoen.com/products/cornella-dress-black?variant=472002"
+    });
   });
 
   it("falls back to an official sitemap and ProductGroup JSON-LD for a headless Shopify store", async () => {

@@ -131,16 +131,38 @@ async function findStorefrontProducts(
   query: string,
   limit: number
 ): Promise<StorefrontProductReference[]> {
+  let predictiveProducts: StorefrontProductReference[] = [];
   try {
     const predictiveUrl = predictiveSearchUrl(host, query, limit);
     const prediction = await fetchJson(fetchDocument, predictiveUrl, host, "official search");
     const parsed = PredictiveSearchSchema.parse(prediction);
-    const products = uniqueProducts(parsed.resources.results.products).slice(0, limit);
-    if (products.length > 0) return products;
+    predictiveProducts = uniqueProducts(parsed.resources.results.products).slice(0, limit);
   } catch {
     // Headless Shopify storefronts often disable the legacy predictive-search endpoint.
   }
-  return sitemapProducts(fetchDocument, host, query, limit);
+  let sitemapMatches: StorefrontProductReference[] = [];
+  try {
+    sitemapMatches = await sitemapProducts(fetchDocument, host, query, limit);
+  } catch {
+    if (predictiveProducts.length === 0) throw new Error("official storefront search unavailable");
+  }
+  return interleaveUniqueProducts(predictiveProducts, sitemapMatches, limit);
+}
+
+function interleaveUniqueProducts(
+  predictiveProducts: StorefrontProductReference[],
+  sitemapMatches: StorefrontProductReference[],
+  limit: number
+): StorefrontProductReference[] {
+  const combined: StorefrontProductReference[] = [];
+  const count = Math.max(predictiveProducts.length, sitemapMatches.length);
+  for (let index = 0; index < count; index += 1) {
+    const predictive = predictiveProducts[index];
+    const sitemap = sitemapMatches[index];
+    if (predictive !== undefined) combined.push(predictive);
+    if (sitemap !== undefined) combined.push(sitemap);
+  }
+  return uniqueProducts(combined).slice(0, limit);
 }
 
 async function sitemapProducts(

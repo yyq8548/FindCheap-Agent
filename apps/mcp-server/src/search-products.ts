@@ -54,7 +54,9 @@ const QuerySchema = z.string().trim().min(2).max(300)
 export const SearchProductsInputSchema = z.object({
   query: QuerySchema,
   limit: z.number().int().min(1).max(3).default(3),
-  maxItemPriceCents: z.number().int().min(1).max(100_000_000).optional(),
+  maxItemPriceCents: z.number().int().min(1).max(100_000_000)
+    .describe("Inclusive price ceiling, never a spending target")
+    .optional(),
   zipCode: z.string().regex(/^\d{5}(?:-\d{4})?$/u).optional(),
   membershipIds: z.array(z.string().trim().min(1).max(80)).max(20)
     .refine((values) => new Set(values).size === values.length, "membership IDs must be unique")
@@ -78,7 +80,8 @@ export const SearchProductsInputSchema = z.object({
     "CONTINUE_PREVIOUS_PRODUCT",
     "CORRECT_PREVIOUS_PRODUCT",
     "AMBIGUOUS"
-  ]).default("NEW_PRODUCT"),
+  ]).describe("NEW for a different shopping goal; CONTINUE for added budget, use, size, or other constraints; CORRECT only when the user changes prior product identity; AMBIGUOUS when unclear")
+    .default("NEW_PRODUCT"),
   visualInput: VisualProductInputSchema.optional(),
   // Backward-compatible input for clients installed before v0.9.5.
   features: z.array(z.string().trim().min(1).max(80)).max(10)

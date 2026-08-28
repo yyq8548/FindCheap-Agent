@@ -68,7 +68,10 @@ import {
   type UnifiedCandidate,
   type UnifiedSearchExecution
 } from "./search-products.js";
-import { VisualProductInputSchema } from "./visual-product-discovery.js";
+import {
+  VisualProductInputSchema,
+  relaxVisualProductInput
+} from "./visual-product-discovery.js";
 import {
   createUnavailableAwinPort,
   type AwinProductPort,
@@ -105,7 +108,7 @@ const ProductCardStagesSchema = z.object({
 
 const ProductCardTelemetryInputSchema = z.object({
   renderId: z.string().uuid(),
-  version: z.literal("0.14.2"),
+  version: z.literal("0.14.3"),
   terminalStage: z.enum([
     "DOM_RENDERED",
     "FIRST_IMAGE_SETTLED",
@@ -139,11 +142,13 @@ function uniqueVisualTerms(values: Array<string | undefined>): string[] {
 
 function visualRetrievalSearchInput(input: SearchProductsInput, relaxed: boolean): SearchProductsExecutionInput {
   const visual = input.visualInput!;
+  const retrievalVisual = relaxed ? relaxVisualProductInput(visual) : visual;
   const query = uniqueVisualTerms([
-    input.brand ?? visual.brand,
-    visual.modelOrStyleNumber,
-    visual.productType ?? input.productType,
-    ...(relaxed ? [] : [visual.colors[0], visual.patterns[0]])
+    input.brand ?? retrievalVisual.brand,
+    retrievalVisual.modelOrStyleNumber,
+    retrievalVisual.productType ?? input.productType,
+    retrievalVisual.colors[0],
+    retrievalVisual.patterns[0]
   ]).join(" ");
   return {
     ...input,
@@ -160,12 +165,25 @@ function visualRetrievalSearchInput(input: SearchProductsInput, relaxed: boolean
     featureMode: "PREFERRED",
     // Keep visual evidence for official-store query generation, but do not let
     // sparse catalog metadata reject candidates before Codex reviews images.
-    visualInput: visual,
+    visualInput: retrievalVisual,
     deferVisualFiltering: true
   };
 }
 
 function visualCandidateKey(candidate: UnifiedCandidate): string {
+  const merchantUrl = candidate.source === "AWIN_PRODUCT_FEED"
+    ? candidate.awinProduct.merchantUrl
+    : candidate.source === "EBAY_BROWSE"
+      ? candidate.ebayProduct.merchantUrl
+      : candidate.shopifyProduct.merchantUrl;
+  try {
+    const url = new URL(merchantUrl);
+    url.hash = "";
+    url.search = "";
+    return `${url.hostname.toLocaleLowerCase("en-US")}${url.pathname.replace(/\/$/u, "")}`;
+  } catch {
+    // Source-specific fallback keeps malformed external identity isolated.
+  }
   if (candidate.source === "AWIN_PRODUCT_FEED") {
     return `${candidate.source}:${candidate.awinProduct.merchantId}:${candidate.awinProduct.merchantProductId}`;
   }
@@ -1027,6 +1045,14 @@ function unifiedResult(
   const generalUnverifiedCount = products.filter((product) =>
     product.recommendationTier === "GENERAL_UNVERIFIED"
   ).length;
+  const independentlyTrustedCount = products.filter((product) =>
+    product.merchantTrust.verification === "INDEPENDENT" &&
+    product.merchantTrust.level !== "UNKNOWN" &&
+    product.merchantTrust.level !== "RISKY"
+  ).length;
+  const preferenceEvidenceCount = products.filter((product) =>
+    (product.preferenceEvidence?.length ?? 0) > 0
+  ).length;
   const merchantCount = new Set(products.map((product) => product.merchantId)).size;
   const coverage = unavailableSource || partialSource ? "PARTIAL" as const : "COMPLETE" as const;
   const chromeAdvice = execution.chromeFallbackEligible
@@ -1056,6 +1082,15 @@ function unifiedResult(
         ...(generalUnverifiedCount === 0
           ? []
           : [`${generalUnverifiedCount} later result(s) come from merchants with limited trust evidence; verify seller identity, returns, and payment protection.`]),
+        ...(independentlyTrustedCount > 0
+          ? []
+          : ["No returned merchant has independent trust evidence. Treat every card as a research lead only; do not recommend purchasing from one."]),
+        ...(input.maxItemPriceCents === undefined
+          ? []
+          : ["The maximum budget is a ceiling, not a spending target. Never prefer a higher price or higher specification without evidence that it better fits the requested use."]),
+        ...(input.preferences.length === 0 || preferenceEvidenceCount > 0
+          ? []
+          : ["No returned card independently verifies the requested preferences. Do not claim one is the best fit from specification or price alone."]),
         ...(couponCount === 0 ? [] : [`${couponCount} verified Coupon or promotion result(s) are attached to the ranked cards.`]),
         "Trust labels do not prove manufacturer authorization; never call a merchant authorized without explicit brand-authorization evidence.",
         "Use each card's quoteCapability: request ZIP only for DELIVERED_TOTAL_SUPPORTED or ZIP_ESTIMATE_ONLY; MERCHANT_CHECKOUT_ONLY requires checkout and no ZIP request.",
@@ -1114,7 +1149,16 @@ function unifiedResult(
             : ["one or more products qualify by product rating above 3.8 with at least 2 reviews; this does not verify merchant trust"]),
           ...(generalUnverifiedCount === 0
             ? []
-            : ["one or more merchants have limited trust evidence; verify seller identity, returns, and payment protection"])
+            : ["one or more merchants have limited trust evidence; verify seller identity, returns, and payment protection"]),
+          ...(independentlyTrustedCount > 0
+            ? []
+            : ["no returned merchant has independent trust evidence; cards are research leads, not purchase recommendations"]),
+          ...(input.maxItemPriceCents === undefined
+            ? []
+            : ["maximum budget is an inclusive ceiling, not a spending target"]),
+          ...(input.preferences.length === 0 || preferenceEvidenceCount > 0
+            ? []
+            : ["requested preferences were not independently verified by returned product evidence"])
         ]
       },
       comparison: execution.candidates.some((candidate) => candidate.source !== "SHOPIFY_GLOBAL_CATALOG")
@@ -1737,7 +1781,7 @@ export function createShoppingServer(
   dependencies: ShoppingServerDependencies = {}
 ): McpServer {
   void comparePort;
-  const server = new McpServer({ name: "findcheap-agent", version: "0.14.2" });
+  const server = new McpServer({ name: "findcheap-agent", version: "0.14.3" });
   const dealPort = dependencies.deals ?? createUnavailableDealPort();
   const awinPort = dependencies.awin ?? createUnavailableAwinPort();
   const ebayPort = dependencies.ebay;
@@ -1952,10 +1996,13 @@ export function createShoppingServer(
     excludedKeys: ReadonlySet<string> = new Set()
   ) => {
     if (visualCandidateImages === undefined) return [];
-    const attempted = execution.candidates
-      .filter((candidate) => !excludedKeys.has(visualCandidateKey(candidate)))
-      .flatMap((candidate) => candidateImageUrl(candidate) === undefined ? [] : [candidate])
-      .slice(0, MAX_VISUAL_CANDIDATES);
+    const seen = new Set(excludedKeys);
+    const attempted = execution.candidates.flatMap((candidate) => {
+      const key = visualCandidateKey(candidate);
+      if (seen.has(key) || candidateImageUrl(candidate) === undefined) return [];
+      seen.add(key);
+      return [candidate];
+    }).slice(0, MAX_VISUAL_CANDIDATES);
     const loaded = await Promise.all(attempted.map(async (candidate) => {
       const imageUrl = candidateImageUrl(candidate)!;
       try {
@@ -2025,7 +2072,7 @@ export function createShoppingServer(
     "search_products",
     {
       title: "Search products",
-      description: "Text-only product-search entrypoint; call once. For a newly attached image use search_visual_candidates and then finalize_visual_search instead. Do not read Memory, Skill files, repository files, logs, or plugin caches. English request means English only; Chinese request means Chinese only. Progress: 'Searching for suitable products.' or '正在搜索合适商品。' Pass family in productType, explicit brand in brand with brandMode=REQUIRED, objective must-have attributes in requiredFeatures, and preferences in preferences. Never put a brand in productType or requiredFeatures. Missing soft evidence remains a limitation-labeled DISCOVERY_MATCH; hard conflicts exclude. Results are presented as official-store matches, trusted matches, and best-value high-match options. Rank identity, merchant trust, availability, preferences, verified Coupon, then item price. Use selectionMode=LOWEST_PRICE only when requested; pass price ceilings as maxItemPriceCents. Commercial relationships never affect relevance or ranking. Reuse selectionId for follow-ups; never search a selected title again.",
+      description: "Text-only product-search entrypoint; call once. For a newly attached image use search_visual_candidates and then finalize_visual_search instead. Do not read Memory, Skill files, repository files, logs, or plugin caches. English request means English only; Chinese request means Chinese only. Progress: 'Searching for suitable products.' or '正在搜索合适商品。' Pass family in productType, explicit brand in brand with brandMode=REQUIRED, objective must-have attributes in requiredFeatures, and preferences in preferences. Never put a brand in productType or requiredFeatures. Use CONTINUE_PREVIOUS_PRODUCT when the user adds budget, use, size, or constraints; CORRECT_PREVIOUS_PRODUCT only for changed identity; NEW_PRODUCT for a different shopping goal. Missing soft evidence remains a limitation-labeled DISCOVERY_MATCH; hard conflicts exclude. Results are presented as official-store matches, trusted matches, and best-value high-match options. Rank identity, merchant trust, availability, preferences, verified Coupon, then item price. Use selectionMode=LOWEST_PRICE only when requested; maxItemPriceCents is a ceiling, never a spending target. If every merchant is unverified, show research leads but recommend none for purchase. Never recommend a product absent from returned cards. Commercial relationships never affect relevance or ranking. Reuse selectionId for follow-ups; never search a selected title again.",
       inputSchema: SearchProductsInputSchema,
       outputSchema: ShopifyProductsOutputShape,
       annotations: {

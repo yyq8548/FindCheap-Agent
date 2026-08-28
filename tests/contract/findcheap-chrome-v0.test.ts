@@ -85,6 +85,11 @@ describe("FindCheap Agent plugin contract", () => {
     expect(skill).toContain("[chrome-fallback.md](references/chrome-fallback.md)");
     expect(skill).toContain("Do not duplicate every card field");
     expect(skill).toContain("Every live shopping request is self-contained");
+    expect(skill).toContain("Added budget, use, size, or constraints");
+    expect(skill).toContain("Different goal or explicit “no”: `NEW_PRODUCT`");
+    expect(skill).toContain("ceiling, not spending target");
+    expect(skill).toContain("cards are research leads; recommend none for purchase");
+    expect(skill).toContain("Never recommend products absent from cards");
     expect(skill).toContain("`Searching for suitable products.`");
     expect(skill).toContain("Match user language");
     expect(skill).toContain("keep product names, brands, models unchanged");
@@ -113,6 +118,13 @@ describe("FindCheap Agent plugin contract", () => {
     expect(skill).toContain("use only one neutral progress sentence");
     expect(skill).toContain("Do not read Memory, repository files, logs, task files, or plugin cache");
     expect(skillBytes).toBeLessThanOrEqual(Math.floor(19_954 * 0.3));
+  });
+
+  it("keeps merchant-wide Coupon requests broader than Agent-suggested products", async () => {
+    const skill = await readFile(watchSkillPath, "utf8");
+
+    expect(skill).toContain("Pass `productQuery` only when current user explicitly names that product");
+    expect(skill).toContain("never narrow merchant-wide request using Agent suggestions or an earlier category");
   });
 
   it("defines one bounded, user-authorized web-wide merchant workflow", async () => {
@@ -164,7 +176,7 @@ describe("FindCheap Agent plugin contract", () => {
     };
 
     expect(manifest.name).toBe("findcheap-agent");
-    expect(manifest.version).toMatch(/^0\.14\.2(?:\+codex\.)?/u);
+    expect(manifest.version).toMatch(/^0\.14\.3(?:\+codex\.)?/u);
     expect(manifest.interface.displayName).toBe("FindCheap Agent");
     expect(manifest.interface.longDescription).toMatch(/Codex Plugin Agent/u);
     expect(manifest.interface.longDescription).toMatch(/[Aa]uthorized.*Chrome/u);
