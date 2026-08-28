@@ -89,6 +89,11 @@ export const SearchProductsInputSchema = z.object({
 
 export type SearchProductsInput = z.infer<typeof SearchProductsInputSchema>;
 
+/** Internal execution controls. These are never exposed through the MCP schema. */
+export type SearchProductsExecutionInput = SearchProductsInput & {
+  deferVisualFiltering?: boolean;
+};
+
 type CandidateBase = {
   affiliateState: "APPROVED" | "NONE";
   recommendationTier: MerchantRecommendationTier;
@@ -240,7 +245,7 @@ export function shouldQueryAwin(query: string): boolean {
 }
 
 export async function searchProducts(
-  rawInput: SearchProductsInput,
+  rawInput: SearchProductsExecutionInput,
   ports: {
     awin: AwinProductPort;
     shopify: ShopifyPort;
@@ -276,8 +281,14 @@ export async function searchProducts(
         input.brand !== undefined && !containsBrand(productQuery, input.brand) ? input.brand : "",
         productQuery
       ]).join(" ").slice(0, 300).trim()
-    : buildSourceQuery({ ...input, query: productQuery });
-  const sourceQuery = searchIntent === "EXACT_PRODUCT" ? identityQuery : buildSourceQuery(input);
+    : input.deferVisualFiltering === true
+      ? productQuery
+      : buildSourceQuery({ ...input, query: productQuery });
+  const sourceQuery = searchIntent === "EXACT_PRODUCT"
+    ? identityQuery
+    : input.deferVisualFiltering === true
+      ? productQuery
+      : buildSourceQuery(input);
   const affiliateEligible = shouldQueryAwin(sourceQuery);
   let awinResult: AwinSearchResult | undefined;
   let shopifyResult: ShopifySearchResult | undefined;
@@ -641,7 +652,7 @@ function explicitConditionPreference(
 
 function awinCandidate(
   product: AwinProduct,
-  input: SearchProductsInput,
+  input: SearchProductsExecutionInput,
   searchIntent: ProductSearchIntent,
   identityQuery: string,
   featureExcludedKeys: Set<string>,
@@ -713,7 +724,7 @@ function awinCandidate(
 
 function shopifyCandidate(
   product: ShopifyProduct,
-  input: SearchProductsInput,
+  input: SearchProductsExecutionInput,
   searchIntent: ProductSearchIntent,
   identityQuery: string,
   featureExcludedKeys: Set<string>,
@@ -846,7 +857,7 @@ function candidateResultGroup(
 
 function ebayCandidate(
   product: EbayProduct,
-  input: SearchProductsInput,
+  input: SearchProductsExecutionInput,
   searchIntent: ProductSearchIntent,
   identityQuery: string,
   featureExcludedKeys: Set<string>,
@@ -1214,13 +1225,16 @@ function compareRankedCandidates(
 }
 
 function visualIdentity(
-  input: SearchProductsInput,
+  input: SearchProductsExecutionInput,
   candidate: Parameters<typeof classifyVisualProduct>[1],
   key: string,
   excluded: Set<string>
 ): VisualMatch | undefined | null {
   if (input.visualInput === undefined) return undefined;
   const match = classifyVisualProduct(input.visualInput, candidate);
+  // During interactive image retrieval, metadata may help rank candidates but
+  // may never reject them before Codex has compared the actual images.
+  if (input.deferVisualFiltering === true) return match;
   if (match !== undefined) return match;
   excluded.add(key);
   return null;

@@ -11,6 +11,7 @@ import {
 import type { ShopifyPort, ShopifySearchResult } from "../src/shopify-client.js";
 import type { EbayBrowsePort } from "../src/ebay-client.js";
 import type { OfficialShopifySearchPort } from "../src/shopify-official-store-search.js";
+import { DOEN_VISUAL_GOLDEN_CASES } from "./fixtures/doen-visual-golden.js";
 
 const now = "2026-08-24T12:00:00.000Z";
 
@@ -48,6 +49,87 @@ function ebay(products = [ebayProduct("1", 2100)]): EbayBrowsePort {
 }
 
 describe("unified product search", () => {
+  it.each(DOEN_VISUAL_GOLDEN_CASES)(
+    "recalls the verified official URL for $sourceImage before Codex image reranking",
+    async ({ visualInput, expectedTitle, expectedHandle, expectedOfficialUrl, requiredQueryTerms }) => {
+      const officialSeed = shopifyProduct("doen-seed", 36_800, "UNKNOWN", {
+        merchantId: "official-shopdoen.com",
+        merchant: "DÔEN",
+        sourceHost: "www.shopdoen.com",
+        merchantTrust: {
+          level: "OFFICIAL",
+          verification: "INDEPENDENT",
+          evidence: ["official merchant domain"]
+        },
+        title: "DÔEN Dress",
+        brand: "DÔEN",
+        productType: "Dresses",
+        description: "Official DÔEN dress",
+        merchantUrl: "https://www.shopdoen.com/products/doen-seed"
+      });
+      const officialProduct = shopifyProduct(expectedHandle, 59_800, "UNKNOWN", {
+        merchantId: officialSeed.merchantId,
+        merchant: "DÔEN",
+        sourceHost: "www.shopdoen.com",
+        merchantTrust: officialSeed.merchantTrust,
+        title: expectedTitle,
+        brand: "DÔEN",
+        productType: "Dresses",
+        description: (visualInput.hardClues ?? []).join(" "),
+        imageUrl: `https://cdn.shopify.com/${expectedHandle}.jpg`,
+        merchantUrl: expectedOfficialUrl
+      });
+      const distractor = shopifyProduct(`other-${expectedHandle}`, 19_800, "UNKNOWN", {
+        merchantId: officialSeed.merchantId,
+        merchant: "DÔEN",
+        sourceHost: "www.shopdoen.com",
+        merchantTrust: officialSeed.merchantTrust,
+        title: "Another DÔEN Dress",
+        brand: "DÔEN",
+        productType: "Dresses",
+        description: "A different dress without the distinctive observed details",
+        imageUrl: "https://cdn.shopify.com/other-doen-dress.jpg",
+        merchantUrl: "https://www.shopdoen.com/products/other-doen-dress"
+      });
+      const officialSearch = vi.fn<OfficialShopifySearchPort["search"]>(async ({ query }) => {
+        const normalized = query.toLocaleLowerCase("en-US");
+        return requiredQueryTerms.every((term) => normalized.includes(term))
+          ? [distractor, officialProduct]
+          : [];
+      });
+      const parsed = SearchProductsInputSchema.parse({
+        query: `DÔEN ${visualInput.productType}`,
+        brand: "DÔEN",
+        brandMode: "REQUIRED",
+        productType: visualInput.productType,
+        comparisonMode: "DISCOVERY",
+        allowAlternatives: true,
+        visualInput
+      });
+
+      const result = await searchProducts({
+        ...parsed,
+        deferVisualFiltering: true
+      }, {
+        awin: awin([]),
+        shopify: { search: vi.fn(async () => shopifyResult([officialSeed])) },
+        officialShopify: { search: officialSearch }
+      });
+
+      expect(officialSearch).toHaveBeenCalled();
+      expect(result.candidates).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          presentationGroup: "OFFICIAL_STORE",
+          shopifyProduct: expect.objectContaining({
+            handle: expectedHandle,
+            merchantUrl: expectedOfficialUrl
+          })
+        })
+      ]));
+      expect(result.visualProductsExcluded).toBe(0);
+    }
+  );
+
   it("normalizes natural punctuation instead of rejecting a valid product query", () => {
     const input = SearchProductsInputSchema.parse({
       query: "DOEN dress, black (mini) & lace!",

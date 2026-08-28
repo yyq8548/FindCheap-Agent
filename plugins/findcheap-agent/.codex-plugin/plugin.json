@@ -1,6 +1,6 @@
 {
   "name": "findcheap-agent",
-  "version": "0.14.1+codex.20260828003000",
+  "version": "0.14.2+codex.20260828010000",
   "description": "Search products from text or visual evidence, compare verified offers, find deals, and monitor prices, promotions, and stock.",
   "author": {
     "name": "yyq8548"
@@ -12,7 +12,7 @@
   "interface": {
     "displayName": "FindCheap Agent",
     "shortDescription": "Verified cards, pricing, coupons, and safe links.",
-    "longDescription": "FindCheap Agent is a Codex Plugin Agent. v0.14.1 keeps image candidate retrieval broad, uses the current Codex model for visual validation, and permits one relaxed candidate review when every first-pass image conflicts. Product family and explicit brand/model stay hard; uncertain pixel-inferred details do not become catalog filters. Visual evidence can never create EXACT identity. Text search remains a one-call path, while Watch and batch checks skip image reranking. No external visual model or visual-service credentials are required. Exact selected-product follow-ups reuse stable selection identity. Affiliate relationships never affect eligibility or ranking. Price-history and buy-or-wait forecasting remain disabled. Authorized bounded Chrome search remains a user-approved fallback only after eligible API searches return no usable result. The agent never invents identity, discount eligibility, stacking, or delivered totals; it never checks out, reserves inventory, purchases, or pays.",
+    "longDescription": "FindCheap Agent is a Codex Plugin Agent. v0.14.2 keeps visual evidence available for compact official-store retrieval while deferring sparse-metadata rejection until the current Codex model reviews candidate images. It permits one relaxed candidate review when every first-pass image conflicts. Product family and explicit brand/model stay hard; uncertain pixel-inferred details do not become catalog filters. Visual evidence can never create EXACT identity. Text search remains a one-call path, while Watch and batch checks skip image reranking. No external visual model or visual-service credentials are required. Exact selected-product follow-ups reuse stable selection identity. Affiliate relationships never affect eligibility or ranking. Price-history and buy-or-wait forecasting remain disabled. Authorized bounded Chrome search remains a user-approved fallback only after eligible API searches return no usable result. The agent never invents identity, discount eligibility, stacking, or delivered totals; it never checks out, reserves inventory, purchases, or pays.",
     "developerName": "yyq8548",
     "category": "Productivity",
     "capabilities": [

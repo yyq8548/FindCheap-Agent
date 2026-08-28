@@ -8,6 +8,7 @@ import {
   classifyVisualProduct,
   visualOfficialStoreSearchQueries
 } from "../src/visual-product-discovery.js";
+import { DOEN_VISUAL_GOLDEN_CASES } from "./fixtures/doen-visual-golden.js";
 
 const GoldenTaskSchema = z.object({
   id: z.string(),
@@ -258,6 +259,19 @@ describe("visual product discovery", () => {
     expect(queries[0]?.query).toContain("short sleeve");
     expect(queries[0]?.query).not.toContain("mini");
   });
+
+  it.each(DOEN_VISUAL_GOLDEN_CASES)(
+    "builds a compact official-store query for $sourceImage",
+    ({ visualInput, requiredQueryTerms }) => {
+      const queries = visualOfficialStoreSearchQueries(visualInput);
+      const full = queries.find((attempt) => attempt.stage === "FULL")?.query ?? "";
+      const core = queries.find((attempt) => attempt.stage === "CORE")?.query ?? "";
+
+      for (const term of requiredQueryTerms) expect(full).toContain(term);
+      expect(full.split(/\s+/u).length).toBeLessThanOrEqual(10);
+      expect(core.split(/\s+/u).length).toBeLessThanOrEqual(7);
+    }
+  );
 
   it("treats a catalog t shirt as compatible with an observed top", () => {
     const result = classifyVisualProduct({

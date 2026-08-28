@@ -63,6 +63,7 @@ import {
   finalizeCodexVisualCandidates,
   searchProducts,
   type CodexVisualVerdict,
+  type SearchProductsExecutionInput,
   type SearchProductsInput,
   type UnifiedCandidate,
   type UnifiedSearchExecution
@@ -104,7 +105,7 @@ const ProductCardStagesSchema = z.object({
 
 const ProductCardTelemetryInputSchema = z.object({
   renderId: z.string().uuid(),
-  version: z.literal("0.14.1"),
+  version: z.literal("0.14.2"),
   terminalStage: z.enum([
     "DOM_RENDERED",
     "FIRST_IMAGE_SETTLED",
@@ -136,7 +137,7 @@ function uniqueVisualTerms(values: Array<string | undefined>): string[] {
     .filter(Boolean))];
 }
 
-function visualRetrievalSearchInput(input: SearchProductsInput, relaxed: boolean): SearchProductsInput {
+function visualRetrievalSearchInput(input: SearchProductsInput, relaxed: boolean): SearchProductsExecutionInput {
   const visual = input.visualInput!;
   const query = uniqueVisualTerms([
     input.brand ?? visual.brand,
@@ -157,9 +158,10 @@ function visualRetrievalSearchInput(input: SearchProductsInput, relaxed: boolean
     ]).slice(0, 10),
     features: [],
     featureMode: "PREFERRED",
-    // Candidate retrieval is deliberately metadata-broad. Codex applies the
-    // original visual evidence only after safely loaded candidate images arrive.
-    visualInput: undefined
+    // Keep visual evidence for official-store query generation, but do not let
+    // sparse catalog metadata reject candidates before Codex reviews images.
+    visualInput: visual,
+    deferVisualFiltering: true
   };
 }
 
@@ -1735,7 +1737,7 @@ export function createShoppingServer(
   dependencies: ShoppingServerDependencies = {}
 ): McpServer {
   void comparePort;
-  const server = new McpServer({ name: "findcheap-agent", version: "0.14.1" });
+  const server = new McpServer({ name: "findcheap-agent", version: "0.14.2" });
   const dealPort = dependencies.deals ?? createUnavailableDealPort();
   const awinPort = dependencies.awin ?? createUnavailableAwinPort();
   const ebayPort = dependencies.ebay;
@@ -1884,7 +1886,7 @@ export function createShoppingServer(
         : product)
     }
   });
-  const runUnifiedSearch = (input: SearchProductsInput) => searchProducts(input, {
+  const runUnifiedSearch = (input: SearchProductsExecutionInput) => searchProducts(input, {
     awin: awinPort,
     shopify: shopifyPort,
     ...(ebayPort === undefined ? {} : { ebay: ebayPort }),

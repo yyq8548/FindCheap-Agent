@@ -238,37 +238,31 @@ export function visualBroadSearchTerms(visual: VisualProductInput): string[] {
 export function visualOfficialStoreSearchQueries(visual: VisualProductInput): VisualOfficialStoreQuery[] {
   const normalizedType = searchTerm(visual.productType);
   const category = officialSearchProductType(visual, normalizedType);
-  const informativePattern = (visual.patterns ?? [])
-    .map(searchTerm)
-    .find((pattern) => pattern !== undefined && pattern !== "solid");
-  const primaryDetails = unique([
+  const evidence = unique([
     ...(visual.hardClues ?? []),
-    informativePattern,
+    ...(visual.patterns ?? []),
     visual.printDescription,
     visual.silhouette,
     visual.length,
     visual.neckline,
     visual.sleeveType,
-    visual.closure,
-    visual.collar,
-    visual.waist,
-    visual.hem,
+    ...(visual.materials ?? []),
     ...(visual.distinctiveDetails ?? []),
-    ...(visual.visibleText ?? []),
-    ...(visual.styleNumberCandidates ?? []),
-    (visual.colors ?? [])[0],
-    (visual.materials ?? [])[0],
     ...(visual.softClues ?? []),
     ...(visual.styleClues ?? [])
   ].map(searchTerm));
+  const primaryDetails = unique([
+    searchTerm((visual.colors ?? [])[0]),
+    ...officialVisualDescriptors(evidence)
+  ]).slice(0, 6);
   const queries: VisualOfficialStoreQuery[] = [
     {
       stage: "FULL",
-      query: unique([normalizedType, ...primaryDetails]).join(" ")
+      query: unique([category ?? normalizedType, ...primaryDetails]).join(" ")
     },
     {
       stage: "CORE",
-      query: unique([category, ...primaryDetails.slice(0, 1)]).join(" ")
+      query: unique([category, ...primaryDetails.slice(0, 3)]).join(" ")
     },
     {
       stage: "CATEGORY",
@@ -282,6 +276,36 @@ export function visualOfficialStoreSearchQueries(visual: VisualProductInput): Vi
     seen.add(key);
     return true;
   });
+}
+
+function officialVisualDescriptors(evidence: string[]): string[] {
+  const text = evidence.join(" ");
+  const descriptors: Array<[RegExp, string]> = [
+    [/\bfloral\b/u, "floral"],
+    [/\blace\b/u, "lace"],
+    [/\brib(?:bed|bing)\b/u, "ribbed"],
+    [/\bmini\b/u, "mini"],
+    [/\bmidi\b/u, "midi"],
+    [/\bmaxi\b|ankle[\s-]*length/u, "maxi"],
+    [/\bslip\b/u, "slip"],
+    [/spaghetti[\s-]*strap|ultra[\s-]*skinny strap/u, "spaghetti strap"],
+    [/\bcap[\s-]*sleeve/u, "cap sleeve"],
+    [/\b(?:boat|bateau)[\s-]*(?:neck|neckline)?\b/u, "boat neck"],
+    [/\bsquare[\s-]*(?:neck|neckline)\b/u, "square neck"],
+    [/\bv[\s-]*(?:neck|neckline)\b/u, "v neck"],
+    [/\bscoop[\s-]*(?:neck|neckline)\b/u, "scoop neck"],
+    [/\blong[\s-]*sleeve/u, "long sleeve"],
+    [/\bshort[\s-]*sleeve/u, "short sleeve"],
+    [/\bsleeveless\b/u, "sleeveless"],
+    [/\bbodycon\b/u, "bodycon"],
+    [/\bcolumn\b/u, "column"],
+    [/\ba[\s-]*line\b/u, "a line"],
+    [/fit(?:ted)?[\s-]*(?:and|&)?[\s-]*flare|flared skirt/u, "fit flare"],
+    [/\bsilk\b|silk satin/u, "silk"],
+    [/\bramie\b/u, "ramie"],
+    [/\bcotton\b/u, "cotton"]
+  ];
+  return descriptors.flatMap(([pattern, descriptor]) => pattern.test(text) ? [descriptor] : []);
 }
 
 function officialSearchProductType(
