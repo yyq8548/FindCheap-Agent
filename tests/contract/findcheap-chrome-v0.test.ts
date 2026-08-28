@@ -37,6 +37,7 @@ const manifestPath = path.join(
   "plugin.json"
 );
 const readmePath = path.join(root, "README.md");
+const serverPath = path.join(root, "apps", "mcp-server", "src", "server.ts");
 const profilePath = path.join(root, "plugins", "findcheap-agent", "ucp-agent-profile.json");
 const marketplacePath = path.join(root, ".agents", "plugins", "marketplace.json");
 const matchingGoldenPath = path.join(root, "tests", "evals", "shopify-match-golden.json");
@@ -87,6 +88,8 @@ describe("FindCheap Agent plugin contract", () => {
     expect(skill).toContain("Every live shopping request is self-contained");
     expect(skill).toContain("Added budget, use, size, or constraints");
     expect(skill).toContain("Different goal or explicit “no”: `NEW_PRODUCT`");
+    expect(skill).toContain("New image: `NEW_PRODUCT`");
+    expect(skill).toContain("selected-product tools forbidden that turn");
     expect(skill).toContain("ceiling, not spending target");
     expect(skill).toContain("cards are research leads; recommend none for purchase");
     expect(skill).toContain("Never recommend products absent from cards");
@@ -101,6 +104,12 @@ describe("FindCheap Agent plugin contract", () => {
     expect(skill).toContain("trust does not prove brand authorization");
     expect(skill).toContain("For `MERCHANT_CHECKOUT_ONLY`, do not ask for ZIP");
     expect(skill).toContain("never describe multiple products from one merchant as merchant-diverse");
+  });
+
+  it("prevents a new image from reusing a stale selected product", async () => {
+    const server = await readFile(serverPath, "utf8");
+    expect(server.match(/Never call this when the current turn includes a newly attached image/gu)).toHaveLength(3);
+    expect(server.match(/that image starts NEW_PRODUCT through search_visual_candidates/gu)).toHaveLength(3);
   });
 
   it("keeps the first 20 Golden Tasks on the one-call fast path", async () => {
@@ -176,7 +185,7 @@ describe("FindCheap Agent plugin contract", () => {
     };
 
     expect(manifest.name).toBe("findcheap-agent");
-    expect(manifest.version).toMatch(/^0\.14\.3(?:\+codex\.)?/u);
+    expect(manifest.version).toMatch(/^0\.14\.4(?:\+codex\.)?/u);
     expect(manifest.interface.displayName).toBe("FindCheap Agent");
     expect(manifest.interface.longDescription).toMatch(/Codex Plugin Agent/u);
     expect(manifest.interface.longDescription).toMatch(/[Aa]uthorized.*Chrome/u);

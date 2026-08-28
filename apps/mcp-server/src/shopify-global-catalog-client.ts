@@ -163,7 +163,7 @@ const CatalogEnvelopeSchema = z.object({
         version: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u),
         status: z.literal("success")
       }).passthrough(),
-      products: z.array(ProductSchema).max(50),
+      products: z.array(z.unknown()).max(50),
       messages: z.array(z.unknown()).max(100).nullish()
     }).passthrough()
   }).passthrough()
@@ -344,15 +344,17 @@ export function createShopifyGlobalCatalogPort(
           });
           if (!response.ok) throw new Error("catalog request failed");
           const parsed = CatalogEnvelopeSchema.parse(JSON.parse(await readLimitedText(response)));
+          const catalogProducts = parseCatalogProducts(parsed.result.structuredContent.products);
           latest = buildResult(
-            parsed.result.structuredContent.products,
+            catalogProducts.products,
             input.query === undefined ? input : { ...input, query: attempt.query },
             {
               checkedAt: clock.now().toISOString(),
               durationMs: Math.max(0, Math.round(monotonicNow() - startedAt)),
               timeoutMs,
               relaxed: attempt.kind === "RELAXED",
-              catalogVersion: parsed.result.structuredContent.ucp.version
+              catalogVersion: parsed.result.structuredContent.ucp.version,
+              malformedProductsExcluded: catalogProducts.malformedProductsExcluded
             }
           );
           totals = addAttemptTotals(totals, latest.diagnostics);
@@ -438,6 +440,7 @@ function buildResult(
     timeoutMs: number;
     relaxed: boolean;
     catalogVersion: string;
+    malformedProductsExcluded: number;
   }
 ): ShopifySearchResult {
   const unsupportedConditions = products.reduce((count, product) => count + product.variants.filter((variant) =>
@@ -533,6 +536,7 @@ function buildResult(
       fallbackQueryUsed: false,
       catalogProductsReturned: products.length,
       catalogVariantsReturned: products.reduce((count, product) => count + product.variants.length, 0),
+      malformedCatalogProductsExcluded: context.malformedProductsExcluded,
       catalogZeroResultAttempts: products.length === 0 ? 1 : 0,
       outOfStockProductsExcluded: raw.length - availabilityEligible.length,
       identityProductsExcluded: priceEligible.length - classified.length,
@@ -571,6 +575,7 @@ type AttemptTotals = Pick<ShopifySearchResult["diagnostics"],
   | "catalogProductsReturned"
   | "catalogVariantsReturned"
   | "catalogZeroResultAttempts"
+  | "malformedCatalogProductsExcluded"
   | "outOfStockProductsExcluded"
   | "identityProductsExcluded"
   | "irrelevantProductsExcluded"
@@ -585,6 +590,7 @@ function emptyAttemptTotals(): AttemptTotals {
     catalogProductsReturned: 0,
     catalogVariantsReturned: 0,
     catalogZeroResultAttempts: 0,
+    malformedCatalogProductsExcluded: 0,
     outOfStockProductsExcluded: 0,
     identityProductsExcluded: 0,
     irrelevantProductsExcluded: 0,
@@ -601,7 +607,7 @@ function addAttemptTotals(
 ): AttemptTotals {
   return Object.fromEntries(Object.keys(totals).map((key) => [
     key,
-    totals[key as keyof AttemptTotals] + diagnostics[key as keyof AttemptTotals]
+    (totals[key as keyof AttemptTotals] ?? 0) + (diagnostics[key as keyof AttemptTotals] ?? 0)
   ])) as AttemptTotals;
 }
 
@@ -689,6 +695,30 @@ function stripHtml(value: string): string {
 function recordCatalogSchemaChange(error: z.ZodError): void {
   const issues = error.issues.slice(0, 10).map((issue) => ({ code: issue.code, path: issue.path.join(".") }));
   process.stderr.write(`[findcheap-catalog-schema] ${JSON.stringify({ code: "CATALOG_SCHEMA_CHANGED", issues })}\n`);
+}
+
+function parseCatalogProducts(products: unknown[]): {
+  products: z.infer<typeof ProductSchema>[];
+  malformedProductsExcluded: number;
+} {
+  const valid: z.infer<typeof ProductSchema>[] = [];
+  let malformedProductsExcluded = 0;
+  for (const [index, product] of products.entries()) {
+    const parsed = ProductSchema.safeParse(product);
+    if (parsed.success) {
+      valid.push(parsed.data);
+      continue;
+    }
+    malformedProductsExcluded += 1;
+    recordCatalogProductSchemaChange(index, parsed.error);
+  }
+  if (products.length > 0 && valid.length === 0) ProductSchema.parse(products[0]);
+  return { products: valid, malformedProductsExcluded };
+}
+
+function recordCatalogProductSchemaChange(index: number, error: z.ZodError): void {
+  const issues = error.issues.slice(0, 5).map((issue) => ({ code: issue.code, path: issue.path.join(".") }));
+  process.stderr.write(`[findcheap-catalog-product-excluded] ${JSON.stringify({ index, issues })}\n`);
 }
 
 function normalizeProductRating(

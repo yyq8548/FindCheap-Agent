@@ -39,7 +39,7 @@ describe("visual product discovery", () => {
 
     expect(relaxed).toMatchObject({
       brand: "DÔEN",
-      productType: "women's mini dress",
+      productType: "dress",
       colors: [],
       materials: [],
       patterns: [],
@@ -48,6 +48,13 @@ describe("visual product discovery", () => {
     expect(visualOfficialStoreSearchQueries(relaxed)).toEqual([
       { stage: "FULL", query: "dress" }
     ]);
+  });
+
+  it("reduces detailed visual types to a broad family for the bounded retry", () => {
+    expect(relaxVisualProductInput(VisualProductInputSchema.parse({
+      productType: "off-shoulder lace mini dress",
+      colors: ["black"]
+    })).productType).toBe("dress");
   });
 
   it("meets the 95 percent visual-grouping gate on 30 golden tasks", async () => {

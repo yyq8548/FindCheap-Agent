@@ -70,6 +70,7 @@ export type ShopifySearchResult = {
     catalogProductsReturned: number;
     catalogVariantsReturned: number;
     catalogZeroResultAttempts: number;
+    malformedCatalogProductsExcluded?: number;
     outOfStockProductsExcluded: number;
     identityProductsExcluded: number;
     irrelevantProductsExcluded: number;

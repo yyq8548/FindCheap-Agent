@@ -65,7 +65,7 @@ export function relaxVisualProductInput(visual: VisualProductInput): VisualProdu
     ...(visual.brand === undefined ? {} : { brand: visual.brand }),
     ...(visual.logoText === undefined ? {} : { logoText: visual.logoText }),
     ...(visual.modelOrStyleNumber === undefined ? {} : { modelOrStyleNumber: visual.modelOrStyleNumber }),
-    ...(visual.productType === undefined ? {} : { productType: visual.productType })
+    ...(visual.productType === undefined ? {} : { productType: coreProductType(visual.productType) })
   });
 }
 

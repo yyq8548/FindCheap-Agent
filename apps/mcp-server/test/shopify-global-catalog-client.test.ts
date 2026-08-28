@@ -543,6 +543,41 @@ describe("Shopify Global Catalog client", () => {
     await expect(port.search({ query: "headphones", limit: 3 })).rejects.toThrow("CATALOG_SCHEMA_CHANGED");
   });
 
+  it("keeps valid products when one Catalog product has an unsupported price", async () => {
+    const valid = Array.from({ length: 9 }, (_, index) => product({
+      shopId: `70${index}`,
+      merchant: `Tabi Store ${index}`,
+      host: `tabi-${index}.example`,
+      price: 79_900 + index,
+      title: "Maison Margiela Tabi Ballerina Flat Black Leather"
+    }));
+    const invalid = product({
+      shopId: "799",
+      merchant: "Malformed Store",
+      host: "malformed.example",
+      price: 1,
+      title: "Unrelated malformed product"
+    }) as Record<string, unknown>;
+    const invalidVariant = (invalid.variants as Array<Record<string, unknown>>)[0]!;
+    invalidVariant.price = { amount: 100_000_001, currency: "USD" };
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const port = createShopifyGlobalCatalogPort(
+      { SHOPIFY_AGENT_PROFILE_URL: profileUrl },
+      { fetch: vi.fn(async () => catalogResponse([...valid, invalid])) }
+    );
+
+    const result = await port.search({ query: "Maison Margiela Tabi Ballerina Flat", limit: 3 });
+
+    expect(result.products).toHaveLength(3);
+    expect(result.products.every((entry) => entry.title.includes("Maison Margiela Tabi"))).toBe(true);
+    expect(result.diagnostics).toMatchObject({
+      catalogProductsReturned: 9,
+      malformedCatalogProductsExcluded: 1
+    });
+    expect(stderr).toHaveBeenCalledWith(expect.stringContaining("findcheap-catalog-product-excluded"));
+    stderr.mockRestore();
+  });
+
   it("fails closed on malformed envelopes, oversized bodies, and missing profile configuration", async () => {
     expect(() => createShopifyGlobalCatalogPort({})).toThrow("SHOPIFY_AGENT_PROFILE_URL is required");
     expect(() => createShopifyGlobalCatalogPort({ SHOPIFY_AGENT_PROFILE_URL: "http://agent.example/profile.json" }))

@@ -1,6 +1,6 @@
 {
   "name": "findcheap-agent",
-  "version": "0.14.3+codex.20260828010721",
+  "version": "0.14.4+codex.20260828014654",
   "description": "Search products from text or visual evidence, compare verified offers, find deals, and monitor prices, promotions, and stock.",
   "author": {
     "name": "yyq8548"
@@ -12,7 +12,7 @@
   "interface": {
     "displayName": "FindCheap Agent",
     "shortDescription": "Verified cards, pricing, coupons, and safe links.",
-    "longDescription": "FindCheap Agent is a Codex Plugin Agent. v0.14.3 improves visual recall by merging official predictive-search and sitemap candidates, deduplicating products, and using a true category-only relaxed pass when every first-pass image conflicts. Product family and explicit brand/model stay hard; uncertain pixel-inferred details remain soft clues and visual evidence can never create EXACT identity. Text search treats a maximum budget as a ceiling, distinguishes new goals from added constraints and corrections, and never recommends products absent from returned cards. Results from merchants without independent trust evidence remain research leads rather than purchase recommendations. Coupon searches stay at the scope explicitly requested by the user. Exact selected-product follow-ups reuse stable selection identity. Affiliate relationships never affect relevance or ranking. Price-history and buy-or-wait forecasting remain disabled. Authorized bounded Chrome search remains a user-approved fallback only after eligible API searches return no usable result. The agent never invents identity, discount eligibility, stacking, or delivered totals; it never checks out, reserves inventory, purchases, or pays.",
+    "longDescription": "FindCheap Agent is a Codex Plugin Agent. v0.14.4 keeps valid Shopify Catalog products when one unrelated item has malformed data, records excluded malformed products, treats every newly attached image as a new product, and reduces the bounded visual retry to a broad product family. Product family and explicit brand/model stay hard; uncertain pixel-inferred details remain soft clues and visual evidence can never create EXACT identity. Text search treats a maximum budget as a ceiling, distinguishes new goals from added constraints and corrections, and never recommends products absent from returned cards. Results from merchants without independent trust evidence remain research leads rather than purchase recommendations. Coupon searches stay at the scope explicitly requested by the user. Exact selected-product follow-ups reuse stable selection identity. Affiliate relationships never affect relevance or ranking. Price-history and buy-or-wait forecasting remain disabled. Authorized bounded Chrome search remains a user-approved fallback only after eligible API searches return no usable result. The agent never invents identity, discount eligibility, stacking, or delivered totals; it never checks out, reserves inventory, purchases, or pays.",
     "developerName": "yyq8548",
     "category": "Productivity",
     "capabilities": [

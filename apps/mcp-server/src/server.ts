@@ -108,7 +108,7 @@ const ProductCardStagesSchema = z.object({
 
 const ProductCardTelemetryInputSchema = z.object({
   renderId: z.string().uuid(),
-  version: z.literal("0.14.3"),
+  version: z.literal("0.14.4"),
   terminalStage: z.enum([
     "DOM_RENDERED",
     "FIRST_IMAGE_SETTLED",
@@ -629,6 +629,7 @@ const ShopifyProductsOutputShape = {
     catalogProductsReturned: z.number().int().nonnegative(),
     catalogVariantsReturned: z.number().int().nonnegative(),
     catalogZeroResultAttempts: z.number().int().nonnegative(),
+    malformedCatalogProductsExcluded: z.number().int().nonnegative().optional(),
     outOfStockProductsExcluded: z.number().int().nonnegative(),
     identityProductsExcluded: z.number().int().nonnegative(),
     irrelevantProductsExcluded: z.number().int().nonnegative(),
@@ -1781,7 +1782,7 @@ export function createShoppingServer(
   dependencies: ShoppingServerDependencies = {}
 ): McpServer {
   void comparePort;
-  const server = new McpServer({ name: "findcheap-agent", version: "0.14.3" });
+  const server = new McpServer({ name: "findcheap-agent", version: "0.14.4" });
   const dealPort = dependencies.deals ?? createUnavailableDealPort();
   const awinPort = dependencies.awin ?? createUnavailableAwinPort();
   const ebayPort = dependencies.ebay;
@@ -2442,7 +2443,7 @@ export function createShoppingServer(
     "inspect_selected_shopify_product",
     {
       title: "Inspect a selected Shopify product",
-      description: "Check size, color, other variants, or current availability for exactly one native Shopify catalog product returned by search_products. Pass selectionId directly; never scan task history, session files, or run another catalog search. Awin cards can be quoted when supported but cannot use this variant-inspection tool.",
+      description: "Check size, color, other variants, or current availability for exactly one native Shopify catalog product returned by search_products. Never call this when the current turn includes a newly attached image; that image starts NEW_PRODUCT through search_visual_candidates. Pass selectionId directly; never scan task history, session files, or run another catalog search. Awin cards can be quoted when supported but cannot use this variant-inspection tool.",
       inputSchema: ShopifySelectedProductInputSchema,
       outputSchema: ShopifySelectedProductOutputShape,
       annotations: {
@@ -2582,7 +2583,7 @@ export function createShoppingServer(
     "quote_selected_shopify_product",
     {
       title: "Quote a selected product",
-      description: "Call only when the selected card is DELIVERED_TOTAL_SUPPORTED or ZIP_ESTIMATE_ONLY and the user supplied a ZIP. If ZIP is missing, ask only for ZIP. For MERCHANT_CHECKOUT_ONLY, do not ask for ZIP and do not call this tool; explain that shipping, tax, and final total require merchant checkout. Quote exactly one prior selectionId without Memory, repo scans, plan narration, title search, or street-address request.",
+      description: "Call only when the selected card is DELIVERED_TOTAL_SUPPORTED or ZIP_ESTIMATE_ONLY and the user supplied a ZIP. Never call this when the current turn includes a newly attached image; that image starts NEW_PRODUCT through search_visual_candidates. If ZIP is missing, ask only for ZIP. For MERCHANT_CHECKOUT_ONLY, do not ask for ZIP and do not call this tool; explain that shipping, tax, and final total require merchant checkout. Quote exactly one prior selectionId without Memory, repo scans, plan narration, title search, or street-address request.",
       inputSchema: ShopifySelectedQuoteInputSchema,
       outputSchema: ShopifyProductsOutputShape,
       annotations: {
@@ -2696,7 +2697,7 @@ export function createShoppingServer(
     "research_selected_product_deal",
     {
       title: "Check current price and deals",
-      description: "Check one exact prior selectionId for current verified merchant deals, current price, optional delivered-price evidence, and inventory. Never search the selected title again. Return current evidence only; do not make historical or buy-or-wait claims. Monitoring is created only after an explicit Watch request.",
+      description: "Check one exact prior selectionId for current verified merchant deals, current price, optional delivered-price evidence, and inventory. Never call this when the current turn includes a newly attached image; that image starts NEW_PRODUCT through search_visual_candidates. Never search the selected title again. Return current evidence only; do not make historical or buy-or-wait claims. Monitoring is created only after an explicit Watch request.",
       inputSchema: DealConciergeInputSchema,
       outputSchema: DealConciergeOutputShape,
       annotations: {
