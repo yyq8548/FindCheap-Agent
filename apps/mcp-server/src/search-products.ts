@@ -521,7 +521,9 @@ export async function searchProducts(
             visualExcludedKeys
           ))
           .filter((candidate): candidate is UnifiedCandidate => candidate !== undefined);
-        const merged = mergeCandidates(officialCandidates, incoming);
+        const merged = input.deferVisualFiltering === true
+          ? mergeCandidatesPreservingOrder(officialCandidates, incoming)
+          : mergeCandidates(officialCandidates, incoming);
         officialCandidates.splice(0, officialCandidates.length, ...merged);
         attempts.push({
           stage: attempt.stage,
@@ -544,7 +546,9 @@ export async function searchProducts(
         sourceHost: officialSeed.sourceHost,
         diagnostic: { outcome, attempts }
       };
-      shopifyCandidates = mergeCandidates(shopifyCandidates, officialCandidates);
+      shopifyCandidates = input.deferVisualFiltering === true
+        ? mergeCandidatesPreservingOrder(officialCandidates, shopifyCandidates)
+        : mergeCandidates(shopifyCandidates, officialCandidates);
       if (shopifyResult !== undefined) {
         shopifyResult = {
           ...shopifyResult,
@@ -566,15 +570,17 @@ export async function searchProducts(
     ports.deals,
     input.membershipIds ?? []
   );
-  const sortedCandidates = enrichedCandidates
-    .sort(input.selectionMode === "LOWEST_PRICE" ? compareLowestPrice : compareRankedCandidates);
-  const candidates = selectPresentationCandidates(
-    sortedCandidates,
-    input.limit,
-    input.selectionMode,
-    input.allowAlternatives,
-    input.visualInput !== undefined
-  );
+  const candidates = input.deferVisualFiltering === true
+    ? selectVisualReviewCandidates(enrichedCandidates, input.limit, input.allowAlternatives)
+    : selectPresentationCandidates(
+        [...enrichedCandidates].sort(
+          input.selectionMode === "LOWEST_PRICE" ? compareLowestPrice : compareRankedCandidates
+        ),
+        input.limit,
+        input.selectionMode,
+        input.allowAlternatives,
+        input.visualInput !== undefined
+      );
   const queriedSourcesComplete =
     awinStatus !== "UNAVAILABLE" &&
     ebayStatus !== "UNAVAILABLE" &&
@@ -1225,6 +1231,19 @@ function mergeCandidates(
   return [...merged.values()].sort(compareRankedCandidates);
 }
 
+function mergeCandidatesPreservingOrder(
+  current: UnifiedCandidate[],
+  incoming: UnifiedCandidate[]
+): UnifiedCandidate[] {
+  const merged = new Map<string, UnifiedCandidate>();
+  for (const candidate of [...current, ...incoming]) {
+    const key = candidateKey(candidate);
+    const existing = merged.get(key);
+    if (existing === undefined || compareRankedCandidates(candidate, existing) < 0) merged.set(key, candidate);
+  }
+  return [...merged.values()];
+}
+
 function mergeShopifyProducts(current: ShopifyProduct[], incoming: ShopifyProduct[]): ShopifyProduct[] {
   const products = new Map(current.map((product) => [
     `${product.sourceHost}:${product.handle}`,
@@ -1373,6 +1392,31 @@ function selectPresentationCandidates(
   if (grouped.length > 0) return grouped;
   if (visualDiscovery) return [];
   return candidates.slice(0, limit);
+}
+
+function selectVisualReviewCandidates(
+  candidates: UnifiedCandidate[],
+  limit: number,
+  allowAlternatives: boolean
+): UnifiedCandidate[] {
+  const eligible = candidates.filter((candidate) => passesVisualDisplayGate(candidate, allowAlternatives));
+  const official = eligible.filter(isOfficialCandidate);
+  const trusted = eligible.filter((candidate) =>
+    !isOfficialCandidate(candidate) &&
+    (candidate.recommendationTier === "TRUSTED_OR_AFFILIATE" ||
+      candidate.recommendationTier === "HIGH_RATED_UNVERIFIED")
+  );
+  const general = eligible.filter((candidate) =>
+    !isOfficialCandidate(candidate) && candidate.recommendationTier === "GENERAL_UNVERIFIED"
+  );
+  return [...official, ...trusted, ...general].slice(0, limit).map((candidate) => ({
+    ...candidate,
+    presentationGroup: isOfficialCandidate(candidate)
+      ? "OFFICIAL_STORE" as const
+      : candidate.recommendationTier === "GENERAL_UNVERIFIED"
+        ? "BEST_VALUE" as const
+        : "TRUSTED_MATCH" as const
+  }));
 }
 
 function isOfficialCandidate(candidate: UnifiedCandidate): boolean {

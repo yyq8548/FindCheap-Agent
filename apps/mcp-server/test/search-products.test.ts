@@ -131,6 +131,81 @@ describe("unified product search", () => {
     }
   );
 
+  it("keeps the official storefront's retrieval order until Codex visual review", async () => {
+    const visualCase = DOEN_VISUAL_GOLDEN_CASES.find((entry) => entry.expectedHandle === "aloise-dress-salt")!;
+    const trust = {
+      level: "OFFICIAL" as const,
+      verification: "INDEPENDENT" as const,
+      evidence: ["official merchant domain"]
+    };
+    const seed = shopifyProduct("doen-seed", 36_800, "UNKNOWN", {
+      merchantId: "official-shopdoen.com",
+      merchant: "DÔEN",
+      sourceHost: "www.shopdoen.com",
+      merchantTrust: trust,
+      title: "DÔEN Dress",
+      brand: "DÔEN",
+      productType: "Dresses",
+      merchantUrl: "https://www.shopdoen.com/products/doen-seed"
+    });
+    const aloise = shopifyProduct("aloise-dress-salt", 36_800, "UNKNOWN", {
+      merchantId: seed.merchantId,
+      merchant: "DÔEN",
+      sourceHost: "www.shopdoen.com",
+      merchantTrust: trust,
+      title: "Aloise Dress — Salt",
+      brand: "DÔEN",
+      productType: "FALL 26",
+      description: "A ‘60s-inspired popover mini in ramie, with inset lace panels and scalloped lace framing the square neckline and straps.",
+      imageUrl: "https://cdn.shopify.com/aloise-dress-salt.jpg",
+      merchantUrl: "https://www.shopdoen.com/products/aloise-dress-salt"
+    });
+    const distractors = Array.from({ length: 6 }, (_, index) => shopifyProduct(
+      `lower-price-dress-${index + 1}`,
+      10_000 + index * 100,
+      "UNKNOWN",
+      {
+        merchantId: seed.merchantId,
+        merchant: "DÔEN",
+        sourceHost: "www.shopdoen.com",
+        merchantTrust: trust,
+        title: `Lower Price Dress ${index + 1}`,
+        brand: "DÔEN",
+        productType: "FALL 26",
+        description: "A different seasonal dress.",
+        imageUrl: `https://cdn.shopify.com/lower-price-dress-${index + 1}.jpg`,
+        merchantUrl: `https://www.shopdoen.com/products/lower-price-dress-${index + 1}`
+      }
+    ));
+
+    const result = await searchProducts({
+      ...SearchProductsInputSchema.parse({
+        query: "DÔEN white lace mini dress",
+        brand: "DÔEN",
+        brandMode: "REQUIRED",
+        productType: "women's mini dress",
+        comparisonMode: "DISCOVERY",
+        allowAlternatives: true,
+        visualInput: visualCase.visualInput
+      }),
+      limit: 6,
+      deferVisualFiltering: true
+    }, {
+      awin: awin([]),
+      shopify: { search: vi.fn(async () => shopifyResult([seed])) },
+      officialShopify: { search: vi.fn(async () => [aloise, ...distractors]) }
+    });
+
+    expect(result.candidates).toHaveLength(6);
+    expect(result.candidates[0]).toMatchObject({
+      presentationGroup: "OFFICIAL_STORE",
+      shopifyProduct: {
+        handle: "aloise-dress-salt",
+        merchantUrl: "https://www.shopdoen.com/products/aloise-dress-salt"
+      }
+    });
+  });
+
   it("normalizes natural punctuation instead of rejecting a valid product query", () => {
     const input = SearchProductsInputSchema.parse({
       query: "DOEN dress, black (mini) & lace!",

@@ -212,7 +212,7 @@ async function hydrateStorefrontProduct(
     if (product.handle !== candidate.handle) throw new Error("official product handle changed");
     const variant = product.variants.find((entry) => entry.available) ?? product.variants[0];
     if (variant === undefined) throw new Error("official product has no variant");
-    const productType = product.product_type?.trim() || product.type?.trim();
+    const productType = officialProductType(product.title, product.product_type, product.type);
     return officialProduct(seed, host, checkedAt, {
       handle: variant.id,
       title: product.title,
@@ -248,6 +248,20 @@ async function hydrateStorefrontProduct(
       merchantUrl: variant.merchantUrl
     });
   }
+}
+
+function officialProductType(
+  title: string,
+  productType: string | undefined,
+  legacyType: string | undefined
+): string | undefined {
+  const explicit = productType?.trim();
+  if (explicit) return explicit;
+  const fallback = legacyType?.trim();
+  if (fallback && !/^(?:pre-)?(?:spring|summer|fall|autumn|winter|holiday|resort)\s*\d{2,4}$/iu.test(fallback)) {
+    return fallback;
+  }
+  return /\b(?:dress|gown)\b/iu.test(title) ? "Dresses" : undefined;
 }
 
 function officialProduct(
