@@ -22,6 +22,7 @@ import {
 import type { ShopifySelectedProductInspector } from "./shopify-selected-product.js";
 import type { OfficialShopifySearchPort } from "./shopify-official-store-search.js";
 import type { OfficialStorefrontRegistryPort } from "./official-storefront-registry-client.js";
+import type { MerchantTrustRegistryPort } from "./merchant-trust-registry-client.js";
 import type { VisualCandidateImagePort } from "./visual-candidate-images.js";
 import type { AwinShopifyQuoteResolver, AwinShopifyQuoteSeed } from "./awin-shopify-quote.js";
 import type { EbayBrowsePort } from "./ebay-client.js";
@@ -52,7 +53,7 @@ import {
 } from "./watch-store.js";
 import { evaluateWatch, type WatchEvaluation } from "./watch-service.js";
 import {
-  MERCHANT_TRUST_REGISTRY_VERSION,
+  currentMerchantTrustRegistryVersion,
   resolveMerchantTrust
 } from "./merchant-trust.js";
 import {
@@ -1547,7 +1548,7 @@ function emptyShopifySearchResult(
       unverifiedMerchantProductsReturned: 0,
       unverifiedMerchantProductsExcluded: 0,
       riskyMerchantProductsExcluded: 0,
-      merchantTrustRegistryVersion: MERCHANT_TRUST_REGISTRY_VERSION,
+      merchantTrustRegistryVersion: currentMerchantTrustRegistryVersion(),
       merchantsFailed: 0,
       coveragePercent: 100,
       failedMerchantIds: [],
@@ -1645,6 +1646,7 @@ export type ShoppingServerDependencies = {
   selectedProducts?: ShopifySelectedProductInspector;
   officialShopify?: OfficialShopifySearchPort;
   officialStorefrontRegistry?: OfficialStorefrontRegistryPort;
+  merchantTrustRegistry?: MerchantTrustRegistryPort;
   visualCandidateImages?: VisualCandidateImagePort;
   now?: () => Date;
   cardTelemetry?: ProductCardTelemetrySink;
@@ -1750,7 +1752,7 @@ function shopifyClarificationResult(
         unverifiedMerchantProductsReturned: 0,
         unverifiedMerchantProductsExcluded: 0,
         riskyMerchantProductsExcluded: 0,
-        merchantTrustRegistryVersion: MERCHANT_TRUST_REGISTRY_VERSION,
+        merchantTrustRegistryVersion: currentMerchantTrustRegistryVersion(),
         merchantsFailed: 0,
         coveragePercent: 0,
         failedMerchantIds: [],
@@ -1811,7 +1813,7 @@ function shopifyUnavailableResult(
         unverifiedMerchantProductsReturned: 0,
         unverifiedMerchantProductsExcluded: 0,
         riskyMerchantProductsExcluded: 0,
-        merchantTrustRegistryVersion: MERCHANT_TRUST_REGISTRY_VERSION,
+        merchantTrustRegistryVersion: currentMerchantTrustRegistryVersion(),
         merchantsFailed: 0,
         coveragePercent: 0,
         failedMerchantIds: [],
@@ -1849,6 +1851,7 @@ export function createShoppingServer(
   const selectedProducts = dependencies.selectedProducts;
   const officialShopify = dependencies.officialShopify;
   const officialStorefrontRegistry = dependencies.officialStorefrontRegistry;
+  const merchantTrustRegistry = dependencies.merchantTrustRegistry;
   const visualCandidateImages = dependencies.visualCandidateImages;
   const now = dependencies.now ?? (() => new Date());
   const cardTelemetry = dependencies.cardTelemetry ?? {
@@ -1992,7 +1995,8 @@ export function createShoppingServer(
     ...(ebayPort === undefined ? {} : { ebay: ebayPort }),
     ...(toolAvailability.verifiedDeals ? { deals: dealPort } : {}),
     ...(officialShopify === undefined ? {} : { officialShopify }),
-    ...(officialStorefrontRegistry === undefined ? {} : { officialStorefrontRegistry })
+    ...(officialStorefrontRegistry === undefined ? {} : { officialStorefrontRegistry }),
+    ...(merchantTrustRegistry === undefined ? {} : { merchantTrustRegistry })
   });
   const buildUnifiedResponse = async (input: SearchProductsInput, execution: UnifiedSearchExecution) => {
     const selectedShopifyHandles = new Set(execution.candidates.flatMap((candidate) =>

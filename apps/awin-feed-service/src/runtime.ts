@@ -26,7 +26,8 @@ export async function startAwinFeedRuntime(
     {
       ...(offers === undefined ? {} : { offers }),
       ...(ebay === undefined ? {} : { ebay }),
-      officialStorefronts: environment.officialStorefronts
+      officialStorefronts: environment.officialStorefronts,
+      merchantTrust: environment.merchantTrust
     }
   );
   server.listen(environment.port, environment.host);

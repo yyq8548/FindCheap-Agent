@@ -3735,6 +3735,21 @@
           "kind": "import-statement",
           "original": "./official-storefront.js",
           "path": "../../packages/contracts/src/official-storefront.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./merchant-trust-registry.js",
+          "path": "../../packages/contracts/src/merchant-trust-registry.ts"
+        }
+      ]
+    },
+    "../../packages/contracts/src/merchant-trust-registry.ts": {
+      "format": "esm",
+      "imports": [
+        {
+          "kind": "import-statement",
+          "original": "zod",
+          "path": "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/index.js"
         }
       ]
     },
@@ -3938,6 +3953,21 @@
         }
       ]
     },
+    "src/merchant-trust-registry-client.ts": {
+      "format": "esm",
+      "imports": [
+        {
+          "kind": "import-statement",
+          "original": "../../../packages/contracts/src/index.js",
+          "path": "../../packages/contracts/src/index.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./merchant-trust.js",
+          "path": "src/merchant-trust.ts"
+        }
+      ]
+    },
     "src/merchant-trust.ts": {
       "format": "esm",
       "imports": [
@@ -3945,6 +3975,11 @@
           "external": true,
           "kind": "import-statement",
           "path": "node:net"
+        },
+        {
+          "kind": "import-statement",
+          "original": "../../../packages/contracts/src/index.js",
+          "path": "../../packages/contracts/src/index.ts"
         }
       ]
     },
@@ -4321,6 +4356,11 @@
           "kind": "import-statement",
           "original": "./official-storefront-registry-client.js",
           "path": "src/official-storefront-registry-client.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./merchant-trust-registry-client.js",
+          "path": "src/merchant-trust-registry-client.ts"
         }
       ]
     },
@@ -4392,7 +4432,7 @@
   },
   "outputs": {
     "../../plugins/findcheap-agent/dist/mcp-server.js": {
-      "bytes": 655306,
+      "bytes": 661056,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
@@ -5003,6 +5043,9 @@
         "../../packages/contracts/src/index.ts": {
           "bytesInOutput": 0
         },
+        "../../packages/contracts/src/merchant-trust-registry.ts": {
+          "bytesInOutput": 4078
+        },
         "../../packages/contracts/src/money.ts": {
           "bytesInOutput": 83
         },
@@ -5042,8 +5085,11 @@
         "src/generic-official-store-search.ts": {
           "bytesInOutput": 8106
         },
+        "src/merchant-trust-registry-client.ts": {
+          "bytesInOutput": 1283
+        },
         "src/merchant-trust.ts": {
-          "bytesInOutput": 9150
+          "bytesInOutput": 9343
         },
         "src/official-storefront-registry-client.ts": {
           "bytesInOutput": 1326
@@ -5058,10 +5104,10 @@
           "bytesInOutput": 1784
         },
         "src/search-products.ts": {
-          "bytesInOutput": 25918
+          "bytesInOutput": 25967
         },
         "src/server.ts": {
-          "bytesInOutput": 93989
+          "bytesInOutput": 94070
         },
         "src/shopify-cart-quote.ts": {
           "bytesInOutput": 10335
@@ -5070,7 +5116,7 @@
           "bytesInOutput": 181
         },
         "src/shopify-global-catalog-client.ts": {
-          "bytesInOutput": 22050
+          "bytesInOutput": 22052
         },
         "src/shopify-match.ts": {
           "bytesInOutput": 6086
@@ -5085,7 +5131,7 @@
           "bytesInOutput": 2946
         },
         "src/stdio.ts": {
-          "bytesInOutput": 846
+          "bytesInOutput": 910
         },
         "src/visual-candidate-images.ts": {
           "bytesInOutput": 1116

@@ -26,6 +26,7 @@ import {
   type AwinOffersController
 } from "./offers.js";
 import type { ServedOfficialStorefrontRegistry } from "./official-storefront-registry.js";
+import type { ServedMerchantTrustRegistry } from "./merchant-trust-registry.js";
 
 const MAX_AWIN_FEED_LIST_BYTES = 4 * 1024 * 1024;
 const MAX_OFFICIAL_IMAGE_BYTES = 1_500_000;
@@ -228,6 +229,7 @@ export function createAwinFeedHttpServer(
     offers?: AwinOffersController;
     ebay?: EbayBrowseController;
     officialStorefronts?: ServedOfficialStorefrontRegistry;
+    merchantTrust?: ServedMerchantTrustRegistry;
   } = {}
 ) {
   const publicSearchLimiter = createPublicSearchLimiter(
@@ -248,6 +250,7 @@ export function createAwinFeedHttpServer(
       options.offers,
       options.ebay,
       options.officialStorefronts,
+      options.merchantTrust,
       request,
       response
     ).catch(() => {
@@ -270,11 +273,39 @@ async function handleRequest(
   offers: AwinOffersController | undefined,
   ebay: EbayBrowseController | undefined,
   officialStorefronts: ServedOfficialStorefrontRegistry | undefined,
+  merchantTrust: ServedMerchantTrustRegistry | undefined,
   request: IncomingMessage,
   response: ServerResponse
 ): Promise<void> {
   const requestUrl = new URL(request.url ?? "/", "http://localhost");
   const path = requestUrl.pathname;
+  if (path === "/v1/merchant-trust") {
+    if (request.method !== "GET") {
+      json(response, 405, { error: "METHOD_NOT_ALLOWED" });
+      return;
+    }
+    if (merchantTrust === undefined) {
+      json(response, 404, { error: "MERCHANT_TRUST_NOT_CONFIGURED" });
+      return;
+    }
+    if (request.headers["if-none-match"] === merchantTrust.etag) {
+      response.writeHead(304, {
+        "cache-control": "public, max-age=3600, stale-while-revalidate=86400",
+        etag: merchantTrust.etag
+      });
+      response.end();
+      return;
+    }
+    response.writeHead(200, {
+      "cache-control": "public, max-age=3600, stale-while-revalidate=86400",
+      "content-type": "application/json",
+      "content-length": String(Buffer.byteLength(merchantTrust.body)),
+      etag: merchantTrust.etag,
+      "x-content-type-options": "nosniff"
+    });
+    response.end(merchantTrust.body);
+    return;
+  }
   if (path === "/v1/official-storefronts") {
     if (request.method !== "GET") {
       json(response, 405, { error: "METHOD_NOT_ALLOWED" });

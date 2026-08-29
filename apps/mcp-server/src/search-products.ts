@@ -49,6 +49,7 @@ import type {
   OfficialShopifyStoreSeed
 } from "./shopify-official-store-search.js";
 import type { OfficialStorefrontRegistryPort } from "./official-storefront-registry-client.js";
+import type { MerchantTrustRegistryPort } from "./merchant-trust-registry-client.js";
 
 const QuerySchema = z.string().trim().min(2).max(300)
   .refine((value) => /[\p{L}\p{N}]/u.test(value), "query must contain a letter or number")
@@ -287,9 +288,13 @@ export async function searchProducts(
     deals?: DealPort;
     officialShopify?: OfficialShopifySearchPort;
     officialStorefrontRegistry?: OfficialStorefrontRegistryPort;
+    merchantTrustRegistry?: MerchantTrustRegistryPort;
   }
 ): Promise<UnifiedSearchExecution> {
-  await ports.officialStorefrontRegistry?.refresh();
+  await Promise.all([
+    ports.officialStorefrontRegistry?.refresh(),
+    ports.merchantTrustRegistry?.refresh()
+  ]);
   const input = {
     ...rawInput,
     visualInput: rawInput.visualInput === undefined

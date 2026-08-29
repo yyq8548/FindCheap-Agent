@@ -272,7 +272,8 @@ describe("Awin Feed service", () => {
     await offers.refresh();
     const server = createAwinFeedHttpServer(controller, token, {
       offers,
-      officialStorefronts: environment.officialStorefronts
+      officialStorefronts: environment.officialStorefronts,
+      merchantTrust: environment.merchantTrust
     });
     server.listen(0, "127.0.0.1");
     await once(server, "listening");
@@ -330,6 +331,20 @@ describe("Awin Feed service", () => {
         headers: { "if-none-match": registry.headers.get("etag")! }
       });
       expect(cachedRegistry.status).toBe(304);
+      const merchantTrust = await fetch(`${origin}/v1/merchant-trust`);
+      expect(merchantTrust.status).toBe(200);
+      expect(await merchantTrust.json()).toMatchObject({
+        version: "merchant-trust-2026-08-28",
+        merchants: expect.arrayContaining([expect.objectContaining({
+          host: "bestbuy.com",
+          level: "ESTABLISHED_RETAILER",
+          status: "APPROVED"
+        })])
+      });
+      const cachedMerchantTrust = await fetch(`${origin}/v1/merchant-trust`, {
+        headers: { "if-none-match": merchantTrust.headers.get("etag")! }
+      });
+      expect(cachedMerchantTrust.status).toBe(304);
       expect((await fetch(`${origin}/v1/search`)).status).toBe(405);
       expect((await fetch(`${origin}/v1/search`, {
         method: "POST",

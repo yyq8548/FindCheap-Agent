@@ -1,5 +1,9 @@
 import { isIP } from "node:net";
-import type { OfficialStorefrontRecord } from "../../../packages/contracts/src/index.js";
+import {
+  EMBEDDED_MERCHANT_TRUST_REGISTRY,
+  type ManagedMerchantTrustRecord,
+  type OfficialStorefrontRecord
+} from "../../../packages/contracts/src/index.js";
 
 export type MerchantTrustLevel =
   | "OFFICIAL"
@@ -29,7 +33,7 @@ export type MerchantRecommendationTier =
 export const HIGH_PRODUCT_RATING_THRESHOLD = 3.8;
 export const HIGH_PRODUCT_RATING_MIN_COUNT = 2;
 
-export const MERCHANT_TRUST_REGISTRY_VERSION = "merchant-trust-2026-08-27";
+export const MERCHANT_TRUST_REGISTRY_VERSION = EMBEDDED_MERCHANT_TRUST_REGISTRY.version;
 
 type MerchantTrustRecord = {
   host: string;
@@ -47,6 +51,8 @@ type MerchantTrustRecord = {
 export type VerifiedOfficialStorefront = OfficialStorefrontRecord & { host: string };
 
 let managedOfficialStorefronts: readonly OfficialStorefrontRecord[] = [];
+let managedMerchantTrustRecords: readonly ManagedMerchantTrustRecord[] | undefined;
+let managedMerchantTrustVersion: string | undefined;
 
 // Every entry is an exact registrable host with manually reviewed merchant-identity evidence.
 // Open marketplaces stay excluded until their individual seller identity can be verified.
@@ -137,22 +143,16 @@ export function resolveMerchantTrust(host: string, merchantName = ""): MerchantT
       reviewedAt: managed.reviewedAt
     };
   }
+  if (managedMerchantTrustRecords !== undefined) {
+    const managedTrust = managedMerchantTrustRecords.find((candidate) => candidate.host === normalized);
+    if (managedTrust !== undefined) return trustEvidence(managedTrust);
+    return unknownTrustEvidence(merchantName);
+  }
   const record = MERCHANT_TRUST_RECORDS.find((candidate) => candidate.host === normalized);
   if (record !== undefined) {
-    return {
-      level: record.level,
-      verification: "INDEPENDENT",
-      evidence: [`independently reviewed ${record.level.toLocaleLowerCase("en-US").replaceAll("_", " ")} domain: ${record.evidenceUrl}`],
-      reviewedAt: record.reviewedAt
-    };
+    return trustEvidence(record);
   }
-  return {
-    level: "UNKNOWN",
-    verification: "UNVERIFIED",
-    evidence: [merchantName.toLocaleLowerCase("en-US").includes("official")
-      ? "merchant self-description is not independent trust evidence"
-      : "no independent merchant trust evidence"]
-  };
+  return unknownTrustEvidence(merchantName);
 }
 
 export function isTrustedMerchant(value: MerchantTrustEvidence): boolean {
@@ -211,6 +211,23 @@ export function replaceManagedOfficialStorefronts(records: readonly OfficialStor
   }));
 }
 
+export function replaceManagedMerchantTrustRecords(
+  records: readonly ManagedMerchantTrustRecord[],
+  version = MERCHANT_TRUST_REGISTRY_VERSION
+): void {
+  managedMerchantTrustRecords = records.map((record) => ({ ...record }));
+  managedMerchantTrustVersion = version;
+}
+
+export function resetManagedMerchantTrustRecords(): void {
+  managedMerchantTrustRecords = undefined;
+  managedMerchantTrustVersion = undefined;
+}
+
+export function currentMerchantTrustRegistryVersion(): string {
+  return managedMerchantTrustVersion ?? MERCHANT_TRUST_REGISTRY_VERSION;
+}
+
 export function isHighRatedProduct(rating: ProductRating | undefined): boolean {
   return rating !== undefined &&
     rating.value > HIGH_PRODUCT_RATING_THRESHOLD &&
@@ -244,6 +261,25 @@ function normalizeBrand(value: string): string {
     .replace(/\p{M}+/gu, "")
     .toLocaleLowerCase("en-US")
     .replace(/[^a-z0-9]+/gu, "");
+}
+
+function trustEvidence(record: Pick<MerchantTrustRecord, "level" | "evidenceUrl" | "reviewedAt">): MerchantTrustEvidence {
+  return {
+    level: record.level,
+    verification: "INDEPENDENT",
+    evidence: [`independently reviewed ${record.level.toLocaleLowerCase("en-US").replaceAll("_", " ")} domain: ${record.evidenceUrl}`],
+    reviewedAt: record.reviewedAt
+  };
+}
+
+function unknownTrustEvidence(merchantName: string): MerchantTrustEvidence {
+  return {
+    level: "UNKNOWN",
+    verification: "UNVERIFIED",
+    evidence: [merchantName.toLocaleLowerCase("en-US").includes("official")
+      ? "merchant self-description is not independent trust evidence"
+      : "no independent merchant trust evidence"]
+  };
 }
 
 function isRiskyHost(host: string): boolean {

@@ -4,3 +4,4 @@ export * from "./offer.js";
 export * from "./comparison.js";
 export * from "./url.js";
 export * from "./official-storefront.js";
+export * from "./merchant-trust-registry.js";

@@ -9,7 +9,7 @@ import type {
   ShopifySearchResult
 } from "./shopify-client.js";
 import {
-  MERCHANT_TRUST_REGISTRY_VERSION,
+  currentMerchantTrustRegistryVersion,
   isTrustedMerchant,
   merchantRecommendationRank,
   merchantRecommendationTier,
@@ -550,7 +550,7 @@ function buildResult(
         unverifiedPool.length - selected.filter((candidate) => candidate.merchantTrust.level === "UNKNOWN").length
       ),
       riskyMerchantProductsExcluded,
-      merchantTrustRegistryVersion: MERCHANT_TRUST_REGISTRY_VERSION,
+      merchantTrustRegistryVersion: currentMerchantTrustRegistryVersion(),
       merchantsFailed: 0,
       coveragePercent: 100,
       failedMerchantIds: [],
