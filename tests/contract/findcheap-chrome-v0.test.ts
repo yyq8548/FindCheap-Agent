@@ -62,10 +62,10 @@ describe("FindCheap Agent plugin contract", () => {
     expect(skill).toContain("partial coverage, unavailable data, malformed response, timeout");
     expect(skill).toContain("backend diagnostics logged by MCP");
     expect(skill).toContain("Keep `IRRELEVANT`");
-    expect(skill).toContain("Never describe `UNKNOWN` condition as new or pad three cards");
+    expect(skill).toContain("Never describe `UNKNOWN` condition as new or pad cards");
     expect(skill).toContain("`matchEvidence`");
     expect(skill).toContain("`variantDimensions`");
-    expect(skill).toContain("For text search always pass `limit: 3`");
+    expect(skill).toContain("For text search always pass `limit: 8`");
     expect(skill).toContain("call `search_visual_candidates` once");
     expect(skill).toContain("`visualReview.stage: RELAXED_REVIEW`");
     expect(skill).toContain("Never third review");

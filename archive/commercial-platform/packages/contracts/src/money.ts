@@ -6,5 +6,3 @@ export const MoneySchema = z
     currency: z.literal("USD")
   })
   .strict();
-
-export type Money = z.infer<typeof MoneySchema>;

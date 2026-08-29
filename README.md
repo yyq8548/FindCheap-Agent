@@ -7,7 +7,7 @@ English | [简体中文](README.zh-CN.md)
 
 Product form: **Codex Plugin Agent**.
 
-FindCheap Agent is a read-only Codex plugin for product search, offer matching, price checks, product cards, verified deals, and shopping watches. It returns up to three products with images, merchant links, price evidence, match labels, condition, and availability.
+FindCheap Agent is a read-only Codex plugin for product search, offer matching, price checks, product cards, verified deals, and shopping watches. It returns up to eight products in three tiers: 2 official-store matches, 3 trusted matches, and 3 best-value high-match options.
 
 Codex calls one public `search_products` tool through a local stdio MCP server. The router searches eligible Awin, Shopify, eBay, and verified official-store sources, then ranks qualifying products by product relevance and merchant tier. It automatically runs one broader internal search when the first pass cannot fill the requested cards. It offers an authorized bounded Chrome search only after both API passes return no usable verified product.
 
@@ -18,7 +18,7 @@ The plugin does not order, check out, or submit payment. It also does not reserv
 Call FindCheap Agent directly in Codex:
 
 ```text
-@FindCheap Agent search for Sony WH-1000XM6 and show three product cards.
+@FindCheap Agent search for Sony WH-1000XM6 and show product cards.
 ```
 
 Or ask in plain language after enabling the plugin:
@@ -110,7 +110,7 @@ Follow-up questions reuse the selected result's `renderId` and stable product id
 
 ## Product cards
 
-Codex can display the top results as interactive cards inside the conversation. Cards are grouped by merchant trust and match quality. They show merchant trust evidence, image, merchant, price, model or SKU when available, identity evidence, variants, condition, availability, observation time, and a button to open the merchant page. Product cards stay bound to the search or selected-variant quote that produced them.
+Codex can display up to eight results as interactive cards inside the conversation: at most 2 verified official-store matches, 3 trusted exact or similar matches, and 3 best-value high-match options. Cards show merchant trust evidence, image, merchant, price, model or SKU when available, identity evidence, variants, condition, availability, observation time, and a button to open the merchant page. Product cards stay bound to the search or selected-variant quote that produced them.
 
 The complete text result remains available when a Codex client cannot display the card interface.
 
@@ -120,7 +120,7 @@ The Coupon and promotion path fails closed. It returns a Coupon, promo code, mem
 
 Without that evidence, the plugin reports the deal source as unavailable. It does not invent codes, discounts, expiration dates, or Cashback rates.
 
-The default plugin exposes unified product search, product cards, current deal checks, and Watch tools. Commerce comparison and the standalone verified Deals tool appear only when their complete provider URL and token are configured.
+The default plugin exposes unified product search, product cards, current deal checks, and Watch tools. The archived Commerce comparison tool is no longer registered. The standalone verified Deals tool appears only when its complete provider URL and token are configured.
 
 ## Current deal check
 
@@ -184,7 +184,7 @@ codex plugin add findcheap-agent@findcheap-agent
 Restart Codex, open a new task, and try:
 
 ```text
-FindCheap Agent, search for DÔEN dresses and show three product cards.
+FindCheap Agent, search for DÔEN dresses and show product cards.
 ```
 
 See [sharing and installation](docs/product/findcheap-agent-share-package.md) for testing and update instructions.
@@ -193,11 +193,11 @@ See [sharing and installation](docs/product/findcheap-agent-share-package.md) fo
 
 - `plugins/findcheap-agent/` contains the distributable Codex plugin.
 - `apps/mcp-server/` contains the local MCP server and product card resource.
-- `apps/commerce-api/` contains the audited comparison API.
-- `apps/ingestion-worker/` contains merchant ingestion and watch state processing.
+- `apps/awin-feed-service/` contains the active Railway catalog, registry, and affiliate service.
+- `archive/commercial-platform/` preserves the retired Commerce and ingestion data plane outside active builds.
 - `packages/registry-builder/` and `scripts/registry-builder.ts` collect registry candidates, record evidence, require explicit review, and publish approved Railway PostgreSQL snapshots.
 - `docs/product/` contains deployment, data-source, Coupon, Watch, and affiliate runbooks.
 
 Registry expansion never turns an Awin relationship or technical storefront response into merchant trust. See [Registry Builder](docs/product/registry-builder.md).
 
-The Commerce API fails closed until a merchant passes its audit gate. The unified router uses approved affiliate sources and Shopify Global Catalog, while authorized Chrome remains a complete-zero-result fallback.
+The unified router uses approved affiliate sources and Shopify Global Catalog, while authorized Chrome remains a complete-zero-result fallback.

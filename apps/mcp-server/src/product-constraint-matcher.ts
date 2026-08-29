@@ -22,14 +22,6 @@ const RESOLUTIONS: ReadonlyArray<{ name: string; patterns: RegExp[] }> = [
   { name: "FHD", patterns: [/\bfhd\b/u, /\bfull\s*hd\b/u, /\b1920\s*[x×]\s*1080\b/u, /\b1080p\b/u] }
 ];
 
-export function matchFeatures(searchable: string, features: readonly string[]): string[] {
-  return features.filter((feature) => featureMatches(searchable, feature));
-}
-
-export function featureMatches(searchable: string, feature: string): boolean {
-  return evaluateFeature(searchable, feature) === "MATCHED";
-}
-
 export function evaluateFeature(searchable: string, feature: string): FeatureMatchStatus {
   const normalizedSearchable = normalize(searchable);
   const normalizedFeature = normalize(feature);

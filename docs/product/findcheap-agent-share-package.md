@@ -38,7 +38,7 @@ Open the Plugins Directory and confirm:
 Test prompt:
 
 ```text
-FindCheap Agent 搜索 DÔEN dress，显示三个商品卡片
+FindCheap Agent 搜索 DÔEN dress，显示商品卡片
 ```
 
 Expected behavior: one unified product search, one immutable product-card render, at most three

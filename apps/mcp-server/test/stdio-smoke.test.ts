@@ -1,6 +1,5 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import http from "node:http";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -153,62 +152,6 @@ describe("installed plugin stdio", () => {
     expect(transportErrors).toEqual([]);
   }, 10_000);
 
-  it("uses the configured Commerce API without exposing internal IDs", async () => {
-    const token = "stdio-commerce-token-that-is-at-least-32-characters";
-    const api = http.createServer((request, response) => {
-      expect(request.url).toBe("/v1/comparisons");
-      expect(request.headers.authorization).toBe(`Bearer ${token}`);
-      request.resume();
-      response.setHeader("content-type", "application/json");
-      response.end(JSON.stringify({
-        productId: "internal-product",
-        exactOffers: [{
-          offerId: "internal-offer",
-          merchantId: "internal-merchant",
-          sellerName: "Merchant",
-          matchStatus: "EXACT",
-          regularQuote: quote("internal-regular", 10_000),
-          rankingQuote: quote("internal-regular", 10_000),
-          merchantUrl: "https://merchant.example/item",
-          recommendationReasons: ["GTIN exact"]
-        }],
-        similarOffers: [],
-        questions: []
-      }));
-    });
-    await new Promise<void>((resolve) => api.listen(0, "127.0.0.1", resolve));
-    const address = api.address();
-    if (address === null || typeof address === "string") throw new Error("test API did not bind TCP");
-    const transport = new StdioClientTransport({
-      command: "node",
-      args: ["./dist/mcp-server.js"],
-      cwd: pluginRoot,
-      stderr: "pipe",
-      env: {
-        ...definedEnvironment(),
-        SHOPPING_COMMERCE_API_URL: `http://127.0.0.1:${address.port}`,
-        SHOPPING_COMMERCE_API_TOKEN: token
-      }
-    });
-    const client = new Client({ name: "configured-stdio-smoke", version: "0.0.0" });
-    try {
-      await client.connect(transport);
-      expect((await client.listTools()).tools.map((tool) => tool.name)).toContain("compare_products");
-      const result = await client.callTool({
-        name: "compare_products",
-        arguments: { query: "OLED65C4PUA", zipCode: "33433" }
-      });
-      expect(result.structuredContent).toMatchObject({
-        status: "OK",
-        exactOffers: [{ sellerName: "Merchant" }]
-      });
-      expect(JSON.stringify(result)).not.toMatch(/internal-/);
-    } finally {
-      await client.close();
-      await new Promise<void>((resolve, reject) => api.close((error) => error ? reject(error) : resolve()));
-    }
-  }, 10_000);
-
   it("persists the Watch-to-Automation lifecycle across MCP restarts", async () => {
     const stateDirectory = await mkdtemp(path.join(tmpdir(), "findcheap-watch-e2e-"));
     let first: Client | undefined;
@@ -267,24 +210,6 @@ async function connectBundledClient(extraEnvironment: Record<string, string>): P
   return client;
 }
 
-function quote(quoteId: string, amountCents: number) {
-  return {
-    quoteId,
-    offerId: "internal-offer",
-    status: "VERIFIED",
-    deliveredPrice: { amountCents, currency: "USD" },
-    lineItems: [{
-      kind: "ITEM",
-      amount: { amountCents, currency: "USD" },
-      label: "Item price"
-    }],
-    eligibilityConditions: [],
-    evidenceRefs: ["internal-evidence"],
-    checkedAt: "2026-08-13T12:00:00.000Z",
-    expiresAt: "2026-08-13T12:15:00.000Z"
-  };
-}
-
 function definedEnvironment(): Record<string, string> {
   return Object.fromEntries(
     Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)
@@ -296,7 +221,5 @@ function unconfiguredEnvironment(): Record<string, string> {
   delete environment.FINDCHEAP_DEALS_API_URL;
   delete environment.FINDCHEAP_DEALS_API_TOKEN;
   delete environment.AWIN_OFFERS_SEARCH_URL;
-  delete environment.SHOPPING_COMMERCE_API_URL;
-  delete environment.SHOPPING_COMMERCE_API_TOKEN;
   return environment;
 }

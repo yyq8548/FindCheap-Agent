@@ -179,21 +179,6 @@ export function parseAwinSearchInput(value: unknown): AwinSearchInput {
   };
 }
 
-export function validateAwinFeedArchive(compressed: Uint8Array): {
-  feedRows: number;
-  validRows: number;
-  rejectedRows: number;
-  uniqueProductKeys: number;
-} {
-  const index = createAwinFeedIndex(compressed, new Date(0).toISOString());
-  return {
-    feedRows: index.feedRows,
-    validRows: index.validRows,
-    rejectedRows: index.rejectedRows,
-    uniqueProductKeys: uniqueProductKeyCount(index.products)
-  };
-}
-
 export function mergeAwinFeedArchives(
   archives: readonly Uint8Array[],
   options: {
@@ -469,12 +454,6 @@ function parseArchive(
   }
   rows.records.length = 0;
   return { feedRows, parsed };
-}
-
-function uniqueProductKeyCount(products: readonly IndexedProduct[]): number {
-  const keys = new Set<string>();
-  for (const product of products) keys.add(`${product.merchantId}:${product.merchantProductId}`);
-  return keys.size;
 }
 
 function parseRemoteConfiguration(environment: Readonly<Record<string, string | undefined>>): {

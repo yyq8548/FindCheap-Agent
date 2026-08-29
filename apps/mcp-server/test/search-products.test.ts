@@ -635,6 +635,56 @@ describe("unified product search", () => {
     expect(result.chromeFallbackEligible).toBe(false);
   });
 
+  it("returns at most eight cards in the 2 official, 3 trusted, 3 best-value tiers", async () => {
+    const official = (handle: string) => shopifyProduct(handle, 4_000, "NEW", {
+      merchant: "SKIMS",
+      sourceHost: "skims.com",
+      merchantTrust: {
+        level: "OFFICIAL",
+        verification: "INDEPENDENT",
+        evidence: ["verified official domain"]
+      },
+      merchantUrl: `https://skims.com/products/${handle}`
+    });
+    const general = (handle: string, amountCents: number) => shopifyProduct(handle, amountCents, "NEW", {
+      merchantTrust: {
+        level: "UNKNOWN",
+        verification: "UNVERIFIED",
+        evidence: ["no independent merchant trust evidence"]
+      }
+    });
+    const products = [
+      official("official-1"),
+      official("official-2"),
+      official("official-3"),
+      shopifyProduct("trusted-1", 3_000, "NEW"),
+      shopifyProduct("trusted-2", 3_100, "NEW"),
+      shopifyProduct("trusted-3", 3_200, "NEW"),
+      shopifyProduct("trusted-4", 3_300, "NEW"),
+      general("value-1", 900),
+      general("value-2", 1_000),
+      general("value-3", 1_100),
+      general("value-4", 1_200)
+    ];
+
+    const result = await searchProducts(SearchProductsInputSchema.parse({
+      query: "keratin hair mask",
+      limit: 8
+    }), { awin: awin([]), shopify: shopify(products) });
+
+    expect(result.candidates).toHaveLength(8);
+    expect(result.candidates.map((candidate) => candidate.presentationGroup)).toEqual([
+      "OFFICIAL_STORE",
+      "OFFICIAL_STORE",
+      "TRUSTED_MATCH",
+      "TRUSTED_MATCH",
+      "TRUSTED_MATCH",
+      "BEST_VALUE",
+      "BEST_VALUE",
+      "BEST_VALUE"
+    ]);
+  });
+
   it("keeps trusted fully matched configurations without claiming exact identity", async () => {
     const configured = shopifyProduct("macbook-m5-pro-24", 234_900, "UNKNOWN", {
       title: "MacBook Pro 14-inch M5 Pro",
@@ -778,13 +828,14 @@ describe("unified product search", () => {
     });
 
     expect(result.candidates.map((candidate) => candidate.source)).toEqual([
-      "EBAY_BROWSE",
       "SHOPIFY_GLOBAL_CATALOG",
-      "AWIN_PRODUCT_FEED"
+      "AWIN_PRODUCT_FEED",
+      "EBAY_BROWSE"
     ]);
-    expect(result.candidates[0]).toMatchObject({
+    expect(result.candidates[2]).toMatchObject({
       affiliateState: "APPROVED",
       recommendationTier: "GENERAL_UNVERIFIED",
+      presentationGroup: "BEST_VALUE",
       ebayProduct: { sellerName: "seller-1" }
     });
     expect(result.sourceStatus.ebay).toBe("COMPLETE");

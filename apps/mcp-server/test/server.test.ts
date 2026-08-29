@@ -1,7 +1,6 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ComparisonResult } from "../../../packages/contracts/src/index.js";
 import {
   MAX_PRODUCT_SELECTION_SNAPSHOTS,
   MAX_VISUAL_CANDIDATES,
@@ -9,8 +8,6 @@ import {
   PRODUCT_SELECTION_SNAPSHOT_TTL_MS,
   VISUAL_SEARCH_SNAPSHOT_TTL_MS,
   createShoppingServer,
-  createUnavailableComparePort,
-  type ComparePort,
   type ShopifyPort,
   type ShoppingServerDependencies
 } from "../src/server.js";
@@ -92,12 +89,11 @@ const shopifyPort: ShopifyPort = {
 };
 
 async function connect(
-  port: ComparePort,
   shopify: ShopifyPort = shopifyPort,
   affiliateLinks?: AffiliateLinkResolver,
   dependencies?: ShoppingServerDependencies
 ) {
-  const server = createShoppingServer(port, shopify, affiliateLinks, dependencies);
+  const server = createShoppingServer(shopify, affiliateLinks, dependencies);
   const client = new Client({ name: "shopping-agent-test", version: "0.0.0" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
@@ -107,51 +103,6 @@ async function connect(
   });
   return client;
 }
-
-const quote = (quoteId: string, offerId: string, amountCents: number) => ({
-  quoteId,
-  offerId,
-  status: "VERIFIED" as const,
-  deliveredPrice: { amountCents, currency: "USD" as const },
-  lineItems: [{
-    kind: "ITEM" as const,
-    amount: { amountCents, currency: "USD" as const },
-    label: "ITEM"
-  }],
-  eligibilityConditions: [],
-  evidenceRefs: ["provider-secret-evidence"],
-  checkedAt: "2026-08-13T12:00:00.000Z",
-  expiresAt: "2026-08-13T12:15:00.000Z"
-});
-
-const comparison: ComparisonResult = {
-  productId: "internal-product-id",
-  exactOffers: [{
-    offerId: "internal-offer-id",
-    merchantId: "internal-merchant-id",
-    sellerName: "Merchant One",
-    matchStatus: "EXACT",
-    regularQuote: quote("internal-regular-quote-id", "internal-offer-id", 109_999),
-    memberQuote: {
-      programId: "internal-program-id",
-      programName: "Warehouse Club",
-      eligible: true,
-      quote: quote("internal-member-quote-id", "internal-offer-id", 99_999)
-    },
-    rankingQuote: quote("internal-member-quote-id", "internal-offer-id", 99_999),
-    merchantUrl: "https://merchant.example/products/tv",
-    recommendationReasons: ["Exact manufacturer part number"]
-  }],
-  similarOffers: [{
-    offerId: "internal-similar-offer-id",
-    merchantId: "internal-similar-merchant-id",
-    sellerName: "Merchant Two",
-    matchStatus: "SIMILAR",
-    merchantUrl: "https://merchant.example/products/similar-tv",
-    recommendationReasons: ["Same family, different size"]
-  }],
-  questions: []
-};
 
 describe("shopping MCP server", () => {
   it("keeps stable product selections for two hours within a bounded snapshot cache", () => {
@@ -164,7 +115,7 @@ describe("shopping MCP server", () => {
     expect(MAX_VISUAL_SEARCH_SNAPSHOTS).toBe(32);
   });
   it("binds product cards directly to Shopify search and hides legacy rendering from the model", async () => {
-    const client = await connect({ compare: async () => comparison });
+    const client = await connect();
 
     const tools = await client.listTools();
     const searchTool = tools.tools.find((candidate) => candidate.name === "search_products");
@@ -227,8 +178,8 @@ describe("shopping MCP server", () => {
     expect(html).not.toContain("innerHTML");
   });
 
-  it("discovers the read-only comparison and merchant Beta tools", async () => {
-    const client = await connect({ compare: async () => comparison });
+  it("discovers the read-only shopping and merchant Beta tools", async () => {
+    const client = await connect();
 
     const tools = await client.listTools();
 
@@ -236,7 +187,6 @@ describe("shopping MCP server", () => {
       "search_products",
       "search_visual_candidates",
       "finalize_visual_search",
-      "compare_products",
       "search_shopify_products",
       "search_awin_products",
       "inspect_selected_shopify_product",
@@ -303,8 +253,6 @@ describe("shopping MCP server", () => {
       expect(visualFinalizeTool?.description).toContain("single-use");
       expect(visualFinalizeTool?.description).toContain("never retry more than once");
       expect(visualFinalizeTool?.description).toContain("Color or pattern difference alone");
-    expect(tools.tools.find((tool) => tool.name === "compare_products")?._meta)
-      .toMatchObject({ ui: { visibility: ["app"] } });
     const awinTool = tools.tools.find((tool) => tool.name === "search_awin_products");
     expect(awinTool?._meta).toMatchObject({ ui: { visibility: ["app"] } });
     const inspectTool = tools.tools.find((tool) => tool.name === "inspect_selected_shopify_product");
@@ -334,7 +282,7 @@ describe("shopping MCP server", () => {
   });
 
   it("returns Shopify Global Catalog item prices without claiming delivered price", async () => {
-    const client = await connect({ compare: async () => comparison });
+    const client = await connect();
 
     const result = await client.callTool({
       name: "search_shopify_products",
@@ -459,7 +407,7 @@ describe("shopping MCP server", () => {
   it("accepts bounded app-only card metrics only for a live render snapshot", async () => {
     const record = vi.fn();
     const client = await connect(
-      { compare: async () => comparison },
+
       shopifyPort,
       undefined,
       { cardTelemetry: { record } }
@@ -474,7 +422,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.14.4",
+        version: "0.15.6",
         terminalStage: "DOM_RENDERED",
         stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
       }
@@ -483,7 +431,7 @@ describe("shopping MCP server", () => {
     expect(result.structuredContent).toEqual({ status: "RECORDED" });
     expect(record).toHaveBeenCalledWith(expect.objectContaining({
       renderId,
-      version: "0.14.4",
+      version: "0.15.6",
       terminalStage: "DOM_RENDERED",
       stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
     }));
@@ -491,7 +439,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.14.4",
+        version: "0.15.6",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 14 }
       }
@@ -501,7 +449,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.14.4",
+        version: "0.15.6",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 300_001 }
       }
@@ -512,7 +460,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId: "22222222-2222-4222-8222-222222222222",
-        version: "0.14.4",
+        version: "0.15.6",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 1 }
       }
@@ -520,7 +468,7 @@ describe("shopping MCP server", () => {
   });
 
   it("uses canonical links when no affiliate relationship is approved", async () => {
-    const client = await connect({ compare: async () => comparison });
+    const client = await connect();
     const result = await client.callTool({
       name: "search_shopify_products",
       arguments: { query: "Valhalla Java", limit: 3, comparisonMode: "DISCOVERY", selectionMode: "MERCHANT_DIVERSE" }
@@ -547,7 +495,7 @@ describe("shopping MCP server", () => {
     const affiliateLinks: AffiliateLinkResolver = {
       resolve
     };
-    const client = await connect({ compare: async () => comparison }, shopifyPort, affiliateLinks);
+    const client = await connect( shopifyPort, affiliateLinks);
     const result = await client.callTool({
       name: "search_shopify_products",
       arguments: { query: "Valhalla Java", limit: 3, comparisonMode: "DISCOVERY", selectionMode: "MERCHANT_DIVERSE" }
@@ -575,7 +523,7 @@ describe("shopping MCP server", () => {
 
   it("accepts ZIP and memberships but never invents contextual prices", async () => {
     const search = vi.fn(shopifyPort.search);
-    const client = await connect({ compare: async () => comparison }, { search });
+    const client = await connect( { search });
 
     const result = await client.callTool({
       name: "search_shopify_products",
@@ -603,8 +551,8 @@ describe("shopping MCP server", () => {
   });
 
   it("hides unconfigured commercial tools without hiding the working shopping flow", async () => {
-    const client = await connect({ compare: async () => comparison }, shopifyPort, undefined, {
-      toolAvailability: { commerceCompare: false, verifiedDeals: false }
+    const client = await connect( shopifyPort, undefined, {
+      toolAvailability: { verifiedDeals: false }
     });
 
     const names = (await client.listTools()).tools.map((tool) => tool.name);
@@ -636,7 +584,7 @@ describe("shopping MCP server", () => {
       expiresAt: "2026-08-20T12:10:00.000Z"
     }));
     const client = await connect(
-      { compare: async () => comparison },
+
       shopifyPort,
       undefined,
       { cartQuotes: { quote: quoteCart } }
@@ -709,7 +657,7 @@ describe("shopping MCP server", () => {
       expiresAt: "2026-08-20T12:10:00.000Z"
     }));
     const client = await connect(
-      { compare: async () => comparison },
+
       { search },
       undefined,
       { cartQuotes: { quote: quoteCart } }
@@ -757,7 +705,7 @@ describe("shopping MCP server", () => {
     const search = vi.fn(shopifyPort.search);
     const quoteCart = vi.fn();
     const client = await connect(
-      { compare: async () => comparison },
+
       { search },
       undefined,
       { cartQuotes: { quote: quoteCart } }
@@ -801,7 +749,7 @@ describe("shopping MCP server", () => {
     const search = vi.fn(shopifyPort.search);
     const quoteCart = vi.fn();
     const client = await connect(
-      { compare: async () => comparison },
+
       { search },
       undefined,
       { cartQuotes: { quote: quoteCart } }
@@ -873,7 +821,7 @@ describe("shopping MCP server", () => {
       }]
     }));
     const client = await connect(
-      { compare: async () => comparison },
+
       { search },
       undefined,
       { selectedProducts: { inspect }, cartQuotes: { quote: quoteCart } }
@@ -970,7 +918,7 @@ describe("shopping MCP server", () => {
       };
     });
     const client = await connect(
-      { compare: async () => comparison }, { search }, undefined,
+       { search }, undefined,
       { cartQuotes: { quote: quoteCart } }
     );
 
@@ -998,7 +946,7 @@ describe("shopping MCP server", () => {
       maxItemPriceCents: 8_000
     }));
     const client = await connect(
-      { compare: async () => comparison },
+
       { search }
     );
 
@@ -1036,7 +984,7 @@ describe("shopping MCP server", () => {
         }
       })
     };
-    const client = await connect({ compare: async () => comparison }, emptyShopify);
+    const client = await connect( emptyShopify);
 
     const result = await client.callTool({
       name: "search_shopify_products",
@@ -1067,7 +1015,7 @@ describe("shopping MCP server", () => {
         offerCount: 2
       }
     }));
-    const client = await connect({ compare: async () => comparison }, { search });
+    const client = await connect( { search });
 
     const result = await client.callTool({
       name: "search_shopify_products",
@@ -1083,7 +1031,7 @@ describe("shopping MCP server", () => {
 
   it("asks for hard identity before a generic same-product comparison without querying merchants", async () => {
     const search = vi.fn(shopifyPort.search);
-    const client = await connect({ compare: async () => comparison }, { search });
+    const client = await connect( { search });
 
     const result = await client.callTool({
       name: "search_shopify_products",
@@ -1105,7 +1053,7 @@ describe("shopping MCP server", () => {
   });
 
   it("fails closed when a card render snapshot is absent or expired", async () => {
-    const client = await connect({ compare: async () => comparison });
+    const client = await connect();
 
     const result = await client.callTool({
       name: "render_product_cards",
@@ -1126,7 +1074,7 @@ describe("shopping MCP server", () => {
     { query: "coffee", handle: "coffee", comparisonMode: "DISCOVERY", selectionMode: "MERCHANT_DIVERSE" },
     { query: " ", comparisonMode: "DISCOVERY", selectionMode: "MERCHANT_DIVERSE" },
     { handle: "42797821853913", comparisonMode: "DISCOVERY", selectionMode: "MERCHANT_DIVERSE" },
-    { query: "coffee", limit: 4, comparisonMode: "DISCOVERY", selectionMode: "MERCHANT_DIVERSE" },
+    { query: "coffee", limit: 9, comparisonMode: "DISCOVERY", selectionMode: "MERCHANT_DIVERSE" },
     { query: "coffee", comparisonMode: "DISCOVERY", selectionMode: "MERCHANT_DIVERSE", maxItemPriceCents: 0 },
     { query: "coffee", comparisonMode: "DISCOVERY", selectionMode: "MERCHANT_DIVERSE", maxItemPriceCents: 10.5 },
     { query: "coffee under $80", comparisonMode: "DISCOVERY", selectionMode: "MERCHANT_DIVERSE", maxItemPriceCents: 8_000 },
@@ -1138,7 +1086,7 @@ describe("shopping MCP server", () => {
   ])("rejects invalid Shopify input %#", async (args) => {
     const search = vi.fn(shopifyPort.search);
     const client = await connect(
-      { compare: async () => comparison },
+
       { search }
     );
 
@@ -1148,82 +1096,6 @@ describe("shopping MCP server", () => {
     expect(search).not.toHaveBeenCalled();
   });
 
-  it.each([
-    { query: "OLED65C4PUA", zipCode: "3343" },
-    { query: "OLED65C4PUA", zipCode: "33433-123" },
-    { query: "OLED65C4PUA", zipCode: "ABCDE" },
-    { query: " ", zipCode: "33433" },
-    { query: "OLED65C4PUA", zipCode: "33433", membershipIds: ["costco", "costco"] },
-    { query: "OLED65C4PUA", zipCode: "33433", arbitraryUrl: "https://untrusted.example" }
-  ])("rejects invalid input %#", async (args) => {
-    let compareCalls = 0;
-    const client = await connect({
-      compare: async () => {
-        compareCalls += 1;
-        return comparison;
-      }
-    });
-
-    const result = await client.callTool({ name: "compare_products", arguments: args });
-
-    expect(result.isError).toBe(true);
-    expect(compareCalls).toBe(0);
-  });
-
-  it("returns an explicit unavailable result without fabricated offers", async () => {
-    const client = await connect(createUnavailableComparePort());
-
-    const result = await client.callTool({
-      name: "compare_products",
-      arguments: { query: "OLED65C4PUA", zipCode: "33433" }
-    });
-
-    expect(result.structuredContent).toEqual({
-      status: "DATA_SOURCE_UNAVAILABLE",
-      message: "Live comparison is unavailable because no approved shopping data source is connected.",
-      exactOffers: [],
-      similarOffers: [],
-      questions: []
-    });
-    expect(result.content).toEqual([{
-      type: "text",
-      text: "Live comparison is unavailable because no approved shopping data source is connected."
-    }]);
-  });
-
-  it("preserves user-facing comparison detail without exposing provider IDs or secrets", async () => {
-    const client = await connect({ compare: async () => comparison });
-
-    const result = await client.callTool({
-      name: "compare_products",
-      arguments: {
-        query: "OLED65C4PUA",
-        zipCode: "33433-1234",
-        membershipIds: ["warehouse-club"]
-      }
-    });
-
-    expect(result.structuredContent).toMatchObject({
-      status: "OK",
-      exactOffers: [{
-        sellerName: "Merchant One",
-        matchStatus: "EXACT",
-        regularQuote: { deliveredPrice: { amountCents: 109_999, currency: "USD" } },
-        memberQuote: {
-          programName: "Warehouse Club",
-          eligible: true,
-          quote: { deliveredPrice: { amountCents: 99_999, currency: "USD" } }
-        }
-      }],
-      similarOffers: [{ sellerName: "Merchant Two", matchStatus: "SIMILAR" }]
-    });
-    expect(result.content).toEqual([{
-      type: "text",
-      text: "Comparison complete: 1 exact and 1 similar result(s)."
-    }]);
-    const serialized = JSON.stringify(result);
-    expect(serialized).not.toMatch(/internal-|provider-secret/);
-  });
 });
 
 describe("Coupon and Watch tools", () => {
@@ -1248,7 +1120,7 @@ describe("Coupon and Watch tools", () => {
   it("researches the stable selected product without a title search or automatic Watch", async () => {
     const search = vi.fn(shopifyPort.search);
     const watches = createMemoryWatchStore();
-    const client = await connect({ compare: async () => comparison }, { search }, undefined, {
+    const client = await connect( { search }, undefined, {
       now: () => current,
       watches,
       deals: { search: async () => [{ ...verifiedDeal, merchant: "Death Wish Coffee" }] }
@@ -1305,7 +1177,7 @@ describe("Coupon and Watch tools", () => {
       mimeType: "image/jpeg" as const
     }));
     const client = await connect(
-      { compare: async () => comparison },
+
       visualShopify,
       undefined,
       { visualCandidateImages: { load } }
@@ -1396,7 +1268,7 @@ describe("Coupon and Watch tools", () => {
       }
     };
     const client = await connect(
-      { compare: async () => comparison },
+
       visualShopify,
       undefined,
       {
@@ -1462,7 +1334,7 @@ describe("Coupon and Watch tools", () => {
       mimeType: "image/jpeg" as const
     }));
     const client = await connect(
-      { compare: async () => comparison },
+
       { search },
       undefined,
       { visualCandidateImages: { load } }
@@ -1581,7 +1453,7 @@ describe("Coupon and Watch tools", () => {
       merchantUrl: "https://skims.com/products/soft-lounge-long-slip-dress"
     };
     const client = await connect(
-      { compare: async () => comparison },
+
       { search: async () => { throw new Error("offline"); } },
       undefined,
       { officialShopify: { search: async () => [officialProduct] } }
@@ -1606,7 +1478,7 @@ describe("Coupon and Watch tools", () => {
 
   it("asks for product context before searching an ambiguous new image reference", async () => {
     const search = vi.fn(shopifyPort.search);
-    const client = await connect({ compare: async () => comparison }, { search });
+    const client = await connect( { search });
 
     const found = await client.callTool({ name: "search_products", arguments: {
       query: "this dress",
@@ -1622,7 +1494,7 @@ describe("Coupon and Watch tools", () => {
   });
 
   it("returns only current verified Coupon evidence", async () => {
-    const client = await connect({ compare: async () => comparison }, shopifyPort, undefined, {
+    const client = await connect( shopifyPort, undefined, {
       now: () => current,
       deals: { search: async () => [verifiedDeal, { ...verifiedDeal, dealId: "expired", validTo: "2026-08-18T11:59:00.000Z" }] }
     });
@@ -1633,7 +1505,7 @@ describe("Coupon and Watch tools", () => {
   });
 
   it("rejects stale, wrong-merchant, and wrong-channel deal evidence", async () => {
-    const client = await connect({ compare: async () => comparison }, shopifyPort, undefined, {
+    const client = await connect( shopifyPort, undefined, {
       now: () => current,
       deals: { search: async () => [
         { ...verifiedDeal, dealId: "stale", checkedAt: "2026-08-17T11:59:59.000Z" },
@@ -1646,17 +1518,17 @@ describe("Coupon and Watch tools", () => {
   });
 
   it("fails closed when no verified Deals API exists", async () => {
-    const client = await connect({ compare: async () => comparison }, shopifyPort, undefined, { now: () => current });
+    const client = await connect( shopifyPort, undefined, { now: () => current });
     const result = await client.callTool({ name: "find_coupons", arguments: { merchant: "Aritzia" } });
     expect(result.structuredContent).toMatchObject({ status: "DATA_SOURCE_UNAVAILABLE", deals: [] });
   });
 
   it("does not persist a Deals-backed Watch when no Deals provider is configured", async () => {
     const watches = createMemoryWatchStore();
-    const client = await connect({ compare: async () => comparison }, shopifyPort, undefined, {
+    const client = await connect( shopifyPort, undefined, {
       now: () => current,
       watches,
-      toolAvailability: { commerceCompare: false, verifiedDeals: false }
+      toolAvailability: { verifiedDeals: false }
     });
     const result = await client.callTool({ name: "create_watch", arguments: {
       query: "Aritzia",
@@ -1671,7 +1543,7 @@ describe("Coupon and Watch tools", () => {
   });
 
   it("asks for product identity and condition before creating a broad product watch", async () => {
-    const client = await connect({ compare: async () => comparison }, shopifyPort, undefined, { now: () => current });
+    const client = await connect( shopifyPort, undefined, { now: () => current });
     const created = await client.callTool({ name: "create_watch", arguments: {
       query: "Apple AirPods Pro", condition: "PRICE_BELOW", priceBasis: "ITEM_PRICE", threshold: 17_000
     } });
@@ -1687,7 +1559,7 @@ describe("Coupon and Watch tools", () => {
   });
 
   it("requires an explicit price basis for price watches", async () => {
-    const client = await connect({ compare: async () => comparison }, shopifyPort, undefined, { now: () => current });
+    const client = await connect( shopifyPort, undefined, { now: () => current });
     const created = await client.callTool({ name: "create_watch", arguments: {
       query: "Valhalla Java pods",
       condition: "PRICE_BELOW",
@@ -1722,7 +1594,7 @@ describe("Coupon and Watch tools", () => {
       expiresAt: "2026-08-20T12:10:00.000Z"
     }));
     const client = await connect(
-      { compare: async () => comparison },
+
       { search },
       undefined,
       { now: () => current, cartQuotes: { quote: quoteCart } }
@@ -1770,7 +1642,7 @@ describe("Coupon and Watch tools", () => {
 
   it("does not schedule a delivered-total watch when the merchant requires a full address", async () => {
     const client = await connect(
-      { compare: async () => comparison },
+
       shopifyPort,
       undefined,
       { now: () => current, cartQuotes: {
@@ -1802,7 +1674,7 @@ describe("Coupon and Watch tools", () => {
   });
 
   it("requires a merchant for a generation-only product watch", async () => {
-    const client = await connect({ compare: async () => comparison }, shopifyPort, undefined, { now: () => current });
+    const client = await connect( shopifyPort, undefined, { now: () => current });
     const created = await client.callTool({ name: "create_watch", arguments: {
       query: "Rhodia Dress Narcissus Bloom",
       condition: "PRICE_BELOW",
@@ -1831,7 +1703,7 @@ describe("Coupon and Watch tools", () => {
         }))
       };
     } };
-    const client = await connect({ compare: async () => comparison }, discoveryPort, undefined, { now: () => current });
+    const client = await connect( discoveryPort, undefined, { now: () => current });
     const created = await client.callTool({ name: "create_watch", arguments: {
       query: "Valhalla Java pods",
       merchant: "Death Wish Coffee",
@@ -1854,7 +1726,7 @@ describe("Coupon and Watch tools", () => {
       query: "Apple AirPods Pro", condition: "PRICE_BELOW", priceBasis: "ITEM_PRICE", threshold: 17_000, membershipIds: [], intervalMinutes: 60
     }, current.toISOString());
     const search = vi.fn(shopifyPort.search);
-    const client = await connect({ compare: async () => comparison }, { search }, undefined, { now: () => current, watches });
+    const client = await connect( { search }, undefined, { now: () => current, watches });
 
     expect((await client.callTool({ name: "check_watch", arguments: { watchId: legacy.watchId } })).structuredContent).toMatchObject({
       status: "NEEDS_CLARIFICATION"
@@ -1864,7 +1736,7 @@ describe("Coupon and Watch tools", () => {
 
   it("binds product watch lookup to identity and explicit condition", async () => {
     const search = vi.fn(shopifyPort.search);
-    const client = await connect({ compare: async () => comparison }, { search }, undefined, { now: () => current });
+    const client = await connect( { search }, undefined, { now: () => current });
     const created = await client.callTool({ name: "create_watch", arguments: {
       query: "Valhalla Java pods", condition: "PRICE_BELOW", priceBasis: "ITEM_PRICE", threshold: 1_700,
       identity: { modelNumber: "5094SSC", gtin: "810063341254", variantDimensions: { "Pack Size": "10 count" } },
@@ -1882,7 +1754,7 @@ describe("Coupon and Watch tools", () => {
   });
 
   it("rejects an EXACT source result whose returned identity does not match the watch", async () => {
-    const client = await connect({ compare: async () => comparison }, shopifyPort, undefined, { now: () => current });
+    const client = await connect( shopifyPort, undefined, { now: () => current });
     const created = await client.callTool({ name: "create_watch", arguments: {
       query: "Apple AirPods Pro", condition: "IN_STOCK",
       identity: { modelNumber: "MTJV3AM/A" }, conditionPreference: "ANY"
@@ -1912,7 +1784,7 @@ describe("Coupon and Watch tools", () => {
         })
       };
     } };
-    const client = await connect({ compare: async () => comparison }, globalPort, undefined, { now: () => current });
+    const client = await connect( globalPort, undefined, { now: () => current });
     const created = await client.callTool({ name: "create_watch", arguments: {
       query: "Sony WH-1000XM5",
       condition: "PRICE_BELOW",
@@ -1929,7 +1801,7 @@ describe("Coupon and Watch tools", () => {
   });
 
   it("activates a price watch only after its Codex Automation is bound", async () => {
-    const client = await connect({ compare: async () => comparison }, shopifyPort, undefined, { now: () => current });
+    const client = await connect( shopifyPort, undefined, { now: () => current });
     const created = await client.callTool({ name: "create_watch", arguments: {
       query: "Valhalla Java pods", condition: "PRICE_BELOW", priceBasis: "ITEM_PRICE", threshold: 1_700, intervalMinutes: 60,
       identity: { modelNumber: "5094SSC", variantDimensions: { "Pack Size": "10 count" } }, conditionPreference: "ANY"
@@ -1985,7 +1857,7 @@ describe("Coupon and Watch tools", () => {
   });
 
   it("serializes concurrent checks so one threshold crossing sends one alert", async () => {
-    const client = await connect({ compare: async () => comparison }, shopifyPort, undefined, { now: () => current });
+    const client = await connect( shopifyPort, undefined, { now: () => current });
     const created = await client.callTool({ name: "create_watch", arguments: {
       query: "Valhalla Java pods", condition: "PRICE_BELOW", priceBasis: "ITEM_PRICE", threshold: 1_700,
       identity: { modelNumber: "5094SSC" }, conditionPreference: "ANY"
@@ -2002,7 +1874,7 @@ describe("Coupon and Watch tools", () => {
   });
 
   it("renders approved Awin products through the unified card contract", async () => {
-    const client = await connect({ compare: async () => comparison }, shopifyPort, undefined, {
+    const client = await connect( shopifyPort, undefined, {
       awin: {
         search: async () => ({
           source: "AWIN_PRODUCT_FEED",
@@ -2073,7 +1945,7 @@ describe("Coupon and Watch tools", () => {
   });
 
   it("attaches verified Coupon evidence to ranked product cards", async () => {
-    const client = await connect({ compare: async () => comparison }, shopifyPort, undefined, {
+    const client = await connect( shopifyPort, undefined, {
       now: () => current,
       deals: { search: async ({ merchant }) => merchant === "Death Wish Coffee"
         ? [{ ...verifiedDeal, merchant: "Death Wish Coffee" }]
@@ -2095,7 +1967,7 @@ describe("Coupon and Watch tools", () => {
   });
 
   it("renders eBay as an unverified marketplace seller with checkout-only pricing", async () => {
-    const client = await connect({ compare: async () => comparison }, {
+    const client = await connect( {
       search: async (input) => {
         const result = await shopifyPort.search(input);
         return {
@@ -2174,7 +2046,7 @@ describe("Coupon and Watch tools", () => {
 
   it("reports an incompatible Shopify Catalog response without claiming zero results", async () => {
     const client = await connect(
-      { compare: async () => comparison },
+
       { search: async () => { throw new Error("CATALOG_SCHEMA_CHANGED"); } }
     );
 
@@ -2195,7 +2067,7 @@ describe("Coupon and Watch tools", () => {
   });
 
   it("quotes an Awin card through its stable merchant product reference and Shopify cart", async () => {
-    const client = await connect({ compare: async () => comparison }, shopifyPort, undefined, {
+    const client = await connect( shopifyPort, undefined, {
       awin: {
         search: async () => ({
           source: "AWIN_PRODUCT_FEED",
@@ -2314,7 +2186,7 @@ describe("Coupon and Watch tools", () => {
         };
       }
     };
-    const client = await connect({ compare: async () => comparison }, boundaryShopifyPort, undefined, { now: () => current });
+    const client = await connect( boundaryShopifyPort, undefined, { now: () => current });
     const created = await client.callTool({ name: "create_watch", arguments: {
       query: "Valhalla Java pods", condition: "PRICE_BELOW", priceBasis: "ITEM_PRICE", threshold: 4_000,
       identity: { modelNumber: "5094SSC" }, conditionPreference: "ANY"
@@ -2330,7 +2202,7 @@ describe("Coupon and Watch tools", () => {
   });
 
   it("never binds one Codex Automation to two watches", async () => {
-    const client = await connect({ compare: async () => comparison }, shopifyPort, undefined, { now: () => current });
+    const client = await connect( shopifyPort, undefined, { now: () => current });
     const first = await client.callTool({ name: "create_watch", arguments: {
       query: "Valhalla Java pods", condition: "PRICE_BELOW", priceBasis: "ITEM_PRICE", threshold: 1_700,
       identity: { modelNumber: "5094SSC" }, conditionPreference: "ANY"
@@ -2356,7 +2228,7 @@ describe("Coupon and Watch tools", () => {
 
   it("does not bind an Automation after the Watch expires", async () => {
     let clock = current;
-    const client = await connect({ compare: async () => comparison }, shopifyPort, undefined, {
+    const client = await connect( shopifyPort, undefined, {
       now: () => clock
     });
     const created = await client.callTool({ name: "create_watch", arguments: {
@@ -2394,7 +2266,7 @@ describe("Coupon and Watch tools", () => {
     }, current.toISOString());
     const { schedulingState: _schedulingState, ...legacy } = created;
     await watches.save(legacy);
-    const client = await connect({ compare: async () => comparison }, shopifyPort, undefined, {
+    const client = await connect( shopifyPort, undefined, {
       now: () => current,
       watches
     });
@@ -2421,7 +2293,7 @@ describe("Coupon and Watch tools", () => {
       return { ...result, products: result.products.map((product) => ({ ...product, availability })) };
     });
     const changingPort: ShopifyPort = { search };
-    const client = await connect({ compare: async () => comparison }, changingPort, undefined, { now: () => current });
+    const client = await connect( changingPort, undefined, { now: () => current });
     const created = await client.callTool({ name: "create_watch", arguments: {
       query: "Valhalla Java pods", condition: "RESTOCKED", identity: { gtin: "810063341254" }, conditionPreference: "ANY"
     } });
@@ -2434,7 +2306,7 @@ describe("Coupon and Watch tools", () => {
   });
 
   it("evaluates verified discount watches through the Deals API", async () => {
-    const client = await connect({ compare: async () => comparison }, shopifyPort, undefined, {
+    const client = await connect( shopifyPort, undefined, {
       now: () => current,
       deals: { search: async () => [verifiedDeal] }
     });

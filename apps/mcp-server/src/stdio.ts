@@ -1,8 +1,7 @@
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { createComparePortFromEnvironment, hasCommerceApiConfiguration } from "./commerce-client.js";
-import { createShoppingServer, createUnavailableComparePort } from "./server.js";
+import { createShoppingServer } from "./server.js";
 import { createShopifyPortFromEnvironment } from "./shopify-client.js";
 import { createDealPortFromEnvironment, hasDealProviderConfiguration } from "./deal-client.js";
 import { createJsonWatchStore } from "./watch-store.js";
@@ -17,7 +16,6 @@ import { productCardResourceDomains } from "./product-card-ui.js";
 import { createOfficialStorefrontRegistryPortFromEnvironment } from "./official-storefront-registry-client.js";
 import { createMerchantTrustRegistryPortFromEnvironment } from "./merchant-trust-registry-client.js";
 
-const comparePort = createComparePortFromEnvironment(process.env, createUnavailableComparePort);
 const shopifyPort = createShopifyPortFromEnvironment(process.env);
 const dealPort = createDealPortFromEnvironment(process.env);
 const cartQuotePort = createShopifyCartQuotePort(process.env);
@@ -26,7 +24,7 @@ const ebayPort = createEbayPortFromEnvironment(process.env);
 const officialStorefrontRegistry = createOfficialStorefrontRegistryPortFromEnvironment(process.env);
 const merchantTrustRegistry = createMerchantTrustRegistryPortFromEnvironment(process.env);
 const stateDirectory = process.env.FINDCHEAP_STATE_DIR ?? join(homedir(), ".findcheap-agent", "watches-v1");
-const server = createShoppingServer(comparePort, shopifyPort, undefined, {
+const server = createShoppingServer(shopifyPort, undefined, {
   awin: awinPort,
   ...(ebayPort === undefined ? {} : { ebay: ebayPort }),
   awinShopifyQuotes: createAwinShopifyQuoteResolver(),
@@ -42,7 +40,6 @@ const server = createShoppingServer(comparePort, shopifyPort, undefined, {
   watches: createJsonWatchStore(stateDirectory),
   productCardResourceDomains: productCardResourceDomains(process.env.AWIN_PRODUCT_SEARCH_URL),
   toolAvailability: {
-    commerceCompare: hasCommerceApiConfiguration(process.env),
     verifiedDeals: hasDealProviderConfiguration(process.env)
   }
 });

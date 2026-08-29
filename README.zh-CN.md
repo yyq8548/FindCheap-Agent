@@ -7,7 +7,7 @@
 
 产品形式：**Codex 插件 Agent**。
 
-FindCheap Agent 是一个只读的 Codex 购物插件，支持商品搜索、商品匹配、价格查询、商品卡片、已验证优惠和购物监控。每次最多返回三个商品，并提供图片、商家链接、价格证据、匹配标签、商品成色和库存状态。
+FindCheap Agent 是一个只读的 Codex 购物插件，支持商品搜索、商品匹配、价格查询、商品卡片、已验证优惠和购物监控。每次最多返回 8 个商品，分为三层：最多 2 个官网结果、3 个可信匹配、3 个高性价比高匹配结果。
 
 Codex 通过本地 stdio MCP 服务器调用唯一公开的 `search_products` 工具。路由器会搜索符合条件的 Awin、Shopify、eBay 和已验证品牌官网，再在不使用联盟状态的前提下统一排序；第一轮无法补足所需卡片时，会自动执行一次范围更大的内部搜索。只有两轮 API 搜索都没有返回可用且已验证的商品后，才会询问是否授权 Chrome 对公开商家页面进行一次受限搜索。
 
@@ -18,7 +18,7 @@ Codex 通过本地 stdio MCP 服务器调用唯一公开的 `search_products` �
 在 Codex 中直接调用 FindCheap Agent：
 
 ```text
-@FindCheap Agent 搜索 Sony WH-1000XM6，显示三个商品卡片。
+@FindCheap Agent 搜索 Sony WH-1000XM6，显示商品卡片。
 ```
 
 启用插件后，也可以直接用自然语言提问：
@@ -110,7 +110,7 @@ FindCheap Agent 分开表达商品身份、商家可信度、成色和价格证�
 
 ## 商品卡片
 
-Codex 可以在对话中显示交互式商品卡片。卡片按商家可信度和匹配质量分组，并显示商家信任证据、图片、商家、价格、型号或 SKU、身份信息、变体、商品成色、库存状态、观察时间和商家页面按钮。每张卡片都与生成它的搜索结果或所选变体报价绑定。
+Codex 可以在对话中显示最多 8 张交互式商品卡片：最多 2 张已验证官网卡片、3 张可信精确或相似匹配、3 张高性价比高匹配结果。卡片显示商家信任证据、图片、商家、价格、型号或 SKU、身份信息、变体、商品成色、库存状态、观察时间和商家页面按钮。每张卡片都与生成它的搜索结果或所选变体报价绑定。
 
 如果 Codex 客户端无法显示卡片界面，完整文字结果仍然可用。
 
@@ -120,7 +120,7 @@ Coupon 和促销路径采用失败关闭策略。只有配置的 Deals API 提�
 
 缺少证据时，插件会说明优惠来源不可用。它不会虚构优惠码、折扣、到期时间或 Cashback 比例。
 
-默认插件会显示统一商品搜索、商品卡片、当前优惠查询和 Watch 工具。只有配置完整的服务地址和 Token 后，Commerce 比价和单独的已验证 Deals 工具才会出现。
+默认插件会显示统一商品搜索、商品卡片、当前优惠查询和 Watch 工具。已归档的 Commerce 比价工具不再注册；只有配置完整的服务地址和 Token 后，单独的已验证 Deals 工具才会出现。
 
 ## 当前优惠查询
 
@@ -181,7 +181,7 @@ codex plugin add findcheap-agent@findcheap-agent
 重启 Codex，打开一个新任务，然后尝试：
 
 ```text
-FindCheap Agent 搜索 DÔEN 连衣裙，显示三个商品卡片。
+FindCheap Agent 搜索 DÔEN 连衣裙，显示商品卡片。
 ```
 
 测试和更新方法请参阅[分享与安装说明](docs/product/findcheap-agent-share-package.md)。
@@ -190,11 +190,11 @@ FindCheap Agent 搜索 DÔEN 连衣裙，显示三个商品卡片。
 
 - `plugins/findcheap-agent/`：可分发的 Codex 插件。
 - `apps/mcp-server/`：本地 MCP 服务器和商品卡片资源。
-- `apps/commerce-api/`：经过审计的比价 API。
-- `apps/ingestion-worker/`：商家数据导入和 Watch 状态处理。
+- `apps/awin-feed-service/`：运行中的 Railway 商品源、注册表和联盟服务。
+- `archive/commercial-platform/`：退出活跃构建的 Commerce 与 Ingestion 历史代码。
 - `packages/registry-builder/` 和 `scripts/registry-builder.ts`：采集注册表候选、保存证据、执行显式审核，并发布 Railway PostgreSQL 已批准快照。
 - `docs/product/`：部署、数据来源、Coupon、Watch 和联盟运行手册。
 
 注册表扩建不会把 Awin 合作关系或技术可访问性自动当成商家信任。操作方法见 [Registry Builder](docs/product/registry-builder.md)。
 
-Commerce API 会保持失败关闭，直到商家通过审计门。统一路由会使用已批准联盟来源和 Shopify Global Catalog，授权 Chrome 仅作为所有来源完整返回零结果时的补充方式。
+统一路由会使用已批准联盟来源和 Shopify Global Catalog，授权 Chrome 仅作为所有来源完整返回零结果时的补充方式。

@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { FINDCHEAP_VERSION } from "../../../config/version.js";
 import {
-  ComparisonResultSchema,
-  type ComparisonResult,
-  type PriceQuote
-} from "../../../packages/contracts/src/index.js";
+  ProductCardTelemetryInputSchema,
+  type ProductCardTelemetry,
+  type ProductCardTelemetrySink
+} from "./product-card-telemetry.js";
 import {
   createUnavailableShopifyPort,
   type ShopifyPort,
@@ -35,6 +36,7 @@ import {
   PRODUCT_CARD_RESOURCE_DOMAINS,
   PRODUCT_CARD_UI_URI
 } from "./product-card-ui.js";
+import { MAX_PRODUCT_CARDS } from "./product-candidate-ranking.js";
 import {
   DealSearchInputSchema,
   VerifiedDealsSchema,
@@ -85,49 +87,9 @@ export type { DealPort } from "./deal-client.js";
 export type { WatchStore } from "./watch-store.js";
 export type { AwinProductPort } from "../../../packages/awin-feed/src/index.js";
 
-const CardStageDurationSchema = z.number().nonnegative().max(300_000);
 const SelectionIdSchema = z.string().uuid();
 const VisualSessionIdSchema = z.string().uuid();
-const ProductCardStagesSchema = z.object({
-  IFRAME_LOADED: CardStageDurationSchema.optional(),
-  RESOURCE_EVALUATED: CardStageDurationSchema.optional(),
-  INITIALIZE_SENT: CardStageDurationSchema.optional(),
-  INITIALIZE_RETRY: CardStageDurationSchema.optional(),
-  INITIALIZE_ACK: CardStageDurationSchema.optional(),
-  COMPAT_BRIDGE_READY: CardStageDurationSchema.optional(),
-  COMPAT_OUTPUT_RECEIVED: CardStageDurationSchema.optional(),
-  TOOL_INPUT_RECEIVED: CardStageDurationSchema.optional(),
-  TOOL_OUTPUT_RECEIVED: CardStageDurationSchema.optional(),
-  RENDER_STARTED: CardStageDurationSchema.optional(),
-  DOM_RENDERED: CardStageDurationSchema.optional(),
-  FIRST_IMAGE_PAINTED: CardStageDurationSchema.optional(),
-  FIRST_IMAGE_SETTLED: CardStageDurationSchema.optional(),
-  TOOL_OUTPUT_TIMEOUT: CardStageDurationSchema.optional(),
-  TOOL_OUTPUT_FAILED: CardStageDurationSchema.optional(),
-  INITIALIZE_SLOW: CardStageDurationSchema.optional(),
-  INITIALIZE_FAILED: CardStageDurationSchema.optional()
-}).strict();
-
-const ProductCardTelemetryInputSchema = z.object({
-  renderId: z.string().uuid(),
-  version: z.literal("0.14.4"),
-  terminalStage: z.enum([
-    "DOM_RENDERED",
-    "FIRST_IMAGE_SETTLED",
-    "TOOL_OUTPUT_TIMEOUT",
-    "TOOL_OUTPUT_FAILED",
-    "INITIALIZE_SLOW"
-  ]),
-  stages: ProductCardStagesSchema
-}).strict();
-
-export type ProductCardTelemetry = z.infer<typeof ProductCardTelemetryInputSchema> & {
-  recordedAt: string;
-};
-
-export type ProductCardTelemetrySink = {
-  record(event: ProductCardTelemetry): void | Promise<void>;
-};
+export type { ProductCardTelemetry, ProductCardTelemetrySink } from "./product-card-telemetry.js";
 
 export const PRODUCT_SELECTION_SNAPSHOT_TTL_MS = 2 * 60 * 60_000;
 export const MAX_PRODUCT_SELECTION_SNAPSHOTS = 128;
@@ -195,8 +157,6 @@ function visualCandidateKey(candidate: UnifiedCandidate): string {
   return `${candidate.source}:${candidate.shopifyProduct.merchantId}:${candidate.shopifyProduct.handle}`;
 }
 
-const unavailableMessage =
-  "Live comparison is unavailable because no approved shopping data source is connected.";
 const shopifyUnavailableMessage =
   "Shopify Global Catalog data is unavailable because the official Catalog request failed or the Agent Profile is not configured.";
 const dealUnavailableMessage =
@@ -244,16 +204,6 @@ const MembershipIdsSchema = z
   .refine((values) => new Set(values).size === values.length, {
     message: "membershipIds must contain unique values"
   });
-
-export const CompareProductsInputSchema = z
-  .object({
-    query: z.string().trim().min(2).max(300),
-    zipCode: z.string().regex(/^\d{5}(?:-\d{4})?$/),
-    membershipIds: MembershipIdsSchema.optional()
-  })
-  .strict();
-
-export type CompareProductsInput = z.infer<typeof CompareProductsInputSchema>;
 
 const ShopifyProductsToolInputSchema = z.object({
   query: z.string().trim().min(2).max(300).regex(/^[\p{L}\p{N}\s._+'-]+$/u),
@@ -389,10 +339,6 @@ const ShopifySelectedProductInputSchema = z.object({
   }).optional()
 }).strict();
 
-export interface ComparePort {
-  compare(input: CompareProductsInput): Promise<ComparisonResult>;
-}
-
 const MoneyOutputSchema = z.object({
   amountCents: z.number().int(),
   currency: z.literal("USD")
@@ -421,50 +367,6 @@ const ShopifySelectedProductOutputShape = {
       variantId: z.string().regex(/^\d{1,30}$/u)
     }).strict()
   }).strict()).max(3)
-};
-
-const LineItemOutputSchema = z.object({
-  kind: z.enum(["ITEM", "COUPON", "MEMBERSHIP", "SHIPPING", "TAX", "MANDATORY_FEE"]),
-  amount: MoneyOutputSchema,
-  label: z.string(),
-  condition: z.string().optional()
-});
-
-const QuoteOutputSchema = z.object({
-  status: z.enum(["VERIFIED", "ESTIMATED", "CONDITIONAL"]),
-  deliveredPrice: MoneyOutputSchema,
-  lineItems: z.array(LineItemOutputSchema),
-  eligibilityConditions: z.array(z.string()),
-  checkedAt: z.string(),
-  expiresAt: z.string()
-});
-
-const ExactOfferOutputSchema = z.object({
-  sellerName: z.string(),
-  matchStatus: z.literal("EXACT"),
-  regularQuote: QuoteOutputSchema,
-  memberQuote: z.object({
-    programName: z.string(),
-    eligible: z.boolean(),
-    quote: QuoteOutputSchema
-  }).optional(),
-  merchantUrl: z.string(),
-  recommendationReasons: z.array(z.string())
-});
-
-const SimilarOfferOutputSchema = z.object({
-  sellerName: z.string(),
-  matchStatus: z.literal("SIMILAR"),
-  merchantUrl: z.string(),
-  recommendationReasons: z.array(z.string())
-});
-
-const CompareProductsOutputShape = {
-  status: z.enum(["OK", "DATA_SOURCE_UNAVAILABLE"]),
-  message: z.string(),
-  exactOffers: z.array(ExactOfferOutputSchema),
-  similarOffers: z.array(SimilarOfferOutputSchema),
-  questions: z.array(z.string())
 };
 
 const ShopifyProductOutputSchema = z.object({
@@ -706,7 +608,7 @@ const ShopifyProductsOutputShape = {
     ])
   }),
   questions: z.array(z.string()),
-  products: z.array(ShopifyProductOutputSchema),
+  products: z.array(ShopifyProductOutputSchema).max(MAX_PRODUCT_CARDS),
   visualReview: z.object({
     stage: z.literal("RELAXED_REVIEW"),
     visualSessionId: VisualSessionIdSchema,
@@ -760,77 +662,6 @@ const AwinProductsOutputShape = {
     })
   }))
 };
-
-type SafeQuote = z.infer<typeof QuoteOutputSchema>;
-
-function safeQuote(quote: PriceQuote): SafeQuote {
-  return {
-    status: quote.status,
-    deliveredPrice: quote.deliveredPrice,
-    lineItems: quote.lineItems,
-    eligibilityConditions: quote.eligibilityConditions,
-    checkedAt: quote.checkedAt,
-    expiresAt: quote.expiresAt
-  };
-}
-
-function unavailableResult() {
-  return {
-    content: [{ type: "text" as const, text: unavailableMessage }],
-    structuredContent: {
-      status: "DATA_SOURCE_UNAVAILABLE" as const,
-      message: unavailableMessage,
-      exactOffers: [],
-      similarOffers: [],
-      questions: []
-    }
-  };
-}
-
-function successResult(result: ComparisonResult) {
-  const exactOffers = result.exactOffers.map((offer) => ({
-    sellerName: offer.sellerName,
-    matchStatus: "EXACT" as const,
-    regularQuote: safeQuote(offer.regularQuote),
-    ...(offer.memberQuote
-      ? {
-          memberQuote: {
-            programName: offer.memberQuote.programName,
-            eligible: offer.memberQuote.eligible,
-            quote: safeQuote(offer.memberQuote.quote)
-          }
-        }
-      : {}),
-    merchantUrl: offer.merchantUrl,
-    recommendationReasons: offer.recommendationReasons
-  }));
-  const similarOffers = result.similarOffers.map((offer) => ({
-    sellerName: offer.sellerName,
-    matchStatus: "SIMILAR" as const,
-    merchantUrl: offer.merchantUrl,
-    recommendationReasons: offer.recommendationReasons
-  }));
-  const message = `Comparison complete: ${exactOffers.length} exact and ${similarOffers.length} similar result(s).`;
-
-  return {
-    content: [{ type: "text" as const, text: message }],
-    structuredContent: {
-      status: "OK" as const,
-      message,
-      exactOffers,
-      similarOffers,
-      questions: result.questions
-    }
-  };
-}
-
-export function createUnavailableComparePort(): ComparePort {
-  return {
-    async compare() {
-      throw new Error("DATA_SOURCE_UNAVAILABLE");
-    }
-  };
-}
 
 function shopifyResult(
   result: ShopifySearchResult,
@@ -1659,7 +1490,6 @@ export type ShoppingServerDependencies = {
   cardTelemetry?: ProductCardTelemetrySink;
   productCardResourceDomains?: readonly string[];
   toolAvailability?: {
-    commerceCompare: boolean;
     verifiedDeals: boolean;
   };
 };
@@ -1838,18 +1668,15 @@ function shopifyUnavailableResult(
 }
 
 export function createShoppingServer(
-  comparePort: ComparePort,
   shopifyPort: ShopifyPort = createUnavailableShopifyPort(),
   affiliateLinks: AffiliateLinkResolver = createAffiliateLinkResolver(),
   dependencies: ShoppingServerDependencies = {}
 ): McpServer {
-  void comparePort;
-  const server = new McpServer({ name: "findcheap-agent", version: "0.14.4" });
+  const server = new McpServer({ name: "findcheap-agent", version: FINDCHEAP_VERSION });
   const dealPort = dependencies.deals ?? createUnavailableDealPort();
   const awinPort = dependencies.awin ?? createUnavailableAwinPort();
   const ebayPort = dependencies.ebay;
   const toolAvailability = dependencies.toolAvailability ?? {
-    commerceCompare: true,
     verifiedDeals: true
   };
   const watchStore = dependencies.watches ?? createMemoryWatchStore();
@@ -2140,7 +1967,7 @@ export function createShoppingServer(
     "search_products",
     {
       title: "Search products",
-      description: "Text-only product-search entrypoint; call once. For a newly attached image use search_visual_candidates and then finalize_visual_search instead. Do not read Memory, Skill files, repository files, logs, or plugin caches. English request means English only; Chinese request means Chinese only. Progress: 'Searching for suitable products.' or '正在搜索合适商品。' Pass family in productType, explicit brand in brand with brandMode=REQUIRED, objective must-have attributes in requiredFeatures, and preferences in preferences. Never put a brand in productType or requiredFeatures. Use CONTINUE_PREVIOUS_PRODUCT when the user adds budget, use, size, or constraints; CORRECT_PREVIOUS_PRODUCT only for changed identity; NEW_PRODUCT for a different shopping goal. Missing soft evidence remains a limitation-labeled DISCOVERY_MATCH; hard conflicts exclude. Results are presented as official-store matches, trusted matches, and best-value high-match options. Rank identity, merchant trust, availability, preferences, verified Coupon, then item price. Use selectionMode=LOWEST_PRICE only when requested; maxItemPriceCents is a ceiling, never a spending target. If every merchant is unverified, show research leads but recommend none for purchase. Never recommend a product absent from returned cards. Commercial relationships never affect relevance or ranking. Reuse selectionId for follow-ups; never search a selected title again.",
+      description: "Text-only product-search entrypoint; call once. For a newly attached image use search_visual_candidates and then finalize_visual_search instead. Do not read Memory, Skill files, repository files, logs, or plugin caches. English request means English only; Chinese request means Chinese only. Progress: 'Searching for suitable products.' or '正在搜索合适商品。' Pass family in productType, explicit brand in brand with brandMode=REQUIRED, objective must-have attributes in requiredFeatures, and preferences in preferences. Never put a brand in productType or requiredFeatures. Use CONTINUE_PREVIOUS_PRODUCT when the user adds budget, use, size, or constraints; CORRECT_PREVIOUS_PRODUCT only for changed identity; NEW_PRODUCT for a different shopping goal. Missing soft evidence remains a limitation-labeled DISCOVERY_MATCH; hard conflicts exclude. Return at most 8 cards in three tiers: 2 verified official-store matches, 3 trusted high matches, and 3 best-value high matches. Rank identity, merchant trust, availability, preferences, verified Coupon, then item price inside each tier. Use selectionMode=LOWEST_PRICE only when requested; it never collapses the three trust tiers. maxItemPriceCents is a ceiling, never a spending target. If every merchant is unverified, show research leads but recommend none for purchase. Never recommend a product absent from returned cards. Commercial relationships never affect relevance or ranking. Reuse selectionId for follow-ups; never search a selected title again.",
       inputSchema: SearchProductsInputSchema,
       outputSchema: ShopifyProductsOutputShape,
       annotations: {
@@ -2421,33 +2248,6 @@ export function createShoppingServer(
         }],
         structuredContent: content
       };
-    }
-  );
-
-  // One-release app-only aliases keep existing rendered tasks functional while
-  // the model sees only search_products as the public search entrypoint.
-  if (toolAvailability.commerceCompare) server.registerTool(
-    "compare_products",
-    {
-      title: "Legacy compare products",
-      description: "Compatibility alias for an existing app task. New model calls use search_products.",
-      inputSchema: CompareProductsInputSchema,
-      outputSchema: CompareProductsOutputShape,
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: true
-      },
-      _meta: { ui: { visibility: ["app"] } }
-    },
-    async (input) => {
-      try {
-        const comparison = ComparisonResultSchema.parse(await comparePort.compare(input));
-        return successResult(comparison);
-      } catch {
-        return unavailableResult();
-      }
     }
   );
 

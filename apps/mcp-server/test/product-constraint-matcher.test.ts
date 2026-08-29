@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { evaluateFeature, featureMatches, matchFeatures } from "../src/product-constraint-matcher.js";
+import { evaluateFeature } from "../src/product-constraint-matcher.js";
+
+const featureMatches = (searchable: string, feature: string): boolean =>
+  evaluateFeature(searchable, feature) === "MATCHED";
+const matchFeatures = (searchable: string, features: readonly string[]): string[] =>
+  features.filter((feature) => featureMatches(searchable, feature));
 
 describe("product constraint matcher", () => {
   it.each([

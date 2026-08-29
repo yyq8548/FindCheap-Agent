@@ -4,6 +4,7 @@ import { request as httpsRequest, type RequestOptions } from "node:https";
 import { isIP } from "node:net";
 import { Readable } from "node:stream";
 import { domainToASCII } from "node:url";
+import { FINDCHEAP_VERSION } from "../../../config/version.js";
 
 export const MAX_RESPONSE_BYTES = 5_000_000;
 export const REQUEST_TIMEOUT_MS = 8_000;
@@ -132,7 +133,7 @@ export function createPinnedRequest(
         headers: {
           connection: "close",
           "accept-encoding": "identity",
-          "user-agent": "FindCheap-Agent/0.14.4 (+https://github.com/yyq8548/FindCheap-Agent)"
+          "user-agent": `FindCheap-Agent/${FINDCHEAP_VERSION} (+https://github.com/yyq8548/FindCheap-Agent)`
         },
         lookup: (_hostname, options, callback) => {
           const requestedFamily = typeof options === "number" ? options : options.family;

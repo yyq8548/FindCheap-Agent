@@ -1,3 +1,6 @@
+import { FINDCHEAP_VERSION } from "../../../config/version.js";
+import { MAX_PRODUCT_CARDS } from "./product-candidate-ranking.js";
+
 export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v29.html";
 
 export const PRODUCT_CARD_RESOURCE_DOMAINS = [
@@ -191,7 +194,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     const uiStartedAt = typeof performance === "object" && typeof performance.now === "function"
       ? performance.now()
       : Date.now();
-    const cardMetrics = { version: "0.14.4", stages: {} };
+    const cardMetrics = { version: "${FINDCHEAP_VERSION}", stages: {} };
     window.__findcheapCardMetrics = cardMetrics;
     const notify = (method, params = {}) => {
       window.parent.postMessage({ jsonrpc: "2.0", method, params }, "*");
@@ -449,7 +452,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       if (typeof output?.renderId === "string") currentRenderId = output.renderId;
       markStage("RENDER_STARTED");
       app.replaceChildren();
-      const products = Array.isArray(output?.products) ? output.products.slice(0, 8) : [];
+      const products = Array.isArray(output?.products) ? output.products.slice(0, ${MAX_PRODUCT_CARDS}) : [];
       if (products.length === 0) {
         app.append(make("div", "empty", output?.message || text("No verified products returned.", "没有返回已验证商品。")));
         markStage("DOM_RENDERED");
@@ -721,7 +724,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     warmCompatibilityBridge();
     const initializeParams = {
       protocolVersion: "2026-01-26",
-      appInfo: { name: "FindCheap Agent product cards", version: "0.14.4" },
+      appInfo: { name: "FindCheap Agent product cards", version: "${FINDCHEAP_VERSION}" },
       appCapabilities: { availableDisplayModes: ["inline"] }
     };
     const finishInitialization = () => {

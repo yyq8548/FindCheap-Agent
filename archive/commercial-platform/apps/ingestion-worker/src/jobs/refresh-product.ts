@@ -54,10 +54,6 @@ export type RefreshProductDeps = RefreshControls & {
   freshness: FreshnessPolicy;
 };
 
-export function jobIdempotencyKey(job: RefreshJob): string {
-  return canonicalizeProductRefreshJob(job).idempotencyKey;
-}
-
 export function sourceType(metadata: Record<string, string>): string {
   const value = metadata.sourceType;
   return value && value.length > 0 ? value : "unknown";

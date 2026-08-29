@@ -36,7 +36,6 @@ export const ShopifyProductJsonSchema = z.object({
   variants: z.array(ProductVariantSchema).min(1).max(100)
 }).passthrough();
 
-export type ShopifyProductJson = z.infer<typeof ShopifyProductJsonSchema>;
 export type ShopifyProductJsonVariant = z.infer<typeof ProductVariantSchema>;
 
 export function shopifyVariantDimensions(

@@ -34,7 +34,7 @@ import {
   canonicalizeProductRefreshJob,
   quoteContextKey
 } from "../src/jobs/refresh-identity.js";
-import { detectPriceAnomaly } from "../src/quality/quarantine.js";
+import { detectPriceAnomaly } from "../../../packages/ingestion-contracts/src/index.js";
 
 const now = new Date("2026-08-13T18:00:00.000Z");
 const productJob = {

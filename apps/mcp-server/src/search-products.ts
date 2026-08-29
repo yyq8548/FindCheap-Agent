@@ -18,7 +18,6 @@ import {
   type VerifiedDeal
 } from "./deal-client.js";
 import {
-  merchantRecommendationRank,
   merchantRecommendationTier,
   resolveVerifiedOfficialStorefront,
   resolveMerchantTrust
@@ -51,6 +50,18 @@ import type {
 } from "./shopify-official-store-search.js";
 import type { OfficialStorefrontRegistryPort } from "./official-storefront-registry-client.js";
 import type { MerchantTrustRegistryPort } from "./merchant-trust-registry-client.js";
+import {
+  candidateKey,
+  candidateMerchant,
+  candidateTitle as rankedCandidateTitle,
+  compareLowestPrice,
+  compareRankedCandidates,
+  countDisplayEligibleCandidates,
+  selectPresentationCandidates,
+  selectVisualReviewCandidates
+} from "./product-candidate-ranking.js";
+
+export { candidateMerchant } from "./product-candidate-ranking.js";
 
 const QuerySchema = z.string().trim().min(2).max(300)
   .refine((value) => /[\p{L}\p{N}]/u.test(value), "query must contain a letter or number")
@@ -58,7 +69,8 @@ const QuerySchema = z.string().trim().min(2).max(300)
 
 export const SearchProductsInputSchema = z.object({
   query: QuerySchema,
-  limit: z.number().int().min(1).max(3).default(3),
+  limit: z.number().int().min(1).max(8).default(8)
+    .describe("Maximum returned cards across three tiers: 2 official, 3 trusted, 3 best value"),
   maxItemPriceCents: z.number().int().min(1).max(100_000_000)
     .describe("Inclusive price ceiling, never a spending target")
     .optional(),
@@ -269,7 +281,6 @@ export function finalizeCodexVisualCandidates(
   }).sort(compareRankedCandidates);
   return selectPresentationCandidates(
     accepted,
-    limit,
     "MERCHANT_DIVERSE",
     allowAlternatives,
     true
@@ -588,7 +599,6 @@ export async function searchProducts(
         [...enrichedCandidates].sort(
           input.selectionMode === "LOWEST_PRICE" ? compareLowestPrice : compareRankedCandidates
         ),
-        input.limit,
         input.selectionMode,
         input.allowAlternatives,
         input.visualInput !== undefined
@@ -649,7 +659,7 @@ export function candidateImageUrl(candidate: UnifiedCandidate): string | undefin
 }
 
 export function candidateTitle(candidate: UnifiedCandidate): string {
-  return title(candidate);
+  return rankedCandidateTitle(candidate);
 }
 
 function sourcePassDiagnostic(
@@ -1331,42 +1341,6 @@ function isCoupon(deal: VerifiedDeal): boolean {
   return deal.kind === "COUPON" || deal.kind === "PROMO_CODE" || deal.kind === "BRAND_PROMOTION";
 }
 
-export function candidateMerchant(candidate: UnifiedCandidate): string {
-  if (candidate.source === "AWIN_PRODUCT_FEED") return candidate.awinProduct.merchant;
-  if (candidate.source === "EBAY_BROWSE") return "eBay";
-  return candidate.shopifyProduct.merchant;
-}
-
-function compareRankedCandidates(
-  left: UnifiedCandidate,
-  right: UnifiedCandidate
-): number {
-  const visualDifference = (right.visualMatchScore ?? 0) - (left.visualMatchScore ?? 0);
-  if (visualDifference !== 0) return visualDifference;
-  const groupDifference = resultGroupRank(left.resultGroup) - resultGroupRank(right.resultGroup);
-  if (groupDifference !== 0) return groupDifference;
-  const matchDifference = matchRank(right) - matchRank(left);
-  if (matchDifference !== 0) return matchDifference;
-  const limitationDifference = left.requiredFeatureLimitations.length - right.requiredFeatureLimitations.length;
-  if (limitationDifference !== 0) return limitationDifference;
-  const featureDifference = right.featureEvidence.length - left.featureEvidence.length;
-  if (featureDifference !== 0) return featureDifference;
-  const tierDifference = merchantRecommendationRank(left.recommendationTier) -
-    merchantRecommendationRank(right.recommendationTier);
-  if (tierDifference !== 0) return tierDifference;
-  const availabilityDifference = availabilityRank(left) - availabilityRank(right);
-  if (availabilityDifference !== 0) return availabilityDifference;
-  const preferenceDifference = right.preferenceEvidence.length - left.preferenceEvidence.length;
-  if (preferenceDifference !== 0) return preferenceDifference;
-  const couponDifference = Number(right.verifiedCoupons.length > 0) - Number(left.verifiedCoupons.length > 0);
-  if (couponDifference !== 0) return couponDifference;
-  const priceDifference = price(left) - price(right);
-  if (priceDifference !== 0) return priceDifference;
-  const ratingDifference = productRating(right) - productRating(left);
-  if (ratingDifference !== 0) return ratingDifference;
-  return title(left).localeCompare(title(right));
-}
-
 function visualIdentity(
   input: SearchProductsExecutionInput,
   candidate: Parameters<typeof classifyVisualProduct>[1],
@@ -1389,164 +1363,6 @@ function visualIdentityStatus(
 ): Exclude<ShopifyMatchStatus, "IRRELEVANT"> {
   if (visual === undefined) return sourceStatus;
   return visual.group === "SAME_STYLE" ? "SIMILAR" : "DISCOVERY_MATCH";
-}
-
-function selectPresentationCandidates(
-  candidates: UnifiedCandidate[],
-  limit: number,
-  selectionMode: SearchProductsInput["selectionMode"],
-  allowAlternatives: boolean,
-  visualDiscovery: boolean
-): UnifiedCandidate[] {
-  const official = candidates
-    .filter(isOfficialCandidate)
-    .filter((candidate) => passesVisualDisplayGate(candidate, allowAlternatives))
-    .slice(0, 2)
-    .map((candidate) => ({ ...candidate, presentationGroup: "OFFICIAL_STORE" as const }));
-  if (selectionMode === "LOWEST_PRICE") {
-    const bestValue = candidates
-      .filter((candidate) => !isOfficialCandidate(candidate))
-      .filter((candidate) => passesVisualDisplayGate(candidate, allowAlternatives))
-      .sort(compareLowestPrice)
-      .slice(0, limit)
-      .map((candidate) => ({ ...candidate, presentationGroup: "BEST_VALUE" as const }));
-    return [...official, ...bestValue];
-  }
-  const trusted = candidates
-    .filter((candidate) => !isOfficialCandidate(candidate))
-    .filter((candidate) => passesVisualDisplayGate(candidate, allowAlternatives))
-    .filter((candidate) =>
-      candidate.recommendationTier === "TRUSTED_OR_AFFILIATE" ||
-      candidate.recommendationTier === "HIGH_RATED_UNVERIFIED"
-    )
-    .slice(0, limit)
-    .map((candidate) => ({ ...candidate, presentationGroup: "TRUSTED_MATCH" as const }));
-  const selectedKeys = new Set([...official, ...trusted].map(candidateKey));
-  const bestValue = candidates
-    .filter((candidate) => !selectedKeys.has(candidateKey(candidate)))
-    .filter((candidate) => !isOfficialCandidate(candidate))
-    .filter((candidate) => passesVisualDisplayGate(candidate, allowAlternatives))
-    .filter((candidate) => candidate.recommendationTier === "GENERAL_UNVERIFIED")
-    .sort(compareBestValue)
-    .slice(0, limit)
-    .map((candidate) => ({ ...candidate, presentationGroup: "BEST_VALUE" as const }));
-  const grouped = [...official, ...trusted, ...bestValue];
-  if (grouped.length > 0) return grouped;
-  if (visualDiscovery) return [];
-  return candidates.slice(0, limit);
-}
-
-function selectVisualReviewCandidates(
-  candidates: UnifiedCandidate[],
-  limit: number,
-  allowAlternatives: boolean
-): UnifiedCandidate[] {
-  const eligible = candidates.filter((candidate) => passesVisualDisplayGate(candidate, allowAlternatives));
-  const official = eligible.filter(isOfficialCandidate);
-  const trusted = eligible.filter((candidate) =>
-    !isOfficialCandidate(candidate) &&
-    (candidate.recommendationTier === "TRUSTED_OR_AFFILIATE" ||
-      candidate.recommendationTier === "HIGH_RATED_UNVERIFIED")
-  );
-  const general = eligible.filter((candidate) =>
-    !isOfficialCandidate(candidate) && candidate.recommendationTier === "GENERAL_UNVERIFIED"
-  );
-  return [...official, ...trusted, ...general].slice(0, limit).map((candidate) => ({
-    ...candidate,
-    presentationGroup: isOfficialCandidate(candidate)
-      ? "OFFICIAL_STORE" as const
-      : candidate.recommendationTier === "GENERAL_UNVERIFIED"
-        ? "BEST_VALUE" as const
-        : "TRUSTED_MATCH" as const
-  }));
-}
-
-function isOfficialCandidate(candidate: UnifiedCandidate): boolean {
-  if (candidate.source !== "SHOPIFY_GLOBAL_CATALOG") return false;
-  try {
-    const merchantUrl = new URL(candidate.shopifyProduct.merchantUrl);
-    const websiteTrust = resolveMerchantTrust(merchantUrl.hostname, candidate.shopifyProduct.merchant);
-    return merchantUrl.protocol === "https:" &&
-      candidate.shopifyProduct.merchantTrust.level === "OFFICIAL" &&
-      candidate.shopifyProduct.merchantTrust.verification === "INDEPENDENT" &&
-      websiteTrust.level === "OFFICIAL" &&
-      websiteTrust.verification === "INDEPENDENT";
-  } catch {
-    return false;
-  }
-}
-
-function passesVisualDisplayGate(candidate: UnifiedCandidate, allowAlternatives: boolean): boolean {
-  return candidate.resultGroup === "REQUESTED_PRODUCT" ||
-    candidate.visualMatchGroup === undefined ||
-    candidate.visualMatchGroup !== "SAME_STYLE" ||
-    allowAlternatives;
-}
-
-function countDisplayEligibleCandidates(
-  candidates: UnifiedCandidate[],
-  allowAlternatives: boolean
-): number {
-  return candidates.filter((candidate) => passesVisualDisplayGate(candidate, allowAlternatives)).length;
-}
-
-function compareBestValue(left: UnifiedCandidate, right: UnifiedCandidate): number {
-  return Number(right.verifiedCoupons.length > 0) - Number(left.verifiedCoupons.length > 0) ||
-    merchantRecommendationRank(left.recommendationTier) - merchantRecommendationRank(right.recommendationTier) ||
-    price(left) - price(right) ||
-    compareRankedCandidates(left, right);
-}
-
-function candidateKey(candidate: UnifiedCandidate): string {
-  if (candidate.source === "AWIN_PRODUCT_FEED") {
-    return `${candidate.source}:${candidate.awinProduct.merchantId}:${candidate.awinProduct.merchantProductId}`;
-  }
-  if (candidate.source === "EBAY_BROWSE") return `${candidate.source}:${candidate.ebayProduct.itemId}`;
-  return `${candidate.source}:${candidate.shopifyProduct.sourceHost}:${candidate.shopifyProduct.handle}`;
-}
-
-function resultGroupRank(group: CandidateBase["resultGroup"]): number {
-  switch (group) {
-    case "REQUESTED_PRODUCT": return 0;
-    case "DISCOVERY": return 1;
-    case "ALTERNATIVE": return 2;
-  }
-}
-
-function availabilityRank(candidate: UnifiedCandidate): number {
-  const value = candidate.source === "AWIN_PRODUCT_FEED"
-    ? candidate.awinProduct.availability
-    : candidate.source === "SHOPIFY_GLOBAL_CATALOG"
-      ? candidate.shopifyProduct.availability
-      : candidate.ebayProduct.availability;
-  return value === "IN_STOCK" ? 0 : value === "UNKNOWN" ? 1 : 2;
-}
-
-function productRating(candidate: UnifiedCandidate): number {
-  return candidate.source === "SHOPIFY_GLOBAL_CATALOG" ? candidate.shopifyProduct.productRating?.value ?? 0 : 0;
-}
-
-function compareLowestPrice(left: UnifiedCandidate, right: UnifiedCandidate): number {
-  return price(left) - price(right) ||
-    Number(right.verifiedCoupons.length > 0) - Number(left.verifiedCoupons.length > 0) ||
-    compareRankedCandidates(left, right);
-}
-
-function matchRank(candidate: UnifiedCandidate): number {
-  const status = candidate.identityStatus;
-  return status === "EXACT" ? 3 : status === "DISCOVERY_MATCH" ? 2 : 1;
-}
-
-function price(candidate: UnifiedCandidate): number {
-  if (candidate.source === "AWIN_PRODUCT_FEED") return candidate.awinProduct.itemPrice.amountCents;
-  if (candidate.source === "EBAY_BROWSE") return candidate.ebayProduct.itemPrice.amountCents;
-  return candidate.shopifyProduct.itemPrice?.amountCents ?? Number.MAX_SAFE_INTEGER;
-}
-
-function title(candidate: UnifiedCandidate): string {
-  if (candidate.source === "AWIN_PRODUCT_FEED") return candidate.awinProduct.title;
-  if (candidate.source === "EBAY_BROWSE") return candidate.ebayProduct.title;
-  return candidate.shopifyProduct.title;
 }
 
 function normalize(value: string): string {

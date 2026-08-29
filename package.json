@@ -7,9 +7,7 @@
   },
   "packageManager": "pnpm@10.34.5",
   "scripts": {
-    "build:commerce": "pnpm --filter @shopping-agent/commerce-api build",
     "build:awin-feed": "pnpm --filter @shopping-agent/awin-feed-service build",
-    "build:ingestion": "pnpm --filter @shopping-agent/ingestion-worker build",
     "build:mcp": "pnpm --filter @shopping-agent/mcp-server build",
     "lint": "eslint .",
     "typecheck": "tsc -b --pretty false",
@@ -17,17 +15,10 @@
     "test:mcp-stdio": "vitest run apps/mcp-server/test/stdio-smoke.test.ts",
     "test:integration": "vitest run --config vitest.integration.ts",
     "db:migrate": "tsx packages/db/src/migrate.ts",
-    "products:backfill-identity-keys": "tsx scripts/backfill-product-identity-keys.ts",
-    "eval:matching": "tsx scripts/evaluate-matching.ts",
-    "merchants:score": "tsx scripts/score-merchants.ts",
-    "merchants:gate": "tsx scripts/validate-enabled-merchants.ts",
     "registry:build": "tsx scripts/registry-builder.ts"
   },
   "dependencies": {
-    "bullmq": "^6.1.0",
-    "ioredis": "^5.11.1",
     "pg": "^8.16.3",
-    "yaml": "^2.4.2",
     "zod": "^3.25.76"
   },
   "devDependencies": {

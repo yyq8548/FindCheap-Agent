@@ -63,10 +63,6 @@ export const OfficialStorefrontRegistrySchema = z.object({
 export type OfficialStorefrontRecord = z.infer<typeof OfficialStorefrontRecordSchema>;
 export type OfficialStorefrontRegistry = z.infer<typeof OfficialStorefrontRegistrySchema>;
 
-export function normalizeOfficialStorefrontBrand(value: string): string {
-  return normalizeBrand(value);
-}
-
 function normalizeBrand(value: string): string {
   return value.normalize("NFKD")
     .replace(/\p{M}+/gu, "")
