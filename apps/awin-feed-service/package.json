@@ -3,8 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "esbuild src/container.ts --bundle --platform=node --format=esm --outfile=dist/main.js",
-    "start": "node dist/main.js"
+    "build": "esbuild src/container.ts --bundle --platform=node --format=cjs --outfile=dist/main.cjs",
+    "start": "node dist/main.cjs"
   },
   "dependencies": {
     "pg": "8.16.3",
