@@ -63,6 +63,8 @@ Probe up to 100 candidates:
 pnpm registry:build probe --limit 100
 ```
 
+Probes use bounded concurrency (`--concurrency 6` by default, maximum 12) so a large review batch is not serialized behind anti-bot timeouts.
+
 The probe uses bounded HTTPS, DNS and redirect checks. It records HTTP, HTML, Shopify, and Product JSON-LD signals without approving the merchant.
 
 Review candidates:
@@ -99,6 +101,24 @@ Run:
 
 ```powershell
 pnpm registry:build approve --file C:\path\to\approval.json
+```
+
+For a reviewed expansion, wrap unique approval objects in an `approvals` array and apply them atomically:
+
+```powershell
+pnpm registry:build approve-batch --file C:\path\to\reviewed-approvals.json
+```
+
+The whole batch rolls back when any record, evidence URL, or approval gate is invalid. Discovery exports must still be imported and probed before this explicit review step.
+
+For Shopify-heavy expansion, the batch file may instead contain `reviewedAt`, reviewed `officialStorefronts`, and `additionalTrustedMerchants`. Registry Builder expands the compact review into explicit official-storefront and merchant-trust approvals while preserving the same transaction and evidence gates.
+
+Import that reviewed file as unapproved candidates first, then run the technical probe before approval:
+
+```powershell
+pnpm registry:build collect-reviewed --file config\registries\reviewed-expansion-2026-08-29.json
+pnpm registry:build probe --limit 500
+pnpm registry:build approve-batch --file config\registries\reviewed-expansion-2026-08-29.json
 ```
 
 Merchant approval uses `kind: MERCHANT_TRUST` and one of `OFFICIAL`, `AUTHORIZED_RETAILER`, or `ESTABLISHED_RETAILER`. Affiliate participation alone is not acceptable evidence.

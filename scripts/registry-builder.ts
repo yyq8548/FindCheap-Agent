@@ -9,7 +9,7 @@ import {
   ManagedMerchantTrustRecordSchema,
   OfficialStorefrontRecordSchema
 } from "../packages/contracts/src/index.js";
-import { createDatabase } from "../packages/db/src/client.js";
+import { createDatabase, type SqlExecutor } from "../packages/db/src/client.js";
 import {
   listRegistryCandidates,
   publishApprovedRegistrySnapshot,
@@ -45,6 +45,35 @@ const ApprovalSchema = z.discriminatedUnion("kind", [
     evidenceUrl: EvidenceUrlSchema
   }).strict()
 ]);
+
+const ApprovalBatchSchema = z.object({
+  approvals: z.array(ApprovalSchema).min(1).max(2_000)
+}).strict().superRefine((batch, context) => {
+  const keys = new Set<string>();
+  batch.approvals.forEach((approval, index) => {
+    const host = approval.kind === "OFFICIAL_STOREFRONT" ? approval.record.officialHost : approval.record.host;
+    const key = `${approval.kind}:${host}`;
+    if (keys.has(key)) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["approvals", index], message: "approval keys must be unique" });
+    }
+    keys.add(key);
+  });
+});
+
+const CuratedExpansionSchema = z.object({
+  reviewedAt: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u),
+  officialStorefronts: z.array(z.object({
+    brand: z.string().trim().min(1).max(100),
+    aliases: z.array(z.string().trim().min(1).max(100)).max(20).default([]),
+    officialHost: z.string().trim().toLowerCase(),
+    storefrontHost: z.string().trim().toLowerCase().optional()
+  }).strict()).max(2_000),
+  additionalTrustedMerchants: z.array(z.object({
+    host: z.string().trim().toLowerCase(),
+    level: z.enum(["OFFICIAL", "ESTABLISHED_RETAILER"]),
+    evidenceUrl: EvidenceUrlSchema.optional()
+  }).strict()).max(5_000)
+}).strict();
 
 const CandidateImportSchema = z.object({
   source: z.enum(["SHOPIFY_CATALOG", "SEARCH_OBSERVATION", "MANUAL"]),
@@ -155,13 +184,30 @@ export async function runRegistryBuilder(
       }
       return { collected: imported.candidates.length, source: imported.source };
     }
+    if (command === "collect-reviewed") {
+      const file = requiredOption(arguments_, "--file");
+      const approvals = parseRegistryApprovalBatch(JSON.parse(await readFile(resolve(file), "utf8")));
+      for (const approval of approvals) {
+        const key = approval.kind === "OFFICIAL_STOREFRONT" ? approval.record.officialHost : approval.record.host;
+        await upsertRegistryCandidate(database, {
+          kind: approval.kind,
+          key,
+          source: "MANUAL",
+          sourceReference: approval.evidenceUrl,
+          payload: approval.record
+        });
+      }
+      return {
+        collected: approvals.length,
+        officialStorefronts: approvals.filter((approval) => approval.kind === "OFFICIAL_STOREFRONT").length,
+        merchantTrustCandidates: approvals.filter((approval) => approval.kind === "MERCHANT_TRUST").length
+      };
+    }
     if (command === "probe") {
       const limit = optionalIntegerOption(arguments_, "--limit", 100, 1, 500);
+      const concurrency = optionalIntegerOption(arguments_, "--concurrency", 6, 1, 12);
       const candidates = await listRegistryCandidates(database, { status: "CANDIDATE", limit });
-      let passed = 0;
-      let failed = 0;
-      let unknown = 0;
-      for (const candidate of candidates) {
+      const results = await mapWithConcurrency(candidates, concurrency, async (candidate) => {
         const probe = await probeTechnicalStorefront(candidate.key);
         await recordRegistryEvidence(database, {
           kind: candidate.kind,
@@ -171,39 +217,32 @@ export async function runRegistryBuilder(
           result: probe.result,
           details: probe.details
         });
-        if (probe.result === "PASS") passed += 1;
-        else if (probe.result === "FAIL") failed += 1;
-        else unknown += 1;
-      }
-      return { probed: candidates.length, passed, failed, unknown };
+        return probe.result;
+      });
+      return {
+        probed: candidates.length,
+        passed: results.filter((result) => result === "PASS").length,
+        failed: results.filter((result) => result === "FAIL").length,
+        unknown: results.filter((result) => result === "UNKNOWN").length,
+        concurrency
+      };
     }
-    if (command === "approve") {
+    if (command === "approve" || command === "approve-batch") {
       const file = requiredOption(arguments_, "--file");
-      const approval = ApprovalSchema.parse(JSON.parse(await readFile(resolve(file), "utf8")));
-      const key = approval.kind === "OFFICIAL_STOREFRONT" ? approval.record.officialHost : approval.record.host;
-      await upsertRegistryCandidate(database, {
-        kind: approval.kind,
-        key,
-        source: "MANUAL",
-        sourceReference: approval.evidenceUrl,
-        payload: approval.record
+      const input = JSON.parse(await readFile(resolve(file), "utf8"));
+      const approvals = command === "approve"
+        ? [ApprovalSchema.parse(input)]
+        : parseRegistryApprovalBatch(input);
+      await database.transaction(async (transaction) => {
+        for (const approval of approvals) await approveReviewedCandidate(transaction, approval);
       });
-      await recordRegistryEvidence(database, {
-        kind: approval.kind,
-        key,
-        evidenceKind: approval.evidenceKind as RegistryEvidenceKind,
-        evidenceUrl: approval.evidenceUrl,
-        result: "PASS",
-        details: { reviewed: true }
-      });
-      await reviewRegistryCandidate(database, {
-        kind: approval.kind,
-        key,
-        status: "APPROVED",
-        record: approval.record,
-        note: approval.note
-      });
-      return { approved: `${approval.kind}:${key}` };
+      return command === "approve"
+        ? { approved: approvalKey(approvals[0]!) }
+        : {
+            approved: approvals.length,
+            officialStorefronts: approvals.filter((approval) => approval.kind === "OFFICIAL_STOREFRONT").length,
+            merchantTrustApprovals: approvals.filter((approval) => approval.kind === "MERCHANT_TRUST").length
+          };
     }
     if (command === "reject" || command === "suspend") {
       const kind = requiredKindOption(arguments_, "--kind");
@@ -243,6 +282,97 @@ export async function runRegistryBuilder(
   }
 }
 
+export type RegistryApproval = z.infer<typeof ApprovalSchema>;
+
+async function approveReviewedCandidate(executor: SqlExecutor, approval: RegistryApproval): Promise<void> {
+  const key = approval.kind === "OFFICIAL_STOREFRONT" ? approval.record.officialHost : approval.record.host;
+  await upsertRegistryCandidate(executor, {
+    kind: approval.kind,
+    key,
+    source: "MANUAL",
+    sourceReference: approval.evidenceUrl,
+    payload: approval.record
+  });
+  await recordRegistryEvidence(executor, {
+    kind: approval.kind,
+    key,
+    evidenceKind: approval.evidenceKind as RegistryEvidenceKind,
+    evidenceUrl: approval.evidenceUrl,
+    result: "PASS",
+    details: { reviewed: true }
+  });
+  await reviewRegistryCandidate(executor, {
+    kind: approval.kind,
+    key,
+    status: "APPROVED",
+    record: approval.record,
+    note: approval.note
+  });
+}
+
+function approvalKey(approval: RegistryApproval): string {
+  const host = approval.kind === "OFFICIAL_STOREFRONT" ? approval.record.officialHost : approval.record.host;
+  return `${approval.kind}:${host}`;
+}
+
+export function parseRegistryApprovalBatch(input: unknown): RegistryApproval[] {
+  const direct = ApprovalBatchSchema.safeParse(input);
+  if (direct.success) return direct.data.approvals;
+  const expansion = CuratedExpansionSchema.parse(input);
+  const approvals: RegistryApproval[] = [];
+  for (const store of expansion.officialStorefronts) {
+    const evidenceUrl = `https://${store.storefrontHost ?? store.officialHost}/`;
+    approvals.push(ApprovalSchema.parse({
+      kind: "OFFICIAL_STOREFRONT",
+      record: {
+        ...store,
+        platform: "SHOPIFY",
+        productPathPrefixes: ["/products/"],
+        imageHosts: ["cdn.shopify.com"],
+        evidenceUrl,
+        reviewedAt: expansion.reviewedAt,
+        status: "APPROVED"
+      },
+      note: "Brand-controlled Shopify domain reviewed after technical storefront collection.",
+      evidenceKind: "BRAND_DOMAIN",
+      evidenceUrl
+    }));
+    approvals.push(ApprovalSchema.parse({
+      kind: "MERCHANT_TRUST",
+      record: {
+        host: store.officialHost,
+        level: "OFFICIAL",
+        evidenceUrl,
+        reviewedAt: expansion.reviewedAt,
+        status: "APPROVED"
+      },
+      note: "Brand-controlled official merchant domain reviewed.",
+      evidenceKind: "BRAND_DOMAIN",
+      evidenceUrl
+    }));
+  }
+  for (const merchant of expansion.additionalTrustedMerchants) {
+    const evidenceUrl = merchant.evidenceUrl ?? `https://${merchant.host}/`;
+    approvals.push(ApprovalSchema.parse({
+      kind: "MERCHANT_TRUST",
+      record: {
+        host: merchant.host,
+        level: merchant.level,
+        evidenceUrl,
+        reviewedAt: expansion.reviewedAt,
+        status: "APPROVED"
+      },
+      note: merchant.level === "OFFICIAL"
+        ? "Brand-controlled official merchant domain reviewed."
+        : "Established retailer identity and public storefront reviewed.",
+      evidenceKind: merchant.level === "OFFICIAL" ? "BRAND_DOMAIN" : "BUSINESS_IDENTITY",
+      evidenceUrl
+    }));
+  }
+  ApprovalBatchSchema.parse({ approvals });
+  return approvals;
+}
+
 function requiredKindOption(arguments_: readonly string[], name: string): RegistryCandidateKind {
   const value = requiredOption(arguments_, name);
   if (value !== "OFFICIAL_STOREFRONT" && value !== "MERCHANT_TRUST") throw new Error(`${name} is invalid`);
@@ -276,6 +406,24 @@ function optionalIntegerOption(
   const parsed = Number(value);
   if (!Number.isSafeInteger(parsed) || parsed < minimum || parsed > maximum) throw new Error(`${name} is invalid`);
   return parsed;
+}
+
+async function mapWithConcurrency<Input, Output>(
+  values: readonly Input[],
+  concurrency: number,
+  worker: (value: Input) => Promise<Output>
+): Promise<Output[]> {
+  const output = new Array<Output>(values.length);
+  let next = 0;
+  async function run(): Promise<void> {
+    while (next < values.length) {
+      const index = next;
+      next += 1;
+      output[index] = await worker(values[index]!);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, values.length) }, run));
+  return output;
 }
 
 const entryPath = process.argv[1];
