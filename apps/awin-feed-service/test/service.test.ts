@@ -342,7 +342,7 @@ describe("Awin Feed service", () => {
         })])
       });
       const cachedMerchantTrust = await fetch(`${origin}/v1/merchant-trust`, {
-        headers: { "if-none-match": merchantTrust.headers.get("etag")! }
+        headers: { "if-none-match": `W/${merchantTrust.headers.get("etag")!}` }
       });
       expect(cachedMerchantTrust.status).toBe(304);
       expect((await fetch(`${origin}/v1/search`)).status).toBe(405);

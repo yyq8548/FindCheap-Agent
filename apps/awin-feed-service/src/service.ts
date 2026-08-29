@@ -288,7 +288,7 @@ async function handleRequest(
       json(response, 404, { error: "MERCHANT_TRUST_NOT_CONFIGURED" });
       return;
     }
-    if (request.headers["if-none-match"] === merchantTrust.etag) {
+    if (etagMatches(request.headers["if-none-match"], merchantTrust.etag)) {
       response.writeHead(304, {
         "cache-control": "public, max-age=3600, stale-while-revalidate=86400",
         etag: merchantTrust.etag
@@ -315,7 +315,7 @@ async function handleRequest(
       json(response, 404, { error: "OFFICIAL_STOREFRONTS_NOT_CONFIGURED" });
       return;
     }
-    if (request.headers["if-none-match"] === officialStorefronts.etag) {
+    if (etagMatches(request.headers["if-none-match"], officialStorefronts.etag)) {
       response.writeHead(304, {
         "cache-control": "public, max-age=3600, stale-while-revalidate=86400",
         etag: officialStorefronts.etag
@@ -523,6 +523,10 @@ function validatedSnapshot(archive: Uint8Array, snapshotAt: string, sourceFeeds:
     throw new Error("Awin Feed failed approved merchant validation");
   }
   return { archive, index, snapshotAt, feedRows: index.feedRows, sourceFeeds };
+}
+
+function etagMatches(requestValue: string | undefined, currentValue: string): boolean {
+  return requestValue?.split(",").some((candidate) => candidate.trim().replace(/^W\//u, "") === currentValue) === true;
 }
 
 function approvedOfficialImageUrl(
