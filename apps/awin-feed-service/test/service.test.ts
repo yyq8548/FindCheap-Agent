@@ -27,6 +27,20 @@ describe("Awin Feed service", () => {
     expect(environment.offers).toBeUndefined();
   });
 
+  it("accepts an optional bounded Railway registry database refresh", () => {
+    const environment = parseAwinFeedServiceEnvironment({
+      AWIN_SOURCE_FEED_URL: "https://productdata.awin.com/feed.csv.gz",
+      AWIN_FEED_API_TOKEN: "a".repeat(32),
+      FINDCHEAP_REGISTRY_DATABASE_URL: "postgresql://registry:secret@127.0.0.1/registry",
+      FINDCHEAP_REGISTRY_REFRESH_MINUTES: "5"
+    });
+
+    expect(environment.registryDatabase).toEqual({
+      url: "postgresql://registry:secret@127.0.0.1/registry",
+      refreshIntervalMs: 300_000
+    });
+  });
+
   it("enables the Awin Offers cache only when a publisher API token is configured", () => {
     const environment = parseAwinFeedServiceEnvironment({
       AWIN_SOURCE_FEED_URL: "https://productdata.awin.com/feed.csv.gz",

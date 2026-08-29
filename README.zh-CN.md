@@ -192,6 +192,9 @@ FindCheap Agent 搜索 DÔEN 连衣裙，显示三个商品卡片。
 - `apps/mcp-server/`：本地 MCP 服务器和商品卡片资源。
 - `apps/commerce-api/`：经过审计的比价 API。
 - `apps/ingestion-worker/`：商家数据导入和 Watch 状态处理。
+- `packages/registry-builder/` 和 `scripts/registry-builder.ts`：采集注册表候选、保存证据、执行显式审核，并发布 Railway PostgreSQL 已批准快照。
 - `docs/product/`：部署、数据来源、Coupon、Watch 和联盟运行手册。
+
+注册表扩建不会把 Awin 合作关系或技术可访问性自动当成商家信任。操作方法见 [Registry Builder](docs/product/registry-builder.md)。
 
 Commerce API 会保持失败关闭，直到商家通过审计门。统一路由会使用已批准联盟来源和 Shopify Global Catalog，授权 Chrome 仅作为所有来源完整返回零结果时的补充方式。

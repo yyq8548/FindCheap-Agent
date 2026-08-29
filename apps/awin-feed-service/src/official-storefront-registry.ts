@@ -5,7 +5,7 @@ import {
   type OfficialStorefrontRegistry
 } from "../../../packages/contracts/src/index.js";
 
-const DEFAULT_REGISTRY: OfficialStorefrontRegistry = OfficialStorefrontRegistrySchema.parse({
+export const DEFAULT_OFFICIAL_STOREFRONT_REGISTRY: OfficialStorefrontRegistry = OfficialStorefrontRegistrySchema.parse({
   version: "official-storefronts-2026-08-28",
   stores: [
     shopify("DÔEN", [], "shopdoen.com", "www.shopdoen.com", "https://www.shopdoen.com/", "2026-08-20"),
@@ -45,13 +45,20 @@ export function officialStorefrontRegistryFromEnvironment(
 ): ServedOfficialStorefrontRegistry {
   const configured = environment.FINDCHEAP_OFFICIAL_STOREFRONTS_JSON?.trim();
   const registry = configured === undefined || configured === ""
-    ? DEFAULT_REGISTRY
+    ? DEFAULT_OFFICIAL_STOREFRONT_REGISTRY
     : OfficialStorefrontRegistrySchema.parse(JSON.parse(configured));
-  const body = JSON.stringify(registry);
+  return serveOfficialStorefrontRegistry(registry);
+}
+
+export function serveOfficialStorefrontRegistry(
+  registry: OfficialStorefrontRegistry
+): ServedOfficialStorefrontRegistry {
+  const valid = OfficialStorefrontRegistrySchema.parse(registry);
+  const body = JSON.stringify(valid);
   return {
     body,
     etag: `"${createHash("sha256").update(body).digest("base64url")}"`,
-    registry
+    registry: valid
   };
 }
 

@@ -195,6 +195,9 @@ See [sharing and installation](docs/product/findcheap-agent-share-package.md) fo
 - `apps/mcp-server/` contains the local MCP server and product card resource.
 - `apps/commerce-api/` contains the audited comparison API.
 - `apps/ingestion-worker/` contains merchant ingestion and watch state processing.
+- `packages/registry-builder/` and `scripts/registry-builder.ts` collect registry candidates, record evidence, require explicit review, and publish approved Railway PostgreSQL snapshots.
 - `docs/product/` contains deployment, data-source, Coupon, Watch, and affiliate runbooks.
+
+Registry expansion never turns an Awin relationship or technical storefront response into merchant trust. See [Registry Builder](docs/product/registry-builder.md).
 
 The Commerce API fails closed until a merchant passes its audit gate. The unified router uses approved affiliate sources and Shopify Global Catalog, while authorized Chrome remains a complete-zero-result fallback.

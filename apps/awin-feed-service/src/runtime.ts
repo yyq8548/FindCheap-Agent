@@ -1,9 +1,11 @@
 import { once } from "node:events";
 
+import { createDatabase, type Database } from "../../../packages/db/src/client.js";
 import { parseAwinFeedServiceEnvironment } from "./environment.js";
 import { createEbayBrowseController } from "./ebay-browse.js";
 import { createAwinOffersController } from "./offers.js";
 import { createAwinFeedController, createAwinFeedHttpServer } from "./service.js";
+import { refreshServedRegistriesFromDatabase } from "./registry-database.js";
 
 export type AwinFeedRuntime = {
   close(): Promise<void>;
@@ -16,10 +18,25 @@ export async function startAwinFeedRuntime(
   const controller = createAwinFeedController(environment);
   const offers = environment.offers === undefined ? undefined : createAwinOffersController(environment.offers);
   const ebay = environment.ebay === undefined ? undefined : createEbayBrowseController(environment.ebay);
+  const registryDatabase: Database | undefined = environment.registryDatabase === undefined
+    ? undefined
+    : createDatabase(environment.registryDatabase.url, {
+        statementTimeoutMs: 5_000,
+        queryTimeoutMs: 6_000,
+        connectionTimeoutMs: 5_000
+      });
+  const refreshRegistries = async (): Promise<void> => {
+    if (registryDatabase === undefined) return;
+    await refreshServedRegistriesFromDatabase(registryDatabase, {
+      officialStorefronts: environment.officialStorefronts,
+      merchantTrust: environment.merchantTrust
+    });
+  };
   await controller.loadExisting();
   await offers?.loadExisting();
   await controller.refresh().catch(() => {});
   await offers?.refresh().catch(() => {});
+  await refreshRegistries().catch(() => {});
   const server = createAwinFeedHttpServer(
     controller,
     environment.apiToken,
@@ -40,13 +57,22 @@ export async function startAwinFeedRuntime(
     void offers.refresh().catch(() => {});
   }, environment.offers!.refreshIntervalMs);
   offersTimer?.unref();
+  const registryTimer = environment.registryDatabase === undefined ? undefined : setInterval(() => {
+    void refreshRegistries().catch(() => {});
+  }, environment.registryDatabase.refreshIntervalMs);
+  registryTimer?.unref();
   return {
     async close() {
       clearInterval(timer);
       if (offersTimer !== undefined) clearInterval(offersTimer);
-      await new Promise<void>((resolve, reject) => {
-        server.close((error) => error ? reject(error) : resolve());
-      });
+      if (registryTimer !== undefined) clearInterval(registryTimer);
+      try {
+        await new Promise<void>((resolve, reject) => {
+          server.close((error) => error ? reject(error) : resolve());
+        });
+      } finally {
+        await registryDatabase?.close();
+      }
     }
   };
 }

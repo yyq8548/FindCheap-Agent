@@ -1,6 +1,6 @@
 {
   "name": "findcheap-agent",
-  "version": "0.15.1+codex.20260828234554",
+  "version": "0.15.2+codex.20260829004249",
   "description": "Search products from text or visual evidence, compare verified offers, find deals, and monitor prices, promotions, and stock.",
   "author": {
     "name": "yyq8548"
@@ -12,7 +12,7 @@
   "interface": {
     "displayName": "FindCheap Agent",
     "shortDescription": "Verified cards, pricing, coupons, and safe links.",
-    "longDescription": "FindCheap Agent is a Codex Plugin Agent. v0.15.1 adds a Railway-managed merchant-trust registry alongside the managed official-storefront registry. Reviewed merchant identity can update centrally without republishing the plugin; clients use bounded HTTPS retrieval, ETag revalidation, a 24-hour cache, and a reviewed embedded fallback. Affiliate relationships never affect merchant trust, relevance, or ranking. Official cards require an approved exact domain, verified product identity, a valid public USD price, and stable product identity; unsupported or blocked sites fail closed and may use user-authorized Chrome only as a fallback. Product family and explicit brand/model stay hard; uncertain visual details remain soft clues and never create EXACT identity. Text search treats a maximum budget as a ceiling and never recommends products absent from returned cards. Exact selected-product follow-ups reuse stable selection identity. Price-history and buy-or-wait forecasting remain disabled. The agent never invents identity, discount eligibility, stacking, or delivered totals; it never checks out, reserves inventory, purchases, or pays.",
+    "longDescription": "FindCheap Agent is a Codex Plugin Agent. v0.15.2 adds a Railway PostgreSQL Registry Builder for official storefront and merchant-trust growth. Automated Awin collection and technical storefront probes create candidates and evidence only; explicit review is required before approval, and public endpoints serve only schema-valid immutable releases. Invalid or unavailable database snapshots cannot replace the last valid or reviewed embedded registry. Affiliate relationships never affect merchant trust, relevance, or ranking. Official cards require an approved exact domain, verified product identity, a valid public USD price, and stable product identity; unsupported or blocked sites fail closed and may use user-authorized Chrome only as a fallback. Product family and explicit brand/model stay hard; uncertain visual details remain soft clues and never create EXACT identity. Text search treats a maximum budget as a ceiling and never recommends products absent from returned cards. Exact selected-product follow-ups reuse stable selection identity. Price-history and buy-or-wait forecasting remain disabled. The agent never invents identity, discount eligibility, stacking, or delivered totals; it never checks out, reserves inventory, purchases, or pays.",
     "developerName": "yyq8548",
     "category": "Productivity",
     "capabilities": [

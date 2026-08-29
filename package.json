@@ -20,7 +20,8 @@
     "products:backfill-identity-keys": "tsx scripts/backfill-product-identity-keys.ts",
     "eval:matching": "tsx scripts/evaluate-matching.ts",
     "merchants:score": "tsx scripts/score-merchants.ts",
-    "merchants:gate": "tsx scripts/validate-enabled-merchants.ts"
+    "merchants:gate": "tsx scripts/validate-enabled-merchants.ts",
+    "registry:build": "tsx scripts/registry-builder.ts"
   },
   "dependencies": {
     "bullmq": "^6.1.0",

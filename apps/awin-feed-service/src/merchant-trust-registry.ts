@@ -19,10 +19,17 @@ export function merchantTrustRegistryFromEnvironment(
   const registry = configured === undefined || configured === ""
     ? EMBEDDED_MERCHANT_TRUST_REGISTRY
     : ManagedMerchantTrustRegistrySchema.parse(JSON.parse(configured));
-  const body = JSON.stringify(registry);
+  return serveMerchantTrustRegistry(registry);
+}
+
+export function serveMerchantTrustRegistry(
+  registry: ManagedMerchantTrustRegistry
+): ServedMerchantTrustRegistry {
+  const valid = ManagedMerchantTrustRegistrySchema.parse(registry);
+  const body = JSON.stringify(valid);
   return {
     body,
     etag: `"${createHash("sha256").update(body).digest("base64url")}"`,
-    registry
+    registry: valid
   };
 }

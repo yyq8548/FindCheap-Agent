@@ -1,5 +1,6 @@
 import { isAbsolute } from "node:path";
 
+import { parseDatabaseUrl } from "../../../packages/db/src/environment.js";
 import { parseEbayBrowseEnvironment, type EbayBrowseEnvironment } from "./ebay-browse.js";
 import {
   officialStorefrontRegistryFromEnvironment,
@@ -30,6 +31,10 @@ export type AwinFeedServiceEnvironment = {
   ebay?: EbayBrowseEnvironment;
   officialStorefronts: ServedOfficialStorefrontRegistry;
   merchantTrust: ServedMerchantTrustRegistry;
+  registryDatabase?: {
+    url: string;
+    refreshIntervalMs: number;
+  };
   host: "127.0.0.1" | "::1" | "0.0.0.0" | "::";
   port: number;
 };
@@ -114,6 +119,26 @@ export function parseAwinFeedServiceEnvironment(
   const ebay = parseEbayBrowseEnvironment(input);
   const officialStorefronts = officialStorefrontRegistryFromEnvironment(input);
   const merchantTrust = merchantTrustRegistryFromEnvironment(input);
+  const nodeEnvironment = input.NODE_ENV ?? "development";
+  if (nodeEnvironment !== "development" && nodeEnvironment !== "test" && nodeEnvironment !== "production") {
+    throw new Error("NODE_ENV must be development, test, or production");
+  }
+  const registryDatabaseUrl = parseDatabaseUrl(
+    input.FINDCHEAP_REGISTRY_DATABASE_URL,
+    nodeEnvironment,
+    { allowRailwayPrivateRequire: true }
+  );
+  const registryDatabase = registryDatabaseUrl === undefined
+    ? undefined
+    : {
+        url: registryDatabaseUrl,
+        refreshIntervalMs: integerInRange(
+          input.FINDCHEAP_REGISTRY_REFRESH_MINUTES ?? "15",
+          1,
+          1_440,
+          "FINDCHEAP_REGISTRY_REFRESH_MINUTES"
+        ) * 60_000
+      };
   const port = integerInRange(input.AWIN_FEED_SERVICE_PORT ?? input.PORT ?? "3010", 1, 65_535, "service port");
   const host = input.AWIN_FEED_SERVICE_HOST ?? "127.0.0.1";
   if (host !== "127.0.0.1" && host !== "::1" && host !== "0.0.0.0" && host !== "::") {
@@ -133,6 +158,7 @@ export function parseAwinFeedServiceEnvironment(
     ...(ebay === undefined ? {} : { ebay }),
     officialStorefronts,
     merchantTrust,
+    ...(registryDatabase === undefined ? {} : { registryDatabase }),
     host,
     port
   };
