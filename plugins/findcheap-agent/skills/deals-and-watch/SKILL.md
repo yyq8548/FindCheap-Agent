@@ -3,7 +3,7 @@ name: deals-and-watch
 description: Find verified Coupon, promotion, membership, Cashback, and offline-barcode evidence, or create and manage shopping watches with Codex Automation.
 ---
 
-# FindCheap Agent v0.15.5 Deals and Watch
+# FindCheap Agent v0.15.6 Deals and Watch
 
 A live Coupon or Watch request is self-contained. MCP tools are loaded. Do not read Memory, repository files, logs, task files, or plugin cache. Do not reopen this Skill. Send at most one short progress sentence before the first tool call; do not narrate the tool sequence between calls.
 
