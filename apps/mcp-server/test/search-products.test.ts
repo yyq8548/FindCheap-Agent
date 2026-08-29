@@ -337,6 +337,57 @@ describe("unified product search", () => {
     expect(result.candidates[0]?.shopifyProduct?.title).toBe("Apple MacBook Pro M5 Pro 24GB 1TB");
   });
 
+  it("keeps added required specifications out of product identity", async () => {
+    const search = vi.fn<ShopifyPort["search"]>(async () => shopifyResult([
+      shopifyProduct("m5-pro-24", 234_900, "NEW", {
+        title: "Apple MacBook Pro M5 Pro 24GB 1TB",
+        brand: "Apple"
+      }),
+      shopifyProduct("m5-16", 190_900, "NEW", {
+        title: "Apple MacBook Pro M5 16GB 1TB",
+        brand: "Apple"
+      })
+    ]));
+
+    const result = await searchProducts(SearchProductsInputSchema.parse({
+      contextMode: "CONTINUE_PREVIOUS_PRODUCT",
+      query: "Apple MacBook Pro 24GB memory",
+      brand: "Apple",
+      brandMode: "REQUIRED",
+      productType: "laptop",
+      requiredFeatures: ["24GB memory"],
+      maxItemPriceCents: 300_000,
+      limit: 3
+    }), { awin: awin([]), shopify: { search } });
+
+    expect(search.mock.calls[0]?.[0].query).toBe("Apple MacBook Pro");
+    expect(result.candidates.map((candidate) => candidate.shopifyProduct?.handle)).toEqual(["m5-pro-24"]);
+  });
+
+  it("keeps a branded two-term product identity during both search passes", async () => {
+    const search = vi.fn<ShopifyPort["search"]>(async () => shopifyResult([
+      shopifyProduct("dunk-low", 12_000, "NEW", {
+        title: "Nike Dunk Low Retro",
+        brand: "Nike",
+        productType: "Sneakers"
+      })
+    ]));
+
+    const result = await searchProducts(SearchProductsInputSchema.parse({
+      contextMode: "NEW_PRODUCT",
+      query: "Nike Dunk",
+      productType: "sneakers",
+      brand: "Nike",
+      brandMode: "REQUIRED",
+      limit: 3
+    }), { awin: awin([]), shopify: { search } });
+
+    expect(result.searchIntent).toBe("EXACT_PRODUCT");
+    expect(search.mock.calls[0]?.[0].query).toBe("Nike Dunk");
+    expect(search.mock.calls[1]?.[0].query).toContain("Nike Dunk");
+    expect(result.candidates).toHaveLength(1);
+  });
+
   it("rejects UNKNOWN affiliate condition when NEW is explicitly required", async () => {
     const result = await searchProducts(SearchProductsInputSchema.parse({
       query: "全新 hair mask",

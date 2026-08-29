@@ -4432,7 +4432,7 @@
   },
   "outputs": {
     "../../plugins/findcheap-agent/dist/mcp-server.js": {
-      "bytes": 661425,
+      "bytes": 662124,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
@@ -4660,7 +4660,7 @@
           "bytesInOutput": 673
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/compile/validate/dataType.js": {
-          "bytesInOutput": 4155
+          "bytesInOutput": 4113
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/compile/validate/defaults.js": {
           "bytesInOutput": 682
@@ -4675,7 +4675,7 @@
           "bytesInOutput": 1980
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/core.js": {
-          "bytesInOutput": 12297
+          "bytesInOutput": 12301
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/refs/data.json": {
           "bytesInOutput": 358
@@ -5011,7 +5011,7 @@
           "bytesInOutput": 649
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v4/core/schemas.js": {
-          "bytesInOutput": 18929
+          "bytesInOutput": 18932
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v4/core/to-json-schema.js": {
           "bytesInOutput": 11445
@@ -5104,22 +5104,22 @@
           "bytesInOutput": 1784
         },
         "src/search-products.ts": {
-          "bytesInOutput": 25913
+          "bytesInOutput": 26514
         },
         "src/server.ts": {
-          "bytesInOutput": 94136
+          "bytesInOutput": 94147
         },
         "src/shopify-cart-quote.ts": {
-          "bytesInOutput": 10335
+          "bytesInOutput": 10338
         },
         "src/shopify-client.ts": {
           "bytesInOutput": 181
         },
         "src/shopify-global-catalog-client.ts": {
-          "bytesInOutput": 22052
+          "bytesInOutput": 22054
         },
         "src/shopify-match.ts": {
-          "bytesInOutput": 6086
+          "bytesInOutput": 6203
         },
         "src/shopify-official-store-search.ts": {
           "bytesInOutput": 9961

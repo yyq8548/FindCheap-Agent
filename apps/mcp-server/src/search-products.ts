@@ -40,6 +40,7 @@ import {
 import {
   classifyShopifyCandidate,
   hasNamedProductIntent,
+  hasSpecificProductIdentity,
   hasStrongProductIdentifier,
   type ShopifyMatchCandidate,
   type ShopifyMatchStatus
@@ -316,7 +317,10 @@ export async function searchProducts(
     ])
   };
   const searchIntent = resolveSearchIntent(input);
-  const productQuery = productOnlyQuery(input.query, input.maxItemPriceCents !== undefined);
+  const productQuery = stripRequiredFeaturesFromQuery(
+    productOnlyQuery(input.query, input.maxItemPriceCents !== undefined),
+    input.requiredFeatures
+  );
   const identityQuery = searchIntent === "EXACT_PRODUCT"
     ? unique([
         input.brand !== undefined && !containsBrand(productQuery, input.brand) ? input.brand : "",
@@ -329,7 +333,7 @@ export async function searchProducts(
     ? identityQuery
     : input.deferVisualFiltering === true
       ? productQuery
-      : buildSourceQuery(input);
+      : buildSourceQuery({ ...input, query: productQuery });
   const affiliateEligible = shouldQueryAwin(sourceQuery);
   let awinResult: AwinSearchResult | undefined;
   let shopifyResult: ShopifySearchResult | undefined;
@@ -781,6 +785,7 @@ function shopifyCandidate(
   if (product.merchantTrust.level === "RISKY") return undefined;
   const brand = assessBrand(input, [
     product.title,
+    product.description,
     product.brand,
     ...(product.merchantTrust.level === "OFFICIAL" ? [product.merchant] : [])
   ]);
@@ -857,12 +862,17 @@ function shopifyCandidate(
 }
 
 export function resolveSearchIntent(
-  input: Pick<SearchProductsInput, "query" | "comparisonMode" | "visualInput">
+  input: Pick<SearchProductsInput, "query" | "comparisonMode" | "visualInput" | "brand" | "brandMode">
 ): ProductSearchIntent {
   if (input.comparisonMode === "SAME_PRODUCT" || hasStrongProductIdentifier(input.query)) {
     return "EXACT_PRODUCT";
   }
   if (input.visualInput !== undefined) return "VISUAL_DISCOVERY";
+  if (
+    input.brand !== undefined &&
+    input.brandMode === "REQUIRED" &&
+    hasSpecificProductIdentity(input.query)
+  ) return "EXACT_PRODUCT";
   return hasNamedProductIntent(input.query) ? "EXACT_PRODUCT" : "CATEGORY_DISCOVERY";
 }
 
@@ -1055,10 +1065,31 @@ function buildSourceQuery(input: Pick<SearchProductsInput, "query" | "brand" | "
   }
   const query = productOnlyQuery(input.query, input.maxItemPriceCents !== undefined);
   return unique([
-    input.brand ?? "",
+    input.brand !== undefined && !containsBrand(query, input.brand) ? input.brand : "",
     query,
     input.productType ?? "",
   ]).join(" ").slice(0, 300).trim();
+}
+
+function stripRequiredFeaturesFromQuery(value: string, features: readonly string[]): string {
+  let query = value;
+  for (const feature of features) {
+    if (!isMemoryOrStorageSpecification(feature)) continue;
+    const tokens = feature.normalize("NFKC").trim().split(/\s+/u).filter((token) => token !== "");
+    if (tokens.length === 0) continue;
+    const phrase = tokens.map(escapeRegExp).join("\\s*");
+    query = query.replace(new RegExp(`(?:^|\\s)${phrase}(?=\\s|$|[,;])`, "giu"), " ");
+  }
+  return query.replace(/\s+/gu, " ").trim() || value;
+}
+
+function isMemoryOrStorageSpecification(value: string): boolean {
+  return /\b\d+\s*(?:mb|gb|tb)\b/iu.test(value) &&
+    /\b(?:memory|ram|storage|ssd|mb|gb|tb)\b/iu.test(value);
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 }
 
 function productOnlyQuery(value: string, hasPriceCeiling: boolean): string {

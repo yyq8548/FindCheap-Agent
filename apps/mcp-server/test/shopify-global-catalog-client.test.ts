@@ -80,6 +80,28 @@ describe("Shopify Global Catalog client", () => {
     expect(result.diagnostics).toMatchObject({ queryAttempts: 1, fallbackQueryUsed: false });
   });
 
+  it("uses Catalog descriptions as category and brand evidence", async () => {
+    const fetch = vi.fn(async () => catalogResponse([
+      product({
+        shopId: "32",
+        merchant: "Sneaker Shop",
+        host: "sneakers.example",
+        price: 12_000,
+        title: "Dunk Low Pro",
+        description: { plain: "Iconic Nike Dunk sneakers with a suede upper." }
+      })
+    ]));
+    const port = createShopifyGlobalCatalogPort(
+      { SHOPIFY_AGENT_PROFILE_URL: profileUrl },
+      { fetch, clock: { now: () => new Date(now) } }
+    );
+
+    const result = await port.search({ query: "Nike Dunk sneakers", limit: 3 });
+
+    expect(result.products).toHaveLength(1);
+    expect(result.products[0]).toMatchObject({ title: "Dunk Low Pro" });
+  });
+
   it("never labels a relaxed-query result exact even when a model identifier is present", async () => {
     const fetch = vi.fn()
       .mockResolvedValueOnce(catalogResponse([]))

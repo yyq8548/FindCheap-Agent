@@ -2,6 +2,7 @@ export type ShopifyMatchStatus = "EXACT" | "DISCOVERY_MATCH" | "SIMILAR" | "IRRE
 
 export type ShopifyMatchCandidate = {
   title: string;
+  description?: string;
   brand?: string;
   sku?: string;
   handle?: string;
@@ -130,8 +131,15 @@ export function classifyShopifyCandidate(
   const variantTermMatches = (term: string): boolean => variantTokens.has(term) ||
     (VARIANT_COLORS.has(term) && candidateTokens.has(term));
   const variantsExact = [...requestedVariantTerms].every(variantTermMatches);
+  const primaryIdentityTokens = new Set(tokenize([
+    candidate.title,
+    candidate.productType,
+    candidate.brand,
+    candidate.sku,
+    candidate.handle
+  ].filter((value): value is string => value !== undefined).join(" ")));
   if (
-    [...ACCESSORY_TERMS].some((term) => candidateTokens.has(term)) &&
+    [...ACCESSORY_TERMS].some((term) => primaryIdentityTokens.has(term)) &&
     !queryTokens.some((term) => ACCESSORY_TERMS.has(term))
   ) {
     return irrelevant("accessory does not match requested product");
@@ -207,6 +215,7 @@ export function classifyShopifyCandidate(
 function candidateText(candidate: ShopifyMatchCandidate): string {
   return [
     candidate.title,
+    candidate.description,
     candidate.brand,
     candidate.sku,
     candidate.handle,
