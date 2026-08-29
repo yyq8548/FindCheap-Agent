@@ -65,40 +65,51 @@ describe("merchant trust evidence", () => {
     }
   });
 
-  it("resolves only reviewed Shopify storefront brands", () => {
-    expect(resolveVerifiedOfficialStorefront("SKIMS")).toEqual({ host: "skims.com", brand: "SKIMS" });
-    expect(resolveVerifiedOfficialStorefront("doen")).toEqual({ host: "www.shopdoen.com", brand: "DÔEN" });
-    expect(resolveVerifiedOfficialStorefront("Death Wish")).toEqual({
+  it("resolves only reviewed official storefront brands", () => {
+    expect(resolveVerifiedOfficialStorefront("SKIMS")).toMatchObject({ host: "skims.com", brand: "SKIMS", platform: "SHOPIFY" });
+    expect(resolveVerifiedOfficialStorefront("doen")).toMatchObject({ host: "www.shopdoen.com", brand: "DÔEN", platform: "SHOPIFY" });
+    expect(resolveVerifiedOfficialStorefront("Death Wish")).toMatchObject({
       host: "www.deathwishcoffee.com",
       brand: "Death Wish Coffee"
     });
-    expect(resolveVerifiedOfficialStorefront("BLK and Bold")).toEqual({
+    expect(resolveVerifiedOfficialStorefront("BLK and Bold")).toMatchObject({
       host: "blkandbold.com",
       brand: "BLK & Bold"
     });
-    expect(resolveVerifiedOfficialStorefront("Verve")).toEqual({
+    expect(resolveVerifiedOfficialStorefront("Verve")).toMatchObject({
       host: "www.vervecoffee.com",
       brand: "Verve Coffee"
     });
-    expect(resolveVerifiedOfficialStorefront("Steve Madden")).toEqual({
+    expect(resolveVerifiedOfficialStorefront("Steve Madden")).toMatchObject({
       host: "www.stevemadden.com",
       brand: "Steve Madden"
     });
-    expect(resolveVerifiedOfficialStorefront("Allbirds")).toEqual({
+    expect(resolveVerifiedOfficialStorefront("Allbirds")).toMatchObject({
       host: "www.allbirds.com",
       brand: "Allbirds"
     });
-    expect(resolveVerifiedOfficialStorefront("Brooklinen")).toEqual({
+    expect(resolveVerifiedOfficialStorefront("Brooklinen")).toMatchObject({
       host: "www.brooklinen.com",
       brand: "Brooklinen"
     });
-    expect(resolveVerifiedOfficialStorefront("Glossier")).toEqual({
+    expect(resolveVerifiedOfficialStorefront("Glossier")).toMatchObject({
       host: "www.glossier.com",
       brand: "Glossier"
     });
-    expect(resolveVerifiedOfficialStorefront("Colour Pop")).toEqual({
+    expect(resolveVerifiedOfficialStorefront("Colour Pop")).toMatchObject({
       host: "colourpop.com",
       brand: "ColourPop"
+    });
+    expect(resolveVerifiedOfficialStorefront("Intimately")).toMatchObject({
+      host: "www.freepeople.com",
+      officialHost: "freepeople.com",
+      brand: "Free People",
+      platform: "GENERIC_JSON_LD",
+      productPathPrefixes: ["/shop/"]
+    });
+    expect(resolveMerchantTrust("www.freepeople.com")).toMatchObject({
+      level: "OFFICIAL",
+      verification: "INDEPENDENT"
     });
     expect(resolveVerifiedOfficialStorefront("Unknown Brand")).toBeUndefined();
   });

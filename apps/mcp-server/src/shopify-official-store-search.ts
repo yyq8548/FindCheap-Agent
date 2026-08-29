@@ -1,9 +1,11 @@
 import { z } from "zod";
+import type { OfficialStorefrontRecord } from "../../../packages/contracts/src/index.js";
 
 import { safeFetchWithProvenance } from "../../../packages/network-safety/src/safe-fetch.js";
 import { resolveMerchantTrust } from "./merchant-trust.js";
 import type { ShopifyProduct } from "./shopify-client.js";
 import { ShopifyProductJsonSchema, shopifyVariantDimensions } from "./shopify-product-json.js";
+import { createGenericOfficialStoreSearchPort } from "./generic-official-store-search.js";
 
 const PredictiveProductSchema = z.object({
   handle: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,200}$/u),
@@ -51,7 +53,10 @@ type StorefrontProductReference = z.infer<typeof PredictiveProductSchema>;
 export type OfficialShopifyStoreSeed = Pick<
   ShopifyProduct,
   "merchantId" | "merchant" | "sourceHost" | "merchantUrl" | "brand"
->;
+> & Partial<Pick<
+  OfficialStorefrontRecord,
+  "officialHost" | "platform" | "productPathPrefixes" | "searchPathTemplate" | "imageHosts"
+>>;
 
 export type OfficialShopifySearchInput = {
   seed: ShopifyProduct | OfficialShopifyStoreSeed;
@@ -88,6 +93,7 @@ export type OfficialShopifyFetch = (
 type Dependencies = {
   fetchDocument?: OfficialShopifyFetch;
   clock?: { now(): Date };
+  imageProxyOrigin?: string;
 };
 
 export function createOfficialShopifySearchPort(
@@ -96,9 +102,15 @@ export function createOfficialShopifySearchPort(
   const fetchDocument = dependencies.fetchDocument ?? ((url, allowedHost) =>
     safeFetchWithProvenance({ url }, { allowedHosts: [allowedHost] }));
   const clock = dependencies.clock ?? { now: () => new Date() };
+  const generic = createGenericOfficialStoreSearchPort({
+    fetchDocument,
+    clock,
+    ...(dependencies.imageProxyOrigin === undefined ? {} : { imageProxyOrigin: dependencies.imageProxyOrigin })
+  });
 
   return {
     async search(input) {
+      if ("platform" in input.seed && input.seed.platform === "GENERIC_JSON_LD") return generic.search(input);
       const sourceHost = verifiedOfficialHost(input.seed);
       const candidates = await findStorefrontProducts(
         fetchDocument,

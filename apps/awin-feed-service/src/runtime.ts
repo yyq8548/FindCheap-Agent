@@ -25,7 +25,8 @@ export async function startAwinFeedRuntime(
     environment.apiToken,
     {
       ...(offers === undefined ? {} : { offers }),
-      ...(ebay === undefined ? {} : { ebay })
+      ...(ebay === undefined ? {} : { ebay }),
+      officialStorefronts: environment.officialStorefronts
     }
   );
   server.listen(environment.port, environment.host);

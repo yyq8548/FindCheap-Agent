@@ -3730,6 +3730,11 @@
           "kind": "import-statement",
           "original": "./url.js",
           "path": "../../packages/contracts/src/url.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./official-storefront.js",
+          "path": "../../packages/contracts/src/official-storefront.ts"
         }
       ]
     },
@@ -3760,6 +3765,16 @@
           "kind": "import-statement",
           "original": "./url.js",
           "path": "../../packages/contracts/src/url.ts"
+        }
+      ]
+    },
+    "../../packages/contracts/src/official-storefront.ts": {
+      "format": "esm",
+      "imports": [
+        {
+          "kind": "import-statement",
+          "original": "zod",
+          "path": "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/index.js"
         }
       ]
     },
@@ -3898,6 +3913,31 @@
         }
       ]
     },
+    "src/generic-official-store-search.ts": {
+      "format": "esm",
+      "imports": [
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:crypto"
+        },
+        {
+          "kind": "import-statement",
+          "original": "zod",
+          "path": "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/index.js"
+        },
+        {
+          "kind": "import-statement",
+          "original": "../../../packages/network-safety/src/safe-fetch.js",
+          "path": "../../packages/network-safety/src/safe-fetch.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./merchant-trust.js",
+          "path": "src/merchant-trust.ts"
+        }
+      ]
+    },
     "src/merchant-trust.ts": {
       "format": "esm",
       "imports": [
@@ -3905,6 +3945,21 @@
           "external": true,
           "kind": "import-statement",
           "path": "node:net"
+        }
+      ]
+    },
+    "src/official-storefront-registry-client.ts": {
+      "format": "esm",
+      "imports": [
+        {
+          "kind": "import-statement",
+          "original": "../../../packages/contracts/src/index.js",
+          "path": "../../packages/contracts/src/index.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./merchant-trust.js",
+          "path": "src/merchant-trust.ts"
         }
       ]
     },
@@ -4141,6 +4196,11 @@
           "kind": "import-statement",
           "original": "./shopify-product-json.js",
           "path": "src/shopify-product-json.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./generic-official-store-search.js",
+          "path": "src/generic-official-store-search.ts"
         }
       ]
     },
@@ -4256,6 +4316,11 @@
           "kind": "import-statement",
           "original": "./product-card-ui.js",
           "path": "src/product-card-ui.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./official-storefront-registry-client.js",
+          "path": "src/official-storefront-registry-client.ts"
         }
       ]
     },
@@ -4327,7 +4392,7 @@
   },
   "outputs": {
     "../../plugins/findcheap-agent/dist/mcp-server.js": {
-      "bytes": 641623,
+      "bytes": 655306,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
@@ -4450,6 +4515,11 @@
           "external": true,
           "kind": "import-statement",
           "path": "node:zlib"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:crypto"
         }
       ],
       "inputs": {
@@ -4565,7 +4635,7 @@
           "bytesInOutput": 1980
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/core.js": {
-          "bytesInOutput": 12301
+          "bytesInOutput": 12297
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/refs/data.json": {
           "bytesInOutput": 358
@@ -4649,7 +4719,7 @@
           "bytesInOutput": 2381
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/discriminator/index.js": {
-          "bytesInOutput": 2293
+          "bytesInOutput": 2290
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/discriminator/types.js": {
           "bytesInOutput": 181
@@ -4658,7 +4728,7 @@
           "bytesInOutput": 235
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/format/format.js": {
-          "bytesInOutput": 1953
+          "bytesInOutput": 1950
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/format/index.js": {
           "bytesInOutput": 121
@@ -4901,7 +4971,7 @@
           "bytesInOutput": 649
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v4/core/schemas.js": {
-          "bytesInOutput": 18932
+          "bytesInOutput": 18929
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v4/core/to-json-schema.js": {
           "bytesInOutput": 11445
@@ -4939,6 +5009,9 @@
         "../../packages/contracts/src/offer.ts": {
           "bytesInOutput": 2205
         },
+        "../../packages/contracts/src/official-storefront.ts": {
+          "bytesInOutput": 2145
+        },
         "../../packages/contracts/src/product.ts": {
           "bytesInOutput": 481
         },
@@ -4966,8 +5039,14 @@
         "src/ebay-client.ts": {
           "bytesInOutput": 3766
         },
+        "src/generic-official-store-search.ts": {
+          "bytesInOutput": 8106
+        },
         "src/merchant-trust.ts": {
-          "bytesInOutput": 7876
+          "bytesInOutput": 9150
+        },
+        "src/official-storefront-registry-client.ts": {
+          "bytesInOutput": 1326
         },
         "src/product-card-ui.ts": {
           "bytesInOutput": 37594
@@ -4979,25 +5058,25 @@
           "bytesInOutput": 1784
         },
         "src/search-products.ts": {
-          "bytesInOutput": 25683
+          "bytesInOutput": 25918
         },
         "src/server.ts": {
-          "bytesInOutput": 93674
+          "bytesInOutput": 93989
         },
         "src/shopify-cart-quote.ts": {
-          "bytesInOutput": 10340
+          "bytesInOutput": 10335
         },
         "src/shopify-client.ts": {
           "bytesInOutput": 181
         },
         "src/shopify-global-catalog-client.ts": {
-          "bytesInOutput": 22056
+          "bytesInOutput": 22050
         },
         "src/shopify-match.ts": {
-          "bytesInOutput": 6090
+          "bytesInOutput": 6086
         },
         "src/shopify-official-store-search.ts": {
-          "bytesInOutput": 9778
+          "bytesInOutput": 9961
         },
         "src/shopify-product-json.ts": {
           "bytesInOutput": 1432
@@ -5006,7 +5085,7 @@
           "bytesInOutput": 2946
         },
         "src/stdio.ts": {
-          "bytesInOutput": 719
+          "bytesInOutput": 846
         },
         "src/visual-candidate-images.ts": {
           "bytesInOutput": 1116

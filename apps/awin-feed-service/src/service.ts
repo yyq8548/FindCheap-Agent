@@ -25,8 +25,10 @@ import {
   parseAwinOfferSearchInput,
   type AwinOffersController
 } from "./offers.js";
+import type { ServedOfficialStorefrontRegistry } from "./official-storefront-registry.js";
 
 const MAX_AWIN_FEED_LIST_BYTES = 4 * 1024 * 1024;
+const MAX_OFFICIAL_IMAGE_BYTES = 1_500_000;
 
 type FeedSnapshot = {
   archive: Uint8Array;
@@ -225,6 +227,7 @@ export function createAwinFeedHttpServer(
     imageFetch?: (url: string) => Promise<Response>;
     offers?: AwinOffersController;
     ebay?: EbayBrowseController;
+    officialStorefronts?: ServedOfficialStorefrontRegistry;
   } = {}
 ) {
   const publicSearchLimiter = createPublicSearchLimiter(
@@ -244,6 +247,7 @@ export function createAwinFeedHttpServer(
       options.imageFetch ?? fetchValidatedImage,
       options.offers,
       options.ebay,
+      options.officialStorefronts,
       request,
       response
     ).catch(() => {
@@ -265,11 +269,39 @@ async function handleRequest(
   imageFetch: (url: string) => Promise<Response>,
   offers: AwinOffersController | undefined,
   ebay: EbayBrowseController | undefined,
+  officialStorefronts: ServedOfficialStorefrontRegistry | undefined,
   request: IncomingMessage,
   response: ServerResponse
 ): Promise<void> {
   const requestUrl = new URL(request.url ?? "/", "http://localhost");
   const path = requestUrl.pathname;
+  if (path === "/v1/official-storefronts") {
+    if (request.method !== "GET") {
+      json(response, 405, { error: "METHOD_NOT_ALLOWED" });
+      return;
+    }
+    if (officialStorefronts === undefined) {
+      json(response, 404, { error: "OFFICIAL_STOREFRONTS_NOT_CONFIGURED" });
+      return;
+    }
+    if (request.headers["if-none-match"] === officialStorefronts.etag) {
+      response.writeHead(304, {
+        "cache-control": "public, max-age=3600, stale-while-revalidate=86400",
+        etag: officialStorefronts.etag
+      });
+      response.end();
+      return;
+    }
+    response.writeHead(200, {
+      "cache-control": "public, max-age=3600, stale-while-revalidate=86400",
+      "content-type": "application/json",
+      "content-length": String(Buffer.byteLength(officialStorefronts.body)),
+      etag: officialStorefronts.etag,
+      "x-content-type-options": "nosniff"
+    });
+    response.end(officialStorefronts.body);
+    return;
+  }
   if (path === "/v1/search" || path === "/v1/offers/search" || path === "/v1/ebay/search") {
     if (request.method !== "POST") {
       json(response, 405, { error: "METHOD_NOT_ALLOWED" });
@@ -319,7 +351,7 @@ async function handleRequest(
       return;
     }
   }
-  if (path === "/v1/images") {
+  if (path === "/v1/images" || path === "/v1/official-images") {
     if (request.method !== "GET") {
       json(response, 405, { error: "METHOD_NOT_ALLOWED" });
       return;
@@ -328,6 +360,32 @@ async function handleRequest(
     if (!rate.allowed) {
       response.setHeader("retry-after", String(rate.retryAfterSeconds));
       json(response, 429, { error: "RATE_LIMITED" });
+      return;
+    }
+    if (path === "/v1/official-images") {
+      const source = approvedOfficialImageUrl(requestUrl.searchParams.get("url") ?? "", officialStorefronts);
+      if (source === undefined) {
+        json(response, 400, { error: "INVALID_IMAGE_REQUEST" });
+        return;
+      }
+      try {
+        const upstream = await imageFetch(source);
+        const contentType = upstream.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
+        if (!upstream.ok || contentType === undefined || !ALLOWED_IMAGE_CONTENT_TYPES.has(contentType)) {
+          json(response, 502, { error: "IMAGE_UPSTREAM_UNAVAILABLE" });
+          return;
+        }
+        const image = await readLimitedBody(upstream, MAX_OFFICIAL_IMAGE_BYTES, "Official image");
+        response.writeHead(200, {
+          "cache-control": "public, max-age=3600, stale-while-revalidate=86400",
+          "content-type": contentType,
+          "content-length": String(image.byteLength),
+          "x-content-type-options": "nosniff"
+        });
+        response.end(image);
+      } catch {
+        json(response, 502, { error: "IMAGE_UPSTREAM_UNAVAILABLE" });
+      }
       return;
     }
     const merchantId = requestUrl.searchParams.get("merchantId") ?? "";
@@ -434,6 +492,27 @@ function validatedSnapshot(archive: Uint8Array, snapshotAt: string, sourceFeeds:
     throw new Error("Awin Feed failed approved merchant validation");
   }
   return { archive, index, snapshotAt, feedRows: index.feedRows, sourceFeeds };
+}
+
+function approvedOfficialImageUrl(
+  value: string,
+  officialStorefronts: ServedOfficialStorefrontRegistry | undefined
+): string | undefined {
+  if (value.length < 1 || value.length > 4_096 || officialStorefronts === undefined) return undefined;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:" || url.username !== "" || url.password !== "" || url.port !== "" || url.hash !== "") {
+      return undefined;
+    }
+    const allowed = new Set(officialStorefronts.registry.stores.flatMap((store) => [
+      store.officialHost,
+      store.storefrontHost ?? store.officialHost,
+      ...store.imageHosts
+    ]));
+    return allowed.has(url.hostname.toLocaleLowerCase("en-US")) ? url.href : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 const ALLOWED_IMAGE_CONTENT_TYPES = new Set([

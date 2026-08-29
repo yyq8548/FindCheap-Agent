@@ -270,7 +270,10 @@ describe("Awin Feed service", () => {
       now: () => new Date("2026-08-22T01:00:00.000Z")
     });
     await offers.refresh();
-    const server = createAwinFeedHttpServer(controller, token, { offers });
+    const server = createAwinFeedHttpServer(controller, token, {
+      offers,
+      officialStorefronts: environment.officialStorefronts
+    });
     server.listen(0, "127.0.0.1");
     await once(server, "listening");
     const address = server.address();
@@ -313,6 +316,20 @@ describe("Awin Feed service", () => {
         feedStatus: "ready",
         feedRows: 1
       });
+      const registry = await fetch(`${origin}/v1/official-storefronts`);
+      expect(registry.status).toBe(200);
+      expect(await registry.json()).toMatchObject({
+        version: "official-storefronts-2026-08-28",
+        stores: expect.arrayContaining([expect.objectContaining({
+          brand: "Free People",
+          officialHost: "freepeople.com",
+          platform: "GENERIC_JSON_LD"
+        })])
+      });
+      const cachedRegistry = await fetch(`${origin}/v1/official-storefronts`, {
+        headers: { "if-none-match": registry.headers.get("etag")! }
+      });
+      expect(cachedRegistry.status).toBe(304);
       expect((await fetch(`${origin}/v1/search`)).status).toBe(405);
       expect((await fetch(`${origin}/v1/search`, {
         method: "POST",
@@ -382,13 +399,19 @@ describe("Awin Feed service", () => {
     });
     await controller.refresh();
     const imageFetch = vi.fn(async (url: string) => {
-      expect(url).toBe("https://cdn.shopify.com/image.jpg");
+      expect([
+        "https://cdn.shopify.com/image.jpg",
+        "https://images.urbndata.com/is/image/FreePeople/106973258_011_oi"
+      ]).toContain(url);
       return new Response(new Uint8Array([1, 2, 3]), {
         status: 200,
         headers: { "content-type": "image/jpeg" }
       });
     });
-    const server = createAwinFeedHttpServer(controller, token, { imageFetch });
+    const server = createAwinFeedHttpServer(controller, token, {
+      imageFetch,
+      officialStorefronts: environment.officialStorefronts
+    });
     server.listen(0, "127.0.0.1");
     await once(server, "listening");
     const address = server.address();
@@ -402,9 +425,15 @@ describe("Awin Feed service", () => {
       expect(new Uint8Array(await image.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3]));
       expect(imageFetch).toHaveBeenCalledOnce();
 
+      const officialImageUrl = "https://images.urbndata.com/is/image/FreePeople/106973258_011_oi";
+      const officialImage = await fetch(`${origin}/v1/official-images?url=${encodeURIComponent(officialImageUrl)}`);
+      expect(officialImage.status).toBe(200);
+      expect(imageFetch).toHaveBeenLastCalledWith(officialImageUrl);
+      expect((await fetch(`${origin}/v1/official-images?url=${encodeURIComponent("https://evil.example/image.jpg")}`)).status).toBe(400);
+
       expect((await fetch(`${origin}/v1/images?merchantId=20282&merchantProductId=missing`)).status).toBe(404);
       expect((await fetch(`${origin}/v1/images?merchantId=bad&merchantProductId=sku-1`)).status).toBe(400);
-      expect(imageFetch).toHaveBeenCalledOnce();
+      expect(imageFetch).toHaveBeenCalledTimes(2);
     } finally {
       await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
     }

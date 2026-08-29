@@ -21,6 +21,7 @@ import {
 } from "./shopify-cart-quote.js";
 import type { ShopifySelectedProductInspector } from "./shopify-selected-product.js";
 import type { OfficialShopifySearchPort } from "./shopify-official-store-search.js";
+import type { OfficialStorefrontRegistryPort } from "./official-storefront-registry-client.js";
 import type { VisualCandidateImagePort } from "./visual-candidate-images.js";
 import type { AwinShopifyQuoteResolver, AwinShopifyQuoteSeed } from "./awin-shopify-quote.js";
 import type { EbayBrowsePort } from "./ebay-client.js";
@@ -507,6 +508,7 @@ const ShopifyProductOutputSchema = z.object({
   availability: z.enum(["IN_STOCK", "OUT_OF_STOCK", "UNKNOWN"]),
   merchantUrl: z.string().url(),
   checkedAt: z.string(),
+  checkoutPlatform: z.enum(["SHOPIFY", "MERCHANT"]).optional(),
   productRating: z.object({
     value: z.number().min(0).max(5),
     count: z.number().int().nonnegative(),
@@ -1003,7 +1005,9 @@ function shopifyResult(
         freshness: { status: "OBSERVED_AT_QUERY" as const, checkedAt: product.checkedAt },
         coupons: { status: "UNAVAILABLE" as const, verified: [] },
         purchaseLink,
-        quoteCapability: "DELIVERED_TOTAL_SUPPORTED" as const,
+        quoteCapability: product.checkoutPlatform === "MERCHANT"
+          ? "MERCHANT_CHECKOUT_ONLY" as const
+          : "DELIVERED_TOTAL_SUPPORTED" as const,
         card: {
           title: product.title,
           merchant: product.merchant,
@@ -1035,7 +1039,9 @@ function shopifyResult(
           merchantTrustBadge: product.merchantTrust.verification === "INDEPENDENT"
             ? product.merchantTrust.level as "OFFICIAL" | "AUTHORIZED_RETAILER" | "ESTABLISHED_RETAILER"
             : "MERCHANT_UNVERIFIED" as const,
-          quoteCapability: "DELIVERED_TOTAL_SUPPORTED" as const,
+          quoteCapability: product.checkoutPlatform === "MERCHANT"
+            ? "MERCHANT_CHECKOUT_ONLY" as const
+            : "DELIVERED_TOTAL_SUPPORTED" as const,
           actionLabel: "View at merchant" as const
         }
       }))
@@ -1638,6 +1644,7 @@ export type ShoppingServerDependencies = {
   cartQuotes?: ShopifyCartQuotePort;
   selectedProducts?: ShopifySelectedProductInspector;
   officialShopify?: OfficialShopifySearchPort;
+  officialStorefrontRegistry?: OfficialStorefrontRegistryPort;
   visualCandidateImages?: VisualCandidateImagePort;
   now?: () => Date;
   cardTelemetry?: ProductCardTelemetrySink;
@@ -1841,6 +1848,7 @@ export function createShoppingServer(
   const awinShopifyQuotes = dependencies.awinShopifyQuotes;
   const selectedProducts = dependencies.selectedProducts;
   const officialShopify = dependencies.officialShopify;
+  const officialStorefrontRegistry = dependencies.officialStorefrontRegistry;
   const visualCandidateImages = dependencies.visualCandidateImages;
   const now = dependencies.now ?? (() => new Date());
   const cardTelemetry = dependencies.cardTelemetry ?? {
@@ -1877,6 +1885,7 @@ export function createShoppingServer(
   const preflightQuoteCapabilities = async (content: ProductCardContent) => {
     const resolvedAwinProducts = new Map<string, ShopifyProduct>();
     const products = await Promise.all(content.products.map(async (product) => {
+      if (product.checkoutPlatform === "MERCHANT") return product;
       if (product.sourceKind === "EBAY_BROWSE") return product;
       if (product.sourceKind === "SHOPIFY_GLOBAL_CATALOG" || product.sourceKind === undefined) {
         const quoteCapability = cartQuotes === undefined
@@ -1982,7 +1991,8 @@ export function createShoppingServer(
     shopify: shopifyPort,
     ...(ebayPort === undefined ? {} : { ebay: ebayPort }),
     ...(toolAvailability.verifiedDeals ? { deals: dealPort } : {}),
-    ...(officialShopify === undefined ? {} : { officialShopify })
+    ...(officialShopify === undefined ? {} : { officialShopify }),
+    ...(officialStorefrontRegistry === undefined ? {} : { officialStorefrontRegistry })
   });
   const buildUnifiedResponse = async (input: SearchProductsInput, execution: UnifiedSearchExecution) => {
     const selectedShopifyHandles = new Set(execution.candidates.flatMap((candidate) =>

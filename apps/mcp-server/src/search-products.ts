@@ -48,6 +48,7 @@ import type {
   OfficialShopifySearchPort,
   OfficialShopifyStoreSeed
 } from "./shopify-official-store-search.js";
+import type { OfficialStorefrontRegistryPort } from "./official-storefront-registry-client.js";
 
 const QuerySchema = z.string().trim().min(2).max(300)
   .refine((value) => /[\p{L}\p{N}]/u.test(value), "query must contain a letter or number")
@@ -285,8 +286,10 @@ export async function searchProducts(
     ebay?: EbayBrowsePort;
     deals?: DealPort;
     officialShopify?: OfficialShopifySearchPort;
+    officialStorefrontRegistry?: OfficialStorefrontRegistryPort;
   }
 ): Promise<UnifiedSearchExecution> {
+  await ports.officialStorefrontRegistry?.refresh();
   const input = {
     ...rawInput,
     visualInput: rawInput.visualInput === undefined
@@ -1134,7 +1137,12 @@ function officialStoreSeed(
     merchant: storefront.brand,
     sourceHost: storefront.host,
     brand: storefront.brand,
-    merchantUrl: `https://${storefront.host}/`
+    merchantUrl: `https://${storefront.host}/`,
+    officialHost: storefront.officialHost,
+    platform: storefront.platform,
+    productPathPrefixes: storefront.productPathPrefixes,
+    ...(storefront.searchPathTemplate === undefined ? {} : { searchPathTemplate: storefront.searchPathTemplate }),
+    imageHosts: storefront.imageHosts
   };
 }
 

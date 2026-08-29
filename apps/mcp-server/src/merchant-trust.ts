@@ -1,4 +1,5 @@
 import { isIP } from "node:net";
+import type { OfficialStorefrontRecord } from "../../../packages/contracts/src/index.js";
 
 export type MerchantTrustLevel =
   | "OFFICIAL"
@@ -37,12 +38,15 @@ type MerchantTrustRecord = {
   reviewedAt: string;
   storefrontHost?: string;
   storefrontBrands?: readonly string[];
+  storefrontPlatform?: OfficialStorefrontRecord["platform"];
+  productPathPrefixes?: readonly string[];
+  searchPathTemplate?: string;
+  imageHosts?: readonly string[];
 };
 
-export type VerifiedOfficialStorefront = {
-  host: string;
-  brand: string;
-};
+export type VerifiedOfficialStorefront = OfficialStorefrontRecord & { host: string };
+
+let managedOfficialStorefronts: readonly OfficialStorefrontRecord[] = [];
 
 // Every entry is an exact registrable host with manually reviewed merchant-identity evidence.
 // Open marketplaces stay excluded until their individual seller identity can be verified.
@@ -72,6 +76,18 @@ const MERCHANT_TRUST_RECORDS: readonly MerchantTrustRecord[] = [
   { host: "gymshark.com", level: "OFFICIAL", evidenceUrl: "https://www.gymshark.com/", reviewedAt: "2026-08-24" },
   { host: "glossier.com", level: "OFFICIAL", evidenceUrl: "https://www.glossier.com/", reviewedAt: "2026-08-27", storefrontHost: "www.glossier.com", storefrontBrands: ["Glossier"] },
   { host: "colourpop.com", level: "OFFICIAL", evidenceUrl: "https://colourpop.com/", reviewedAt: "2026-08-27", storefrontBrands: ["ColourPop", "Colour Pop"] },
+  {
+    host: "freepeople.com",
+    level: "OFFICIAL",
+    evidenceUrl: "https://www.freepeople.com/",
+    reviewedAt: "2026-08-28",
+    storefrontHost: "www.freepeople.com",
+    storefrontBrands: ["Free People", "FP", "Intimately"],
+    storefrontPlatform: "GENERIC_JSON_LD",
+    productPathPrefixes: ["/shop/"],
+    searchPathTemplate: "/search/?q={query}",
+    imageHosts: ["images.urbndata.com"]
+  },
 
   // Retailers with reviewed authorization evidence.
   { host: "expercom.com", level: "AUTHORIZED_RETAILER", evidenceUrl: "https://expercom.com/", reviewedAt: "2026-08-24" },
@@ -108,6 +124,17 @@ export function resolveMerchantTrust(host: string, merchantName = ""): MerchantT
       level: "RISKY",
       verification: "UNVERIFIED",
       evidence: ["merchant host failed public-domain safety checks"]
+    };
+  }
+  const managed = managedOfficialStorefronts.find((store) =>
+    normalizeHost(store.officialHost) === normalized || normalizeHost(store.storefrontHost ?? store.officialHost) === normalized
+  );
+  if (managed !== undefined) {
+    return {
+      level: "OFFICIAL",
+      verification: "INDEPENDENT",
+      evidence: [`independently reviewed official domain: ${managed.evidenceUrl}`],
+      reviewedAt: managed.reviewedAt
     };
   }
   const record = MERCHANT_TRUST_RECORDS.find((candidate) => candidate.host === normalized);
@@ -148,12 +175,40 @@ export function merchantTrustRank(value: MerchantTrustLevel): number {
 
 export function resolveVerifiedOfficialStorefront(brand: string): VerifiedOfficialStorefront | undefined {
   const requested = normalizeBrand(brand);
+  const managed = managedOfficialStorefronts.find((store) =>
+    [store.brand, ...store.aliases].some((alias) => normalizeBrand(alias) === requested)
+  );
+  if (managed !== undefined) {
+    return { ...managed, host: managed.storefrontHost ?? managed.officialHost };
+  }
   const record = MERCHANT_TRUST_RECORDS.find((candidate) =>
     candidate.level === "OFFICIAL" &&
     candidate.storefrontBrands?.some((alias) => normalizeBrand(alias) === requested) === true
   );
   if (record === undefined) return undefined;
-  return { host: record.storefrontHost ?? record.host, brand: record.storefrontBrands?.[0] ?? brand.trim() };
+  return {
+    host: record.storefrontHost ?? record.host,
+    brand: record.storefrontBrands?.[0] ?? brand.trim(),
+    aliases: record.storefrontBrands?.slice(1) ?? [],
+    officialHost: record.host,
+    ...(record.storefrontHost === undefined ? {} : { storefrontHost: record.storefrontHost }),
+    platform: record.storefrontPlatform ?? "SHOPIFY",
+    productPathPrefixes: [...(record.productPathPrefixes ?? ["/products/"])],
+    ...(record.searchPathTemplate === undefined ? {} : { searchPathTemplate: record.searchPathTemplate }),
+    imageHosts: [...(record.imageHosts ?? ["cdn.shopify.com"])],
+    evidenceUrl: record.evidenceUrl,
+    reviewedAt: record.reviewedAt,
+    status: "APPROVED"
+  };
+}
+
+export function replaceManagedOfficialStorefronts(records: readonly OfficialStorefrontRecord[]): void {
+  managedOfficialStorefronts = records.map((record) => ({
+    ...record,
+    aliases: [...record.aliases],
+    productPathPrefixes: [...record.productPathPrefixes],
+    imageHosts: [...record.imageHosts]
+  }));
 }
 
 export function isHighRatedProduct(rating: ProductRating | undefined): boolean {

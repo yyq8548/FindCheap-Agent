@@ -46,6 +46,7 @@ export type ShopifyProduct = {
   checkedAt: string;
   productRating?: ProductRating;
   cartQuote?: ShopifyCartEstimate;
+  checkoutPlatform?: "SHOPIFY" | "MERCHANT";
 };
 
 export type ShopifySearchResult = {
