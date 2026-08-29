@@ -1,6 +1,6 @@
 {
   "name": "findcheap-agent",
-  "version": "0.15.3+codex.20260829012000",
+  "version": "0.15.4+codex.20260829013622",
   "description": "Search products from text or visual evidence, compare verified offers, find deals, and monitor prices, promotions, and stock.",
   "author": {
     "name": "yyq8548"
@@ -12,7 +12,7 @@
   "interface": {
     "displayName": "FindCheap Agent",
     "shortDescription": "Verified cards, pricing, coupons, and safe links.",
-    "longDescription": "FindCheap Agent is a Codex Plugin Agent. v0.15.3 expands the reviewed Railway registry to 50 official storefronts and 150 trusted merchants, adds atomic batch review, and uses bounded concurrent technical probes. Automated Awin collection and storefront probes create candidates and evidence only; explicit review is required before approval, and public endpoints serve only schema-valid immutable releases. Invalid or unavailable database snapshots cannot replace the last valid or reviewed embedded registry. Affiliate relationships never affect merchant trust, relevance, or ranking. Official cards require an approved exact domain, verified product identity, a valid public USD price, and stable product identity; unsupported or blocked sites fail closed and may use user-authorized Chrome only as a fallback. Product family and explicit brand/model stay hard; uncertain visual details remain soft clues and never create EXACT identity. Text search treats a maximum budget as a ceiling and never recommends products absent from returned cards. Exact selected-product follow-ups reuse stable selection identity. Price-history and buy-or-wait forecasting remain disabled. The agent never invents identity, discount eligibility, stacking, or delivered totals; it never checks out, reserves inventory, purchases, or pays.",
+    "longDescription": "FindCheap Agent is a Codex Plugin Agent. v0.15.4 places reviewed Awin merchants in trusted exact-and-similar matches and labels qualifying Shopify results as high-rated Shopify merchants. Commission never changes product relevance scoring. Railway serves 50 reviewed official storefronts and 150 trusted merchants from schema-valid immutable releases; invalid or unavailable database snapshots cannot replace the last valid registry. Official cards require an approved exact domain, verified product identity, a valid public USD price, and stable product identity; unsupported or blocked sites fail closed and may use user-authorized Chrome only as a fallback. Product family and explicit brand/model stay hard; uncertain visual details remain soft clues and never create EXACT identity. Text search treats a maximum budget as a ceiling and never recommends products absent from returned cards. Exact selected-product follow-ups reuse stable selection identity. Price-history and buy-or-wait forecasting remain disabled. The agent never invents identity, discount eligibility, stacking, or delivered totals; it never checks out, reserves inventory, purchases, or pays.",
     "developerName": "yyq8548",
     "category": "Productivity",
     "capabilities": [

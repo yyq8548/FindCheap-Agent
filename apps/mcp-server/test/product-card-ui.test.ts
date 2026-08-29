@@ -407,7 +407,9 @@ describe("product-card MCP Apps UI", () => {
         title,
         primaryPrice: { amountCents: 1299, currency: "USD" },
         matchBadge: matchStatus,
-        merchantTrustBadge: "OFFICIAL",
+        merchantTrustBadge: recommendationTier === "TRUSTED_OR_AFFILIATE"
+          ? "OFFICIAL"
+          : recommendationTier === "HIGH_RATED_UNVERIFIED" ? "SHOPIFY_HIGH_RATED" : "MERCHANT_UNVERIFIED",
         conditionBadge: "UNKNOWN",
         availability: "IN_STOCK"
       }
@@ -434,12 +436,13 @@ describe("product-card MCP Apps UI", () => {
 
     const output = text(app);
     expect(output).toContain("Trusted merchants");
-    expect(output).toContain("Highly rated products - merchant not independently verified");
+    expect(output).toContain("Highly rated Shopify merchants");
+    expect(output).toContain("Shopify rating is above 3.8 with at least 2 reviews.");
     expect(output).toContain("Other relevant products - review merchant carefully");
     expect(output.indexOf("Exact Product")).toBeLessThan(output.indexOf("Discovery Product"));
     expect(output.indexOf("Discovery Product")).toBeLessThan(output.indexOf("Similar Product"));
     expect(output).toContain("Product rating: 3.9/5 (2 reviews)");
-    expect(output).toContain("Product feedback does not verify merchant trust");
+    expect(output).toContain("Shopify high-rated merchant");
     expect(output).toContain("Verify seller identity, returns, and payment protection");
     expect(output).toContain("Sony");
     expect(output).toContain("WH1000XM5");
@@ -494,7 +497,8 @@ describe("product-card MCP Apps UI", () => {
     expect(output).toContain("Trusted exact and similar matches");
     expect(output).toContain("Best-value high-match options");
     expect(output).toContain("Only products hosted on independently verified official brand websites");
-    expect(output).toContain("Shopify products rated above 3.8 with at least 2 reviews");
+    expect(output).toContain("approved Awin merchants");
+    expect(output).toContain("Shopify merchants rated above 3.8 with at least 2 reviews");
     expect(output.indexOf("Official Product")).toBeLessThan(output.indexOf("Trusted Product"));
     expect(output.indexOf("Trusted Product")).toBeLessThan(output.indexOf("Value Product"));
   });

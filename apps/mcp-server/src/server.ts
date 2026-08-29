@@ -606,7 +606,14 @@ const ShopifyProductOutputSchema = z.object({
     matchBadge: z.enum(["EXACT", "DISCOVERY_MATCH", "SIMILAR"]),
     conditionBadge: z.enum(["NEW", "USED", "REFURBISHED", "OPEN_BOX", "UNKNOWN"]),
     availability: z.enum(["IN_STOCK", "OUT_OF_STOCK", "UNKNOWN"]),
-    merchantTrustBadge: z.enum(["OFFICIAL", "AUTHORIZED_RETAILER", "ESTABLISHED_RETAILER", "MERCHANT_UNVERIFIED"]),
+    merchantTrustBadge: z.enum([
+      "OFFICIAL",
+      "AUTHORIZED_RETAILER",
+      "ESTABLISHED_RETAILER",
+      "TRUSTED_MERCHANT",
+      "SHOPIFY_HIGH_RATED",
+      "MERCHANT_UNVERIFIED"
+    ]),
     quoteCapability: z.enum(["DELIVERED_TOTAL_SUPPORTED", "ZIP_ESTIMATE_ONLY", "MERCHANT_CHECKOUT_ONLY"]),
     actionLabel: z.literal("View at merchant")
   }),
@@ -1039,7 +1046,9 @@ function shopifyResult(
           availability: product.availability,
           merchantTrustBadge: product.merchantTrust.verification === "INDEPENDENT"
             ? product.merchantTrust.level as "OFFICIAL" | "AUTHORIZED_RETAILER" | "ESTABLISHED_RETAILER"
-            : "MERCHANT_UNVERIFIED" as const,
+            : product.recommendationTier === "HIGH_RATED_UNVERIFIED"
+              ? "SHOPIFY_HIGH_RATED" as const
+              : "MERCHANT_UNVERIFIED" as const,
           quoteCapability: product.checkoutPlatform === "MERCHANT"
             ? "MERCHANT_CHECKOUT_ONLY" as const
             : "DELIVERED_TOTAL_SUPPORTED" as const,
@@ -1301,9 +1310,7 @@ function awinCardProduct(candidate: UnifiedCandidate): ProductCardProduct {
       matchBadge: candidate.identityStatus === "SIMILAR" ? "SIMILAR" : product.matchStatus,
       conditionBadge: product.condition,
       availability: product.availability,
-      merchantTrustBadge: merchantTrust.verification === "INDEPENDENT"
-        ? merchantTrust.level as "OFFICIAL" | "AUTHORIZED_RETAILER" | "ESTABLISHED_RETAILER"
-        : "MERCHANT_UNVERIFIED",
+      merchantTrustBadge: "TRUSTED_MERCHANT",
       quoteCapability: "MERCHANT_CHECKOUT_ONLY",
       actionLabel: "View at merchant"
     }

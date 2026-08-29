@@ -9,7 +9,7 @@ Product form: **Codex Plugin Agent**.
 
 FindCheap Agent is a read-only Codex plugin for product search, offer matching, price checks, product cards, verified deals, and shopping watches. It returns up to three products with images, merchant links, price evidence, match labels, condition, and availability.
 
-Codex calls one public `search_products` tool through a local stdio MCP server. The router searches eligible Awin, Shopify, eBay, and verified official-store sources, then ranks qualifying products without using affiliate status. It automatically runs one broader internal search when the first pass cannot fill the requested cards. It offers an authorized bounded Chrome search only after both API passes return no usable verified product.
+Codex calls one public `search_products` tool through a local stdio MCP server. The router searches eligible Awin, Shopify, eBay, and verified official-store sources, then ranks qualifying products by product relevance and merchant tier. It automatically runs one broader internal search when the first pass cannot fill the requested cards. It offers an authorized bounded Chrome search only after both API passes return no usable verified product.
 
 The plugin does not order, check out, or submit payment. It also does not reserve inventory.
 
@@ -82,12 +82,12 @@ Visual similarity is not exact product identity. A visual result remains `DISCOV
 FindCheap Agent keeps product identity, merchant trust, condition, and price evidence separate:
 
 - Match labels describe product identity only. `EXACT` requires strong identity evidence. `DISCOVERY_MATCH` and `SIMILAR` do not prove that two listings are the same product.
-- Results use three presentation groups. The first contains only products hosted on independently verified official brand websites, with at most two cards. The second contains high-match products from reviewed merchants or Shopify products rated above `3.8` with at least `2` reviews. Affiliate approval alone never promotes a merchant into this group. Other relevant products appear in the best-value group with a limited-trust warning. A product rating does not independently verify the merchant. Domains classified as `RISKY` are excluded.
-- Awin approval confirms only the configured affiliate program and link path. It is not an independent endorsement of the merchant or product. Commercial relationships do not affect source eligibility, merchant tier, relevance, or ranking.
+- Results use three presentation groups. The first contains only products hosted on independently verified official brand websites, with at most two cards. The second contains high-match products from reviewed merchants, approved Awin merchants, or Shopify merchants rated above `3.8` with at least `2` reviews. Other relevant products appear in the best-value group with a limited-trust warning. Domains classified as `RISKY` are excluded.
+- Approved Awin merchants are eligible for the trusted-match group. Commission never changes product relevance scoring.
 - A displayed item price is the value returned by the configured source at observation time. Shipping, tax, mandatory fees, member price, coupons, and delivered total stay unavailable until the relevant merchant evidence or a successful quote provides them. ZIP tax may be labeled as an estimate, and checkout can change the final amount.
 - `UNKNOWN` condition means the source did not verify condition. It must not be described as new. For merchants with limited trust evidence, users should check seller identity, returns, and payment protection before buying.
 
-Affiliate commission never affects routing or ranking. `LOWEST_PRICE` compares qualifying item prices across sources; normal discovery preserves merchant diversity. If the first routed pass cannot fill the requested cards, the plugin runs one feature-enriched, larger-pool API search and reapplies the original hard constraints and merchant checks. Expanded results remain `DISCOVERY_MATCH` unless exact identity evidence exists. Chrome is offered only after the expanded pass also returns no usable product; partial coverage and source errors fail closed.
+Affiliate commission never affects relevance scoring. `LOWEST_PRICE` compares qualifying item prices across sources; normal discovery preserves merchant diversity. If the first routed pass cannot fill the requested cards, the plugin runs one feature-enriched, larger-pool API search and reapplies the original hard constraints and merchant checks. Expanded results remain `DISCOVERY_MATCH` unless exact identity evidence exists. Chrome is offered only after the expanded pass also returns no usable product; partial coverage and source errors fail closed.
 
 ## Offer comparison and delivery estimates
 

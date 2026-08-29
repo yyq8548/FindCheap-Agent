@@ -734,12 +734,10 @@ function awinCandidate(
     productType: product.category
   }, key, visualExcludedKeys);
   if (visual === null) return undefined;
-  const merchantUrl = new URL(product.merchantUrl);
-  const merchantTrust = resolveMerchantTrust(merchantUrl.hostname, product.merchant);
   return {
     source: "AWIN_PRODUCT_FEED",
     affiliateState: "APPROVED",
-    recommendationTier: merchantRecommendationTier(merchantTrust, undefined),
+    recommendationTier: "TRUSTED_OR_AFFILIATE",
     featureEvidence: unique([...evidence.matched, ...brand.requiredEvidence]),
     preferenceEvidence: unique([...evidence.preferences, ...brand.preferenceEvidence]),
     requiredFeatureLimitations: evidence.unknown,

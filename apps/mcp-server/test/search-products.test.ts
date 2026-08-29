@@ -229,19 +229,12 @@ describe("unified product search", () => {
       limit: 3
     }), { awin: awinPort, shopify: shopifyPort });
 
-    expect(result.candidates.map((candidate) => candidate.source)).toEqual([
-      "SHOPIFY_GLOBAL_CATALOG",
-      "AWIN_PRODUCT_FEED",
-      "AWIN_PRODUCT_FEED",
-      "AWIN_PRODUCT_FEED"
-    ]);
-    expect(result.candidates[0]).toMatchObject({ presentationGroup: "TRUSTED_MATCH" });
-    expect(result.candidates.slice(1)).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        recommendationTier: "GENERAL_UNVERIFIED",
-        presentationGroup: "BEST_VALUE"
-      })
-    ]));
+    expect(result.candidates).toHaveLength(3);
+    expect(result.candidates.every((candidate) =>
+      candidate.source === "AWIN_PRODUCT_FEED" &&
+      candidate.recommendationTier === "TRUSTED_OR_AFFILIATE" &&
+      candidate.presentationGroup === "TRUSTED_MATCH"
+    )).toBe(true);
     expect(shopifyPort.search).toHaveBeenCalledTimes(1);
     expect(shopifyPort.search).toHaveBeenCalledWith(expect.objectContaining({ limit: 12 }));
   });

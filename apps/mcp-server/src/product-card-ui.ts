@@ -218,7 +218,10 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     let currentRenderId;
     let currentLocale = document.documentElement.lang?.toLocaleLowerCase().startsWith("zh") ? "zh-CN" : "en-US";
     const text = (english, chinese) => currentLocale === "zh-CN" ? chinese : english;
-    const badgeText = (value) => currentLocale !== "zh-CN" ? value : ({
+    const badgeText = (value) => currentLocale !== "zh-CN" ? ({
+      TRUSTED_MERCHANT: "Trusted merchant",
+      SHOPIFY_HIGH_RATED: "Shopify high-rated merchant"
+    })[value] || value : ({
       EXACT: "精确匹配",
       DISCOVERY_MATCH: "发现匹配",
       SIMILAR: "相似商品",
@@ -226,6 +229,8 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       OFFICIAL: "品牌官网",
       AUTHORIZED_RETAILER: "授权零售商",
       ESTABLISHED_RETAILER: "成熟零售商",
+      TRUSTED_MERCHANT: "可信商家",
+      SHOPIFY_HIGH_RATED: "Shopify 高评分商家",
       NEW: "全新",
       USED: "二手",
       REFURBISHED: "翻新",
@@ -360,8 +365,8 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       { tier: "TRUSTED_OR_AFFILIATE", title: text("Trusted merchants", "可信商家") },
       {
         tier: "HIGH_RATED_UNVERIFIED",
-        title: text("Highly rated products - merchant not independently verified", "高评分商品 - 商家未经独立验证"),
-        notice: text("Product rating is above 3.8 with at least 2 reviews. Product feedback does not verify merchant trust.", "商品评分高于 3.8 且至少有 2 条评价。商品评价不能证明商家可信。")
+        title: text("Highly rated Shopify merchants", "Shopify 高评分商家"),
+        notice: text("Shopify rating is above 3.8 with at least 2 reviews.", "Shopify 评分高于 3.8 且至少有 2 条评价。")
       },
       {
         tier: "GENERAL_UNVERIFIED",
@@ -387,7 +392,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       {
         group: "TRUSTED_MATCH",
         title: text("Trusted exact and similar matches", "可信的精确与相似匹配"),
-        notice: text("High-match products from reviewed merchants or Shopify products rated above 3.8 with at least 2 reviews. Commercial relationships never affect eligibility or ranking.", "来自已审核商家，或评分高于 3.8 且至少有 2 条评价的 Shopify 高匹配商品。商业关系不影响入选或排序。")
+        notice: text("High-match products from reviewed merchants, approved Awin merchants, or Shopify merchants rated above 3.8 with at least 2 reviews. Commission never changes relevance scoring.", "来自已审核商家、已批准的 Awin 商家，或评分高于 3.8 且至少有 2 条评价的 Shopify 高匹配商品。佣金不影响相关性评分。")
       },
       {
         group: "BEST_VALUE",
@@ -593,7 +598,9 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
           if (Array.isArray(product.preferenceEvidence) && product.preferenceEvidence.length > 0) {
             body.append(make("div", "evidence", text("Preference match: ", "偏好匹配：") + product.preferenceEvidence.join(", ")));
           }
-          if (Array.isArray(product?.merchantTrust?.evidence) && product.merchantTrust.evidence.length > 0) {
+          const hidesRawMerchantEvidence = recommendationTier(product) === "HIGH_RATED_UNVERIFIED" ||
+            (product?.sourceKind === "AWIN_PRODUCT_FEED" && recommendationTier(product) === "TRUSTED_OR_AFFILIATE");
+          if (!hidesRawMerchantEvidence && Array.isArray(product?.merchantTrust?.evidence) && product.merchantTrust.evidence.length > 0) {
             body.append(make("div", "evidence", text("Merchant evidence: ", "商家依据：") + product.merchantTrust.evidence.join("; ")));
           }
           body.append(make("div", "observed", observedAt(product.checkedAt)));

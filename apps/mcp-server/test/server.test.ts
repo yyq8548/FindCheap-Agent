@@ -2053,7 +2053,9 @@ describe("Coupon and Watch tools", () => {
         sourceKind: "AWIN_PRODUCT_FEED",
         affiliateState: "APPROVED",
         purchaseLink: { kind: "APPROVED_AFFILIATE", providerName: "Awin" },
-        card: { priceLabel: "Verified item price" },
+        recommendationTier: "TRUSTED_OR_AFFILIATE",
+        presentationGroup: "TRUSTED_MATCH",
+        card: { priceLabel: "Verified item price", merchantTrustBadge: "TRUSTED_MERCHANT" },
         pricing: { scope: "ITEM_PRICE_ONLY", deliveredPrice: { status: "UNAVAILABLE" } },
         quoteReference: { renderId: expect.any(String), variantId: "sku-1" }
     });
@@ -2265,7 +2267,7 @@ describe("Coupon and Watch tools", () => {
       },
       quoteCapability: "ZIP_ESTIMATE_ONLY",
       card: {
-        merchantTrustBadge: "MERCHANT_UNVERIFIED",
+        merchantTrustBadge: "TRUSTED_MERCHANT",
         quoteCapability: "ZIP_ESTIMATE_ONLY"
       },
       quoteReference: { selectionId: expect.any(String) }
