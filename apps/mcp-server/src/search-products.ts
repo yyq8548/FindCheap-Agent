@@ -728,11 +728,16 @@ function awinCandidate(
     return undefined;
   }
   if (!conditionMatches(product.condition, input.conditionPreference)) return undefined;
+  const verifiedBrand = brand.matchEvidence.length === 0 ? undefined : input.brand;
   const identity = candidateIdentity(
     searchIntent,
     input.allowAlternatives,
     identityQuery,
-    { title: product.title, productType: product.category },
+    {
+      title: product.title,
+      productType: product.category,
+      ...(verifiedBrand === undefined ? {} : { brand: verifiedBrand })
+    },
     product.matchStatus,
     key,
     identityExcludedKeys
@@ -745,7 +750,8 @@ function awinCandidate(
   }
   const visual = visualIdentity(input, {
     title: product.title,
-    productType: product.category
+    productType: product.category,
+    brand: verifiedBrand
   }, key, visualExcludedKeys);
   if (visual === null) return undefined;
   return {
@@ -878,12 +884,15 @@ export function resolveSearchIntent(
     return "EXACT_PRODUCT";
   }
   if (input.visualInput !== undefined) return "VISUAL_DISCOVERY";
+  const identityQuery = input.brand !== undefined && input.brandMode === "REQUIRED"
+    ? withoutRequestedBrand(input.query, input.brand)
+    : input.query;
   if (
     input.brand !== undefined &&
     input.brandMode === "REQUIRED" &&
-    hasSpecificProductIdentity(input.query)
+    hasSpecificProductIdentity(identityQuery, 1)
   ) return "EXACT_PRODUCT";
-  return hasNamedProductIntent(input.query) ? "EXACT_PRODUCT" : "CATEGORY_DISCOVERY";
+  return hasNamedProductIntent(identityQuery) ? "EXACT_PRODUCT" : "CATEGORY_DISCOVERY";
 }
 
 function candidateIdentity(
@@ -1125,11 +1134,9 @@ function buildOfficialStoreQueries(
     return visualOfficialStoreSearchQueries(input.visualInput)
       .map((attempt) => ({ ...attempt, query: attempt.query.slice(0, 300).trim() }));
   }
-  const requestedBrandTokens = new Set(brandTokens(input.brand ?? ""));
-  const withoutBrand = input.query.split(/\s+/u)
-    .filter((token) => !brandTokens(token).some((part) => requestedBrandTokens.has(part)))
-    .join(" ")
-    .trim();
+  const withoutBrand = input.brand === undefined
+    ? input.query
+    : withoutRequestedBrand(input.query, input.brand);
   const visualCategory = input.visualInput === undefined
     ? undefined
     : visualOfficialStoreSearchQueries(input.visualInput)
@@ -1247,6 +1254,14 @@ function brandTokens(value: string): string[] {
   return value.normalize("NFKD").toLocaleLowerCase("en-US")
     .replace(/\p{M}+/gu, "")
     .match(/[\p{L}\p{N}]+/gu) ?? [];
+}
+
+function withoutRequestedBrand(query: string, brand: string): string {
+  const requestedBrandTokens = new Set(brandTokens(brand));
+  return query.split(/\s+/u)
+    .filter((token) => !brandTokens(token).some((part) => requestedBrandTokens.has(part)))
+    .join(" ")
+    .trim();
 }
 
 function canonicalBrandName(value: string): string {

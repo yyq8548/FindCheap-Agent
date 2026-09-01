@@ -51,6 +51,10 @@ const CATEGORY_GROUPS = [
   { terms: ["water", "waters"], productTypeOnly: true },
   { terms: ["bracelet", "bracelets", "bangle", "bangles"] },
   { terms: ["sheet", "sheets", "bedding"] },
+  {
+    terms: ["dogfood", "catfood", "petfood", "kibble"],
+    candidateEvidenceTerms: ["animal", "animals", "dog", "dogs", "cat", "cats", "canine", "feline", "pet", "pets"]
+  },
   { terms: ["hairmask", "mask", "masks"], candidateEvidenceTerms: ["haircare", "hair"] }
 ] as const;
 
@@ -80,13 +84,13 @@ const GENERIC_IDENTITY_TERMS = new Set([
   "mini", "regular", "slip", "strap", "strappy", "wear"
 ]);
 
-export function hasSpecificProductIdentity(query: string): boolean {
+export function hasSpecificProductIdentity(query: string, minimumTerms = 2): boolean {
   const tokens = tokenize(query);
   if (hasStrongProductIdentifier(query)) return true;
   const identityTerms = new Set(tokens.filter((token) =>
     token.length >= 2 && !GENERIC_IDENTITY_TERMS.has(token)
   ));
-  return identityTerms.size >= 2;
+  return identityTerms.size >= minimumTerms;
 }
 
 export function hasStrongProductIdentifier(query: string): boolean {
@@ -272,6 +276,9 @@ function containsContiguousIdentity(tokens: readonly string[], identity: string)
 
 function tokenize(value: string): string[] {
   return (value.normalize("NFKD").replace(/\p{M}+/gu, "").toLocaleLowerCase("en-US")
+    .replace(/\b(?:dog|canine)\s+food\b/gu, " dogfood ")
+    .replace(/\b(?:cat|feline)\s+food\b/gu, " catfood ")
+    .replace(/\bpet\s+food\b/gu, " petfood ")
     .match(/[\p{L}\p{N}]+/gu) ?? [])
     .map((token) => /^\d+(?:st|nd|rd|th)$/u.test(token) ? token.replace(/(?:st|nd|rd|th)$/u, "") : token)
     .map((token) => token === "generation" ? "gen" : token)

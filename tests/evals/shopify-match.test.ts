@@ -87,6 +87,18 @@ describe("FindCheap v0.5.4 Shopify product matching gate", () => {
     });
   });
 
+  it("matches pet-food identity when an affiliate title omits the verified brand", () => {
+    expect(classifyShopifyCandidate("Nextrition Pet All-Natural Chicken Recipe dog food", {
+      title: "All-Natural Chicken Recipe - 4.5 lb",
+      brand: "Nextrition Pet",
+      productType: "Animals & Pet Supplies"
+    })).toMatchObject({
+      status: "DISCOVERY_MATCH",
+      missingTerms: [],
+      evidence: expect.arrayContaining(["product category exact"])
+    });
+  });
+
   it("still rejects a non-laptop Apple product from a MacBook laptop query", () => {
     expect(classifyShopifyCandidate("Apple MacBook Pro laptop", {
       title: "Apple iPad Pro 14-inch",
@@ -167,6 +179,8 @@ describe("FindCheap v0.5.4 Shopify product matching gate", () => {
     ["blue jeans", false],
     ["anime shirt", false],
     ["Sony headphones", false],
+    ["dog food", false],
+    ["Nextrition Pet All-Natural Chicken Recipe dog food", true],
     ["Sony WH-1000XM5", true],
     ["810063341254", true],
     ["Allbirds Tree Runner shoes", true],

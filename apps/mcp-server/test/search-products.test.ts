@@ -874,6 +874,51 @@ describe("unified product search", () => {
     expect(resolveSearchIntent(SearchProductsInputSchema.parse({
       query: "women leather ballet flats"
     }))).toBe("CATEGORY_DISCOVERY");
+    expect(resolveSearchIntent(SearchProductsInputSchema.parse({
+      query: "Nextrition Pet dog food",
+      brand: "Nextrition Pet",
+      brandMode: "REQUIRED"
+    }))).toBe("CATEGORY_DISCOVERY");
+    expect(resolveSearchIntent(SearchProductsInputSchema.parse({
+      query: "Nextrition Pet All-Natural Chicken Recipe dog food",
+      brand: "Nextrition Pet",
+      brandMode: "REQUIRED"
+    }))).toBe("EXACT_PRODUCT");
+  });
+
+  it("keeps a verified Awin brand when the product title omits it", async () => {
+    const requested = awinProduct("42519172055262", 5498, {
+      merchantId: "113600",
+      merchant: "Nextrition Pet (US)",
+      title: "All-Natural Chicken Recipe - 4.5 lb",
+      category: "Animals & Pet Supplies",
+      merchantUrl: "https://www.nextritionpet.com/products/chicken?variant=42519172055262"
+    });
+    const result = await searchProducts(SearchProductsInputSchema.parse({
+      query: "Nextrition Pet All-Natural Chicken Recipe dog food",
+      productType: "dog food",
+      brand: "Nextrition Pet",
+      brandMode: "REQUIRED",
+      comparisonMode: "SAME_PRODUCT",
+      allowAlternatives: false,
+      limit: 8
+    }), {
+      awin: awin([requested, awinProduct("unrelated", 1200)]),
+      shopify: shopify([])
+    });
+
+    expect(result.candidates).toHaveLength(1);
+    expect(result.candidates[0]).toMatchObject({
+      source: "AWIN_PRODUCT_FEED",
+      recommendationTier: "TRUSTED_OR_AFFILIATE",
+      resultGroup: "REQUESTED_PRODUCT",
+      awinProduct: {
+        merchantId: "113600",
+        merchantProductId: "42519172055262"
+      }
+    });
+    expect(result.brandProductsExcluded).toBeGreaterThanOrEqual(1);
+    expect(result.identityProductsExcluded).toBe(0);
   });
 
   it("returns only the requested SKIMS product and never pads with unrelated dresses", async () => {
