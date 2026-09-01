@@ -1,7 +1,7 @@
 import { FINDCHEAP_VERSION } from "../../../config/version.js";
 import { MAX_PRODUCT_CARDS } from "./product-candidate-ranking.js";
 
-export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v29.html";
+export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v30.html";
 
 export const PRODUCT_CARD_RESOURCE_DOMAINS = [
   "https://cdn.shopify.com",
@@ -43,6 +43,8 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       --fc-action-text: light-dark(#ffffff, #171717);
       --fc-focus: light-dark(#6b6b6b, #bdbdbd);
       --fc-danger: light-dark(#a12424, #ffb4b4);
+      --fc-positive: light-dark(#176b45, #85d9ae);
+      --fc-positive-soft: light-dark(#eef8f2, #18372a);
     }
     * { box-sizing: border-box; }
     body {
@@ -68,11 +70,9 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     .quote-summary-value { font-weight: 680; white-space: nowrap; }
     .group {
       display: grid;
-      gap: 14px;
-      border: 1px solid var(--fc-border-strong);
-      border-radius: 16px;
-      padding: 16px;
-      background: var(--fc-surface);
+      gap: 10px;
+      border-top: 1px solid var(--fc-border);
+      padding: 14px 0 2px;
     }
     .group h2 { margin: 0; color: var(--fc-text); font-size: 14px; font-weight: 650; line-height: 1.4; }
     .cards { display: grid; grid-template-columns: 1fr; gap: 12px; }
@@ -88,6 +88,10 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       transition: border-color 120ms ease, background-color 120ms ease;
     }
     .card:hover { border-color: var(--fc-text); }
+    .card.featured {
+      border-color: var(--fc-positive);
+      background: light-dark(#fbfefc, #1d2822);
+    }
     .card.no-image { grid-template-columns: 1fr; }
     .image {
       display: block;
@@ -101,7 +105,18 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       background: var(--fc-surface-muted);
     }
     .body { display: grid; min-width: 0; gap: 10px; padding: 17px 18px; }
+    .merchant-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 7px; }
     .merchant { color: var(--fc-muted); font-size: 12px; font-weight: 600; line-height: 1.35; letter-spacing: .01em; }
+    .rank-label {
+      border: 1px solid light-dark(#b9dcc8, #35694c);
+      border-radius: 999px;
+      padding: 3px 7px;
+      color: var(--fc-positive);
+      background: var(--fc-positive-soft);
+      font-size: 10px;
+      font-weight: 680;
+      line-height: 1.2;
+    }
     h3 { margin: -2px 0 0; font-size: 16px; font-weight: 650; line-height: 1.35; }
     .row { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 9px; }
     .price { font-size: 23px; font-weight: 680; letter-spacing: -.025em; line-height: 1.1; }
@@ -130,6 +145,14 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     }
     .evidence { color: var(--fc-text); }
     .observed { color: var(--fc-faint); }
+    .more {
+      border-top: 1px solid var(--fc-border);
+      padding-top: 8px;
+      color: var(--fc-muted);
+      font-size: 11px;
+    }
+    .more summary { cursor: pointer; font-weight: 600; }
+    .more-content { display: grid; gap: 6px; padding-top: 8px; }
     .price-breakdown {
       display: grid;
       gap: 5px;
@@ -173,7 +196,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     .error { color: var(--fc-danger); }
     @media (max-width: 640px) {
       #app { gap: 10px; }
-      .group { border-radius: 14px; padding: 12px; }
+      .group { padding-top: 12px; }
       .card { grid-template-columns: minmax(116px, 34%) 1fr; }
       .body { padding: 13px; }
       a { justify-self: stretch; }
@@ -257,6 +280,19 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       if (label.endsWith(" shipping")) return label.slice(0, -9) + " 运费";
       if (label.startsWith("Estimated tax (")) return "预估税费（" + label.slice(15, -1) + "）";
       return label;
+    };
+    const couponBadgeText = (product, cardData) => {
+      const first = Array.isArray(product?.coupons?.verified) ? product.coupons.verified[0] : undefined;
+      if (first?.code) return text("Coupon: ", "优惠码：") + String(first.code);
+      if (Number.isFinite(Number(first?.discountPercent))) {
+        return currentLocale === "zh-CN" ? "优惠 " + Number(first.discountPercent) + "%" : Number(first.discountPercent) + "% off";
+      }
+      if (first?.discountAmount) {
+        return text("Coupon: ", "优惠：") + money(first.discountAmount) + text(" off", " 减免");
+      }
+      if (first?.title) return String(first.title);
+      const raw = String(cardData?.couponLabel || "").replace(/^Coupon:\s*/iu, "");
+      return raw ? text("Coupon: ", "优惠：") + raw : "";
     };
     let initializeAttempts = 0;
     let nextRequestId = 1;
@@ -506,8 +542,12 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
         for (const product of grouped) {
           const cardData = product && typeof product.card === "object" ? product.card : {};
           const card = make("article", "card");
+          const isFirstSupported = product === products[0] &&
+            ["OFFICIAL_STORE", "TRUSTED_MATCH"].includes(product?.presentationGroup) &&
+            recommendationTier(product) !== "GENERAL_UNVERIFIED";
+          if (isFirstSupported) card.className = "card featured";
           const imageUrl = safeHttps(cardData.imageUrl);
-          if (!imageUrl) card.className = "card no-image";
+          if (!imageUrl) card.className += " no-image";
           if (imageUrl) {
             const image = make("img", "image");
             image.alt = cardData.title || product.title || text("Product image", "商品图片");
@@ -534,7 +574,10 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
             card.append(image);
           }
           const body = make("div", "body");
-          body.append(make("div", "merchant", cardData.merchant || product.merchant || text("Merchant", "商家")));
+          const merchantRow = make("div", "merchant-row");
+          merchantRow.append(make("div", "merchant", cardData.merchant || product.merchant || text("Merchant", "商家")));
+          if (isFirstSupported) merchantRow.append(make("span", "rank-label", text("First to consider", "值得先看")));
+          body.append(merchantRow);
           if (cardData.sellerName || product.sellerName) {
             body.append(make("div", "details", text("Seller: ", "卖家：") + String(cardData.sellerName || product.sellerName)));
           }
@@ -560,11 +603,16 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
           badges.append(make("span", "badge " + matchClass, badgeText(match)));
           const trustBadge = String(cardData.merchantTrustBadge || "MERCHANT_UNVERIFIED");
           badges.append(make("span", "badge " + (trustBadge === "MERCHANT_UNVERIFIED" ? "unverified" : "trusted"), badgeText(trustBadge)));
-          badges.append(make("span", "badge", badgeText(String(cardData.conditionBadge || product.condition || "UNKNOWN"))));
+          const conditionBadge = String(cardData.conditionBadge || product.condition || "UNKNOWN");
+          if (conditionBadge !== "UNKNOWN") badges.append(make("span", "badge", badgeText(conditionBadge)));
           badges.append(make("span", "badge", badgeText(String(cardData.availability || product.availability || "UNKNOWN"))));
-          if (cardData.couponLabel) badges.append(make("span", "badge", String(cardData.couponLabel)));
+          const couponBadge = couponBadgeText(product, cardData);
+          if (couponBadge) badges.append(make("span", "badge", couponBadge));
           row.append(badges);
           body.append(row);
+          if (conditionBadge === "UNKNOWN") {
+            body.append(make("div", "limitations notice", text("Condition not verified.", "商品状态未核实。")));
+          }
           const breakdown = make("div", "price-breakdown");
           if (cardData.itemPrice && product?.pricing?.scope === "SHOPIFY_CART_ESTIMATE") {
             appendPriceLine(breakdown, text("Item price", "商品价"), money(cardData.itemPrice));
@@ -585,34 +633,39 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
             : quoteCapability === "ZIP_ESTIMATE_ONLY"
               ? text("ZIP estimate available; some merchants may require checkout for the final total.", "可按 ZIP 估价；部分商家仍需在结账页确认最终总价。")
               : text("Shipping, tax, and final total are available at merchant checkout.", "运费、税费和最终总价需在商家结账页确认。")));
+          const more = make("details", "more");
+          more.append(make("summary", "", text("Why this matches", "为什么匹配")));
+          const moreContent = make("div", "more-content");
           if (Array.isArray(product.matchEvidence) && product.matchEvidence.length > 0) {
-            body.append(make("div", "evidence", text("Identity evidence: ", "身份依据：") + product.matchEvidence.join("; ")));
+            moreContent.append(make("div", "evidence", text("Identity evidence: ", "身份依据：") + product.matchEvidence.join("; ")));
           }
           if (Array.isArray(product.visualMatchEvidence) && product.visualMatchEvidence.length > 0) {
             const visualEvidence = product.visualMatchEvidence
               .filter((entry) => !String(entry).startsWith("candidate-image similarity:"));
             if (visualEvidence.length > 0) {
-              body.append(make("div", "evidence", text("Visual evidence: ", "视觉依据：") + visualEvidence.join("; ")));
+              moreContent.append(make("div", "evidence", text("Visual evidence: ", "视觉依据：") + visualEvidence.join("; ")));
             }
           }
           if (Array.isArray(product.requiredFeatureLimitations) && product.requiredFeatureLimitations.length > 0) {
             body.append(make("div", "limitations notice", text("Not verified: ", "尚未验证：") + product.requiredFeatureLimitations.join(", ") + text(". Confirm on the merchant page before purchase.", "。购买前请在商家页面确认。")));
           }
           if (Array.isArray(product.preferenceEvidence) && product.preferenceEvidence.length > 0) {
-            body.append(make("div", "evidence", text("Preference match: ", "偏好匹配：") + product.preferenceEvidence.join(", ")));
+            moreContent.append(make("div", "evidence", text("Preference match: ", "偏好匹配：") + product.preferenceEvidence.join(", ")));
           }
           const hidesRawMerchantEvidence = recommendationTier(product) === "HIGH_RATED_UNVERIFIED" ||
             (product?.sourceKind === "AWIN_PRODUCT_FEED" && recommendationTier(product) === "TRUSTED_OR_AFFILIATE");
           if (!hidesRawMerchantEvidence && Array.isArray(product?.merchantTrust?.evidence) && product.merchantTrust.evidence.length > 0) {
-            body.append(make("div", "evidence", text("Merchant evidence: ", "商家依据：") + product.merchantTrust.evidence.join("; ")));
+            moreContent.append(make("div", "evidence", text("Merchant evidence: ", "商家依据：") + product.merchantTrust.evidence.join("; ")));
           }
-          body.append(make("div", "observed", observedAt(product.checkedAt)));
+          moreContent.append(make("div", "observed", observedAt(product.checkedAt)));
+          more.append(moreContent);
+          body.append(more);
           const couponNotice = product?.coupons?.status === "VERIFIED"
-            ? text(" Attached Coupon evidence is verified for the merchant, but eligibility and final discount require checkout confirmation.", " 已附商家优惠券证据，但适用资格和最终折扣仍需在结账时确认。")
-            : text(" Coupons remain unavailable unless separately verified.", " 未经单独验证时，不提供优惠券结论。");
+            ? text(" Coupon scope and stacking are confirmed at checkout.", "优惠适用范围和叠加以结账页为准。")
+            : "";
           body.append(make("div", "limitations notice", (product?.pricing?.scope === "SHOPIFY_CART_ESTIMATE"
-            ? text("Shopify Cart estimate for supplied ZIP. Tax is Shopify-reported or clearly labeled as a ZIP state-average estimate. Some merchants require a full address or checkout before calculating tax. Final checkout total may change.", "基于所提供 ZIP 的 Shopify Cart 预估。税费来自 Shopify，或明确标注为 ZIP 所在州的平均估算。部分商家需要完整地址或进入结账页后才能计算税费，最终金额可能变化。")
-            : text("Verified public item price. Shipping, tax, fees, membership and delivered price remain unavailable unless separately verified.", "已验证公开商品价。运费、税费、费用、会员价和到手价需单独验证。")) + couponNotice));
+            ? text("Estimated for the supplied ZIP; checkout confirms the final total. ", "基于所提供 ZIP 估算；最终金额以结账页为准。")
+            : text("Current item price verified; shipping and tax are confirmed at checkout. ", "当前仅核实商品价；运费和税费以结账页为准。")) + couponNotice));
           if (product?.sourceEnvironment === "SANDBOX") {
             body.append(make("div", "disclosure", text("eBay Sandbox review only. This test link does not earn a commission.", "仅供 eBay Sandbox 测试；此测试链接不会产生佣金。")));
           } else if (product?.purchaseLink?.kind === "APPROVED_AFFILIATE" && typeof product.purchaseLink.disclosure === "string") {

@@ -949,46 +949,99 @@ function unifiedResult(
   ).length;
   const merchantCount = new Set(products.map((product) => product.merchantId)).size;
   const coverage = unavailableSource || partialSource ? "PARTIAL" as const : "COMPLETE" as const;
+  const locale = /\p{Script=Han}/u.test(input.query) ? "zh-CN" as const : "en-US" as const;
+  const localized = (english: string, chinese: string) => locale === "zh-CN" ? chinese : english;
   const chromeAdvice = execution.chromeFallbackEligible
     ? execution.searchIntent === "EXACT_PRODUCT"
-      ? "No configured source returned a qualifying match for the requested product; unrelated alternatives were not substituted. The user may authorize one bounded Chrome whole-web fallback."
-      : "No configured source returned a qualifying product. The user may authorize one bounded Chrome whole-web fallback."
+      ? localized(
+          "No configured source returned a qualifying match for the requested product; unrelated alternatives were not substituted. The user may authorize one bounded Chrome whole-web fallback.",
+          "现有来源没有返回符合要求的同款商品，也没有用无关替代品凑数。用户可以授权一次受限的 Chrome 全网搜索。"
+        )
+      : localized(
+          "No configured source returned a qualifying product. The user may authorize one bounded Chrome whole-web fallback.",
+          "现有来源没有返回符合要求的商品。用户可以授权一次受限的 Chrome 全网搜索。"
+        )
     : "";
   const sourceFailureMessage = execution.sourceErrors?.shopify === "CATALOG_SCHEMA_CHANGED"
-    ? "Shopify Catalog response schema changed and could not be safely parsed. No zero-result conclusion was made; retry after the connector is updated."
+    ? localized(
+        "Shopify Catalog response schema changed and could not be safely parsed. No zero-result conclusion was made; retry after the connector is updated.",
+        "Shopify Catalog 返回结构发生变化，当前无法安全解析，因此不能据此判断没有商品。连接器更新后可重试。"
+      )
     : unavailableSource
-      ? "A configured product source is unavailable. No zero-result conclusion was made."
+      ? localized(
+          "A configured product source is unavailable. No zero-result conclusion was made.",
+          "一个已配置的商品来源暂时不可用，因此不能据此判断没有商品。"
+        )
       : "";
   const message = products.length === 0
     ? sourceFailureMessage || chromeAdvice || (execution.searchIntent === "EXACT_PRODUCT"
-      ? "No qualifying match for the requested product returned; unrelated alternatives were not substituted."
+      ? localized(
+          "No qualifying match for the requested product returned; unrelated alternatives were not substituted.",
+          "没有找到符合要求的同款商品，也没有用无关替代品凑数。"
+        )
       : execution.searchIntent === "VISUAL_DISCOVERY"
-        ? "No qualifying visual match returned. The image was not treated as proof of exact identity."
-        : "No qualifying product returned.")
+        ? localized(
+            "No qualifying visual match returned. The image was not treated as proof of exact identity.",
+            "没有找到证据足够的视觉匹配；图片本身不会被当作精确身份凭证。"
+          )
+        : localized("No qualifying product returned.", "没有找到符合要求的商品。"))
     : [
-        `Returned ${products.length} ranked product card(s) from ${merchantCount} merchant(s); never claim more merchants than this count.`,
+        localized(
+          `Found ${products.length} ranked product card(s) from ${merchantCount} merchant(s). Lead with the strongest supported choice and no more than two evidence-backed reasons.`,
+          `找到 ${products.length} 款排序后的商品，来自 ${merchantCount} 家商家。先说最值得看的选择，并给出不超过两条有证据支持的理由。`
+        ),
         ...(execution.searchIntent === "VISUAL_DISCOVERY"
-          ? ["Visual results are separated into possible same item, highly similar, and same style; none is an exact identity claim without a stable product identifier."]
+          ? [localized(
+              "Visual results are separated into possible same item, highly similar, and same style; none is an exact identity claim without a stable product identifier.",
+              "视觉结果分为可能同款、高度相似和同风格；缺少稳定商品标识时，均不能声称精确同款。"
+            )]
           : []),
         ...(highRatedUnverifiedCount === 0
           ? []
-          : [`${highRatedUnverifiedCount} later result(s) qualify by product rating above 3.8 with at least 2 reviews; product ratings do not verify merchant trust.`]),
+          : [localized(
+              `${highRatedUnverifiedCount} later result(s) qualify by product rating above 3.8 with at least 2 reviews; product ratings do not verify merchant trust.`,
+              `后续有 ${highRatedUnverifiedCount} 款商品因评分高于 3.8 且至少有 2 条评价而入选；商品评分不等于商家已被独立验证。`
+            )]),
         ...(generalUnverifiedCount === 0
           ? []
-          : [`${generalUnverifiedCount} later result(s) come from merchants with limited trust evidence; verify seller identity, returns, and payment protection.`]),
+          : [localized(
+              `${generalUnverifiedCount} later result(s) come from merchants with limited trust evidence; verify seller identity, returns, and payment protection.`,
+              `后续有 ${generalUnverifiedCount} 款商品的商家可信证据有限；购买前需核验卖家身份、退货政策和付款保障。`
+            )]),
         ...(independentlyTrustedCount > 0
           ? []
-          : ["No returned merchant has independent trust evidence. Treat every card as a research lead only; do not recommend purchasing from one."]),
+          : [localized(
+              "No returned merchant has independent trust evidence. Treat every card as a research lead only; do not recommend purchasing from one.",
+              "返回商家均缺少独立可信证据。所有卡片仅作为调研线索，不要建议直接购买。"
+            )]),
         ...(input.maxItemPriceCents === undefined
           ? []
-          : ["The maximum budget is a ceiling, not a spending target. Never prefer a higher price or higher specification without evidence that it better fits the requested use."]),
+          : [localized(
+              "The maximum budget is a ceiling, not a spending target. Never prefer a higher price or higher specification without evidence that it better fits the requested use.",
+              "最高预算是上限，不是需要花满的目标。没有使用场景证据时，不要偏爱更贵或参数更高的商品。"
+            )]),
         ...(input.preferences.length === 0 || preferenceEvidenceCount > 0
           ? []
-          : ["No returned card independently verifies the requested preferences. Do not claim one is the best fit from specification or price alone."]),
-        ...(couponCount === 0 ? [] : [`${couponCount} verified Coupon or promotion result(s) are attached to the ranked cards.`]),
-        "Trust labels do not prove manufacturer authorization; never call a merchant authorized without explicit brand-authorization evidence.",
-        "Use each card's quoteCapability: request ZIP only for DELIVERED_TOTAL_SUPPORTED or ZIP_ESTIMATE_ONLY; MERCHANT_CHECKOUT_ONLY requires checkout and no ZIP request.",
-        "Use the cards; do not repeat every field."
+          : [localized(
+              "No returned card independently verifies the requested preferences. Do not claim one is the best fit from specification or price alone.",
+              "返回卡片没有独立验证用户偏好，不能只凭参数或价格声称最适合。"
+            )]),
+        ...(couponCount === 0 ? [] : [localized(
+          `${couponCount} verified Coupon or promotion result(s) are attached to the ranked cards.`,
+          `排序卡片已附 ${couponCount} 条经过验证的优惠券或促销信息。`
+        )]),
+        localized(
+          "Trust labels do not prove manufacturer authorization; never call a merchant authorized without explicit brand-authorization evidence.",
+          "可信标签不等于品牌授权；没有明确的品牌授权证据时，不得称商家为授权零售商。"
+        ),
+        localized(
+          "Use each card's quoteCapability: request ZIP only for DELIVERED_TOTAL_SUPPORTED or ZIP_ESTIMATE_ONLY; MERCHANT_CHECKOUT_ONLY requires checkout and no ZIP request.",
+          "按卡片的报价能力处理：仅 DELIVERED_TOTAL_SUPPORTED 或 ZIP_ESTIMATE_ONLY 可询问 ZIP；MERCHANT_CHECKOUT_ONLY 需在结账页确认，不询问 ZIP。"
+        ),
+        localized(
+          "Use the cards without repeating every field. End with one useful next step or limitation.",
+          "结合卡片作答，不要重复所有字段；最后只给一个有用的下一步或限制。"
+        )
       ].join(" ");
   const dataUnavailable = products.length === 0 && (
     execution.sourceStatus.shopify === "UNAVAILABLE" ||
@@ -999,7 +1052,7 @@ function unifiedResult(
     content: [{ type: "text" as const, text: message }],
     structuredContent: {
       ...shopifyResponse.structuredContent,
-      locale: /\p{Script=Han}/u.test(input.query) ? "zh-CN" as const : "en-US" as const,
+      locale,
       status: dataUnavailable ? "DATA_SOURCE_UNAVAILABLE" as const : "OK" as const,
       message,
       source: "UNIFIED_PRODUCT_SEARCH" as const,

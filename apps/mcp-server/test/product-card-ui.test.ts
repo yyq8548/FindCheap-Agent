@@ -43,7 +43,7 @@ function nodes(node: FakeNode): FakeNode[] {
 
 describe("product-card MCP Apps UI", () => {
   it("uses an embedded Codex-native surface with responsive cards", () => {
-    expect(PRODUCT_CARD_UI_URI).toBe("ui://findcheap/product-cards/v29.html");
+    expect(PRODUCT_CARD_UI_URI).toBe("ui://findcheap/product-cards/v30.html");
     expect(PRODUCT_CARD_HTML).toContain("--fc-surface:");
     expect(PRODUCT_CARD_HTML).toContain("background: var(--fc-action);");
     expect(PRODUCT_CARD_HTML).toContain("@media (max-width: 640px)");
@@ -53,6 +53,8 @@ describe("product-card MCP Apps UI", () => {
     expect(PRODUCT_CARD_HTML).toContain("grid-template-columns: 1fr;");
     expect(PRODUCT_CARD_HTML).toContain("box-shadow: none;");
     expect(PRODUCT_CARD_HTML).toContain("border: 1px solid var(--fc-border-strong);");
+    expect(PRODUCT_CARD_HTML).toContain("border-top: 1px solid var(--fc-border);");
+    expect(PRODUCT_CARD_HTML).toContain("Why this matches");
     expect(PRODUCT_CARD_HTML).toContain("a:active { transform: translateY(1px); }");
     expect(PRODUCT_CARD_HTML).toContain("replace(/[—–]/gu, \"-\")");
     expect(PRODUCT_CARD_HTML).toContain("Possible same item");
@@ -139,7 +141,7 @@ describe("product-card MCP Apps UI", () => {
       params: expect.objectContaining({
         name: "report_product_card_metrics",
         arguments: expect.objectContaining({
-          version: "0.15.8",
+          version: "0.16.0",
           terminalStage: "DOM_RENDERED",
           stages: expect.objectContaining({ DOM_RENDERED: expect.any(Number) })
         })
@@ -255,8 +257,7 @@ describe("product-card MCP Apps UI", () => {
     expect(text(app)).toContain("Estimated tax (FL ZIP state average 6.98%) $0.91");
     expect(text(app)).toContain("Estimated total $13.90");
     expect(text(app)).toMatch(/Estimated total summary\s+Direct Product \$13\.90/u);
-    expect(text(app)).toContain("Some merchants require a full address or checkout before calculating tax");
-    expect(text(app)).toContain("Final checkout total may change");
+    expect(text(app)).toContain("Estimated for the supplied ZIP; checkout confirms the final total");
     expect(messages.some((message) => message.method === "tools/call")).toBe(false);
     expect(PRODUCT_CARD_HTML).toContain('image.loading = "lazy"');
     expect(PRODUCT_CARD_HTML).toContain('image.fetchPriority = "low"');
@@ -462,6 +463,7 @@ describe("product-card MCP Apps UI", () => {
       condition: "UNKNOWN",
       availability: "IN_STOCK",
       presentationGroup,
+      recommendationTier: "TRUSTED_OR_AFFILIATE",
       merchantUrl: "https://example.com/products/item",
       card: {
         merchant: "Merchant",
@@ -499,8 +501,65 @@ describe("product-card MCP Apps UI", () => {
     expect(output).toContain("Only products hosted on independently verified official brand websites");
     expect(output).toContain("approved Awin merchants");
     expect(output).toContain("Shopify merchants rated above 3.8 with at least 2 reviews");
+    expect(output).toContain("First to consider");
+    expect(nodes(app).filter((node) => node.className.includes("featured"))).toHaveLength(1);
     expect(output.indexOf("Official Product")).toBeLessThan(output.indexOf("Trusted Product"));
     expect(output.indexOf("Trusted Product")).toBeLessThan(output.indexOf("Value Product"));
+  });
+
+  it("localizes Coupon labels and keeps unknown condition out of the badge row", () => {
+    const script = PRODUCT_CARD_HTML.match(/<script>([\s\S]*)<\/script>/u)?.[1];
+    const app = new FakeNode();
+    const window = {
+      parent: { postMessage: () => undefined },
+      openai: { toolOutput: {
+        locale: "zh-CN",
+        products: [{
+          merchant: "示例官网",
+          title: "示例商品",
+          matchStatus: "EXACT",
+          condition: "UNKNOWN",
+          availability: "IN_STOCK",
+          presentationGroup: "OFFICIAL_STORE",
+          recommendationTier: "TRUSTED_OR_AFFILIATE",
+          merchantUrl: "https://example.com/products/item",
+          coupons: {
+            status: "VERIFIED",
+            verified: [{ code: "SAVE20", discountPercent: 20 }]
+          },
+          card: {
+            merchant: "示例官网",
+            title: "示例商品",
+            primaryPrice: { amountCents: 4_000, currency: "USD" },
+            couponLabel: "Coupon: SAVE20",
+            matchBadge: "EXACT",
+            conditionBadge: "UNKNOWN",
+            availability: "IN_STOCK",
+            merchantTrustBadge: "OFFICIAL"
+          }
+        }]
+      } },
+      addEventListener: () => undefined,
+      setTimeout: () => 1,
+      ResizeObserver: undefined
+    };
+    const document = {
+      getElementById: () => app,
+      createElement: () => new FakeNode(),
+      documentElement: { scrollWidth: 700, scrollHeight: 320 },
+      body: { scrollWidth: 700, scrollHeight: 320 }
+    };
+
+    vm.runInNewContext(script!, { window, document, URL, Intl, Number, String, Array, Object, Promise, Map, Math, Date });
+
+    const output = text(app);
+    expect(output).toContain("优惠码：SAVE20");
+    expect(output).toContain("值得先看");
+    expect(output).toContain("为什么匹配");
+    expect(output).toContain("商品状态未核实");
+    expect(output).not.toContain("Coupon: SAVE20");
+    expect(nodes(app).filter((node) => node.className === "badge").map((node) => node.textContent))
+      .not.toContain("未知");
   });
 
   it("loads the immutable snapshot when Codex forwards tool input without tool output", async () => {
@@ -538,7 +597,7 @@ describe("product-card MCP Apps UI", () => {
       method: "ui/initialize",
       params: {
         protocolVersion: "2026-01-26",
-        appInfo: { name: "FindCheap Agent product cards", version: "0.15.8" },
+        appInfo: { name: "FindCheap Agent product cards", version: "0.16.0" },
         appCapabilities: { availableDisplayModes: ["inline"] }
       }
     });

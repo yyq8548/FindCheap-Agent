@@ -104,6 +104,9 @@ describe("FindCheap Agent plugin contract", () => {
     expect(skill).toContain("trust does not prove brand authorization");
     expect(skill).toContain("For `MERCHANT_CHECKOUT_ONLY`, do not ask for ZIP");
     expect(skill).toContain("never describe multiple products from one merchant as merchant-diverse");
+    expect(skill).toContain("capable shopping friend, not sales copy");
+    expect(skill).toContain("max two reasons, one next step/limit");
+    expect(skill).toContain("No greeting/emoji/invented savings or fit");
   });
 
   it("prevents a new image from reusing a stale selected product", async () => {
@@ -147,6 +150,7 @@ describe("FindCheap Agent plugin contract", () => {
       expect(skill).toContain("Checkout confirms scope/stacking");
     }
     expect(compareSkill).toContain("Numeric discount may show estimated price");
+    expect(dealsSkill).toContain("Be warm and direct, not salesy");
   });
 
   it("defines one bounded, user-authorized web-wide merchant workflow", async () => {
@@ -198,7 +202,7 @@ describe("FindCheap Agent plugin contract", () => {
     };
 
     expect(manifest.name).toBe("findcheap-agent");
-    expect(manifest.version).toMatch(/^0\.15\.8(?:\+codex\.)?/u);
+    expect(manifest.version).toMatch(/^0\.16\.0(?:\+codex\.)?/u);
     expect(manifest.interface.displayName).toBe("FindCheap Agent");
     expect(manifest.interface.longDescription).toMatch(/Codex Plugin Agent/u);
     expect(manifest.interface.longDescription).toMatch(/[Aa]uthorized.*Chrome/u);

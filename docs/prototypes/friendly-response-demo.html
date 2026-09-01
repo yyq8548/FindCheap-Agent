@@ -1,0 +1,694 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FindCheap 友好回答体验演示</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      --page: light-dark(#f7f7f5, #171816);
+      --surface: light-dark(#ffffff, #20221f);
+      --surface-soft: light-dark(#f5f6f3, #292c28);
+      --surface-warm: light-dark(#faf7f0, #2b2924);
+      --text: light-dark(#20211f, #f2f3ef);
+      --muted: light-dark(#696d67, #aeb3aa);
+      --faint: light-dark(#8b8f88, #8f948c);
+      --border: light-dark(#dedfd9, #41443f);
+      --border-strong: light-dark(#bfc3bb, #60645d);
+      --accent: light-dark(#2f654a, #9bc8ac);
+      --accent-soft: light-dark(#edf5ef, #27382e);
+      --action: light-dark(#20211f, #f2f3ef);
+      --action-text: light-dark(#ffffff, #1a1b19);
+      --focus: light-dark(#2f654a, #9bc8ac);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--page);
+      color: var(--text);
+      font-size: 15px;
+      line-height: 1.55;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+    }
+
+    button, a { font: inherit; }
+
+    button:focus-visible, a:focus-visible {
+      outline: 2px solid var(--focus);
+      outline-offset: 3px;
+    }
+
+    ::selection {
+      background: var(--accent);
+      color: var(--surface);
+    }
+
+    .page {
+      width: min(940px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 44px 0 80px;
+    }
+
+    .prototype-label {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 28px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .prototype-label strong {
+      color: var(--text);
+      font-weight: 650;
+    }
+
+    .user-row {
+      display: flex;
+      justify-content: flex-end;
+      margin-bottom: 34px;
+    }
+
+    .user-message {
+      max-width: 680px;
+      border-radius: 22px;
+      padding: 13px 18px;
+      background: var(--surface-soft);
+      color: var(--text);
+      line-height: 1.55;
+    }
+
+    .assistant {
+      border-top: 1px solid var(--border);
+      padding-top: 22px;
+    }
+
+    .assistant-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 18px;
+    }
+
+    .agent-name {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .agent-mark {
+      display: grid;
+      width: 26px;
+      height: 26px;
+      place-items: center;
+      border: 1px solid var(--border-strong);
+      border-radius: 8px;
+      background: var(--surface);
+    }
+
+    .agent-mark svg { width: 15px; height: 15px; }
+
+    .tabs {
+      display: inline-flex;
+      gap: 3px;
+      padding: 3px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--surface-soft);
+    }
+
+    .tab {
+      border: 0;
+      border-radius: 7px;
+      padding: 6px 10px;
+      color: var(--muted);
+      background: transparent;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .tab[aria-selected="true"] {
+      color: var(--text);
+      background: var(--surface);
+      box-shadow: 0 1px 3px rgb(0 0 0 / 8%);
+    }
+
+    .panel[hidden] { display: none; }
+
+    .lead {
+      max-width: 720px;
+      margin: 0 0 20px;
+      font-size: 18px;
+      line-height: 1.6;
+      letter-spacing: -.01em;
+    }
+
+    .lead strong { font-weight: 700; }
+
+    .result-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 16px;
+      margin-bottom: 26px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .result-meta span {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+    }
+
+    .group {
+      margin-top: 26px;
+      border-top: 1px solid var(--border);
+      padding-top: 18px;
+    }
+
+    .group-heading {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 18px;
+      margin-bottom: 12px;
+    }
+
+    .group-heading h2 {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 680;
+      line-height: 1.4;
+    }
+
+    .group-heading p {
+      max-width: 520px;
+      margin: 0;
+      color: var(--muted);
+      font-size: 11px;
+      text-align: right;
+    }
+
+    .product {
+      display: grid;
+      grid-template-columns: 148px minmax(0, 1fr);
+      overflow: hidden;
+      border: 1px solid var(--border-strong);
+      border-radius: 15px;
+      background: var(--surface);
+    }
+
+    .product.featured {
+      border-color: color-mix(in srgb, var(--accent) 52%, var(--border));
+      background: var(--accent-soft);
+    }
+
+    .product-visual {
+      display: grid;
+      min-height: 196px;
+      place-items: center;
+      border-right: 1px solid var(--border);
+      background: var(--surface-soft);
+    }
+
+    .product-visual svg {
+      width: 96px;
+      height: 132px;
+      filter: drop-shadow(0 9px 10px rgb(0 0 0 / 10%));
+    }
+
+    .product-body {
+      display: grid;
+      gap: 11px;
+      min-width: 0;
+      padding: 18px 20px;
+    }
+
+    .merchant-line {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .friend-pick {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border-radius: 999px;
+      padding: 4px 8px;
+      color: var(--accent);
+      background: var(--surface);
+      font-size: 10px;
+      font-weight: 700;
+    }
+
+    .friend-pick svg { width: 12px; height: 12px; }
+
+    .product h3 {
+      margin: 0;
+      font-size: 17px;
+      font-weight: 680;
+      line-height: 1.4;
+    }
+
+    .price-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      gap: 8px 12px;
+    }
+
+    .price {
+      font-size: 25px;
+      font-weight: 720;
+      letter-spacing: -.03em;
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .after-coupon {
+      color: var(--accent);
+      font-size: 13px;
+      font-weight: 680;
+    }
+
+    .tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .tag {
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      padding: 3px 7px;
+      color: var(--muted);
+      background: var(--surface);
+      font-size: 10px;
+      font-weight: 650;
+      line-height: 1.35;
+    }
+
+    .tag.positive {
+      border-color: color-mix(in srgb, var(--accent) 36%, var(--border));
+      color: var(--accent);
+    }
+
+    .reason {
+      margin: 0;
+      color: var(--text);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .product-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      border-top: 1px solid var(--border);
+      padding-top: 12px;
+    }
+
+    .evidence {
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .merchant-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 124px;
+      border: 1px solid var(--action);
+      border-radius: 9px;
+      padding: 8px 11px;
+      color: var(--action-text);
+      background: var(--action);
+      font-size: 12px;
+      font-weight: 650;
+      text-decoration: none;
+      cursor: pointer;
+    }
+
+    .merchant-button:hover { opacity: .86; }
+
+    .compact-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .compact-product {
+      display: grid;
+      gap: 10px;
+      min-width: 0;
+      border: 1px solid var(--border);
+      border-radius: 13px;
+      padding: 14px;
+      background: var(--surface);
+    }
+
+    .compact-product .merchant-line { align-items: flex-start; }
+    .compact-product h3 { margin: 0; font-size: 14px; line-height: 1.4; }
+    .compact-product .price { font-size: 20px; }
+
+    .recommendation {
+      margin-top: 28px;
+      border-top: 1px solid var(--border);
+      padding-top: 20px;
+    }
+
+    .recommendation p {
+      max-width: 740px;
+      margin: 0;
+      font-size: 15px;
+      line-height: 1.65;
+    }
+
+    .recommendation p + p {
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .selected-product {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      margin-bottom: 24px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 15px;
+    }
+
+    .selected-product strong { display: block; font-size: 14px; }
+    .selected-product span { color: var(--muted); font-size: 12px; }
+
+    .deal-hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 24px;
+      margin: 22px 0 26px;
+      border: 1px solid color-mix(in srgb, var(--accent) 42%, var(--border));
+      border-radius: 15px;
+      padding: 19px 20px;
+      background: var(--accent-soft);
+    }
+
+    .deal-code {
+      display: inline-block;
+      margin-bottom: 8px;
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      padding: 4px 7px;
+      background: var(--surface);
+      font: 650 12px/1.2 ui-monospace, SFMono-Regular, Consolas, monospace;
+      letter-spacing: .01em;
+    }
+
+    .deal-hero h2 {
+      margin: 0 0 7px;
+      font-size: 18px;
+      font-weight: 700;
+    }
+
+    .deal-hero p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    .deal-price {
+      align-self: center;
+      min-width: 130px;
+      text-align: right;
+    }
+
+    .deal-price span { display: block; color: var(--muted); font-size: 11px; }
+    .deal-price strong { font-size: 27px; font-variant-numeric: tabular-nums; letter-spacing: -.03em; }
+
+    .deal-list {
+      border-top: 1px solid var(--border);
+    }
+
+    .deal-row {
+      display: grid;
+      grid-template-columns: 142px minmax(0, 1fr) auto;
+      gap: 16px;
+      align-items: center;
+      border-bottom: 1px solid var(--border);
+      padding: 13px 0;
+    }
+
+    .deal-row code {
+      color: var(--text);
+      font: 650 12px/1.35 ui-monospace, SFMono-Regular, Consolas, monospace;
+    }
+
+    .deal-row p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .deal-row strong {
+      font-size: 12px;
+      font-weight: 680;
+      white-space: nowrap;
+    }
+
+    .checkout-note {
+      margin: 18px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    @media (max-width: 680px) {
+      .page { width: min(100% - 20px, 940px); padding-top: 22px; }
+      .prototype-label, .assistant-header, .selected-product { align-items: flex-start; }
+      .prototype-label, .merchant-line { flex-wrap: wrap; }
+      .user-message { max-width: 100%; overflow-wrap: anywhere; }
+      .assistant-header { flex-direction: column; }
+      .tabs { width: 100%; }
+      .tab { flex: 1; }
+      .group-heading { display: block; }
+      .group-heading p { margin-top: 4px; text-align: left; }
+      .product { grid-template-columns: 112px minmax(0, 1fr); }
+      .product-visual { min-height: 168px; }
+      .product-visual svg { width: 76px; height: 112px; }
+      .product-body { padding: 14px; }
+      .compact-grid { grid-template-columns: 1fr; }
+      .product-footer { align-items: flex-start; flex-direction: column; }
+      .merchant-button { width: 100%; }
+      .deal-hero { grid-template-columns: 1fr; }
+      .deal-price { text-align: left; }
+      .deal-row { grid-template-columns: 1fr; gap: 4px; }
+    }
+
+    @media (max-width: 560px) {
+      .user-message { border-radius: 16px; }
+      .product { display: block; }
+      .product-visual { min-height: 148px; border-right: 0; border-bottom: 1px solid var(--border); }
+      .merchant-line { align-items: flex-start; }
+      .friend-pick { white-space: nowrap; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <div class="prototype-label">
+      <strong>FindCheap 回答体验演示</strong>
+      <span>交互原型，使用示例数据</span>
+    </div>
+
+    <div class="user-row">
+      <div class="user-message">帮我找一款 4.5 lb 左右的天然三文鱼狗粮，预算 $60，最好有优惠。</div>
+    </div>
+
+    <section class="assistant" aria-label="FindCheap 回答演示">
+      <header class="assistant-header">
+        <div class="agent-name">
+          <span class="agent-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+              <path d="M7 3.5h10l3 5.2-3 11.8H7L4 8.7 7 3.5Z"/>
+              <path d="m8.5 9 2.2 2.2L15.8 6"/>
+            </svg>
+          </span>
+          <span>FindCheap Agent</span>
+        </div>
+
+        <div class="tabs" role="tablist" aria-label="演示状态">
+          <button class="tab" id="products-tab" type="button" role="tab" aria-selected="true" aria-controls="products-panel">商品推荐</button>
+          <button class="tab" id="coupon-tab" type="button" role="tab" aria-selected="false" aria-controls="coupon-panel">优惠详情</button>
+        </div>
+      </header>
+
+      <section class="panel" id="products-panel" role="tabpanel" aria-labelledby="products-tab">
+        <p class="lead">找到了 3 款靠谱的。<strong>先看第一款</strong>，配方和重量都符合要求，新客券后约 $44.78，比你的预算少 $15.22。</p>
+        <div class="result-meta">
+          <span><i class="status-dot" aria-hidden="true"></i>价格和库存已核对</span>
+          <span>3 家商家</span>
+          <span>预算上限 $60</span>
+        </div>
+
+        <section class="group">
+          <div class="group-heading">
+            <h2>品牌官网</h2>
+            <p>官网商品身份已确认，最多显示 2 款</p>
+          </div>
+          <article class="product featured">
+            <div class="product-visual" aria-label="天然三文鱼狗粮包装示意图">
+              <svg viewBox="0 0 120 160" role="img" aria-label="天然三文鱼狗粮包装">
+                <path d="M25 10h70l9 20-6 118a8 8 0 0 1-8 7H30a8 8 0 0 1-8-7L16 30l9-20Z" fill="#d6e5d7" stroke="#8ca18f"/>
+                <path d="M16 30h88" stroke="#8ca18f"/>
+                <path d="M42 66c10-12 27-13 38-2-7 4-7 12 0 17-12 10-30 8-39-4l-11 5 4-13-4-12 12 9Z" fill="#d17f64"/>
+                <circle cx="70" cy="69" r="1.7" fill="#3d493f"/>
+                <text x="60" y="111" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" font-weight="700" fill="#405345">SALMON</text>
+                <text x="60" y="124" text-anchor="middle" font-family="Arial, sans-serif" font-size="7" fill="#405345">NATURAL RECIPE</text>
+                <text x="60" y="139" text-anchor="middle" font-family="Arial, sans-serif" font-size="7" fill="#405345">4.5 LB</text>
+              </svg>
+            </div>
+            <div class="product-body">
+              <div class="merchant-line">
+                <span>Nextrition Pet 官网</span>
+                <span class="friend-pick">
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m3 8 3 3 7-7"/></svg>
+                  最值得先看
+                </span>
+              </div>
+              <h3>All-Natural Salmon Recipe, 4.5 lb</h3>
+              <div class="price-row">
+                <span class="price">$55.98</span>
+                <span class="after-coupon">新客券后约 $44.78</span>
+              </div>
+              <div class="tags">
+                <span class="tag positive">官网</span>
+                <span class="tag">精确匹配</span>
+                <span class="tag">有货</span>
+                <span class="tag positive">首单减 20%</span>
+              </div>
+              <p class="reason">三文鱼配方、4.5 lb 袋装和预算都符合。当前优惠力度也是这 3 款里最大的。</p>
+              <div class="product-footer">
+                <span class="evidence">商品价已验证。运费和税费可继续按 ZIP 核对。</span>
+                <button class="merchant-button" type="button">前往官网</button>
+              </div>
+            </div>
+          </article>
+        </section>
+
+        <section class="group">
+          <div class="group-heading">
+            <h2>可信商家</h2>
+            <p>来自已审核商家或已批准的 Awin Program</p>
+          </div>
+          <div class="compact-grid">
+            <article class="compact-product">
+              <div class="merchant-line"><span>Trusted Pet Supply</span><span class="tag">Awin 商家</span></div>
+              <h3>Wild Salmon Complete Recipe, 4 lb</h3>
+              <div class="price-row"><span class="price">$48.99</span><span class="tag">有货</span></div>
+              <p class="reason">价格更低，但重量少 0.5 lb，没有找到可验证的优惠码。</p>
+            </article>
+            <article class="compact-product">
+              <div class="merchant-line"><span>Healthy Paws Market</span><span class="tag">可信商家</span></div>
+              <h3>Salmon &amp; Brown Rice Recipe, 5 lb</h3>
+              <div class="price-row"><span class="price">$57.50</span><span class="tag">有货</span></div>
+              <p class="reason">重量接近，价格在预算内，但配方不是纯三文鱼。</p>
+            </article>
+          </div>
+        </section>
+
+        <div class="recommendation">
+          <p>我会选第一款。它不是标价最低的，但券后价格最低，而且商品身份、配方和库存都更清楚。</p>
+          <p>如果你提供 ZIP，我可以继续核对运费、税费和预估到手价，再看它是不是真的最省。</p>
+        </div>
+      </section>
+
+      <section class="panel" id="coupon-panel" role="tabpanel" aria-labelledby="coupon-tab" hidden>
+        <div class="selected-product">
+          <div>
+            <strong>All-Natural Salmon Recipe, 4.5 lb</strong>
+            <span>Nextrition Pet 官网，当前商品价 $55.98</span>
+          </div>
+          <span class="tag positive">已锁定同一商品</span>
+        </div>
+
+        <p class="lead">最划算的是 <strong>SUMMER26_20</strong>，新客首单减 20%。适用于正式袋装狗粮和零食，不含样品与试用装。</p>
+
+        <section class="deal-hero" aria-label="最优优惠">
+          <div>
+            <code class="deal-code">SUMMER26_20</code>
+            <h2>新客首单减 20%</h2>
+            <p>适用：正式袋装狗粮或零食<br>不适用：样品和试用装</p>
+          </div>
+          <div class="deal-price">
+            <span>预计税前价格</span>
+            <strong>$44.78</strong>
+          </div>
+        </section>
+
+        <div class="group-heading">
+          <h2>其他可用优惠</h2>
+          <p>全部优惠都保留，方便你比较</p>
+        </div>
+        <div class="deal-list">
+          <div class="deal-row">
+            <code>SUMMER26_15</code>
+            <p>订单减 15%，适用商品范围需在结账页确认</p>
+            <strong>约省 $8.40</strong>
+          </div>
+          <div class="deal-row">
+            <code>FREEGIFT</code>
+            <p>符合活动条件时可领取赠品，赠品内容以商家页面为准</p>
+            <strong>赠品活动</strong>
+          </div>
+        </div>
+
+        <p class="checkout-note">优惠资格、能否叠加以及最终金额由商家结账页确认。FindCheap 不会代你输入优惠码或下单。</p>
+      </section>
+    </section>
+  </main>
+
+  <script>
+    const tabs = Array.from(document.querySelectorAll('[role="tab"]'));
+    const panels = Array.from(document.querySelectorAll('[role="tabpanel"]'));
+
+    const selectTab = (tab) => {
+        for (const candidate of tabs) candidate.setAttribute('aria-selected', String(candidate === tab));
+        for (const panel of panels) panel.hidden = panel.id !== tab.getAttribute('aria-controls');
+    };
+
+    for (const tab of tabs) {
+      tab.addEventListener('click', () => selectTab(tab));
+    }
+
+    if (new URLSearchParams(window.location.search).get('panel') === 'coupon') selectTab(tabs[1]);
+  </script>
+</body>
+</html>
