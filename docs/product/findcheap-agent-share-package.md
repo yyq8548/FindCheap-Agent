@@ -33,7 +33,7 @@ Open the Plugins Directory and confirm:
 - marketplace: `FindCheap Agent`
 - plugin: `FindCheap Agent`
 - plugin ID: `findcheap-agent`
-- version: `0.16.1`
+- version: `0.16.2`
 
 Test prompt:
 

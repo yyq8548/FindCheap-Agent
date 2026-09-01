@@ -69,6 +69,9 @@ const QuerySchema = z.string().trim().min(2).max(300)
 
 export const SearchProductsInputSchema = z.object({
   query: QuerySchema,
+  responseLocale: z.enum(["en-US", "zh-CN"])
+    .describe("Language of the user's current request; controls product-card interface text even when query is translated for catalog search")
+    .optional(),
   limit: z.number().int().min(1).max(8).default(8)
     .describe("Maximum returned cards across three tiers: 2 official, 3 trusted, 3 best value"),
   maxItemPriceCents: z.number().int().min(1).max(100_000_000)

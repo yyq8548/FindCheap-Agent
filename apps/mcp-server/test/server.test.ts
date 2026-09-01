@@ -219,6 +219,7 @@ describe("shopping MCP server", () => {
       "productType",
       "query",
       "requiredFeatures",
+      "responseLocale",
       "selectionMode",
       "visualInput",
       "zipCode"
@@ -423,7 +424,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.16.1",
+        version: "0.16.2",
         terminalStage: "DOM_RENDERED",
         stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
       }
@@ -432,7 +433,7 @@ describe("shopping MCP server", () => {
     expect(result.structuredContent).toEqual({ status: "RECORDED" });
     expect(record).toHaveBeenCalledWith(expect.objectContaining({
       renderId,
-      version: "0.16.1",
+      version: "0.16.2",
       terminalStage: "DOM_RENDERED",
       stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
     }));
@@ -440,7 +441,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.16.1",
+        version: "0.16.2",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 14 }
       }
@@ -450,7 +451,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.16.1",
+        version: "0.16.2",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 300_001 }
       }
@@ -461,7 +462,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId: "22222222-2222-4222-8222-222222222222",
-        version: "0.16.1",
+        version: "0.16.2",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 1 }
       }
@@ -1908,10 +1909,11 @@ describe("Coupon and Watch tools", () => {
     });
     const result = await client.callTool({
       name: "search_products",
-      arguments: { query: "keratin hair mask", limit: 3 }
+      arguments: { query: "keratin hair mask", responseLocale: "zh-CN", limit: 3 }
     });
 
     expect(result.structuredContent).toMatchObject({
+      locale: "zh-CN",
       status: "OK",
       source: "UNIFIED_PRODUCT_SEARCH",
       sources: { awin: "COMPLETE", shopify: "COMPLETE", ebay: "SKIPPED" },
@@ -1937,10 +1939,10 @@ describe("Coupon and Watch tools", () => {
     })]);
     const modelText = (result.content as Array<{ text?: string }> | undefined)?.[0]?.text ?? "";
     expect(modelText.length).toBeLessThanOrEqual(700);
-    expect(modelText).toContain("ranked product card");
-    expect(modelText).toContain("from 2 merchant(s)");
-    expect(modelText).toContain("never call a merchant authorized");
-    expect(modelText).toContain("MERCHANT_CHECKOUT_ONLY requires checkout and no ZIP request");
+    expect(modelText).toContain("排序后的商品");
+    expect(modelText).toContain("来自 2 家商家");
+    expect(modelText).toContain("不得称商家为授权零售商");
+    expect(modelText).toContain("MERCHANT_CHECKOUT_ONLY 需在结账页确认，不询问 ZIP");
     expect(modelText).toContain("Reuse selectionId; never search titles");
     expect(modelText).not.toMatch(/coverage|diagnostic|feedRows|registry/iu);
   });

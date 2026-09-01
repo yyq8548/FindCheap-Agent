@@ -136,6 +136,7 @@ describe("installed plugin stdio", () => {
         "productType",
         "query",
         "requiredFeatures",
+        "responseLocale",
         "selectionMode",
         "visualInput",
         "zipCode"
