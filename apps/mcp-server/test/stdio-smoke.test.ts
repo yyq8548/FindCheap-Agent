@@ -126,6 +126,7 @@ describe("installed plugin stdio", () => {
         "comparisonMode",
         "conditionPreference",
         "contextMode",
+        "excludedFeatures",
         "featureMode",
         "features",
         "limit",

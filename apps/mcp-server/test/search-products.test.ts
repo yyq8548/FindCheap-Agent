@@ -921,6 +921,76 @@ describe("unified product search", () => {
     expect(result.identityProductsExcluded).toBe(0);
   });
 
+  it("excludes Nextrition samples and expands the second pass to full-size products", async () => {
+    const products = [
+      awinProduct("sample", 199, {
+        merchantId: "113600",
+        merchant: "Nextrition Pet (US)",
+        title: "Chicken Recipe Dog Food Sample",
+        category: "Animals & Pet Supplies"
+      }),
+      awinProduct("trial", 999, {
+        merchantId: "113600",
+        merchant: "Nextrition Pet (US)",
+        title: "Chicken Recipe Trial Pack (4-pack)",
+        category: "Animals & Pet Supplies"
+      }),
+      awinProduct("bag-4-5", 5498, {
+        merchantId: "113600",
+        merchant: "Nextrition Pet (US)",
+        title: "All-Natural Chicken Recipe - 4.5 lb",
+        category: "Animals & Pet Supplies"
+      }),
+      awinProduct("bag-9", 10_558, {
+        merchantId: "113600",
+        merchant: "Nextrition Pet (US)",
+        title: "All-Natural Chicken Recipe - 9 lb",
+        category: "Animals & Pet Supplies"
+      })
+    ];
+    const awinSearch = vi.fn<AwinProductPort["search"]>(async () => ({
+      source: "AWIN_PRODUCT_FEED",
+      coverage: "COMPLETE",
+      snapshotAt: now,
+      diagnostics: {
+        feedRows: products.length,
+        validRows: products.length,
+        rejectedRows: 0,
+        queryMatches: products.length,
+        priceProductsExcluded: 0
+      },
+      products
+    }));
+
+    const result = await searchProducts(SearchProductsInputSchema.parse({
+      query: "Nextrition Pet dog food",
+      productType: "dog food",
+      brand: "Nextrition Pet",
+      brandMode: "REQUIRED",
+      comparisonMode: "DISCOVERY",
+      contextMode: "CONTINUE_PREVIOUS_PRODUCT",
+      requiredFeatures: ["full-size large bag, not a sample or trial pack"],
+      allowAlternatives: false,
+      limit: 8
+    }), {
+      awin: { search: awinSearch },
+      shopify: shopify([])
+    });
+
+    expect(awinSearch).toHaveBeenCalledTimes(2);
+    expect(awinSearch.mock.calls[0]?.[0].query).toBe("Nextrition Pet dog food");
+    expect(awinSearch.mock.calls[1]?.[0]).toMatchObject({
+      query: "Nextrition Pet dog food",
+      limit: 24
+    });
+    expect(result.candidates.map((candidate) => candidate.awinProduct?.title)).toEqual([
+      "All-Natural Chicken Recipe - 4.5 lb",
+      "All-Natural Chicken Recipe - 9 lb"
+    ]);
+    expect(result.featureProductsExcluded).toBe(2);
+    expect(result.candidates.every((candidate) => candidate.requiredFeatureLimitations.length === 0)).toBe(true);
+  });
+
   it("returns only the requested SKIMS product and never pads with unrelated dresses", async () => {
     const requested = shopifyProduct("skims-soft-lounge", 8000, "NEW", {
       title: "Soft Lounge Mini Dress",

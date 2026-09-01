@@ -89,6 +89,10 @@ export const SearchProductsInputSchema = z.object({
   requiredFeatures: z.array(z.string().trim().min(1).max(80)).max(10)
     .refine((values) => new Set(values.map(normalize)).size === values.length, "required features must be unique")
     .default([]),
+  excludedFeatures: z.array(z.string().trim().min(1).max(80)).max(10)
+    .refine((values) => new Set(values.map(normalize)).size === values.length, "excluded features must be unique")
+    .describe("Objective disqualifiers such as sample, trial pack, or tester")
+    .default([]),
   preferences: z.array(z.string().trim().min(1).max(80)).max(10)
     .refine((values) => new Set(values.map(normalize)).size === values.length, "preferences must be unique")
     .default([]),
@@ -307,6 +311,10 @@ export async function searchProducts(
     ports.officialStorefrontRegistry?.refresh(),
     ports.merchantTrustRegistry?.refresh()
   ]);
+  const rawRequiredFeatures = unique([
+    ...rawInput.requiredFeatures,
+    ...(rawInput.featureMode === "REQUIRED" ? rawInput.features : [])
+  ]);
   const input = {
     ...rawInput,
     visualInput: rawInput.visualInput === undefined
@@ -318,9 +326,10 @@ export async function searchProducts(
             : {})
         },
     conditionPreference: explicitConditionPreference(rawInput.query, rawInput.conditionPreference),
-    requiredFeatures: unique([
-      ...rawInput.requiredFeatures,
-      ...(rawInput.featureMode === "REQUIRED" ? rawInput.features : [])
+    requiredFeatures: rawRequiredFeatures.filter((feature) => !isPackagingOnlyConstraint(feature)),
+    excludedFeatures: unique([
+      ...rawInput.excludedFeatures,
+      ...inferredPackagingExclusions(rawInput)
     ]),
     preferences: unique([
       ...rawInput.preferences,
@@ -1086,7 +1095,9 @@ function buildSourceQuery(input: Pick<SearchProductsInput, "query" | "brand" | "
   return unique([
     input.brand !== undefined && !containsBrand(query, input.brand) ? input.brand : "",
     query,
-    input.productType ?? "",
+    input.productType !== undefined && !normalize(query).includes(normalize(input.productType))
+      ? input.productType
+      : "",
   ]).join(" ").slice(0, 300).trim();
 }
 
@@ -1386,7 +1397,7 @@ function normalize(value: string): string {
 
 function evaluateConstraints(
   searchable: string,
-  input: Pick<SearchProductsInput, "requiredFeatures" | "preferences" | "features" | "featureMode">
+  input: Pick<SearchProductsInput, "requiredFeatures" | "excludedFeatures" | "preferences" | "features" | "featureMode">
 ): { matched: string[]; contradicted: string[]; unknown: string[]; preferences: string[] } {
   const required = unique([
     ...input.requiredFeatures,
@@ -1405,12 +1416,31 @@ function evaluateConstraints(
     else if (status === "CONTRADICTED") contradicted.push(feature);
     else unknown.push(feature);
   }
+  contradicted.push(...input.excludedFeatures
+    .filter((feature) => evaluateFeature(searchable, feature) === "MATCHED")
+    .map((feature) => `excluded: ${feature}`));
   return {
     matched,
     contradicted,
     unknown,
     preferences: preferences.filter((feature) => evaluateFeature(searchable, feature) === "MATCHED")
   };
+}
+
+function inferredPackagingExclusions(
+  input: Pick<SearchProductsInput, "query" | "requiredFeatures" | "features">
+): string[] {
+  const text = normalize([input.query, ...input.requiredFeatures, ...input.features].join(" "));
+  if (!/(?:\b(?:full[-\s]?size|large\s+(?:bag|package)|retail\s+size|regular\s+size)\b|大包装|正装|非试(?:用|吃)装|不要试(?:用|吃)装)/u.test(text)) {
+    return [];
+  }
+  return ["sample", "trial pack", "trial size", "tester"];
+}
+
+function isPackagingOnlyConstraint(feature: string): boolean {
+  const text = normalize(feature);
+  return !/\d/u.test(text) &&
+    /(?:\b(?:full[-\s]?size|large\s+(?:bag|package)|retail\s+size|regular\s+size|sample|trial\s+(?:pack|size)|tester)\b|大包装|正装|试(?:用|吃)装)/u.test(text);
 }
 
 function shopifyEvidenceText(product: ShopifyProduct): string {
