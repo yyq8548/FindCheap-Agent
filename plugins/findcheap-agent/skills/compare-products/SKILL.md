@@ -3,7 +3,7 @@ name: compare-products
 description: For live shopping, match all prose to the user's language. When named, say only "Searching for suitable products." for English or "正在使用 FindCheap 搜索合适商品。" for Chinese; never narrate Skill or Memory reads.
 ---
 
-# FindCheap Agent v0.15.7 Product Search
+# FindCheap Agent v0.15.8 Product Search
 
 Search/Chrome: R0; ZIP quote: R1. Never checkout, reserve, buy, pay, persist, or request an address.
 
@@ -20,8 +20,8 @@ Search/Chrome: R0; ZIP quote: R1. Never checkout, reserve, buy, pay, persist, or
 Cards return stable `selectionId`. Once chosen, `search_products` is forbidden for that follow-up. Never rebuild/search title.
 
 - Size/color/stock: call `inspect_selected_shopify_product` once with `selectionId` and `variantDimensions`.
-- Total: for supported `quoteCapability`, ask only missing ZIP, then call `quote_selected_shopify_product` once. For `MERCHANT_CHECKOUT_ONLY`, do not ask for ZIP or call quote; final total needs checkout.
-- Current deals/cheapest current path: call `research_selected_product_deal` with stable `selectionId`. Return current evidence only; do not discuss price history or buy-or-wait forecasting. No Watch unless requested.
+- Total: ask missing ZIP; call `quote_selected_shopify_product` once when supported. For `MERCHANT_CHECKOUT_ONLY`, do not ask for ZIP; checkout finalizes total.
+- Deals: call `research_selected_product_deal` with `selectionId`. Show best Coupon first: code/benefit; scope—customer, products, exclusions. Blank line; list all deals below. Numeric discount may show estimated price. Checkout confirms scope/stacking. No history/forecast/Watch.
 - On quote error, explain returned code; offer checkout or existing card. Never invent total or search replacement.
 - Expired reference: report failure and require one new user-initiated search.
 

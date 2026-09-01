@@ -3,7 +3,7 @@ name: deals-and-watch
 description: Find verified Coupon, promotion, membership, Cashback, and offline-barcode evidence, or create and manage shopping watches with Codex Automation.
 ---
 
-# FindCheap Agent v0.15.7 Deals and Watch
+# FindCheap Agent v0.15.8 Deals and Watch
 
 A live Coupon or Watch request is self-contained. MCP tools are loaded. Do not read Memory, repository files, logs, task files, or plugin cache. Do not reopen this Skill. Send at most one short progress sentence before the first tool call; do not narrate the tool sequence between calls.
 
@@ -13,7 +13,7 @@ Call `find_coupons` once. It includes active Awin Promotions without Product Fee
 
 ## Current deal check
 
-For selected-card deals, call `research_selected_product_deal` with stable `selectionId`; never search title. Pass supplied ZIP/memberships only. Return product, merchant, price basis/amount/time, inventory, verified source/eligibility/expiry, limits. Never answer only “price checked” or “no Coupon.” No history, sale cadence, forecast, or Watch unless requested. Deal does not prove eligibility or stacking.
+For a selected card, call `research_selected_product_deal` with stable `selectionId`; never search title. Pass supplied ZIP/memberships. Show best Coupon first: code/benefit; scope—customer, products, exclusions. Blank line; list all deals below. Checkout confirms scope/stacking. Return current product/price/inventory. No history/forecast/Watch.
 
 ## Create Watch
 
