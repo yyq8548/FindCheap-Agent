@@ -141,7 +141,7 @@ describe("product-card MCP Apps UI", () => {
       params: expect.objectContaining({
         name: "report_product_card_metrics",
         arguments: expect.objectContaining({
-          version: "0.16.3",
+          version: "0.16.4",
           terminalStage: "DOM_RENDERED",
           stages: expect.objectContaining({ DOM_RENDERED: expect.any(Number) })
         })
@@ -456,9 +456,10 @@ describe("product-card MCP Apps UI", () => {
   it("renders official, trusted, and best-value presentation groups in that order", () => {
     const script = PRODUCT_CARD_HTML.match(/<script>([\s\S]*)<\/script>/u)?.[1];
     const app = new FakeNode();
-    const product = (title: string, presentationGroup: string) => ({
+    const product = (title: string, presentationGroup: string, selectionId: string) => ({
       merchant: "Merchant",
       title,
+      selectionId,
       matchStatus: "DISCOVERY_MATCH",
       condition: "UNKNOWN",
       availability: "IN_STOCK",
@@ -476,11 +477,18 @@ describe("product-card MCP Apps UI", () => {
     });
     const window = {
       parent: { postMessage: () => undefined },
-      openai: { toolOutput: { products: [
-        product("Official Product", "OFFICIAL_STORE"),
-        product("Trusted Product", "TRUSTED_MATCH"),
-        product("Value Product", "BEST_VALUE")
-      ] } },
+      openai: { toolOutput: {
+        recommendation: {
+          state: "READY",
+          primarySelectionId: "00000000-0000-4000-8000-000000000002",
+          reasonCodes: ["EXACT_MATCH", "TRUSTED_MERCHANT", "LOWER_PRICE"]
+        },
+        products: [
+          product("Official Product", "OFFICIAL_STORE", "00000000-0000-4000-8000-000000000001"),
+          product("Trusted Product", "TRUSTED_MATCH", "00000000-0000-4000-8000-000000000002"),
+          product("Value Product", "BEST_VALUE", "00000000-0000-4000-8000-000000000003")
+        ]
+      } },
       addEventListener: () => undefined,
       setTimeout: () => 1,
       ResizeObserver: undefined
@@ -502,7 +510,9 @@ describe("product-card MCP Apps UI", () => {
     expect(output).toContain("approved Awin merchants");
     expect(output).toContain("Shopify merchants rated above 3.8 with at least 2 reviews");
     expect(output).toContain("First to consider");
-    expect(nodes(app).filter((node) => node.className.includes("featured"))).toHaveLength(1);
+    const featured = nodes(app).filter((node) => node.className.includes("featured"));
+    expect(featured).toHaveLength(1);
+    expect(text(featured[0]!)).toContain("Trusted Product");
     expect(output.indexOf("Official Product")).toBeLessThan(output.indexOf("Trusted Product"));
     expect(output.indexOf("Trusted Product")).toBeLessThan(output.indexOf("Value Product"));
   });
@@ -597,7 +607,7 @@ describe("product-card MCP Apps UI", () => {
       method: "ui/initialize",
       params: {
         protocolVersion: "2026-01-26",
-        appInfo: { name: "FindCheap Agent product cards", version: "0.16.3" },
+        appInfo: { name: "FindCheap Agent product cards", version: "0.16.4" },
         appCapabilities: { availableDisplayModes: ["inline"] }
       }
     });

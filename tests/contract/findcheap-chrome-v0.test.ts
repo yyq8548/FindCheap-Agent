@@ -65,20 +65,20 @@ describe("FindCheap Agent plugin contract", () => {
     expect(skill).toContain("Never describe `UNKNOWN` condition as new or pad cards");
     expect(skill).toContain("`matchEvidence`");
     expect(skill).toContain("`variantDimensions`");
-    expect(skill).toContain("For text search always pass `limit: 8`");
+    expect(skill).toContain("Text: `limit: 8`");
     expect(skill).toContain("call `search_visual_candidates` once");
     expect(skill).toContain("`visualReview.stage: RELAXED_REVIEW`");
     expect(skill).toContain("Never third review");
     expect(skill).toContain("Price ceilings use integer cents");
-    expect(skill).toContain("user-stated must-haves in `requiredFeatures`");
+    expect(skill).toContain("must-haves in `requiredFeatures`");
     expect(skill).toContain("Explicit brand: `REQUIRED`");
-    expect(skill).toContain("Never put brand in `productType` or `requiredFeatures`");
-    expect(skill).toContain("`preferences`. Preferences rank but never exclude");
+    expect(skill).toContain("Never put brand in type/features");
+    expect(skill).toContain("Preferences rank, never exclude");
     expect(skill).toContain("Missing evidence does not create a zero result");
     expect(skill).toContain("Payment-plan, trade-in, coupon, member, or `from` text");
     expect(skill).toContain("`SAME_PRODUCT`");
     expect(skill).toContain("`DISCOVERY_ONLY`");
-    expect(skill).toContain("`SAME_PRODUCT` only for like-for-like");
+    expect(skill).toContain("`SAME_PRODUCT` only like-for-like");
     expect(skill).toContain("`NEEDS_CLARIFICATION`");
     expect(skill).toContain("LOWEST_PRICE");
     expect(skill).toContain("MERCHANT_DIVERSE");
@@ -90,7 +90,11 @@ describe("FindCheap Agent plugin contract", () => {
     expect(skill).toContain("Different goal or explicit “no”: `NEW_PRODUCT`");
     expect(skill).toContain("New image: `NEW_PRODUCT`");
     expect(skill).toContain("selected-product tools forbidden that turn");
-    expect(skill).toContain("ceiling, not spending target");
+    expect(skill).toContain("ceiling, not a spending target");
+    expect(skill).toContain("Broad laptop/phone/camera/display requests may return one clarification before search");
+    expect(skill).toContain("Groups do not select primary");
+    expect(skill).toContain("recommend only `primarySelectionId`");
+    expect(skill).toContain("Equal fit/trust prefers lower item price");
     expect(skill).toContain("cards are research leads; recommend none for purchase");
     expect(skill).toContain("Never recommend products absent from cards");
     expect(skill).toContain("`Searching for suitable products.`");
@@ -201,7 +205,7 @@ describe("FindCheap Agent plugin contract", () => {
     };
 
     expect(manifest.name).toBe("findcheap-agent");
-    expect(manifest.version).toMatch(/^0\.16\.3(?:\+codex\.)?/u);
+    expect(manifest.version).toMatch(/^0\.16\.4(?:\+codex\.)?/u);
     expect(manifest.interface.displayName).toBe("FindCheap Agent");
     expect(manifest.interface.longDescription).toMatch(/Codex Plugin Agent/u);
     expect(manifest.interface.longDescription).toMatch(/[Aa]uthorized.*Chrome/u);

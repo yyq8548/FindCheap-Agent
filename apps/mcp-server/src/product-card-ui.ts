@@ -489,6 +489,9 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       markStage("RENDER_STARTED");
       app.replaceChildren();
       const products = Array.isArray(output?.products) ? output.products.slice(0, ${MAX_PRODUCT_CARDS}) : [];
+      const primarySelectionId = output?.recommendation?.state === "READY"
+        ? output.recommendation.primarySelectionId
+        : undefined;
       if (products.length === 0) {
         app.append(make("div", "empty", output?.message || text("No verified products returned.", "没有返回已验证商品。")));
         markStage("DOM_RENDERED");
@@ -542,9 +545,12 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
         for (const product of grouped) {
           const cardData = product && typeof product.card === "object" ? product.card : {};
           const card = make("article", "card");
-          const isFirstSupported = product === products[0] &&
-            ["OFFICIAL_STORE", "TRUSTED_MATCH"].includes(product?.presentationGroup) &&
-            recommendationTier(product) !== "GENERAL_UNVERIFIED";
+          const isFirstSupported = primarySelectionId !== undefined
+            ? product?.selectionId === primarySelectionId
+            : output?.recommendation === undefined &&
+              product === products[0] &&
+              ["OFFICIAL_STORE", "TRUSTED_MATCH"].includes(product?.presentationGroup) &&
+              recommendationTier(product) !== "GENERAL_UNVERIFIED";
           if (isFirstSupported) card.className = "card featured";
           const imageUrl = safeHttps(cardData.imageUrl);
           if (!imageUrl) card.className += " no-image";

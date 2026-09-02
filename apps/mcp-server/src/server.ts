@@ -38,6 +38,11 @@ import {
 } from "./product-card-ui.js";
 import { MAX_PRODUCT_CARDS } from "./product-candidate-ranking.js";
 import {
+  RECOMMENDATION_REASON_CODES,
+  choosePrimaryRecommendation,
+  highVarianceClarification
+} from "./product-recommendation.js";
+import {
   DealSearchInputSchema,
   VerifiedDealsSchema,
   createUnavailableDealPort,
@@ -566,6 +571,12 @@ const ShopifyProductsOutputShape = {
   merchantsQueried: z.number().int(),
   merchantsSucceeded: z.number().int(),
   maxItemPriceCents: z.number().int().positive().optional(),
+  recommendation: z.object({
+    state: z.enum(["READY", "NEEDS_CLARIFICATION", "RESEARCH_ONLY", "NO_MATCH"]),
+    primarySelectionId: SelectionIdSchema.optional(),
+    reasonCodes: z.array(z.enum(RECOMMENDATION_REASON_CODES)).max(3),
+    question: z.string().optional()
+  }).strict().optional(),
   comparison: z.object({
     status: z.enum(["SAME_PRODUCT", "DISCOVERY_ONLY", "NEEDS_CLARIFICATION", "UNAVAILABLE"]),
     identityType: z.enum(["GTIN", "BRAND_MPN", "UPID"]).optional(),
@@ -893,6 +904,18 @@ function shopifyResult(
 type ProductCardProduct = z.infer<typeof ShopifyProductOutputSchema>;
 type ProductCardContent = z.infer<typeof _ShopifyProductsOutputSchemaObject>;
 
+function recommendationInstruction(content: ProductCardContent): string {
+  const chinese = content.locale === "zh-CN";
+  if (content.recommendation?.state === "READY" && content.recommendation.primarySelectionId !== undefined) {
+    return chinese
+      ? `唯一首选 selectionId=${content.recommendation.primarySelectionId}；只能把这张已返回卡片作为首选。`
+      : `The only primary recommendation is selectionId=${content.recommendation.primarySelectionId}; recommend only that returned card as the first choice.`;
+  }
+  return chinese
+    ? "没有可安全推荐的首选商品；卡片仅供调研。"
+    : "No safe primary recommendation is available; treat the cards as research only.";
+}
+
 function unifiedResult(
   execution: UnifiedSearchExecution,
   input: z.infer<typeof SearchProductsInputSchema>,
@@ -949,6 +972,7 @@ function unifiedResult(
   ).length;
   const merchantCount = new Set(products.map((product) => product.merchantId)).size;
   const coverage = unavailableSource || partialSource ? "PARTIAL" as const : "COMPLETE" as const;
+  const recommendation = choosePrimaryRecommendation(products);
   const locale = input.responseLocale ?? (/\p{Script=Han}/u.test(input.query) ? "zh-CN" as const : "en-US" as const);
   const localized = (english: string, chinese: string) => locale === "zh-CN" ? chinese : english;
   const chromeAdvice = execution.chromeFallbackEligible
@@ -986,10 +1010,15 @@ function unifiedResult(
           )
         : localized("No qualifying product returned.", "没有找到符合要求的商品。"))
     : [
-        localized(
-          `Found ${products.length} ranked product card(s) from ${merchantCount} merchant(s). Lead with the strongest supported choice and no more than two evidence-backed reasons.`,
-          `找到 ${products.length} 款排序后的商品，来自 ${merchantCount} 家商家。先说最值得看的选择，并给出不超过两条有证据支持的理由。`
-        ),
+        recommendation.state === "READY"
+          ? localized(
+              `Found ${products.length} ranked product card(s) from ${merchantCount} merchant(s). Recommend only the backend-selected primary card and give no more than two evidence-backed reasons.`,
+              `找到 ${products.length} 款排序后的商品，来自 ${merchantCount} 家商家。只推荐后端指定的首选卡片，并给出不超过两条有证据支持的理由。`
+            )
+          : localized(
+              `Found ${products.length} research card(s) from ${merchantCount} merchant(s), but no merchant-qualified primary recommendation. Do not recommend purchasing one.`,
+              `找到 ${products.length} 张调研卡片，来自 ${merchantCount} 家商家，但没有符合商家可信要求的首选商品；不要建议直接购买。`
+            ),
         ...(execution.searchIntent === "VISUAL_DISCOVERY"
           ? [localized(
               "Visual results are separated into possible same item, highly similar, and same style; none is an exact identity claim without a stable product identifier.",
@@ -1059,6 +1088,10 @@ function unifiedResult(
       sources: execution.sourceStatus,
       searchIntent: execution.searchIntent,
       ...(execution.sourceErrors === undefined ? {} : { sourceErrors: execution.sourceErrors }),
+      recommendation: {
+        state: recommendation.state,
+        reasonCodes: recommendation.reasonCodes
+      },
       coverage,
       priceScope: cartQuoteCoverage.succeeded === 0
         ? "ITEM_PRICE_ONLY" as const
@@ -1593,21 +1626,37 @@ function emptyShopifyQuality() {
 
 function shopifyClarificationResult(
   selectionMode: "LOWEST_PRICE" | "MERCHANT_DIVERSE",
-  context: { zipCode?: string | undefined; membershipIds?: string[] | undefined },
+  context: {
+    zipCode?: string | undefined;
+    membershipIds?: string[] | undefined;
+    responseLocale?: "en-US" | "zh-CN" | undefined;
+    query?: string | undefined;
+  },
   options: {
     question?: string;
     evidence?: string;
     source?: "SHOPIFY_GLOBAL_CATALOG" | "UNIFIED_PRODUCT_SEARCH";
   } = {}
 ) {
-  const question = options.question ?? "Provide a brand and exact model/MPN/GTIN, or a direct product URL, before requesting same-product comparison.";
-  const message = `Comparison status: NEEDS_CLARIFICATION. ${question} No merchant API was queried and Chrome is not eligible.`;
+  const chinese = context.responseLocale === "zh-CN" ||
+    (context.responseLocale === undefined && context.query !== undefined && /\p{Script=Han}/u.test(context.query));
+  const question = options.question ?? (chinese
+    ? "请提供品牌和准确型号、MPN、GTIN 或商品直达链接，再进行同款比价。"
+    : "Provide a brand and exact model/MPN/GTIN, or a direct product URL, before requesting same-product comparison.");
+  const message = chinese
+    ? `需要补充信息（NEEDS_CLARIFICATION）：${question} 尚未查询商家 API，也不会启用 Chrome。`
+    : `Needs clarification (NEEDS_CLARIFICATION): ${question} No merchant API was queried and Chrome is not eligible.`;
   return {
     content: [{ type: "text" as const, text: message }],
     structuredContent: {
       status: "NEEDS_CLARIFICATION" as const,
       message,
       source: options.source ?? "SHOPIFY_GLOBAL_CATALOG" as const,
+      recommendation: {
+        state: "NEEDS_CLARIFICATION" as const,
+        reasonCodes: [],
+        question
+      },
       priceScope: "ITEM_PRICE_ONLY" as const,
       cartQuoteCoverage: { attempted: 0, succeeded: 0 },
       pricingContext: {
@@ -1669,6 +1718,7 @@ function shopifyUnavailableResult(
       status: "DATA_SOURCE_UNAVAILABLE" as const,
       message: shopifyUnavailableMessage,
       source: "SHOPIFY_GLOBAL_CATALOG" as const,
+      recommendation: { state: "NO_MATCH" as const, reasonCodes: [] },
       priceScope: "ITEM_PRICE_ONLY" as const,
       cartQuoteCoverage: { attempted: 0, succeeded: 0 },
       pricingContext: {
@@ -1820,20 +1870,29 @@ export function createShoppingServer(
   const rememberSnapshot = (
     content: ProductCardContent,
     sourceResult: ShopifySearchResult,
-    resolvedAwinProducts = new Map<string, ShopifyProduct>()
+    resolvedAwinProducts = new Map<string, ShopifyProduct>(),
+    primaryProductIndex?: number
   ): ProductCardContent & { renderId: string } => {
     const renderId = randomUUID();
+    let primarySelectionId: string | undefined;
+    const products = content.products.map((product, index) => {
+      const selectionId = randomUUID();
+      if (index === primaryProductIndex) primarySelectionId = selectionId;
+      selections.set(selectionId, { renderId, variantId: product.handle });
+      return {
+        ...product,
+        selectionId,
+        quoteReference: { selectionId, renderId, variantId: product.handle }
+      };
+    });
     const snapshot = {
       ...content,
       renderId,
-      products: content.products.map((product) => {
-        const selectionId = randomUUID();
-        selections.set(selectionId, { renderId, variantId: product.handle });
-        return {
-          ...product,
-          selectionId,
-          quoteReference: { selectionId, renderId, variantId: product.handle }
-        };
+      products,
+      ...(content.recommendation === undefined ? {} : {
+        recommendation: primarySelectionId === undefined
+          ? content.recommendation
+          : { ...content.recommendation, primarySelectionId }
       })
     };
     renderSnapshots.set(renderId, {
@@ -2020,7 +2079,7 @@ export function createShoppingServer(
     "search_products",
     {
       title: "FindCheap",
-      description: "Match current user-message language before any prose or tool call. English progress must be exactly 'Searching for suitable products.'; Chinese progress exactly '正在搜索合适商品。'. Never output a plan or read Memory, Skill files, repository files, logs, task files, or plugin caches. Text-only product-search entrypoint; call once. For a newly attached image use search_visual_candidates and then finalize_visual_search instead. Always pass responseLocale from the user's current message, even when query is translated into English for catalog retrieval. Pass family in productType, explicit brand in brand with brandMode=REQUIRED, objective must-have attributes in requiredFeatures, explicit disqualifiers in excludedFeatures, and preferences in preferences. Full-size or large-package requests exclude sample, trial-size, and tester products. Never put a brand in productType or requiredFeatures. Use CONTINUE_PREVIOUS_PRODUCT when the user adds budget, use, size, or constraints; CORRECT_PREVIOUS_PRODUCT only for changed identity; NEW_PRODUCT for a different shopping goal. Missing soft evidence remains a limitation-labeled DISCOVERY_MATCH; hard conflicts exclude. Return at most 8 cards in three tiers: 2 verified official-store matches, 3 trusted high matches, and 3 best-value high matches. Rank identity, merchant trust, availability, preferences, verified Coupon, then item price inside each tier. Use selectionMode=LOWEST_PRICE only when requested; it never collapses the three trust tiers. maxItemPriceCents is a ceiling, never a spending target. If every merchant is unverified, show research leads but recommend none for purchase. Never recommend a product absent from returned cards. Commercial relationships never affect relevance or ranking. Reuse selectionId for follow-ups; never search a selected title again.",
+      description: "Match current user-message language before any prose or tool call. English progress must be exactly 'Searching for suitable products.'; Chinese progress exactly '正在搜索合适商品。'. Never output a plan or read Memory, Skill files, repository files, logs, task files, or plugin caches. Text-only product-search entrypoint; call once. For a newly attached image use search_visual_candidates and then finalize_visual_search instead. Always pass responseLocale from the user's current message, even when query is translated into English for catalog retrieval. Pass family in productType, explicit brand in brand with brandMode=REQUIRED, objective must-have attributes in requiredFeatures, explicit disqualifiers in excludedFeatures, and preferences in preferences. Pass primaryUse, preferredSize, maxItemPriceCents, or budgetFlexible only when the user states them; never infer them. Broad high-variance products return one clarification before source search when decision constraints are missing. Full-size or large-package requests exclude sample, trial-size, and tester products. Never put a brand in productType or requiredFeatures. Use CONTINUE_PREVIOUS_PRODUCT when the user adds budget, use, size, or constraints; CORRECT_PREVIOUS_PRODUCT only for changed identity; NEW_PRODUCT for a different shopping goal. Missing soft evidence remains a limitation-labeled DISCOVERY_MATCH; hard conflicts exclude. Return at most 8 cards in three display tiers: 2 verified official-store matches, 3 trusted high matches, and 3 best-value high matches. Display tier never determines the primary choice. When recommendation.state is READY, recommend only recommendation.primarySelectionId; otherwise recommend none. Equivalent fit and trust prefer lower item price. Use selectionMode=LOWEST_PRICE only when requested; it never collapses the three display tiers. maxItemPriceCents is a ceiling, never a spending target. If every merchant is unverified, show research leads but recommend none for purchase. Never recommend a product absent from returned cards. Commercial relationships never affect relevance or ranking. Reuse selectionId for follow-ups; never search a selected title again.",
       inputSchema: SearchProductsInputSchema,
       outputSchema: ShopifyProductsOutputShape,
       annotations: {
@@ -2049,6 +2108,13 @@ export function createShoppingServer(
         return shopifyClarificationResult(input.selectionMode, input, {
           question: "Identify the product type shown; if one detail is decision-critical, also provide the size, budget, color, or occasion.",
           evidence: "visual product type absent",
+          source: "UNIFIED_PRODUCT_SEARCH"
+        });
+      }
+      const purchaseClarification = highVarianceClarification(input);
+      if (purchaseClarification !== undefined) {
+        return shopifyClarificationResult(input.selectionMode, input, {
+          ...purchaseClarification,
           source: "UNIFIED_PRODUCT_SEARCH"
         });
       }
@@ -2085,7 +2151,14 @@ export function createShoppingServer(
       })}\n`);
       if (response.structuredContent.products.length === 0) return response;
       const preflight = await preflightQuoteCapabilities(response.structuredContent);
-      const content = rememberSnapshot(preflight.content, enriched.result, preflight.resolvedAwinProducts);
+      const recommendation = choosePrimaryRecommendation(preflight.content.products);
+      const content = rememberSnapshot({
+        ...preflight.content,
+        recommendation: {
+          state: recommendation.state,
+          reasonCodes: recommendation.reasonCodes
+        }
+      }, enriched.result, preflight.resolvedAwinProducts, recommendation.primaryProductIndex);
       const selectionReferences = content.products
         .map((product, index) => `${index + 1}=${product.selectionId}`)
         .join(", ");
@@ -2093,7 +2166,7 @@ export function createShoppingServer(
         ...response,
         content: [{
           type: "text" as const,
-          text: `${response.content[0]!.text}\nSelections: ${selectionReferences}. Reuse selectionId; never search titles.`
+          text: `${response.content[0]!.text}\n${recommendationInstruction(content)}\nSelections: ${selectionReferences}. Reuse selectionId; never search titles.`
         }],
         structuredContent: content
       };
@@ -2289,7 +2362,14 @@ export function createShoppingServer(
         };
       }
       const preflight = await preflightQuoteCapabilities(response.structuredContent);
-      const content = rememberSnapshot(preflight.content, enriched.result, preflight.resolvedAwinProducts);
+      const recommendation = choosePrimaryRecommendation(preflight.content.products);
+      const content = rememberSnapshot({
+        ...preflight.content,
+        recommendation: {
+          state: recommendation.state,
+          reasonCodes: recommendation.reasonCodes
+        }
+      }, enriched.result, preflight.resolvedAwinProducts, recommendation.primaryProductIndex);
       const selectionReferences = content.products
         .map((product, index) => `${index + 1}=${product.selectionId}`)
         .join(", ");
@@ -2297,7 +2377,7 @@ export function createShoppingServer(
         ...response,
         content: [{
           type: "text" as const,
-          text: `${response.content[0]!.text}\nSelections: ${selectionReferences}. Reuse selectionId; never search titles.`
+          text: `${response.content[0]!.text}\n${recommendationInstruction(content)}\nSelections: ${selectionReferences}. Reuse selectionId; never search titles.`
         }],
         structuredContent: content
       };

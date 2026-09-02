@@ -206,6 +206,7 @@ describe("shopping MCP server", () => {
       "allowAlternatives",
       "brand",
       "brandMode",
+      "budgetFlexible",
       "comparisonMode",
       "conditionPreference",
       "contextMode",
@@ -216,6 +217,8 @@ describe("shopping MCP server", () => {
       "maxItemPriceCents",
       "membershipIds",
       "preferences",
+      "preferredSize",
+      "primaryUse",
       "productType",
       "query",
       "requiredFeatures",
@@ -429,7 +432,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.16.3",
+        version: "0.16.4",
         terminalStage: "DOM_RENDERED",
         stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
       }
@@ -438,7 +441,7 @@ describe("shopping MCP server", () => {
     expect(result.structuredContent).toEqual({ status: "RECORDED" });
     expect(record).toHaveBeenCalledWith(expect.objectContaining({
       renderId,
-      version: "0.16.3",
+      version: "0.16.4",
       terminalStage: "DOM_RENDERED",
       stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
     }));
@@ -446,7 +449,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.16.3",
+        version: "0.16.4",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 14 }
       }
@@ -456,7 +459,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.16.3",
+        version: "0.16.4",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 300_001 }
       }
@@ -467,7 +470,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId: "22222222-2222-4222-8222-222222222222",
-        version: "0.16.3",
+        version: "0.16.4",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 1 }
       }
@@ -1034,6 +1037,38 @@ describe("shopping MCP server", () => {
     });
     expect(JSON.stringify(result.content)).toContain("Same-product comparison verified across 2 merchants");
     expect(search).toHaveBeenCalledWith(expect.objectContaining({ comparisonMode: "SAME_PRODUCT" }));
+  });
+
+  it.each([
+    ["en-US", "Apple MacBook Pro", "laptop computer", "maximum budget, main use, and preferred screen size"],
+    ["zh-CN", "想买一台笔记本电脑", "笔记本电脑", "预算上限、主要用途和偏好的屏幕尺寸"]
+  ] as const)("uses the same high-variance clarification decision in %s", async (responseLocale, query, productType, expectedQuestion) => {
+    const search = vi.fn(shopifyPort.search);
+    const client = await connect({ search });
+
+    const result = await client.callTool({
+      name: "search_products",
+      arguments: {
+        query,
+        productType,
+        comparisonMode: "DISCOVERY",
+        contextMode: "NEW_PRODUCT",
+        responseLocale,
+        selectionMode: "MERCHANT_DIVERSE"
+      }
+    });
+
+    expect(search).not.toHaveBeenCalled();
+    expect(result.structuredContent).toMatchObject({
+      status: "NEEDS_CLARIFICATION",
+      coverage: "NOT_QUERIED",
+      recommendation: {
+        state: "NEEDS_CLARIFICATION",
+        reasonCodes: [],
+        question: expect.stringContaining(expectedQuestion)
+      },
+      products: []
+    });
   });
 
   it("asks for hard identity before a generic same-product comparison without querying merchants", async () => {
@@ -1922,9 +1957,21 @@ describe("Coupon and Watch tools", () => {
       status: "OK",
       source: "UNIFIED_PRODUCT_SEARCH",
       sources: { awin: "COMPLETE", shopify: "COMPLETE", ebay: "SKIPPED" },
+      recommendation: {
+        state: "READY",
+        primarySelectionId: expect.any(String),
+        reasonCodes: expect.arrayContaining(["TRUSTED_MERCHANT"])
+      },
       comparison: { status: "DISCOVERY_ONLY" },
       diagnostics: { featureProductsExcluded: 0 }
     });
+    const structured = result.structuredContent as {
+      recommendation: { primarySelectionId: string };
+      products: Array<{ selectionId?: string }>;
+    };
+    expect(structured.products.some((product) =>
+      product.selectionId === structured.recommendation.primarySelectionId
+    )).toBe(true);
     const awinCard = (result.structuredContent as { products: Array<Record<string, unknown>> }).products
       .find((product) => product.sourceKind === "AWIN_PRODUCT_FEED");
     expect(awinCard).toMatchObject({

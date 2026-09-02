@@ -3936,6 +3936,10 @@
       "format": "esm",
       "imports": []
     },
+    "src/product-recommendation.ts": {
+      "format": "esm",
+      "imports": []
+    },
     "src/sales-tax-estimator.ts": {
       "format": "esm",
       "imports": []
@@ -4042,6 +4046,11 @@
           "kind": "import-statement",
           "original": "./product-candidate-ranking.js",
           "path": "src/product-candidate-ranking.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./product-recommendation.js",
+          "path": "src/product-recommendation.ts"
         },
         {
           "kind": "import-statement",
@@ -4377,7 +4386,7 @@
   },
   "outputs": {
     "../../plugins/findcheap-agent/dist/mcp-server.js": {
-      "bytes": 660569,
+      "bytes": 667846,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
@@ -4697,7 +4706,7 @@
           "bytesInOutput": 2381
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/discriminator/index.js": {
-          "bytesInOutput": 2290
+          "bytesInOutput": 2293
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/discriminator/types.js": {
           "bytesInOutput": 181
@@ -4706,7 +4715,7 @@
           "bytesInOutput": 235
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/format/format.js": {
-          "bytesInOutput": 1950
+          "bytesInOutput": 1953
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/format/index.js": {
           "bytesInOutput": 121
@@ -4901,7 +4910,7 @@
           "bytesInOutput": 3029
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/types.js": {
-          "bytesInOutput": 49949
+          "bytesInOutput": 49992
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v4/classic/checks.js": {
           "bytesInOutput": 0
@@ -5021,31 +5030,34 @@
           "bytesInOutput": 814
         },
         "src/product-card-ui.ts": {
-          "bytesInOutput": 40032
+          "bytesInOutput": 40342
         },
         "src/product-constraint-matcher.ts": {
           "bytesInOutput": 10781
+        },
+        "src/product-recommendation.ts": {
+          "bytesInOutput": 3769
         },
         "src/sales-tax-estimator.ts": {
           "bytesInOutput": 1784
         },
         "src/search-products.ts": {
-          "bytesInOutput": 23991
+          "bytesInOutput": 24363
         },
         "src/server.ts": {
-          "bytesInOutput": 95018
+          "bytesInOutput": 97790
         },
         "src/shopify-cart-quote.ts": {
-          "bytesInOutput": 10338
+          "bytesInOutput": 10340
         },
         "src/shopify-client.ts": {
           "bytesInOutput": 181
         },
         "src/shopify-global-catalog-client.ts": {
-          "bytesInOutput": 22054
+          "bytesInOutput": 22058
         },
         "src/shopify-match.ts": {
-          "bytesInOutput": 6499
+          "bytesInOutput": 6498
         },
         "src/shopify-official-store-search.ts": {
           "bytesInOutput": 9961

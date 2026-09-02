@@ -77,6 +77,15 @@ export const SearchProductsInputSchema = z.object({
   maxItemPriceCents: z.number().int().min(1).max(100_000_000)
     .describe("Inclusive price ceiling, never a spending target")
     .optional(),
+  budgetFlexible: z.boolean()
+    .describe("True only when the user explicitly says there is no fixed budget ceiling")
+    .default(false),
+  primaryUse: z.string().trim().min(1).max(120)
+    .describe("User-stated primary workload or use; never infer it")
+    .optional(),
+  preferredSize: z.string().trim().min(1).max(80)
+    .describe("User-stated preferred physical or screen size; never infer it")
+    .optional(),
   zipCode: z.string().regex(/^\d{5}(?:-\d{4})?$/u).optional(),
   membershipIds: z.array(z.string().trim().min(1).max(80)).max(20)
     .refine((values) => new Set(values).size === values.length, "membership IDs must be unique")
