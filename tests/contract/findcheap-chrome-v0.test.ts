@@ -50,7 +50,7 @@ describe("FindCheap Agent plugin contract", () => {
     expect(skill.split(/\r?\n/u)).toHaveLength(35);
     expect(skill).toContain("Every live shopping request");
     expect(skill).toContain("Do not read Memory, repository files, logs, task files, or plugin cache");
-    expect(skill).toContain("use only one neutral progress sentence");
+    expect(skill).toContain("Use only one neutral progress sentence");
     expect(skill).toContain("No plan, diagnostics, file explanation");
     expect(skill).toContain("Never call `render_product_cards`");
     expect(skill).toContain("Call `search_products` exactly once");
@@ -94,11 +94,10 @@ describe("FindCheap Agent plugin contract", () => {
     expect(skill).toContain("cards are research leads; recommend none for purchase");
     expect(skill).toContain("Never recommend products absent from cards");
     expect(skill).toContain("`Searching for suitable products.`");
-    expect(skill).toContain("Match user language");
+    expect(skill).toContain("Match current-message language before any prose/tool");
     expect(skill).toContain("keep product names, brands, models unchanged");
     expect(skill).toContain("`正在搜索合适商品。`");
-    expect(skill).toContain("`正在使用 FindCheap 搜索合适商品。`");
-    expect(skill).toContain("description: For live shopping, match all prose to the user's language");
+    expect(skill).toContain("description: Live shopping. Before any prose/tool, use current user-message language");
     expect(skill).toContain("After load, no further Skill/reference file except eligible Chrome fallback");
     expect(skill).toContain("“Skill requires” wording");
     expect(skill).toContain("trust does not prove brand authorization");
@@ -127,7 +126,7 @@ describe("FindCheap Agent plugin contract", () => {
     expect(new Set(goldenTasks.map((task) => task.id))).toHaveLength(20);
     expect(goldenTasks.every((task) => task.query.trim().length > 0)).toBe(true);
     expect(skill).toContain("Call `search_products` exactly once");
-    expect(skill).toContain("use only one neutral progress sentence");
+    expect(skill).toContain("Use only one neutral progress sentence");
     expect(skill).toContain("Do not read Memory, repository files, logs, task files, or plugin cache");
     expect(skillBytes).toBeLessThanOrEqual(Math.floor(19_954 * 0.3));
   });
@@ -202,12 +201,12 @@ describe("FindCheap Agent plugin contract", () => {
     };
 
     expect(manifest.name).toBe("findcheap-agent");
-    expect(manifest.version).toMatch(/^0\.16\.2(?:\+codex\.)?/u);
+    expect(manifest.version).toMatch(/^0\.16\.3(?:\+codex\.)?/u);
     expect(manifest.interface.displayName).toBe("FindCheap Agent");
     expect(manifest.interface.longDescription).toMatch(/Codex Plugin Agent/u);
     expect(manifest.interface.longDescription).toMatch(/[Aa]uthorized.*Chrome/u);
     expect(manifest.interface.defaultPrompt).toEqual([
-      "Call the matching tool. Reply only in request language. No Memory, repo, logs, task, cache, plan, or manual MCP launch."
+      "User language only. EN: \"Searching for suitable products.\" ZH: \"正在搜索合适商品。\" Then tool. No plan/Memory/repo."
     ]);
     expect(new TextEncoder().encode(manifest.interface.defaultPrompt[0]).length).toBeLessThanOrEqual(128);
   });

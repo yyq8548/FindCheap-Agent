@@ -225,6 +225,11 @@ describe("shopping MCP server", () => {
       "zipCode"
     ]);
     const unifiedTool = tools.tools.find((tool) => tool.name === "search_products");
+    expect(unifiedTool?.title).toBe("FindCheap");
+    expect(unifiedTool?._meta).toMatchObject({
+      "openai/toolInvocation/invoking": "FindCheap",
+      "openai/toolInvocation/invoked": "FindCheap"
+    });
     expect(unifiedTool?.inputSchema.required).toEqual(["query"]);
     expect(unifiedTool?.description).toContain("selectionMode=LOWEST_PRICE");
     expect(unifiedTool?.description).toContain("Commercial relationships never affect relevance or ranking");
@@ -233,11 +238,11 @@ describe("shopping MCP server", () => {
     expect(unifiedTool?.description).toContain("brandMode=REQUIRED");
     expect(unifiedTool?.description).toContain("Never put a brand in productType or requiredFeatures");
     expect(unifiedTool?.description).toContain("Text-only product-search entrypoint");
-    expect(unifiedTool?.description).toContain("English request means English only");
-    expect(unifiedTool?.description).toContain("Chinese request means Chinese only");
+    expect(unifiedTool?.description).toContain("English progress must be exactly");
+    expect(unifiedTool?.description).toContain("Chinese progress exactly");
     expect(unifiedTool?.description).toContain("Searching for suitable products.");
     expect(unifiedTool?.description).toContain("正在搜索合适商品。");
-    expect(unifiedTool?.description).toContain("Do not read Memory, Skill files, repository files");
+    expect(unifiedTool?.description).toContain("Never output a plan or read Memory, Skill files, repository files");
     expect(unifiedTool?.description).toContain("Missing soft evidence remains a limitation-labeled DISCOVERY_MATCH");
     expect(unifiedTool?.description).toContain("CONTINUE_PREVIOUS_PRODUCT when the user adds budget");
     expect(unifiedTool?.description).toContain("maxItemPriceCents is a ceiling, never a spending target");
@@ -424,7 +429,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.16.2",
+        version: "0.16.3",
         terminalStage: "DOM_RENDERED",
         stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
       }
@@ -433,7 +438,7 @@ describe("shopping MCP server", () => {
     expect(result.structuredContent).toEqual({ status: "RECORDED" });
     expect(record).toHaveBeenCalledWith(expect.objectContaining({
       renderId,
-      version: "0.16.2",
+      version: "0.16.3",
       terminalStage: "DOM_RENDERED",
       stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
     }));
@@ -441,7 +446,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.16.2",
+        version: "0.16.3",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 14 }
       }
@@ -451,7 +456,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.16.2",
+        version: "0.16.3",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 300_001 }
       }
@@ -462,7 +467,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId: "22222222-2222-4222-8222-222222222222",
-        version: "0.16.2",
+        version: "0.16.3",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 1 }
       }
