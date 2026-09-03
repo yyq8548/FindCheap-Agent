@@ -1,0 +1,27 @@
+{
+  "reviewedAt": "2026-09-03",
+  "officialStorefronts": [
+    { "brand": "ILIA Beauty", "aliases": ["ILIA"], "officialHost": "iliabeauty.com" },
+    { "brand": "Kosas", "aliases": [], "officialHost": "kosas.com" },
+    { "brand": "Tower 28 Beauty", "aliases": ["Tower 28"], "officialHost": "tower28beauty.com", "storefrontHost": "www.tower28beauty.com" },
+    { "brand": "Saie", "aliases": [], "officialHost": "saiehello.com" },
+    { "brand": "Summer Fridays", "aliases": [], "officialHost": "summerfridays.com" },
+    { "brand": "rhode", "aliases": ["Rhode Skin"], "officialHost": "rhodeskin.com", "storefrontHost": "www.rhodeskin.com" },
+    { "brand": "Jones Road Beauty", "aliases": ["Jones Road"], "officialHost": "jonesroadbeauty.com", "storefrontHost": "www.jonesroadbeauty.com" },
+    { "brand": "Cuts Clothing", "aliases": ["CUTS"], "officialHost": "cutsclothing.com", "storefrontHost": "www.cutsclothing.com" },
+    { "brand": "Chubbies", "aliases": [], "officialHost": "chubbiesshorts.com", "storefrontHost": "www.chubbiesshorts.com" },
+    { "brand": "Culture Kings", "aliases": [], "officialHost": "culturekings.com", "storefrontHost": "www.culturekings.com" },
+    { "brand": "Aviator Nation", "aliases": [], "officialHost": "aviatornation.com", "storefrontHost": "www.aviatornation.com" },
+    { "brand": "Marine Layer", "aliases": [], "officialHost": "marinelayer.com", "storefrontHost": "www.marinelayer.com" },
+    { "brand": "Mott & Bow", "aliases": ["Mott and Bow"], "officialHost": "mottandbow.com", "storefrontHost": "www.mottandbow.com" },
+    { "brand": "Peak Design", "aliases": [], "officialHost": "peakdesign.com", "storefrontHost": "www.peakdesign.com" },
+    { "brand": "NOMAD", "aliases": ["Nomad Goods"], "officialHost": "nomadgoods.com" },
+    { "brand": "Our Place", "aliases": [], "officialHost": "fromourplace.com" },
+    { "brand": "Parachute", "aliases": ["Parachute Home"], "officialHost": "parachutehome.com" },
+    { "brand": "Boll & Branch", "aliases": ["Boll and Branch"], "officialHost": "bollandbranch.com", "storefrontHost": "www.bollandbranch.com" },
+    { "brand": "gorjana", "aliases": [], "officialHost": "gorjana.com", "storefrontHost": "www.gorjana.com" },
+    { "brand": "Tatcha", "aliases": [], "officialHost": "tatcha.com" },
+    { "brand": "Sunday Riley", "aliases": [], "officialHost": "sundayriley.com" }
+  ],
+  "additionalTrustedMerchants": []
+}
