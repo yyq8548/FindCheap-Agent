@@ -112,13 +112,24 @@ function uniqueVisualTerms(values: Array<string | undefined>): string[] {
 function visualRetrievalSearchInput(input: SearchProductsInput, relaxed: boolean): SearchProductsExecutionInput {
   const visual = input.visualInput!;
   const retrievalVisual = relaxed ? relaxVisualProductInput(visual) : visual;
-  const query = uniqueVisualTerms([
-    input.brand ?? retrievalVisual.brand,
+  const brand = input.brand ?? retrievalVisual.brand;
+  const suspectedName = relaxed ? undefined : retrievalVisual.suspectedProductName;
+  const exactQuery = suspectedName === undefined
+    ? ""
+    : uniqueVisualTerms([
+        brand !== undefined && !suspectedName.toLocaleLowerCase("en-US").includes(brand.toLocaleLowerCase("en-US"))
+          ? brand
+          : undefined,
+        suspectedName
+      ]).join(" ");
+  const descriptiveQuery = uniqueVisualTerms([
+    brand,
     retrievalVisual.modelOrStyleNumber,
     retrievalVisual.productType ?? input.productType,
     retrievalVisual.colors[0],
     retrievalVisual.patterns[0]
   ]).join(" ");
+  const query = exactQuery || descriptiveQuery;
   return {
     ...input,
     query: query.length >= 2 ? query.slice(0, 300) : input.query,
@@ -2177,7 +2188,7 @@ export function createShoppingServer(
     "search_visual_candidates",
     {
       title: "Search visual candidates",
-      description: "First stage for a newly attached product image. Use only the current request; do not read Memory, Skill, repository, task, log, or plugin-cache files. Inspect the user's image, pass structured visualInput, and call once. Product family and explicit brand/model are hard; pixel-inferred details are observations or soft clues, not requiredFeatures unless the user explicitly requires them. Record occlusions; an obscured attribute cannot be a hard clue or conflict. The tool returns at most six labeled candidate images. Compare every image, then call finalize_visual_search. Do not present candidates as recommendations. Do not use this tool for text-only, Watch, or batch searches.",
+      description: "First stage for a newly attached product image. Use only the current request; do not read Memory, Skill, repository, task, log, or plugin-cache files. Inspect the user's image, pass structured visualInput, and call once. If the user states or image analysis strongly identifies a specific product name, preserve it in visualInput.suspectedProductName for exact official-store retrieval; never manufacture a name from generic attributes and never treat it as identity proof. Product family and explicit brand/model are hard; pixel-inferred details are observations or soft clues, not requiredFeatures unless the user explicitly requires them. Record occlusions; an obscured attribute cannot be a hard clue or conflict. The tool returns at most six labeled candidate images. Compare every image, then call finalize_visual_search. Do not present candidates as recommendations. Do not use this tool for text-only, Watch, or batch searches.",
       inputSchema: VisualCandidateSearchInputSchema,
       outputSchema: VisualCandidateOutputShape,
       annotations: {

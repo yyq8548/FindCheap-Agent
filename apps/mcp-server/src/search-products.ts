@@ -1175,8 +1175,27 @@ function buildOfficialStoreQueries(
   searchIntent: ProductSearchIntent
 ): VisualOfficialStoreQuery[] {
   if (input.visualInput !== undefined && searchIntent !== "EXACT_PRODUCT") {
-    return visualOfficialStoreSearchQueries(input.visualInput)
-      .map((attempt) => ({ ...attempt, query: attempt.query.slice(0, 300).trim() }));
+    const suspectedName = input.visualInput.suspectedProductName;
+    const suspectedQuery = suspectedName === undefined
+      ? undefined
+      : input.brand === undefined
+        ? suspectedName
+        : withoutRequestedBrand(suspectedName, input.brand);
+    const attempts = [
+      ...(suspectedQuery === undefined || suspectedQuery.trim() === ""
+        ? []
+        : [{ stage: "FULL" as const, query: suspectedQuery }]),
+      ...visualOfficialStoreSearchQueries(input.visualInput)
+    ];
+    const seen = new Set<string>();
+    return attempts
+      .map((attempt) => ({ ...attempt, query: attempt.query.slice(0, 300).trim() }))
+      .filter((attempt) => {
+        const key = normalize(attempt.query);
+        if (key === "" || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
   }
   const withoutBrand = input.brand === undefined
     ? input.query

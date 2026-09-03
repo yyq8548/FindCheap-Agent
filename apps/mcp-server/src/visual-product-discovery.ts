@@ -17,6 +17,9 @@ export const VisualProductInputSchema = z.object({
   sourcePageUrl: HttpsEvidenceUrlSchema.optional(),
   productType: VisualTextSchema.optional(),
   brand: VisualTextSchema.optional(),
+  suspectedProductName: VisualTextSchema.optional().describe(
+    "User-stated or high-confidence suspected product name used only as an exact retrieval hint; never stable identity proof"
+  ),
   modelOrStyleNumber: VisualTextSchema.optional(),
   logoText: VisualTextSchema.optional(),
   colors: z.array(VisualTextSchema).max(4).default([]),

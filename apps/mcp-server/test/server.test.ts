@@ -432,7 +432,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.16.5",
+        version: "0.16.6",
         terminalStage: "DOM_RENDERED",
         stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
       }
@@ -441,7 +441,7 @@ describe("shopping MCP server", () => {
     expect(result.structuredContent).toEqual({ status: "RECORDED" });
     expect(record).toHaveBeenCalledWith(expect.objectContaining({
       renderId,
-      version: "0.16.5",
+      version: "0.16.6",
       terminalStage: "DOM_RENDERED",
       stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
     }));
@@ -449,7 +449,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.16.5",
+        version: "0.16.6",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 14 }
       }
@@ -459,7 +459,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.16.5",
+        version: "0.16.6",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 300_001 }
       }
@@ -470,7 +470,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId: "22222222-2222-4222-8222-222222222222",
-        version: "0.16.5",
+        version: "0.16.6",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 1 }
       }
@@ -1293,6 +1293,77 @@ describe("Coupon and Watch tools", () => {
       }
     });
     expect(reused.isError).toBe(true);
+  });
+
+  it("preserves a suspected product name for exact official-store visual retrieval", async () => {
+    const baseline = await shopifyPort.search({
+      query: "placeholder",
+      limit: 1,
+      comparisonMode: "DISCOVERY",
+      selectionMode: "MERCHANT_DIVERSE",
+      membershipIds: []
+    });
+    const catalogSearch = vi.fn<ShopifyPort["search"]>(async () => ({
+      ...baseline,
+      products: []
+    }));
+    const officialSearch = vi.fn(async (input: { query: string }) => input.query === "Soft Lounge Long Slip Dress"
+      ? [{
+          ...baseline.products[0]!,
+          merchantId: "official-skims.com",
+          merchant: "SKIMS",
+          sourceHost: "skims.com",
+          merchantTrust: {
+            level: "OFFICIAL" as const,
+            verification: "INDEPENDENT" as const,
+            evidence: ["official merchant domain"]
+          },
+          handle: "soft-lounge-long-slip-dress",
+          title: "SKIMS Soft Lounge Long Slip Dress",
+          brand: "SKIMS",
+          productType: "Dresses",
+          description: "ribbed stretch maxi slip dress with thin straps",
+          imageUrl: "https://cdn.shopify.com/skims-soft-lounge.jpg",
+          merchantUrl: "https://skims.com/products/soft-lounge-long-slip-dress"
+        }]
+      : []);
+    const client = await connect(
+      { search: catalogSearch },
+      undefined,
+      {
+        officialShopify: { search: officialSearch },
+        visualCandidateImages: {
+          load: async () => ({
+            data: Buffer.from("candidate-image").toString("base64"),
+            mimeType: "image/jpeg" as const
+          })
+        }
+      }
+    );
+
+    const found = await client.callTool({
+      name: "search_visual_candidates",
+      arguments: {
+        query: "SKIMS Soft Lounge Long Slip Dress heather grey",
+        productType: "fitted maxi slip dress",
+        brand: "SKIMS",
+        brandMode: "REQUIRED",
+        visualInput: {
+          productType: "fitted maxi slip dress",
+          brand: "SKIMS",
+          suspectedProductName: "SKIMS Soft Lounge Long Slip Dress",
+          colors: ["heather grey"],
+          hardClues: ["maxi length", "thin straps"]
+        }
+      }
+    });
+
+    expect(catalogSearch.mock.calls[0]?.[0].query).toBe("SKIMS Soft Lounge Long Slip Dress");
+    expect(officialSearch.mock.calls[0]?.[0].query).toBe("Soft Lounge Long Slip Dress");
+    expect(found.structuredContent).toMatchObject({
+      status: "OK",
+      candidates: [{ title: "SKIMS Soft Lounge Long Slip Dress" }]
+    });
   });
 
   it("returns a stable visual failure code when candidate images cannot be loaded", async () => {
