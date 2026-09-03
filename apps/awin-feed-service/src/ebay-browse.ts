@@ -42,7 +42,7 @@ const EbayItemSchema = z.object({
   itemAffiliateWebUrl: z.string().url().max(4_096).optional(),
   image: z.object({ imageUrl: z.string().url().max(4_096) }).passthrough().optional(),
   seller: z.object({
-    username: z.string().trim().min(1).max(128),
+    username: z.string().trim().min(1).max(128).optional(),
     feedbackPercentage: z.string().max(20).optional(),
     feedbackScore: z.number().int().nonnegative().max(2_147_483_647).optional()
   }).passthrough(),
@@ -296,6 +296,9 @@ function normalizeItem(
   checkedAt: string
 ): EbayProduct {
   if (item.price.currency !== "USD") throw new Error("eBay item currency is unsupported");
+  if (environment.environment === "PRODUCTION" && item.seller.username === undefined) {
+    throw new Error("eBay production seller username is missing");
+  }
   const merchantUrl = ebayItemUrl(item.itemWebUrl, environment.environment);
   const affiliateUrl = environment.environment === "SANDBOX" || item.itemAffiliateWebUrl === undefined || environment.campaignId === undefined
     ? undefined
@@ -311,7 +314,7 @@ function normalizeItem(
     title: item.title,
     category,
     attributes,
-    sellerName: item.seller.username,
+    sellerName: item.seller.username ?? "eBay Sandbox seller",
     ...(feedbackPercentage === undefined ? {} : { sellerFeedbackPercentage: feedbackPercentage }),
     ...(item.seller.feedbackScore === undefined ? {} : { sellerFeedbackScore: item.seller.feedbackScore }),
     matchStatus: "DISCOVERY_MATCH",

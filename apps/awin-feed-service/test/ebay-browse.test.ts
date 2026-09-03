@@ -57,6 +57,70 @@ describe("eBay Browse gateway", () => {
     expect(result.products[0]).not.toHaveProperty("affiliateUrl");
   });
 
+  it("accepts Sandbox listings when eBay omits the seller username", async () => {
+    const fetchRequest = vi.fn(async (input: string | URL | Request) => {
+      if (String(input).includes("/oauth2/token")) {
+        return jsonResponse({ access_token: "sandbox-token", expires_in: 7200 });
+      }
+      return jsonResponse({
+        total: 1,
+        itemSummaries: [{
+          itemId: "v1|110590166373|0",
+          title: "Apple Earpods",
+          price: { value: "49.00", currency: "USD" },
+          itemWebUrl: "https://sandbox.ebay.com/itm/Apple-Earpods/110590166373",
+          seller: { feedbackScore: 500 },
+          categories: [{ categoryName: "Headphones" }]
+        }]
+      });
+    });
+    const environment = parseEbayBrowseEnvironment({
+      EBAY_BROWSE_ENABLED: "true",
+      EBAY_ENVIRONMENT: "SANDBOX",
+      EBAY_CLIENT_ID: "sandbox-client-id",
+      EBAY_CLIENT_SECRET: "sandbox-client-secret"
+    })!;
+
+    const result = await createEbayBrowseController(environment, { fetch: fetchRequest, now })
+      .search({ query: "headphones", limit: 1 });
+
+    expect(result.diagnostics).toMatchObject({ validItems: 1, rejectedItems: 0 });
+    expect(result.products[0]).toMatchObject({
+      sellerName: "eBay Sandbox seller",
+      sellerFeedbackScore: 500
+    });
+  });
+
+  it("still rejects Production listings without a seller username", async () => {
+    const fetchRequest = vi.fn(async (input: string | URL | Request) => {
+      if (String(input).includes("/oauth2/token")) {
+        return jsonResponse({ access_token: "production-token", expires_in: 7200 });
+      }
+      return jsonResponse({
+        total: 1,
+        itemSummaries: [{
+          itemId: "v1|123456789|0",
+          title: "Production headphones",
+          price: { value: "49.00", currency: "USD" },
+          itemWebUrl: "https://www.ebay.com/itm/123456789",
+          seller: { feedbackScore: 500 }
+        }]
+      });
+    });
+    const environment = parseEbayBrowseEnvironment({
+      EBAY_BROWSE_ENABLED: "true",
+      EBAY_CLIENT_ID: "client-id-123",
+      EBAY_CLIENT_SECRET: "client-secret-123",
+      EBAY_EPN_CAMPAIGN_ID: "5339000012"
+    })!;
+
+    const result = await createEbayBrowseController(environment, { fetch: fetchRequest, now })
+      .search({ query: "headphones", limit: 1 });
+
+    expect(result.diagnostics).toMatchObject({ validItems: 0, rejectedItems: 1 });
+    expect(result.products).toEqual([]);
+  });
+
   it("uses one cached OAuth token and returns normalized EPN listings", async () => {
     const requests: Array<{ url: string; init: RequestInit }> = [];
     const fetchRequest = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
