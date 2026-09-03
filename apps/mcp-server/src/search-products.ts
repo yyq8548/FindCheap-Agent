@@ -345,24 +345,30 @@ export async function searchProducts(
     ]),
     preferences: unique([
       ...rawInput.preferences,
-      ...(rawInput.featureMode === "PREFERRED" ? rawInput.features : [])
+      ...(rawInput.featureMode === "PREFERRED" ? rawInput.features : []),
+      ...(rawInput.primaryUse === undefined ? [] : [rawInput.primaryUse]),
+      ...(rawInput.preferredSize === undefined ? [] : [preferredSizePreference(rawInput.preferredSize)])
     ])
   };
-  const searchIntent = resolveSearchIntent(input);
   const productQuery = stripRequiredFeaturesFromQuery(
     productOnlyQuery(input.query, input.maxItemPriceCents !== undefined),
     input.requiredFeatures
   );
+  const identityProductQuery = stripPreferredSizeFromIdentity(productQuery, input.preferredSize);
+  const searchIntent = resolveSearchIntent({ ...input, query: identityProductQuery });
   const identityQuery = searchIntent === "EXACT_PRODUCT"
     ? unique([
-        input.brand !== undefined && !containsBrand(productQuery, input.brand) ? input.brand : "",
-        productQuery
+        input.brand !== undefined && !containsBrand(identityProductQuery, input.brand) ? input.brand : "",
+        identityProductQuery
       ]).join(" ").slice(0, 300).trim()
     : input.deferVisualFiltering === true
       ? productQuery
       : buildSourceQuery({ ...input, query: productQuery });
   const sourceQuery = searchIntent === "EXACT_PRODUCT"
-    ? identityQuery
+    ? unique([
+        input.brand !== undefined && !containsBrand(productQuery, input.brand) ? input.brand : "",
+        productQuery
+      ]).join(" ").slice(0, 300).trim()
     : input.deferVisualFiltering === true
       ? productQuery
       : buildSourceQuery({ ...input, query: productQuery });
@@ -1143,10 +1149,25 @@ function productOnlyQuery(value: string, hasPriceCeiling: boolean): string {
       .replace(/\d[\d,.]*\s*(?:美元|美金|人民币|USD|\$|￥|¥)?\s*(?:预算|以内|以下)/giu, " ");
   }
   return query
-    .replace(/\b(?:for|suitable\s+for)\s+(?:programming|coding|software\s+development|gaming|video\s+editing|office\s+work|school|college|travel|everyday\s+use|daily\s+use)\b/giu, " ")
+    .replace(/\b(?:for|suitable\s+for)\s+(?:programming|coding|software\s+development|gaming|video\s+editing|office(?:\s+(?:work|use))?|school|college|travel|everyday\s+use|daily\s+use)\b/giu, " ")
     .replace(/(?:适合|用于)?(?:编程|写代码|软件开发|游戏|剪辑|视频编辑|办公|上学|通勤|日常使用)/gu, " ")
     .replace(/\s+/gu, " ")
     .trim() || value;
+}
+
+function stripPreferredSizeFromIdentity(value: string, preferredSize: string | undefined): string {
+  if (preferredSize === undefined) return value;
+  const stripped = value
+    .replace(/\b\d{1,3}(?:\.\d+)?\s*[-\s]*(?:inch(?:es)?|in\b|["″”])/giu, " ")
+    .replace(/\d{1,3}(?:\.\d+)?\s*(?:英寸|寸)/gu, " ")
+    .replace(/\s+/gu, " ")
+    .trim();
+  return stripped || value;
+}
+
+function preferredSizePreference(value: string): string {
+  if (/(?:display|screen|monitor|屏幕|显示器)/iu.test(value)) return value;
+  return /\p{Script=Han}/u.test(value) ? `${value} 屏幕` : `${value} display`;
 }
 
 function buildOfficialStoreQueries(

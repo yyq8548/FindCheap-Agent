@@ -337,6 +337,51 @@ describe("unified product search", () => {
     expect(result.candidates[0]?.shopifyProduct?.title).toBe("Apple MacBook Pro M5 Pro 24GB 1TB");
   });
 
+  it("keeps MacBook size and office use out of identity while ranking the preferred size", async () => {
+    const search = vi.fn<ShopifyPort["search"]>(async () => shopifyResult([
+      shopifyProduct("sixteen-cheap", 99_900, "NEW", {
+        title: "16-inch MacBook Pro (M5)", brand: "Apple", productType: "Computers"
+      }),
+      shopifyProduct("tigertech", 299_900, "NEW", {
+        title: "MacBook Pro - 14-inch - M5 Pro - 24GB - 2TB SSD", brand: "Apple", productType: "Computers"
+      }),
+      shopifyProduct("expercom", 190_900, "NEW", {
+        title: "14-inch MacBook Pro (M5)", brand: "Apple", productType: "Computers"
+      }),
+      shopifyProduct("sva", 234_900, "NEW", {
+        title: "MacBook Pro 14-inch (M5 Pro)", brand: "Apple", productType: "Computers"
+      })
+    ]));
+
+    const result = await searchProducts(SearchProductsInputSchema.parse({
+      query: "Apple MacBook Pro 14-inch for office use under $3000",
+      productType: "laptop",
+      brand: "Apple",
+      brandMode: "REQUIRED",
+      comparisonMode: "DISCOVERY",
+      contextMode: "CONTINUE_PREVIOUS_PRODUCT",
+      limit: 8,
+      maxItemPriceCents: 300_000,
+      primaryUse: "办公",
+      preferredSize: "14英寸",
+      preferences: ["适合办公"]
+    }), { awin: awin([]), shopify: { search } });
+
+    expect(search.mock.calls[0]?.[0]).toMatchObject({
+      query: "Apple MacBook Pro 14-inch",
+      maxItemPriceCents: 300_000
+    });
+    expect(result.searchIntent).toBe("EXACT_PRODUCT");
+    expect(result.identityProductsExcluded).toBe(0);
+    expect(result.chromeFallbackEligible).toBe(false);
+    expect(result.candidates.map((candidate) => candidate.shopifyProduct?.handle)).toEqual([
+      "expercom",
+      "sva",
+      "tigertech"
+    ]);
+    expect(result.candidates[0]?.preferenceEvidence).toContain("14英寸 屏幕");
+  });
+
   it("keeps added required specifications out of product identity", async () => {
     const search = vi.fn<ShopifyPort["search"]>(async () => shopifyResult([
       shopifyProduct("m5-pro-24", 234_900, "NEW", {

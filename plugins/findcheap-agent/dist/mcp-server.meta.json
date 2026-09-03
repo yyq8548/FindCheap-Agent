@@ -4386,7 +4386,7 @@
   },
   "outputs": {
     "../../plugins/findcheap-agent/dist/mcp-server.js": {
-      "bytes": 667846,
+      "bytes": 668414,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
@@ -5042,7 +5042,7 @@
           "bytesInOutput": 1784
         },
         "src/search-products.ts": {
-          "bytesInOutput": 24363
+          "bytesInOutput": 24931
         },
         "src/server.ts": {
           "bytesInOutput": 97790

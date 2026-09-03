@@ -33,7 +33,7 @@ Open the Plugins Directory and confirm:
 - marketplace: `FindCheap Agent`
 - plugin: `FindCheap Agent`
 - plugin ID: `findcheap-agent`
-- version: `0.16.4`
+- version: `0.16.5`
 
 Test prompt:
 
@@ -41,7 +41,7 @@ Test prompt:
 FindCheap Agent 搜索 DÔEN dress，显示商品卡片
 ```
 
-Expected behavior: one unified product search, one immutable product-card render, at most three
+Expected behavior: one unified product search, one immutable product-card render, at most eight
 cards, no Memory or repository scan, and no Chrome fallback when API results exist.
 
 Approved Awin Feed test prompt:
@@ -50,7 +50,7 @@ Approved Awin Feed test prompt:
 FindCheap Agent 搜索 Amazonliss keratin mask
 ```
 
-Expected behavior: one `search_products` call reading configured sources; up to three relevant
+Expected behavior: one `search_products` call reading configured sources; up to eight relevant
 cards with explicit identity and condition labels. See `docs/product/awin-feed-deployment.md` for
 production Feed setup.
 
