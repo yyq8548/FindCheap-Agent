@@ -60,6 +60,7 @@ const ComparisonEntrySchema = z.object({
     code: z.string().optional(),
     discountPercent: z.number().min(0).max(100).optional(),
     discountAmount: MoneySchema.optional(),
+    productApplicability: z.enum(["PRODUCT_CONFIRMED", "MERCHANT_WIDE", "UNKNOWN"]),
     validTo: z.string()
   }).strict()),
   identityEvidence: z.array(z.string()),
@@ -142,8 +143,10 @@ export type ComparableProduct = {
       code?: string;
       discountPercent?: number;
       discountAmount?: { amountCents: number; currency: "USD" };
+      productApplicability?: "PRODUCT_CONFIRMED" | "MERCHANT_WIDE" | "UNKNOWN";
       validTo: string;
     }>;
+    estimatedItemPriceAfterCoupon?: { amountCents: number; currency: "USD" };
   };
   matchEvidence: string[];
   featureEvidence?: string[];
@@ -177,7 +180,10 @@ export function buildProductComparison(
   const entries = products.map((product) => comparisonEntry(product, priceBasis, evaluatedAtMs));
   const decisionProducts = products.map((product, index) => ({
     ...product,
-    itemPrice: entries[index]?.comparedPrice
+    itemPrice: entries[index]?.comparedPrice,
+    coupons: priceBasis === "ITEM_PRICE"
+      ? product.coupons
+      : { verified: product.coupons.verified }
   }));
   const decision = choosePrimaryRecommendation(decisionProducts);
   const recommendedSelectionId = decision.primaryProductIndex === undefined
@@ -280,6 +286,7 @@ function comparisonEntry(
       ...(deal.code === undefined ? {} : { code: deal.code }),
       ...(deal.discountPercent === undefined ? {} : { discountPercent: deal.discountPercent }),
       ...(deal.discountAmount === undefined ? {} : { discountAmount: deal.discountAmount }),
+      productApplicability: deal.productApplicability ?? "UNKNOWN",
       validTo: deal.validTo
     })),
     identityEvidence: product.matchEvidence,

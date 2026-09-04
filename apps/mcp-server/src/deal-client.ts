@@ -9,6 +9,12 @@ export const DealKindSchema = z.enum([
   "OFFLINE_BARCODE"
 ]);
 
+export const DealApplicabilitySchema = z.enum([
+  "PRODUCT_CONFIRMED",
+  "MERCHANT_WIDE",
+  "UNKNOWN"
+]);
+
 export const VerifiedDealSchema = z.object({
   dealId: z.string().trim().min(1).max(160),
   merchant: z.string().trim().min(1).max(160),
@@ -21,6 +27,8 @@ export const VerifiedDealSchema = z.object({
   discountAmountCents: z.number().int().positive().max(100_000_000).optional(),
   cashbackPercent: z.number().min(0).max(100).optional(),
   membershipProgram: z.string().trim().min(1).max(160).optional(),
+  productApplicability: DealApplicabilitySchema.optional(),
+  applicableProductIds: z.array(z.string().trim().min(1).max(300)).min(1).max(100).optional(),
   eligibility: z.array(z.string().trim().min(1).max(300)).max(30),
   channels: z.array(z.enum(["ONLINE", "IN_STORE"])).min(1).max(2),
   sourceUrl: z.string().url().startsWith("https://").max(4_096),
@@ -41,9 +49,46 @@ export const VerifiedDealSchema = z.object({
   if (deal.kind === "CASHBACK" && deal.cashbackPercent === undefined) {
     context.addIssue({ code: z.ZodIssueCode.custom, message: "CASHBACK requires cashbackPercent" });
   }
+  if (deal.productApplicability === "PRODUCT_CONFIRMED" && deal.applicableProductIds === undefined) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "PRODUCT_CONFIRMED requires applicableProductIds" });
+  }
 });
 
 export type VerifiedDeal = z.infer<typeof VerifiedDealSchema>;
+
+export function dealAppliesToProduct(deal: VerifiedDeal, productId: string): boolean {
+  return deal.productApplicability !== "PRODUCT_CONFIRMED" ||
+    deal.applicableProductIds?.includes(productId) === true;
+}
+
+export function dealApplicabilityRank(deal: VerifiedDeal, productId: string): number {
+  if (!dealAppliesToProduct(deal, productId)) return -1;
+  return deal.productApplicability === "PRODUCT_CONFIRMED"
+    ? 2
+    : deal.productApplicability === "MERCHANT_WIDE" ? 1 : 0;
+}
+
+export function estimatedItemPriceAfterCoupon(
+  itemPriceCents: number,
+  deals: readonly VerifiedDeal[],
+  productId: string
+): number | undefined {
+  const estimates = deals.flatMap((deal) => {
+    if (
+      deal.productApplicability !== "PRODUCT_CONFIRMED" ||
+      !dealAppliesToProduct(deal, productId) ||
+      deal.eligibility.length > 0
+    ) return [];
+    const hasPercentDiscount = deal.discountPercent !== undefined;
+    const hasFixedDiscount = deal.discountAmountCents !== undefined;
+    if (hasPercentDiscount === hasFixedDiscount) return [];
+    const savings = deal.discountPercent !== undefined
+      ? Math.floor(itemPriceCents * deal.discountPercent / 100)
+      : deal.discountAmountCents ?? 0;
+    return savings <= 0 ? [] : [Math.max(0, itemPriceCents - savings)];
+  });
+  return estimates.length === 0 ? undefined : Math.min(...estimates);
+}
 
 export const DealSearchInputSchema = z.object({
   merchant: z.string().trim().min(2).max(160),

@@ -119,6 +119,41 @@ describe("deterministic product comparison", () => {
     expect(result.entries.every((entry) => entry.deliveredTotalStatus === "QUOTED")).toBe(true);
   });
 
+  it("does not replace quoted delivered totals with an item-level Coupon estimate", () => {
+    const result = buildProductComparison(input, [
+      product({
+        coupons: {
+          verified: [{
+            kind: "PROMO_CODE",
+            title: "20% off",
+            code: "ITEM20",
+            discountPercent: 20,
+            productApplicability: "PRODUCT_CONFIRMED",
+            validTo: "2026-09-30T23:59:59.000Z"
+          }],
+          estimatedItemPriceAfterCoupon: { amountCents: 1_199, currency: "USD" }
+        },
+        pricing: { deliveredPrice: {
+          status: "ESTIMATED",
+          amount: { amountCents: 1_899, currency: "USD" },
+          expiresAt: "2026-09-03T07:00:00.000Z"
+        } }
+      }),
+      product({
+        selectionId: selectionB,
+        pricing: { deliveredPrice: {
+          status: "ESTIMATED",
+          amount: { amountCents: 1_699, currency: "USD" },
+          expiresAt: "2026-09-03T07:00:00.000Z"
+        } }
+      })
+    ], identity);
+
+    expect(result.priceBasis).toBe("DELIVERED_TOTAL");
+    expect(result.recommendation?.recommendedSelectionId).toBe(selectionB);
+    expect(result.entries[0]?.verifiedDeals[0]?.productApplicability).toBe("PRODUCT_CONFIRMED");
+  });
+
   it("fails closed when same-product identity is requested but not verified", () => {
     const result = buildProductComparison(
       { ...input, mode: "SAME_PRODUCT_OFFERS" },

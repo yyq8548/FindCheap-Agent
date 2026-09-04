@@ -2,6 +2,10 @@ import {
   merchantRecommendationRank,
   resolveMerchantTrust
 } from "./merchant-trust.js";
+import {
+  dealApplicabilityRank,
+  estimatedItemPriceAfterCoupon
+} from "./deal-client.js";
 import type {
   SearchProductsInput,
   UnifiedCandidate
@@ -37,10 +41,12 @@ export function compareRankedCandidates(left: UnifiedCandidate, right: UnifiedCa
   if (availabilityDifference !== 0) return availabilityDifference;
   const preferenceDifference = right.preferenceEvidence.length - left.preferenceEvidence.length;
   if (preferenceDifference !== 0) return preferenceDifference;
-  const couponDifference = Number(right.verifiedCoupons.length > 0) - Number(left.verifiedCoupons.length > 0);
-  if (couponDifference !== 0) return couponDifference;
+  const effectivePriceDifference = candidateEffectivePrice(left) - candidateEffectivePrice(right);
+  if (effectivePriceDifference !== 0) return effectivePriceDifference;
   const priceDifference = candidatePrice(left) - candidatePrice(right);
   if (priceDifference !== 0) return priceDifference;
+  const couponDifference = candidateCouponRank(right) - candidateCouponRank(left);
+  if (couponDifference !== 0) return couponDifference;
   const ratingDifference = productRating(right) - productRating(left);
   if (ratingDifference !== 0) return ratingDifference;
   return candidateTitle(left).localeCompare(candidateTitle(right));
@@ -73,7 +79,7 @@ export function selectPresentationCandidates(
     .filter((candidate) => !isOfficialCandidate(candidate))
     .filter((candidate) => passesVisualDisplayGate(candidate, allowAlternatives))
     .filter((candidate) => candidate.recommendationTier === "GENERAL_UNVERIFIED")
-    .sort(selectionMode === "LOWEST_PRICE" ? compareLowestPrice : compareBestValue)
+    .sort(selectionMode === "LOWEST_PRICE" ? compareLowestPrice : compareRankedCandidates)
     .slice(0, BEST_VALUE_PRODUCT_CARD_LIMIT)
     .map((candidate) => ({ ...candidate, presentationGroup: "BEST_VALUE" as const }));
   const grouped = [...official, ...trusted, ...bestValue];
@@ -116,8 +122,9 @@ export function countDisplayEligibleCandidates(
 }
 
 export function compareLowestPrice(left: UnifiedCandidate, right: UnifiedCandidate): number {
-  return candidatePrice(left) - candidatePrice(right) ||
-    Number(right.verifiedCoupons.length > 0) - Number(left.verifiedCoupons.length > 0) ||
+  return candidateEffectivePrice(left) - candidateEffectivePrice(right) ||
+    candidatePrice(left) - candidatePrice(right) ||
+    candidateCouponRank(right) - candidateCouponRank(left) ||
     compareRankedCandidates(left, right);
 }
 
@@ -147,13 +154,6 @@ function passesVisualDisplayGate(candidate: UnifiedCandidate, allowAlternatives:
     candidate.visualMatchGroup === undefined ||
     candidate.visualMatchGroup !== "SAME_STYLE" ||
     allowAlternatives;
-}
-
-function compareBestValue(left: UnifiedCandidate, right: UnifiedCandidate): number {
-  return Number(right.verifiedCoupons.length > 0) - Number(left.verifiedCoupons.length > 0) ||
-    merchantRecommendationRank(left.recommendationTier) - merchantRecommendationRank(right.recommendationTier) ||
-    candidatePrice(left) - candidatePrice(right) ||
-    compareRankedCandidates(left, right);
 }
 
 export function candidateKey(candidate: UnifiedCandidate): string {
@@ -194,4 +194,28 @@ function candidatePrice(candidate: UnifiedCandidate): number {
   if (candidate.source === "AWIN_PRODUCT_FEED") return candidate.awinProduct.itemPrice.amountCents;
   if (candidate.source === "EBAY_BROWSE") return candidate.ebayProduct.itemPrice.amountCents;
   return candidate.shopifyProduct.itemPrice?.amountCents ?? Number.MAX_SAFE_INTEGER;
+}
+
+function candidateEffectivePrice(candidate: UnifiedCandidate): number {
+  const itemPrice = candidatePrice(candidate);
+  if (!Number.isSafeInteger(itemPrice)) return itemPrice;
+  return estimatedItemPriceAfterCoupon(
+    itemPrice,
+    candidate.verifiedCoupons,
+    candidateProductId(candidate)
+  ) ?? itemPrice;
+}
+
+function candidateCouponRank(candidate: UnifiedCandidate): number {
+  const productId = candidateProductId(candidate);
+  return candidate.verifiedCoupons.reduce(
+    (rank, deal) => Math.max(rank, dealApplicabilityRank(deal, productId)),
+    -1
+  );
+}
+
+function candidateProductId(candidate: UnifiedCandidate): string {
+  if (candidate.source === "AWIN_PRODUCT_FEED") return candidate.awinProduct.merchantProductId;
+  if (candidate.source === "EBAY_BROWSE") return candidate.ebayProduct.productRef;
+  return candidate.shopifyProduct.handle;
 }

@@ -3,17 +3,17 @@ name: deals-and-watch
 description: Find verified Coupon, promotion, membership, Cashback, and offline-barcode evidence, or create and manage shopping watches with Codex Automation.
 ---
 
-# FindCheap Agent v0.17.6 Deals and Watch
+# FindCheap Agent v0.17.7 Deals and Watch
 
 A live Coupon or Watch request is self-contained. MCP tools are loaded. Do not read Memory, repository files, logs, task files, or plugin cache. Do not reopen this Skill. Send at most one short progress sentence before the first tool call; do not narrate the tool sequence between calls.
 
 ## Coupon
 
-Call `find_coupons` once with current-message `responseLocale`. It includes active Awin Promotions without Product Feeds. Pass `productQuery` only when the user names that product or refers to a stable selected card; it ranks product-specific evidence but cannot discard merchant-wide offers. Joined Awin merchant does not imply an active offer. Return verified source, eligibility, expiry, checked time. Keep Coupon, Promo Code, membership, Cashback, barcode distinct. Never invent code, stacking, discount, Cashback. `DATA_SOURCE_UNAVAILABLE` is not “no Coupon.” Chrome needs explicit one-use authorization; inspect public HTTPS promotion pages only. Never apply codes, sign in, or enter checkout.
+Call `find_coupons` once with current-message `responseLocale`. It includes Awin Promotions without Product Feeds. Pass `productQuery` only when the user names that product; it ranks but cannot discard merchant-wide offers. Joined Awin merchant does not imply an active offer. Return source, terms, applicability, expiry, checked time. Mark Awin merchant-wide; distinguish product-confirmed/merchant-wide/unconfirmed. Keep offer types distinct. Never invent code, stacking, discount, Cashback. `DATA_SOURCE_UNAVAILABLE` is not “no Coupon.” Chrome needs explicit one-use authorization; inspect public HTTPS pages only. Never apply codes, sign in, or enter checkout.
 
 ## Current deal check
 
-For a selected card, call `research_selected_product_deal` with stable `selectionId`; never search title. Pass supplied ZIP/memberships. Be warm and direct, not salesy. Show best Coupon first: code/benefit; scope—customer, products, exclusions. Blank line; list all deals below. Checkout confirms scope/stacking. Return current product/price/inventory. No history/forecast/Watch.
+For selected card, call `research_selected_product_deal` with stable `selectionId`; never title-search. Pass ZIP/memberships. Be warm and direct, not salesy. Show best Coupon first: code/benefit; scope—customer, products, exclusions. Blank line; list all deals below. Estimate only when product-confirmed for that ID. Checkout confirms scope/stacking/final amount. Return product/price/stock. No history/forecast/Watch.
 
 ## Create Watch
 

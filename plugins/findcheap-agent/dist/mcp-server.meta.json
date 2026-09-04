@@ -3961,6 +3961,11 @@
           "kind": "import-statement",
           "original": "./merchant-trust.js",
           "path": "src/merchant-trust.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./deal-client.js",
+          "path": "src/deal-client.ts"
         }
       ]
     },
@@ -4513,7 +4518,7 @@
   },
   "outputs": {
     "../../plugins/findcheap-agent/dist/mcp-server.js": {
-      "bytes": 738714,
+      "bytes": 745088,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
@@ -5109,7 +5114,7 @@
           "bytesInOutput": 750
         },
         "../../packages/awin-feed/src/index.ts": {
-          "bytesInOutput": 13353
+          "bytesInOutput": 13239
         },
         "../../packages/contracts/src/index.ts": {
           "bytesInOutput": 0
@@ -5133,10 +5138,10 @@
           "bytesInOutput": 447
         },
         "src/deal-client.ts": {
-          "bytesInOutput": 3803
+          "bytesInOutput": 4793
         },
         "src/deal-concierge.ts": {
-          "bytesInOutput": 1568
+          "bytesInOutput": 1840
         },
         "src/ebay-client.ts": {
           "bytesInOutput": 3766
@@ -5169,25 +5174,25 @@
           "bytesInOutput": 1326
         },
         "src/product-candidate-ranking.ts": {
-          "bytesInOutput": 3900
+          "bytesInOutput": 4039
         },
         "src/product-card-telemetry.ts": {
           "bytesInOutput": 814
         },
         "src/product-card-ui.ts": {
-          "bytesInOutput": 53751
+          "bytesInOutput": 56454
         },
         "src/product-comparison-ui.ts": {
-          "bytesInOutput": 21521
+          "bytesInOutput": 21961
         },
         "src/product-comparison.ts": {
-          "bytesInOutput": 8511
+          "bytesInOutput": 8708
         },
         "src/product-constraint-matcher.ts": {
           "bytesInOutput": 10781
         },
         "src/product-recommendation.ts": {
-          "bytesInOutput": 3923
+          "bytesInOutput": 4073
         },
         "src/sales-tax-estimator.ts": {
           "bytesInOutput": 1784
@@ -5196,7 +5201,7 @@
           "bytesInOutput": 26823
         },
         "src/server.ts": {
-          "bytesInOutput": 113556
+          "bytesInOutput": 115153
         },
         "src/shopify-cart-quote.ts": {
           "bytesInOutput": 10340

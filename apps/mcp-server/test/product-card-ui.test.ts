@@ -148,7 +148,7 @@ describe("product-card MCP Apps UI", () => {
       params: expect.objectContaining({
         name: "report_product_card_metrics",
         arguments: expect.objectContaining({
-          version: "0.17.6",
+          version: "0.17.7",
           terminalStage: "DOM_RENDERED",
           stages: expect.objectContaining({ DOM_RENDERED: expect.any(Number) })
         })
@@ -460,7 +460,7 @@ describe("product-card MCP Apps UI", () => {
     expect(output).toContain("Observed Aug 19, 2026");
   });
 
-  it("renders official, trusted, and best-value presentation groups in that order", () => {
+  it("renders the primary recommendation first, then the remaining presentation groups", () => {
     const script = PRODUCT_CARD_HTML.match(/<script>([\s\S]*)<\/script>/u)?.[1];
     const app = new FakeNode();
     const product = (title: string, presentationGroup: string, selectionId: string) => ({
@@ -493,7 +493,8 @@ describe("product-card MCP Apps UI", () => {
         products: [
           product("Official Product", "OFFICIAL_STORE", "00000000-0000-4000-8000-000000000001"),
           product("Trusted Product", "TRUSTED_MATCH", "00000000-0000-4000-8000-000000000002"),
-          product("Value Product", "BEST_VALUE", "00000000-0000-4000-8000-000000000003")
+          product("Value Product", "BEST_VALUE", "00000000-0000-4000-8000-000000000003"),
+          product("Another Trusted Product", "TRUSTED_MATCH", "00000000-0000-4000-8000-000000000004")
         ]
       } },
       addEventListener: () => undefined,
@@ -510,6 +511,7 @@ describe("product-card MCP Apps UI", () => {
     vm.runInNewContext(script!, { window, document, URL, Intl, Number, String, Array, Object, Promise, Map, Math, Date });
 
     const output = text(app);
+    expect(output).toContain("First recommendation");
     expect(output).toContain("Official website matches");
     expect(output).toContain("Trusted exact and similar matches");
     expect(output).toContain("Best-value high-match options");
@@ -520,8 +522,9 @@ describe("product-card MCP Apps UI", () => {
     const featured = nodes(app).filter((node) => node.className.includes("featured"));
     expect(featured).toHaveLength(1);
     expect(text(featured[0]!)).toContain("Trusted Product");
-    expect(output.indexOf("Official Product")).toBeLessThan(output.indexOf("Trusted Product"));
-    expect(output.indexOf("Trusted Product")).toBeLessThan(output.indexOf("Value Product"));
+    expect(output.indexOf("Trusted Product")).toBeLessThan(output.indexOf("Official Product"));
+    expect(output.indexOf("Official Product")).toBeLessThan(output.indexOf("Another Trusted Product"));
+    expect(output.indexOf("Another Trusted Product")).toBeLessThan(output.indexOf("Value Product"));
   });
 
   it("selects 2-4 native cards and renders the server comparison without focus", async () => {
@@ -638,7 +641,12 @@ describe("product-card MCP Apps UI", () => {
           merchantUrl: "https://example.com/products/item",
           coupons: {
             status: "VERIFIED",
-            verified: [{ code: "SAVE20", discountPercent: 20 }]
+            verified: [{
+              code: "SAVE20",
+              discountPercent: 20,
+              productApplicability: "MERCHANT_WIDE",
+              validTo: "2026-09-10T00:00:00.000Z"
+            }]
           },
           card: {
             merchant: "示例官网",
@@ -647,6 +655,34 @@ describe("product-card MCP Apps UI", () => {
             couponLabel: "Coupon: SAVE20",
             matchBadge: "EXACT",
             conditionBadge: "UNKNOWN",
+            availability: "IN_STOCK",
+            merchantTrustBadge: "OFFICIAL"
+          }
+        }, {
+          merchant: "确认优惠官网",
+          title: "确认优惠商品",
+          matchStatus: "EXACT",
+          condition: "NEW",
+          availability: "IN_STOCK",
+          presentationGroup: "OFFICIAL_STORE",
+          recommendationTier: "TRUSTED_OR_AFFILIATE",
+          merchantUrl: "https://confirmed.example/products/item",
+          coupons: {
+            status: "VERIFIED",
+            verified: [{
+              code: "EXACT20",
+              discountPercent: 20,
+              productApplicability: "PRODUCT_CONFIRMED",
+              validTo: "2026-09-10T00:00:00.000Z"
+            }],
+            estimatedItemPriceAfterCoupon: { amountCents: 3_200, currency: "USD" }
+          },
+          card: {
+            merchant: "确认优惠官网",
+            title: "确认优惠商品",
+            primaryPrice: { amountCents: 4_000, currency: "USD" },
+            matchBadge: "EXACT",
+            conditionBadge: "NEW",
             availability: "IN_STOCK",
             merchantTrustBadge: "OFFICIAL"
           }
@@ -666,7 +702,11 @@ describe("product-card MCP Apps UI", () => {
     vm.runInNewContext(script!, { window, document, URL, Intl, Number, String, Array, Object, Promise, Map, Math, Date });
 
     const output = text(app);
-    expect(output).toContain("优惠码：SAVE20");
+    expect(output).toContain("商家优惠：SAVE20");
+    expect(output).toContain("该商家当前有优惠");
+    expect(output).toContain("已验证优惠：EXACT20");
+    expect(output).toContain("使用优惠后预计：US$32.00");
+    expect(output).toContain("该优惠已确认适用于此商品");
     expect(output).toContain("值得先看");
     expect(output).toContain("为什么匹配");
     expect(output).toContain("商品状态未核实");
@@ -710,7 +750,7 @@ describe("product-card MCP Apps UI", () => {
       method: "ui/initialize",
       params: {
         protocolVersion: "2026-01-26",
-        appInfo: { name: "FindCheap Agent product cards", version: "0.17.6" },
+        appInfo: { name: "FindCheap Agent product cards", version: "0.17.7" },
         appCapabilities: { availableDisplayModes: ["inline"] }
       }
     });

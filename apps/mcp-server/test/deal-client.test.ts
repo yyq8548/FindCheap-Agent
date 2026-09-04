@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { createDealPortFromEnvironment, hasDealProviderConfiguration } from "../src/deal-client.js";
+import {
+  VerifiedDealSchema,
+  createDealPortFromEnvironment,
+  estimatedItemPriceAfterCoupon,
+  hasDealProviderConfiguration
+} from "../src/deal-client.js";
 
 const deal = {
   dealId: "coupon-1",
@@ -94,5 +99,32 @@ describe("Deals API client", () => {
       new URL("https://findcheap-agent-production.up.railway.app/v1/offers/search"),
       expect.objectContaining({ headers: expect.not.objectContaining({ authorization: expect.anything() }) })
     );
+  });
+
+  it("requires a stable product ID before calculating an after-Coupon price", () => {
+    const confirmed = {
+      ...deal,
+      kind: "PROMO_CODE",
+      code: "SAVE20",
+      channels: ["ONLINE"],
+      productApplicability: "PRODUCT_CONFIRMED",
+      applicableProductIds: ["sku-1"],
+      discountAmountCents: undefined,
+      discountPercent: 20,
+      eligibility: []
+    };
+    expect(VerifiedDealSchema.safeParse({ ...confirmed, applicableProductIds: undefined }).success).toBe(false);
+    const parsed = VerifiedDealSchema.parse(confirmed);
+
+    expect(estimatedItemPriceAfterCoupon(1_200, [parsed], "sku-1")).toBe(960);
+    expect(estimatedItemPriceAfterCoupon(1_200, [parsed], "other-sku")).toBeUndefined();
+    expect(estimatedItemPriceAfterCoupon(1_200, [{
+      ...parsed,
+      productApplicability: "MERCHANT_WIDE"
+    }], "sku-1")).toBeUndefined();
+    expect(estimatedItemPriceAfterCoupon(1_200, [{
+      ...parsed,
+      discountAmountCents: 500
+    }], "sku-1")).toBeUndefined();
   });
 });

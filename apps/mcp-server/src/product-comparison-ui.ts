@@ -229,6 +229,11 @@ export const PRODUCT_COMPARISON_HTML = String.raw`<!doctype html>
         if (Number.isFinite(offer.discountPercent)) details.push(String(offer.discountPercent) + "%");
         const amount = money(offer.discountAmount, locale);
         if (amount) details.push(text(locale, amount + " off", "减免 " + amount));
+        details.push(offer.productApplicability === "PRODUCT_CONFIRMED"
+          ? text(locale, "confirmed for this product", "已确认适用于此商品")
+          : offer.productApplicability === "MERCHANT_WIDE"
+            ? text(locale, "merchant offer; product eligibility requires confirmation", "商家优惠；商品适用性待确认")
+            : text(locale, "product eligibility unconfirmed", "商品适用性未确认"));
         const validTo = dateTime(offer.validTo, locale) || offer.validTo;
         if (validTo) details.push(text(locale, "valid to " + validTo, "有效期至 " + validTo));
         return details.join(" · ");

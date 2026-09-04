@@ -126,6 +126,7 @@ describe("product comparison MCP Apps UI", () => {
             code: "SAVE10",
             discountPercent: 10,
             discountAmount: { amountCents: 100, currency: "USD" },
+            productApplicability: "MERCHANT_WIDE",
             validTo: "2026-09-30T23:59:59.000Z"
           }],
           identityEvidence: ["GTIN exact"],
@@ -177,6 +178,7 @@ describe("product comparison MCP Apps UI", () => {
     expect(renderedText).toContain("SAVE10");
     expect(renderedText).toContain("10%");
     expect(renderedText).toContain("$1.00 off");
+    expect(renderedText).toContain("merchant offer; product eligibility requires confirmation");
     expect(renderedText).toContain("valid to");
     expect(renderedText).toContain("valid until");
     expect(renderedText).toContain("Not quoted: provide ZIP");

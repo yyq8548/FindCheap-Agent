@@ -1,4 +1,4 @@
-import { VerifiedDealsSchema, type DealPort, type VerifiedDeal } from "./deal-client.js";
+import { VerifiedDealsSchema, dealAppliesToProduct, type DealPort, type VerifiedDeal } from "./deal-client.js";
 import type { ShopifyProduct } from "./shopify-client.js";
 import type { ShopifyCartEstimate, ShopifyCartQuotePort } from "./shopify-cart-quote.js";
 
@@ -17,11 +17,14 @@ export type CurrentDealResearchResult = {
   };
   quoteStatus: "NOT_REQUESTED" | "ESTIMATED" | "UNAVAILABLE";
   limitations: string[];
-  deals: Array<VerifiedDeal & { applicability: "REQUIRES_MERCHANT_CONFIRMATION" }>;
+  deals: Array<VerifiedDeal & {
+    applicability: "PRODUCT_CONFIRMED" | "REQUIRES_MERCHANT_CONFIRMATION";
+  }>;
 };
 
 export async function researchSelectedProductDeal(input: {
   selected: {
+    merchantProductId: string;
     merchant: string;
     availability: "IN_STOCK" | "OUT_OF_STOCK" | "UNKNOWN";
     itemPrice?: { amountCents: number; currency: "USD" };
@@ -42,6 +45,7 @@ export async function researchSelectedProductDeal(input: {
     channel: "ONLINE"
   }).then((results) => VerifiedDealsSchema.parse(results).filter((deal) =>
     deal.merchant.toLocaleLowerCase("en-US") === input.selected.merchant.toLocaleLowerCase("en-US") &&
+    dealAppliesToProduct(deal, input.selected.merchantProductId) &&
     deal.channels.includes("ONLINE") &&
     Date.parse(deal.checkedAt) <= timestamp + 120_000 &&
     Date.parse(deal.checkedAt) >= timestamp - 86_400_000 &&
@@ -72,11 +76,15 @@ export async function researchSelectedProductDeal(input: {
   const currentAmount = quote?.deliveredPrice ?? input.selected.itemPrice;
   const verifiedDeals = deals.map((deal) => ({
     ...deal,
-    applicability: "REQUIRES_MERCHANT_CONFIRMATION" as const
+    applicability: deal.productApplicability === "PRODUCT_CONFIRMED"
+      ? "PRODUCT_CONFIRMED" as const
+      : "REQUIRES_MERCHANT_CONFIRMATION" as const
   }));
   limitations.push(...(verifiedDeals.length === 0
     ? ["No current verified merchant deal was found."]
-    : ["Verified merchant deals are candidates only; product eligibility and stacking require merchant confirmation."]));
+    : verifiedDeals.every((deal) => deal.applicability === "PRODUCT_CONFIRMED")
+      ? ["Verified deals are confirmed for this selected product; stacking and the final amount require checkout confirmation."]
+      : ["Verified merchant deals are candidates only; product eligibility and stacking require merchant confirmation."]));
 
   const dealStatus: CurrentDealStatus = input.selected.availability === "OUT_OF_STOCK"
     ? "OUT_OF_STOCK"

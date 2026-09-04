@@ -95,6 +95,24 @@ describe("product recommendation", () => {
     expect(decision.reasonCodes).not.toContain("LOWER_PRICE");
   });
 
+  it("uses only a product-confirmed after-Coupon price for the primary recommendation", () => {
+    const decision = choosePrimaryRecommendation([
+      product({ title: "Lower raw price", presentationGroup: "OFFICIAL_STORE", price: 100_000 }),
+      product({
+        title: "Confirmed lower net price",
+        presentationGroup: "TRUSTED_MATCH",
+        price: 120_000,
+        coupon: { productApplicability: "PRODUCT_CONFIRMED", estimatedPrice: 96_000 }
+      })
+    ]);
+
+    expect(decision).toMatchObject({
+      state: "READY",
+      primaryProductIndex: 1,
+      reasonCodes: ["EXACT_MATCH", "TRUSTED_MERCHANT", "LOWER_PRICE"]
+    });
+  });
+
   it("never recommends an independently unverified merchant", () => {
     const decision = choosePrimaryRecommendation([
       product({
@@ -117,6 +135,10 @@ function product(options: {
   presentationGroup: "OFFICIAL_STORE" | "TRUSTED_MATCH";
   merchantVerified?: boolean;
   recommendationTier?: "TRUSTED_OR_AFFILIATE" | "HIGH_RATED_UNVERIFIED";
+  coupon?: {
+    productApplicability: "PRODUCT_CONFIRMED" | "MERCHANT_WIDE";
+    estimatedPrice?: number;
+  };
 }) {
   return {
     title: options.title,
@@ -130,6 +152,13 @@ function product(options: {
     requiredFeatureLimitations: [],
     matchEvidence: ["identity evidence"],
     itemPrice: { amountCents: options.price, currency: "USD" as const },
-    coupons: { verified: [] }
+    coupons: options.coupon === undefined
+      ? { verified: [] }
+      : {
+          verified: [{ title: "Coupon", productApplicability: options.coupon.productApplicability }],
+          ...(options.coupon.estimatedPrice === undefined
+            ? {}
+            : { estimatedItemPriceAfterCoupon: { amountCents: options.coupon.estimatedPrice } })
+        }
   };
 }

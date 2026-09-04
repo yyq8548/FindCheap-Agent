@@ -321,15 +321,30 @@ describe("unified product search", () => {
     await pending;
   });
 
-  it("prioritizes a verified Coupon before a lower raw price at equal match and trust", async () => {
+  it("does not let an unconfirmed Coupon beat a lower raw price at equal match and trust", async () => {
     const result = await searchProducts(SearchProductsInputSchema.parse({ query: "hair mask", limit: 2 }), {
       awin: awin([]),
       shopify: shopify([shopifyProduct("lower", 1000), shopifyProduct("coupon", 1200)]),
       deals: { search: vi.fn(async ({ merchant }) => merchant === "Merchant coupon" ? [verifiedCoupon(merchant)] : []) }
     });
 
+    expect(result.candidates.map((candidate) => candidate.shopifyProduct?.handle)).toEqual(["lower", "coupon"]);
+    expect(result.candidates[1]?.verifiedCoupons).toHaveLength(1);
+  });
+
+  it("uses a confirmed product Coupon price when it is lower than the raw-price alternative", async () => {
+    const result = await searchProducts(SearchProductsInputSchema.parse({ query: "hair mask", limit: 2 }), {
+      awin: awin([]),
+      shopify: shopify([shopifyProduct("lower", 1000), shopifyProduct("coupon", 1200)]),
+      deals: { search: vi.fn(async ({ merchant }) => merchant === "Merchant coupon" ? [{
+        ...verifiedCoupon(merchant),
+        productApplicability: "PRODUCT_CONFIRMED" as const,
+        applicableProductIds: ["coupon"],
+        eligibility: []
+      }] : []) }
+    });
+
     expect(result.candidates.map((candidate) => candidate.shopifyProduct?.handle)).toEqual(["coupon", "lower"]);
-    expect(result.candidates[0]?.verifiedCoupons).toHaveLength(1);
   });
 
   it("uses cross-source price order only for explicit LOWEST_PRICE", async () => {

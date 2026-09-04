@@ -64,6 +64,9 @@ import {
   DealSearchInputSchema,
   VerifiedDealsSchema,
   createUnavailableDealPort,
+  dealApplicabilityRank,
+  dealAppliesToProduct,
+  estimatedItemPriceAfterCoupon,
   type DealPort,
   type VerifiedDeal
 } from "./deal-client.js";
@@ -377,9 +380,11 @@ const DealConciergeOutputShape = {
     dealId: z.string(), merchant: z.string(), kind: z.string(), title: z.string(), description: z.string(),
     code: z.string().optional(), barcodeUrl: z.string().url().optional(), discountPercent: z.number().optional(),
     discountAmountCents: z.number().int().optional(), cashbackPercent: z.number().optional(), membershipProgram: z.string().optional(),
+    productApplicability: z.enum(["PRODUCT_CONFIRMED", "MERCHANT_WIDE", "UNKNOWN"]).optional(),
+    applicableProductIds: z.array(z.string()).optional(),
     eligibility: z.array(z.string()), channels: z.array(z.string()), sourceUrl: z.string().url(), checkedAt: z.string(),
     validFrom: z.string(), validTo: z.string(), verificationStatus: z.literal("VERIFIED"),
-    applicability: z.literal("REQUIRES_MERCHANT_CONFIRMATION")
+    applicability: z.enum(["PRODUCT_CONFIRMED", "REQUIRES_MERCHANT_CONFIRMATION"])
   }).strict()),
   objective: z.enum(["CURRENT_DEALS", "CHEAPEST_PATH"]).optional()
 };
@@ -553,10 +558,12 @@ const ShopifyProductOutputSchema = z.object({
       code: z.string().optional(),
       discountPercent: z.number().min(0).max(100).optional(),
       discountAmount: MoneyOutputSchema.optional(),
+      productApplicability: z.enum(["PRODUCT_CONFIRMED", "MERCHANT_WIDE", "UNKNOWN"]),
       eligibility: z.array(z.string()),
       validTo: z.string(),
       sourceUrl: z.string().url()
-    }))
+    })),
+    estimatedItemPriceAfterCoupon: MoneyOutputSchema.optional()
   }),
   purchaseLink: z.object({
     kind: z.enum(["APPROVED_AFFILIATE", "CANONICAL"]),
@@ -1126,8 +1133,8 @@ function unifiedResult(
               "返回卡片没有独立验证用户偏好，不能只凭参数或价格声称最适合。"
             )]),
         ...(couponCount === 0 ? [] : [localized(
-          `${couponCount} verified Coupon or promotion result(s) are attached to the ranked cards.`,
-          `排序卡片已附 ${couponCount} 条经过验证的优惠券或促销信息。`
+          `${couponCount} current Coupon or promotion result(s) are shown with product-applicability status on the ranked cards.`,
+          `排序卡片已显示 ${couponCount} 条当前优惠券或促销，并标明是否确认适用于对应商品。`
         )]),
         localized(
           "Trust labels do not prove manufacturer authorization; never call a merchant authorized without explicit brand-authorization evidence.",
@@ -1394,8 +1401,18 @@ function withVerifiedCoupons(
   product: ProductCardProduct,
   deals: VerifiedDeal[]
 ): ProductCardProduct {
-  const coupons = deals.flatMap((deal) => {
-    if (deal.kind !== "COUPON" && deal.kind !== "PROMO_CODE" && deal.kind !== "BRAND_PROMOTION") return [];
+  const rankedDeals = deals.filter((deal): deal is VerifiedDeal & {
+    kind: "COUPON" | "PROMO_CODE" | "BRAND_PROMOTION";
+  } =>
+    (deal.kind === "COUPON" || deal.kind === "PROMO_CODE" || deal.kind === "BRAND_PROMOTION") &&
+    dealAppliesToProduct(deal, product.handle)
+  ).sort((left, right) =>
+    dealApplicabilityRank(right, product.handle) - dealApplicabilityRank(left, product.handle) ||
+    couponProductRelevance(right, product.title) - couponProductRelevance(left, product.title) ||
+    Number(right.code !== undefined) - Number(left.code !== undefined) ||
+    left.validTo.localeCompare(right.validTo)
+  );
+  const coupons = rankedDeals.flatMap((deal) => {
     return [{
       title: deal.title,
       kind: deal.kind,
@@ -1404,6 +1421,7 @@ function withVerifiedCoupons(
       ...(deal.discountAmountCents === undefined
         ? {}
         : { discountAmount: { amountCents: deal.discountAmountCents, currency: "USD" as const } }),
+      productApplicability: deal.productApplicability ?? "UNKNOWN" as const,
       eligibility: deal.eligibility,
       validTo: deal.validTo,
       sourceUrl: deal.sourceUrl
@@ -1411,18 +1429,40 @@ function withVerifiedCoupons(
   });
   if (coupons.length === 0) return product;
   const first = coupons[0]!;
-  const couponLabel = first.code !== undefined
-    ? `Coupon: ${first.code}`
+  const couponValue = first.code !== undefined
+    ? first.code
     : first.discountPercent !== undefined
-      ? `Coupon: ${first.discountPercent}% off`
+      ? `${first.discountPercent}% off`
       : first.discountAmount !== undefined
-        ? `Coupon: $${(first.discountAmount.amountCents / 100).toFixed(2)} off`
+        ? `$${(first.discountAmount.amountCents / 100).toFixed(2)} off`
         : first.title;
+  const couponLabel = first.productApplicability === "PRODUCT_CONFIRMED"
+    ? `Verified Coupon: ${couponValue}`
+    : first.productApplicability === "MERCHANT_WIDE"
+      ? `Merchant offer: ${couponValue}`
+      : `Offer eligibility unconfirmed: ${couponValue}`;
+  const estimatedPrice = product.itemPrice === undefined
+    ? undefined
+    : estimatedItemPriceAfterCoupon(product.itemPrice.amountCents, rankedDeals, product.handle);
   return {
     ...product,
-    coupons: { status: "VERIFIED", verified: coupons },
+    coupons: {
+      status: "VERIFIED",
+      verified: coupons,
+      ...(estimatedPrice === undefined
+        ? {}
+        : { estimatedItemPriceAfterCoupon: { amountCents: estimatedPrice, currency: "USD" as const } })
+    },
     card: { ...product.card, couponLabel }
   };
+}
+
+function couponProductRelevance(deal: VerifiedDeal, productTitle: string): number {
+  const offerText = `${deal.title} ${deal.description} ${deal.eligibility.join(" ")}`
+    .normalize("NFKC").toLocaleLowerCase("en-US");
+  const tokens = productTitle.normalize("NFKC").toLocaleLowerCase("en-US")
+    .match(/[\p{L}\p{N}]+/gu)?.filter((token) => token.length >= 3) ?? [];
+  return new Set(tokens.filter((token) => offerText.includes(token))).size;
 }
 
 function awinQuoteSeed(product: ProductCardProduct): AwinShopifyQuoteSeed {
@@ -1977,9 +2017,15 @@ export function createShoppingServer(
   ): ProductCardContent & { renderId: string } => {
     const renderId = randomUUID();
     let primarySelectionId: string | undefined;
-    const products = content.products.map((product, index) => {
+    const orderedProducts = primaryProductIndex === undefined || primaryProductIndex === 0
+      ? content.products
+      : [
+          content.products[primaryProductIndex]!,
+          ...content.products.filter((_product, index) => index !== primaryProductIndex)
+        ];
+    const products = orderedProducts.map((product, index) => {
       const selectionId = randomUUID();
-      if (index === primaryProductIndex) primarySelectionId = selectionId;
+      if (primaryProductIndex !== undefined && index === 0) primarySelectionId = selectionId;
       selections.set(selectionId, { renderId, variantId: product.handle });
       return {
         ...product,
@@ -2255,7 +2301,7 @@ export function createShoppingServer(
     "search_products",
     {
       title: "FindCheap",
-      description: "For an initial text search, after the required Skill is loaded, match current user-message language and use exactly one progress sentence before this tool: English 'Searching for suitable products.'; Chinese '正在搜索合适商品。'. Selected-product follow-ups do not use that generic sentence. Never output a plan or read Memory, Skill files, repository files, logs, task files, or plugin caches. Text-only product-search entrypoint; call once. For a newly attached image use search_visual_candidates and then finalize_visual_search instead. Always pass responseLocale from the user's current message, even when query is translated into English for catalog retrieval. Keep query focused on product identity; pass use, budget, and size only in their typed fields. Pass family in productType, explicit brand in brand with brandMode=REQUIRED, objective must-have attributes in requiredFeatures, explicit disqualifiers in excludedFeatures, and preferences in preferences. Pass primaryUse, preferredSize, requiredSize, maxItemPriceCents, or budgetFlexible only when the user states them; never infer them. A size explicitly required or selected from the clarification belongs in requiredSize; use preferredSize only when the user says it is flexible or merely preferred. Broad high-variance products return one clarification before source search when decision constraints are missing. Full-size or large-package requests exclude sample, trial-size, and tester products. Never put a brand in productType or requiredFeatures. Use CONTINUE_PREVIOUS_PRODUCT when the user adds budget, use, size, or constraints; CORRECT_PREVIOUS_PRODUCT only for changed identity; NEW_PRODUCT for a different shopping goal. Missing soft evidence remains a limitation-labeled DISCOVERY_MATCH; hard conflicts exclude. Return at most 8 cards in three display tiers: 2 verified official-store matches, 3 trusted high matches, and 3 best-value high matches. Display tier never determines the primary choice. When recommendation.state is READY, recommend only recommendation.primarySelectionId; otherwise recommend none. Equivalent fit and trust prefer lower item price. Use selectionMode=LOWEST_PRICE only when requested; it never collapses the three display tiers. maxItemPriceCents is a ceiling, never a spending target. If every merchant is unverified, show research leads but recommend none for purchase. Never recommend a product absent from returned cards. Commercial relationships never affect relevance or ranking. Reuse selectionId for follow-ups, never print it, and never search a selected title again.",
+      description: "For an initial text search, after the required Skill is loaded, match current user-message language and use exactly one progress sentence before this tool: English 'Searching for suitable products.'; Chinese '正在搜索合适商品。'. Selected-product follow-ups do not use that generic sentence. Never output a plan or read Memory, Skill files, repository files, logs, task files, or plugin caches. Text-only product-search entrypoint; call once. For a newly attached image use search_visual_candidates and then finalize_visual_search instead. Always pass responseLocale from the user's current message, even when query is translated into English for catalog retrieval. Keep query focused on product identity; pass use, budget, and size only in their typed fields. Pass family in productType, explicit brand in brand with brandMode=REQUIRED, objective must-have attributes in requiredFeatures, explicit disqualifiers in excludedFeatures, and preferences in preferences. Pass primaryUse, preferredSize, requiredSize, maxItemPriceCents, or budgetFlexible only when the user states them; never infer them. A size explicitly required or selected from the clarification belongs in requiredSize; use preferredSize only when the user says it is flexible or merely preferred. Broad high-variance products return one clarification before source search when decision constraints are missing. Full-size or large-package requests exclude sample, trial-size, and tester products. Never put a brand in productType or requiredFeatures. Use CONTINUE_PREVIOUS_PRODUCT when the user adds budget, use, size, or constraints; CORRECT_PREVIOUS_PRODUCT only for changed identity; NEW_PRODUCT for a different shopping goal. Missing soft evidence remains a limitation-labeled DISCOVERY_MATCH; hard conflicts exclude. Return at most 8 cards in three display tiers: 2 verified official-store matches, 3 trusted high matches, and 3 best-value high matches. Display tier never determines the primary choice; render the backend-selected primary recommendation first. When recommendation.state is READY, recommend only recommendation.primarySelectionId; otherwise recommend none. Equivalent fit and trust prefer a confirmed after-Coupon price, then the raw item price; merchant-level or unconfirmed offers never override a lower price. Use selectionMode=LOWEST_PRICE only when requested; it never collapses the three display tiers. maxItemPriceCents is a ceiling, never a spending target. If every merchant is unverified, show research leads but recommend none for purchase. Never recommend a product absent from returned cards. Commercial relationships never affect relevance or ranking. Reuse selectionId for follow-ups, never print it, and never search a selected title again.",
       inputSchema: SearchProductsInputSchema,
       outputSchema: ShopifyProductsOutputShape,
       annotations: {
@@ -3136,6 +3182,7 @@ export function createShoppingServer(
         : snapshot.sourceResult.products.find((product) => product.handle === reference.variantId);
       const research = await researchSelectedProductDeal({
         selected: {
+          merchantProductId: selectedCard.handle,
           merchant: selectedCard.merchant,
           availability: selectedCard.availability,
           ...(selectedCard.itemPrice === undefined ? {} : { itemPrice: selectedCard.itemPrice }),
@@ -3341,6 +3388,8 @@ export function createShoppingServer(
           dealId: z.string(), merchant: z.string(), kind: z.string(), title: z.string(), description: z.string(),
           code: z.string().optional(), barcodeUrl: z.string().url().optional(), discountPercent: z.number().optional(),
           discountAmountCents: z.number().int().optional(), cashbackPercent: z.number().optional(), membershipProgram: z.string().optional(),
+          productApplicability: z.enum(["PRODUCT_CONFIRMED", "MERCHANT_WIDE", "UNKNOWN"]).optional(),
+          applicableProductIds: z.array(z.string()).optional(),
           eligibility: z.array(z.string()), channels: z.array(z.string()), sourceUrl: z.string().url(), checkedAt: z.string(), validTo: z.string()
         }))
       },

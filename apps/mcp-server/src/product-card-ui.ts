@@ -326,16 +326,48 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     };
     const couponBadgeText = (product, cardData) => {
       const first = Array.isArray(product?.coupons?.verified) ? product.coupons.verified[0] : undefined;
-      if (first?.code) return text("Coupon: ", "优惠码：") + String(first.code);
-      if (Number.isFinite(Number(first?.discountPercent))) {
-        return currentLocale === "zh-CN" ? "优惠 " + Number(first.discountPercent) + "%" : Number(first.discountPercent) + "% off";
+      const extra = Array.isArray(product?.coupons?.verified) && product.coupons.verified.length > 1
+        ? " +" + (product.coupons.verified.length - 1)
+        : "";
+      const value = first?.code
+        ? String(first.code)
+        : Number.isFinite(Number(first?.discountPercent))
+          ? Number(first.discountPercent) + "%"
+          : first?.discountAmount
+            ? money(first.discountAmount)
+            : first?.title ? String(first.title) : "";
+      if (value && first?.productApplicability === "PRODUCT_CONFIRMED") {
+        return text("Verified Coupon: ", "已验证优惠：") + value + extra;
       }
-      if (first?.discountAmount) {
-        return text("Coupon: ", "优惠：") + money(first.discountAmount) + text(" off", " 减免");
+      if (value && first?.productApplicability === "MERCHANT_WIDE") {
+        return text("Merchant offer: ", "商家优惠：") + value + extra;
       }
-      if (first?.title) return String(first.title);
+      if (value) return text("Offer eligibility unconfirmed: ", "优惠待确认：") + value + extra;
       const raw = String(cardData?.couponLabel || "").replace(/^Coupon:\s*/iu, "");
       return raw ? text("Coupon: ", "优惠：") + raw : "";
+    };
+    const couponNoticeText = (product) => {
+      const first = Array.isArray(product?.coupons?.verified) ? product.coupons.verified[0] : undefined;
+      if (!first) return "";
+      const expires = Number.isFinite(Date.parse(first.validTo))
+        ? text(" Valid through ", " 有效至 ") + new Date(first.validTo).toLocaleDateString(currentLocale === "zh-CN" ? "zh-CN" : "en-US") + "."
+        : "";
+      if (first.productApplicability === "PRODUCT_CONFIRMED") {
+        return text(
+          "This offer is verified for this product; stacking and the final amount are confirmed at checkout.",
+          "该优惠已确认适用于此商品；能否叠加及最终金额以结账页为准。"
+        ) + expires;
+      }
+      if (first.productApplicability === "MERCHANT_WIDE") {
+        return text(
+          "This merchant currently has an offer; product eligibility and stacking require checkout confirmation.",
+          "该商家当前有优惠；此商品是否适用及能否叠加需在结账页确认。"
+        ) + expires;
+      }
+      return text(
+        "A current offer was found, but it is not confirmed for this product.",
+        "发现当前优惠，但尚未确认适用于此商品。"
+      ) + expires;
     };
     let initializeAttempts = 0;
     let nextRequestId = 1;
@@ -479,7 +511,10 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       {
         group: "BEST_VALUE",
         title: text("Best-value high-match options", "高性价比匹配"),
-        notice: text("High-match products ordered by verified Coupon evidence, then item price.", "高匹配商品按已验证优惠券证据排序，其次按商品价格排序。")
+        notice: text(
+          "High-match products ordered by confirmed after-Coupon price, then item price. Merchant-only offers do not override a lower price.",
+          "高匹配商品先按已确认的优惠后价格、再按商品原价排序；仅商家级优惠不会压过更低价格。"
+        )
       }
     ];
     const visualGroupDefinitions = () => [
@@ -662,7 +697,17 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
         ["OFFICIAL_STORE", "TRUSTED_MATCH", "BEST_VALUE"].includes(product?.presentationGroup)
       );
       const groupDefinitions = usesPresentationGroups
-        ? presentationGroupDefinitions()
+        ? [
+            ...(primarySelectionId === undefined ? [] : [{
+              group: "PRIMARY_RECOMMENDATION",
+              title: text("First recommendation", "首选推荐"),
+              notice: text(
+                "Selected by product fit and merchant trust. Coupon evidence never overrides safety or relevance.",
+                "依据商品匹配度和商家可信度选出；优惠信息不会越过安全与相关性排序。"
+              )
+            }]),
+            ...presentationGroupDefinitions()
+          ]
         : combinedGroupDefinitions(
             products.some((product) => typeof product?.visualMatchGroup === "string")
               ? visualGroupDefinitions()
@@ -746,10 +791,14 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
         app.append(quoteSummary);
       }
       for (const definition of groupDefinitions) {
-        const grouped = products.filter((product) => usesPresentationGroups
-          ? product?.presentationGroup === definition.group
-          : resultGroup(product) === definition.group && recommendationTier(product) === definition.tier
-        );
+        const grouped = products.filter((product) => {
+          const isPrimary = primarySelectionId !== undefined && product?.selectionId === primarySelectionId;
+          if (definition.group === "PRIMARY_RECOMMENDATION") return isPrimary;
+          if (usesPresentationGroups && isPrimary) return false;
+          return usesPresentationGroups
+            ? product?.presentationGroup === definition.group
+            : resultGroup(product) === definition.group && recommendationTier(product) === definition.tier;
+        });
         if (grouped.length === 0) continue;
         const group = make("section", "group");
         group.append(make("h2", "", definition.title));
@@ -815,6 +864,10 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
           const priceBlock = make("div", "");
           priceBlock.append(make("div", "price", money(cardData.primaryPrice)));
           if (cardData.priceLabel) priceBlock.append(make("div", "details", cardLabelText(cardData.priceLabel)));
+          if (product?.coupons?.estimatedItemPriceAfterCoupon) {
+            priceBlock.append(make("div", "details", text("Estimated after Coupon: ", "使用优惠后预计：") +
+              money(product.coupons.estimatedItemPriceAfterCoupon)));
+          }
           row.append(priceBlock);
           const badges = make("div", "badges");
           const match = String(cardData.matchBadge || product.matchStatus || "UNCONFIRMED");
@@ -879,12 +932,11 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
           moreContent.append(make("div", "observed", observedAt(product.checkedAt)));
           more.append(moreContent);
           body.append(more);
-          const couponNotice = product?.coupons?.status === "VERIFIED"
-            ? text(" Coupon scope and stacking are confirmed at checkout.", "优惠适用范围和叠加以结账页为准。")
-            : "";
+          const couponNotice = couponNoticeText(product);
           body.append(make("div", "limitations notice", (product?.pricing?.scope === "SHOPIFY_CART_ESTIMATE"
             ? text("Estimated for the supplied ZIP; checkout confirms the final total. ", "基于所提供 ZIP 估算；最终金额以结账页为准。")
-            : text("Current item price verified; shipping and tax are confirmed at checkout. ", "当前仅核实商品价；运费和税费以结账页为准。")) + couponNotice));
+            : text("Current item price verified; shipping and tax are confirmed at checkout. ", "当前仅核实商品价；运费和税费以结账页为准。")) +
+            (couponNotice === "" ? "" : " " + couponNotice)));
           if (product?.sourceEnvironment === "SANDBOX") {
             body.append(make("div", "disclosure", text("eBay Sandbox review only. This test link does not earn a commission.", "仅供 eBay Sandbox 测试；此测试链接不会产生佣金。")));
           } else if (product?.purchaseLink?.kind === "APPROVED_AFFILIATE" && typeof product.purchaseLink.disclosure === "string") {

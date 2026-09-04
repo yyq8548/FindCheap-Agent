@@ -3,6 +3,7 @@ import { researchSelectedProductDeal } from "../src/deal-concierge.js";
 
 const current = new Date("2026-08-26T12:00:00.000Z");
 const selected = {
+  merchantProductId: "sku-1",
   merchant: "Merchant",
   availability: "IN_STOCK" as const,
   itemPrice: { amountCents: 9_999, currency: "USD" as const },
@@ -60,5 +61,42 @@ describe("current selected-product deal research", () => {
       applicability: "REQUIRES_MERCHANT_CONFIRMATION"
     })]);
     expect(result.limitations.join(" ")).toContain("stacking require merchant confirmation");
+  });
+
+  it("keeps product-confirmed deals bound to the selected stable ID", async () => {
+    const deal = {
+      dealId: "deal-1",
+      merchant: "Merchant",
+      kind: "PROMO_CODE" as const,
+      title: "20% off this item",
+      description: "This item only",
+      code: "ITEM20",
+      discountPercent: 20,
+      productApplicability: "PRODUCT_CONFIRMED" as const,
+      applicableProductIds: ["sku-1"],
+      eligibility: [],
+      channels: ["ONLINE" as const],
+      sourceUrl: "https://merchant.example/deals",
+      checkedAt: "2026-08-26T11:55:00.000Z",
+      validFrom: "2026-08-26T00:00:00.000Z",
+      validTo: "2026-08-27T00:00:00.000Z",
+      verificationStatus: "VERIFIED" as const
+    };
+    const result = await researchSelectedProductDeal({
+      selected,
+      membershipIds: [],
+      dealPort: { search: async () => [deal, {
+        ...deal,
+        dealId: "other-product",
+        applicableProductIds: ["sku-2"]
+      }] },
+      now: current
+    });
+
+    expect(result.deals).toEqual([expect.objectContaining({
+      dealId: "deal-1",
+      applicability: "PRODUCT_CONFIRMED"
+    })]);
+    expect(result.limitations.join(" ")).toContain("confirmed for this selected product");
   });
 });

@@ -101,7 +101,7 @@ describe("FindCheap Agent plugin contract", () => {
     expect(skill).toContain("Broad laptop/phone/camera/display requests may return one clarification before search");
     expect(skill).toContain("Groups do not select primary");
     expect(skill).toContain("recommend only `primarySelectionId`");
-    expect(skill).toContain("Equal fit/trust prefers lower item price");
+    expect(skill).toContain("Equal fit/trust: confirmed after-Coupon price, then raw item price");
     expect(skill).toContain("cards are research leads; recommend none for purchase");
     expect(skill).toContain("Never recommend products absent from cards");
     expect(skill).toContain("`Searching for suitable products.`");
@@ -213,7 +213,7 @@ describe("FindCheap Agent plugin contract", () => {
     };
 
     expect(manifest.name).toBe("findcheap-agent");
-    expect(manifest.version).toMatch(/^0\.17\.6(?:\+codex\.)?/u);
+    expect(manifest.version).toMatch(/^0\.17\.7(?:\+codex\.)?/u);
     expect(manifest.interface.displayName).toBe("FindCheap Agent");
     expect(manifest.interface.longDescription).toMatch(/Codex Plugin Agent/u);
     expect(manifest.interface.longDescription).toMatch(/[Aa]uthorized.*Chrome/u);

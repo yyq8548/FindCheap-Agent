@@ -44,8 +44,12 @@ describe("Awin Offers controller", () => {
     });
     expect(controller.search({ merchant: "Example Shop", membershipIds: [], channel: "ONLINE" })).toEqual({
       deals: [
-        expect.objectContaining({ dealId: "awin:1", kind: "PROMO_CODE", code: "SAVE10" }),
-        expect.objectContaining({ dealId: "awin:2", kind: "BRAND_PROMOTION" })
+        expect.objectContaining({
+          dealId: "awin:1", kind: "PROMO_CODE", code: "SAVE10", productApplicability: "MERCHANT_WIDE"
+        }),
+        expect.objectContaining({
+          dealId: "awin:2", kind: "BRAND_PROMOTION", productApplicability: "MERCHANT_WIDE"
+        })
       ]
     });
     expect(controller.search({

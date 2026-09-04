@@ -32,7 +32,13 @@ type RecommendationProduct = {
   requiredFeatureLimitations?: string[] | undefined;
   matchEvidence: string[];
   itemPrice?: { amountCents: number; currency: "USD" } | undefined;
-  coupons: { verified: unknown[] };
+  coupons: {
+    verified: Array<{
+      title?: string;
+      productApplicability?: "PRODUCT_CONFIRMED" | "MERCHANT_WIDE" | "UNKNOWN";
+    }>;
+    estimatedItemPriceAfterCoupon?: { amountCents: number } | undefined;
+  };
 };
 
 type HighVarianceRule = {
@@ -114,8 +120,8 @@ export function choosePrimaryRecommendation(products: RecommendationProduct[]): 
   ];
   if (selected.product.merchantTrust.verification === "INDEPENDENT") reasonCodes.push("TRUSTED_MERCHANT");
   const peers = eligible.filter(({ product }) => sameFit(product, selected.product));
-  const peerPrices = peers.map(({ product }) => product.itemPrice?.amountCents);
-  const selectedPrice = selected.product.itemPrice?.amountCents;
+  const peerPrices = peers.map(({ product }) => comparablePrice(product));
+  const selectedPrice = comparablePrice(selected.product);
   if (
     peers.length > 1 &&
     peerPrices.every((value): value is number => value !== undefined) &&
@@ -124,7 +130,7 @@ export function choosePrimaryRecommendation(products: RecommendationProduct[]): 
     peerPrices.some((value) => value > selectedPrice)
   ) {
     reasonCodes.push("LOWER_PRICE");
-  } else if (selected.product.coupons.verified.length > 0) {
+  } else if (couponRank(selected.product) > 1) {
     reasonCodes.push("VERIFIED_COUPON");
   }
   return {
@@ -141,8 +147,9 @@ function comparePrimary(left: RecommendationProduct, right: RecommendationProduc
     preferenceEvidence(right) - preferenceEvidence(left) ||
     trustRank(left) - trustRank(right) ||
     availabilityRank(left) - availabilityRank(right) ||
+    comparablePrice(left) - comparablePrice(right) ||
     price(left) - price(right) ||
-    Number(right.coupons.verified.length > 0) - Number(left.coupons.verified.length > 0) ||
+    couponRank(right) - couponRank(left) ||
     right.matchEvidence.length - left.matchEvidence.length ||
     left.title.localeCompare(right.title);
 }
@@ -182,6 +189,19 @@ function availabilityRank(product: RecommendationProduct): number {
 
 function price(product: RecommendationProduct): number {
   return product.itemPrice?.amountCents ?? Number.MAX_SAFE_INTEGER;
+}
+
+function comparablePrice(product: RecommendationProduct): number {
+  return product.coupons.estimatedItemPriceAfterCoupon?.amountCents ?? price(product);
+}
+
+function couponRank(product: RecommendationProduct): number {
+  return product.coupons.verified.reduce((rank, coupon) => Math.max(
+    rank,
+    coupon.productApplicability === "PRODUCT_CONFIRMED"
+      ? 2
+      : coupon.productApplicability === "MERCHANT_WIDE" ? 1 : 0
+  ), -1);
 }
 
 function joinEnglish(values: string[]): string {
