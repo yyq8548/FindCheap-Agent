@@ -329,6 +329,38 @@ describe("Awin Product Feed", () => {
     expect(result.products[0]?.itemPrice).not.toHaveProperty("displayPrice");
   });
 
+  it("retries the read-only public search once inside the request budget", async () => {
+    const response = {
+      source: "AWIN_PRODUCT_FEED",
+      coverage: "COMPLETE",
+      snapshotAt: "2026-08-25T05:30:00.000Z",
+      diagnostics: {
+        feedRows: 0,
+        validRows: 0,
+        rejectedRows: 0,
+        queryMatches: 0,
+        priceProductsExcluded: 0
+      },
+      products: []
+    };
+    const fetchRequest = vi.fn()
+      .mockResolvedValueOnce(new Response(null, { status: 503 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(response), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      }));
+    const port = createAwinFeedPort({
+      AWIN_PRODUCT_SEARCH_URL: "https://findcheap.example/v1/search",
+      AWIN_PRODUCT_SEARCH_TIMEOUT_MS: "1000"
+    }, {
+      fetch: fetchRequest,
+      sleep: async () => {}
+    });
+
+    await expect(port.search({ query: "nothing", limit: 3 })).resolves.toMatchObject({ products: [] });
+    expect(fetchRequest).toHaveBeenCalledTimes(2);
+  });
+
   it("rejects tampered products returned by the public search API", async () => {
     const response = {
       source: "AWIN_PRODUCT_FEED",

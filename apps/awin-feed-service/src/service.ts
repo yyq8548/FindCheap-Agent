@@ -5,8 +5,9 @@ import { dirname } from "node:path";
 
 import {
   createAwinFeedIndex,
-  MAX_AWIN_COMPRESSED_BYTES,
+  MAX_AWIN_SOURCE_COMPRESSED_BYTES,
   mergeAwinFeedArchives,
+  mergeAwinFeedArchivesStreaming,
   parseAwinCsv,
   parseAwinSearchInput,
   readLimitedBody,
@@ -27,6 +28,21 @@ import {
 } from "./offers.js";
 import type { ServedOfficialStorefrontRegistry } from "./official-storefront-registry.js";
 import type { ServedMerchantTrustRegistry } from "./merchant-trust-registry.js";
+import {
+  acquireRefreshLock,
+  archiveSha256,
+  emptyFeedCacheManifest,
+  feedStatePaths,
+  loadFeedCacheManifest,
+  readCachedSource,
+  recordSourceRequest,
+  removeUnusedCachedSources,
+  sourceFeedKeyHash,
+  writeCachedSource,
+  writeFeedCacheManifest,
+  type FeedCacheManifest,
+  type SourceCacheEntry
+} from "./source-cache.js";
 
 const MAX_AWIN_FEED_LIST_BYTES = 4 * 1024 * 1024;
 const MAX_OFFICIAL_IMAGE_BYTES = 1_500_000;
@@ -36,9 +52,10 @@ type FeedSnapshot = {
   index: AwinFeedIndex;
   snapshotAt: string;
   feedRows: number;
-  sourceFeeds: number;
+  sourceFeeds?: number;
   excludedSourceFeeds: number;
   excludedSourceFeedReasons: Partial<Record<FeedErrorDetailCode, number>>;
+  staleSourceFeeds: number;
 };
 
 type FeedState = {
@@ -50,11 +67,18 @@ type FeedState = {
   lastAttemptSourceFeeds?: number;
   lastAttemptExcludedSourceFeeds?: number;
   lastAttemptExcludedSourceFeedReasons?: Partial<Record<FeedErrorDetailCode, number>>;
+  lastSuccessfulRefreshAt?: string;
+  consecutiveRefreshFailures?: number;
 };
 
 type FeedErrorDetailCode =
   | "SOURCE_TIMEOUT"
+  | "SOURCE_HTTP_429"
+  | "SOURCE_HTTP_5XX"
+  | "SOURCE_RATE_LIMITED"
   | "SOURCE_TOO_LARGE"
+  | "ARCHIVE_INVALID"
+  | "NO_ELIGIBLE_PRODUCTS"
   | "DUPLICATE_PRODUCT_KEY"
   | "INVALID_ENHANCED_PRICE"
   | "CSV_INVALID"
@@ -70,6 +94,24 @@ type FeedErrorDetailCode =
 type Dependencies = {
   fetch?: typeof fetch;
   now?: () => Date;
+  clock?: () => number;
+  sleep?: (milliseconds: number) => Promise<void>;
+  random?: () => number;
+  log?: (event: FeedSourceLog) => void;
+};
+
+export type FeedSourceLog = {
+  event: "awin_feed_source";
+  feedKeyHash: string;
+  host: string;
+  position: number;
+  phase: "response" | "body" | "normalize" | "cache";
+  attempt: number;
+  ttfbMs: number;
+  bytes: number;
+  durationMs: number;
+  outcome: "success" | "retry" | "excluded" | "cache_hit" | "cache_recovered" | "failed";
+  detailCode?: FeedErrorDetailCode;
 };
 
 export type AwinFeedController = {
@@ -86,28 +128,95 @@ export function createAwinFeedController(
 ): AwinFeedController {
   const fetchRequest = dependencies.fetch ?? fetch;
   const now = dependencies.now ?? (() => new Date());
-  const state: FeedState = {};
+  const clock = dependencies.clock ?? Date.now;
+  const sleep = dependencies.sleep ?? ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
+  const random = dependencies.random ?? Math.random;
+  const log = dependencies.log ?? (() => {});
+  const paths = feedStatePaths(environment.dataPath);
+  const state: FeedState = { consecutiveRefreshFailures: 0 };
+  let manifest: FeedCacheManifest = emptyFeedCacheManifest();
   let activeRefresh: Promise<void> | undefined;
+  let requestLedgerQueue = Promise.resolve();
+
+  const reserveSourceRequest = (feedKeyHash: string): Promise<boolean> => {
+    const reservation = requestLedgerQueue.then(() => recordSourceRequest(
+      paths.requestLedgerPath,
+      feedKeyHash,
+      validDate(now())
+    ));
+    requestLedgerQueue = reservation.then(() => undefined, () => undefined);
+    return reservation;
+  };
 
   const loadExisting = async (): Promise<void> => {
     try {
       const archive = await readFile(environment.dataPath);
-      const snapshotAt = (await stat(environment.dataPath)).mtime.toISOString();
-      state.snapshot = validatedSnapshot(archive, snapshotAt, environment.sourceUrls.length);
+      const fileSnapshotAt = (await stat(environment.dataPath)).mtime.toISOString();
+      manifest = await loadFeedCacheManifest(paths.manifestPath);
+      const metadata = manifest.snapshot?.archiveSha256 === archiveSha256(archive)
+        ? manifest.snapshot
+        : undefined;
+      state.snapshot = validatedSnapshot(
+        archive,
+        metadata?.snapshotAt ?? fileSnapshotAt,
+        metadata?.sourceFeeds ?? (environment.sourceFeedListUrl === undefined ? environment.sourceUrls.length : undefined),
+        metadata?.excludedSourceFeeds ?? 0,
+        metadata?.excludedSourceFeedReasons as Partial<Record<FeedErrorDetailCode, number>> | undefined,
+        metadata?.staleSourceFeeds ?? 0
+      );
+      state.lastSuccessfulRefreshAt = metadata?.lastSuccessfulRefreshAt ?? fileSnapshotAt;
+      state.consecutiveRefreshFailures = manifest.health.consecutiveRefreshFailures;
+      if (manifest.health.lastErrorAt === undefined) delete state.lastErrorAt;
+      else state.lastErrorAt = manifest.health.lastErrorAt;
+      if (manifest.health.lastErrorCode === undefined) delete state.lastErrorCode;
+      else state.lastErrorCode = manifest.health.lastErrorCode as NonNullable<FeedState["lastErrorCode"]>;
+      if (manifest.health.lastErrorDetailCode === undefined) delete state.lastErrorDetailCode;
+      else state.lastErrorDetailCode = manifest.health.lastErrorDetailCode as FeedErrorDetailCode;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      manifest = await loadFeedCacheManifest(paths.manifestPath);
     }
   };
   const runRefresh = async (): Promise<void> => {
+    const releaseLock = await acquireRefreshLock(paths.refreshLockPath, validDate(now()));
     let failureCode: NonNullable<FeedState["lastErrorCode"]> = "SOURCE_REQUEST_FAILED";
     delete state.lastAttemptSourceFeeds;
     delete state.lastAttemptExcludedSourceFeeds;
     delete state.lastAttemptExcludedSourceFeedReasons;
     try {
-      if (environment.sourceFeedListUrl !== undefined) failureCode = "FEED_LIST_INVALID";
-      const sourceUrls = environment.sourceFeedListUrl === undefined
-        ? environment.sourceUrls
-        : await discoverJoinedFeedUrls(environment, fetchRequest);
+      if (environment.sourceFeedListUrl === undefined) {
+        await refreshDirectSources(
+          environment,
+          fetchRequest,
+          now,
+          clock,
+          sleep,
+          random,
+          reserveSourceRequest,
+          log,
+          state
+        );
+        const snapshot = state.snapshot!;
+        manifest = {
+          version: 1,
+          snapshot: {
+            archiveSha256: archiveSha256(snapshot.archive),
+            snapshotAt: snapshot.snapshotAt,
+            lastSuccessfulRefreshAt: state.lastSuccessfulRefreshAt!,
+            feedRows: snapshot.feedRows,
+            sourceFeeds: snapshot.sourceFeeds ?? environment.sourceUrls.length,
+            excludedSourceFeeds: snapshot.excludedSourceFeeds,
+            excludedSourceFeedReasons: snapshot.excludedSourceFeedReasons,
+            staleSourceFeeds: 0
+          },
+          health: { consecutiveRefreshFailures: 0 },
+          sources: []
+        };
+        await writeFeedCacheManifest(paths.manifestPath, manifest);
+        return;
+      }
+      failureCode = "FEED_LIST_INVALID";
+      const sources = await discoverJoinedFeeds(environment, fetchRequest);
       const mergeOptions = environment.sourceFeedListUrl === undefined
         ? {}
         : {
@@ -115,66 +224,175 @@ export function createAwinFeedController(
             canonicalizeMerchantNames: true,
             compactRecords: true
           };
-      const sourceArchives: Uint8Array[] = [];
       const excludedSourceFeedReasons: Partial<Record<FeedErrorDetailCode, number>> = {};
-      let firstSourceValidationError: unknown;
-      for (const sourceUrl of sourceUrls) {
-        const response = await fetchRequest(sourceUrl, {
-          method: "GET",
-          redirect: "error",
-          headers: { accept: "application/gzip, application/x-gzip, application/octet-stream" },
-          signal: AbortSignal.timeout(environment.sourceTimeoutMs)
-        });
-        if (!response.ok) {
-          failureCode = "SOURCE_HTTP_ERROR";
-          throw new Error(`Awin source returned HTTP ${response.status}`);
+      const priorEntries = new Map(manifest.sources.map((entry) => [entry.feedKey, entry]));
+      const results = await mapWithConcurrency(sources, 5, async (source): Promise<SourceResolution> => {
+        const priorEntry = priorEntries.get(source.feedKey);
+        const cached = priorEntry === undefined ? undefined : await readCachedSource(paths, priorEntry);
+        if (priorEntry?.importedAt === source.importedAt && cached !== undefined) {
+          logSource(log, source, "cache", 0, 0, cached.byteLength, 0, "cache_hit");
+          return { archive: cached, entry: priorEntry, stale: false };
         }
-        failureCode = "SOURCE_READ_FAILED";
-        const sourceArchive = await readLimitedBody(
-          response,
-          MAX_AWIN_COMPRESSED_BYTES,
-          "Awin source"
-        );
         try {
-          const normalizedArchive = mergeAwinFeedArchives([sourceArchive], mergeOptions);
-          sourceArchives.push(normalizedArchive);
+          const downloaded = await downloadSourceWithRetry(
+            source,
+            environment,
+            fetchRequest,
+            reserveSourceRequest,
+            clock,
+            sleep,
+            random,
+            log
+          );
+          const normalizeStarted = clock();
+          try {
+            const normalized = await mergeAwinFeedArchivesStreaming([downloaded], mergeOptions);
+            const updatedAt = validDate(now()).toISOString();
+            validatedSnapshot(normalized, updatedAt, 1);
+            const entry: SourceCacheEntry = {
+              feedKey: source.feedKey,
+              feedKeyHash: source.feedKeyHash,
+              importedAt: source.importedAt,
+              archiveSha256: archiveSha256(normalized),
+              bytes: normalized.byteLength,
+              updatedAt
+            };
+            await writeCachedSource(paths, entry, normalized);
+            logSource(log, source, "normalize", 0, 0, normalized.byteLength, clock() - normalizeStarted, "success");
+            return { archive: normalized, entry, stale: false };
+          } catch (error) {
+            const detailCode = feedErrorDetailCode(error);
+            logSource(log, source, "normalize", 0, 0, downloaded.byteLength, clock() - normalizeStarted, "excluded", detailCode);
+            if (cached !== undefined && priorEntry !== undefined) {
+              logSource(log, source, "cache", 0, 0, cached.byteLength, 0, "cache_recovered", detailCode);
+              return { archive: cached, entry: priorEntry, stale: true, error, detailCode };
+            }
+            return { error, detailCode, stale: false };
+          }
         } catch (error) {
-          firstSourceValidationError ??= error;
-          const reasonCode = feedErrorDetailCode(error);
-          excludedSourceFeedReasons[reasonCode] = (excludedSourceFeedReasons[reasonCode] ?? 0) + 1;
+          if (cached !== undefined && priorEntry !== undefined) {
+            logSource(log, source, "cache", 0, 0, cached.byteLength, 0, "cache_recovered", feedErrorDetailCode(error));
+            return { archive: cached, entry: priorEntry, stale: true, error, detailCode: feedErrorDetailCode(error) };
+          }
+          return { fatal: true, error, detailCode: feedErrorDetailCode(error), stale: false };
         }
+      });
+      const sourceArchives: Uint8Array[] = [];
+      const nextEntries: SourceCacheEntry[] = [];
+      let firstSourceValidationError: unknown;
+      let fatalSourceError: unknown;
+      let staleSourceFeeds = 0;
+      for (const result of results) {
+        if (result.fatal === true) {
+          fatalSourceError ??= result.error;
+          const reasonCode = result.detailCode ?? "OTHER";
+          excludedSourceFeedReasons[reasonCode] = (excludedSourceFeedReasons[reasonCode] ?? 0) + 1;
+          continue;
+        }
+        if (result.archive !== undefined && result.entry !== undefined) {
+          sourceArchives.push(result.archive);
+          nextEntries.push(result.entry);
+          if (result.stale) staleSourceFeeds += 1;
+          continue;
+        }
+        firstSourceValidationError ??= result.error;
+        const reasonCode = result.detailCode ?? "OTHER";
+        excludedSourceFeedReasons[reasonCode] = (excludedSourceFeedReasons[reasonCode] ?? 0) + 1;
       }
       state.lastAttemptSourceFeeds = sourceArchives.length;
-      state.lastAttemptExcludedSourceFeeds = sourceUrls.length - sourceArchives.length;
+      state.lastAttemptExcludedSourceFeeds = sources.length - sourceArchives.length;
       state.lastAttemptExcludedSourceFeedReasons = excludedSourceFeedReasons;
+      if (fatalSourceError !== undefined) {
+        manifest = { ...manifest, sources: nextEntries };
+        await writeFeedCacheManifest(paths.manifestPath, manifest);
+        throw fatalSourceError;
+      }
       const snapshotAt = validDate(now()).toISOString();
       failureCode = "FEED_INVALID";
       if (sourceArchives.length === 0) {
         throw firstSourceValidationError ?? new Error("at least one valid Awin Feed is required");
       }
-      const archive = mergeAwinFeedArchives(sourceArchives, mergeOptions);
+      const archive = await mergeAwinFeedArchivesStreaming(sourceArchives, mergeOptions);
       const snapshot = validatedSnapshot(
         archive,
         snapshotAt,
         sourceArchives.length,
-        sourceUrls.length - sourceArchives.length,
-        excludedSourceFeedReasons
+        sources.length - sourceArchives.length,
+        excludedSourceFeedReasons,
+        staleSourceFeeds
       );
       failureCode = "STORAGE_WRITE_FAILED";
       await writeArchiveAtomically(environment.dataPath, archive);
+      const degraded = staleSourceFeeds > 0;
+      const lastSuccessfulRefreshAt = degraded
+        ? state.lastSuccessfulRefreshAt ?? snapshotAt
+        : snapshotAt;
+      const failureAt = degraded ? snapshotAt : undefined;
+      const failureDetail = degraded
+        ? results.find((result) => result.stale)?.detailCode ?? "OTHER"
+        : undefined;
+      const degradedError = results.find((result) => result.stale)?.error;
+      const degradedFailureCode = degradedError instanceof SourceFetchError
+        ? degradedError.failureCode
+        : "FEED_INVALID";
+      const nextManifest: FeedCacheManifest = {
+        version: 1,
+        snapshot: {
+          archiveSha256: archiveSha256(archive),
+          snapshotAt,
+          lastSuccessfulRefreshAt,
+          feedRows: snapshot.feedRows,
+          sourceFeeds: sourceArchives.length,
+          excludedSourceFeeds: sources.length - sourceArchives.length,
+          excludedSourceFeedReasons,
+          staleSourceFeeds
+        },
+        health: degraded
+          ? {
+              consecutiveRefreshFailures: (state.consecutiveRefreshFailures ?? 0) + 1,
+              lastErrorAt: failureAt!,
+              lastErrorCode: degradedFailureCode,
+              lastErrorDetailCode: failureDetail
+            }
+          : { consecutiveRefreshFailures: 0 },
+        sources: nextEntries
+      };
+      await writeFeedCacheManifest(paths.manifestPath, nextManifest);
+      await removeUnusedCachedSources(paths, new Set(nextEntries.map((entry) => entry.feedKeyHash)));
+      manifest = nextManifest;
       state.snapshot = snapshot;
       state.lastRefreshAt = snapshotAt;
-      delete state.lastErrorAt;
-      delete state.lastErrorCode;
-      delete state.lastErrorDetailCode;
+      state.lastSuccessfulRefreshAt = lastSuccessfulRefreshAt;
+      state.consecutiveRefreshFailures = nextManifest.health.consecutiveRefreshFailures;
+      if (nextManifest.health.lastErrorAt === undefined) delete state.lastErrorAt;
+      else state.lastErrorAt = nextManifest.health.lastErrorAt;
+      if (nextManifest.health.lastErrorCode === undefined) delete state.lastErrorCode;
+      else state.lastErrorCode = nextManifest.health.lastErrorCode as NonNullable<FeedState["lastErrorCode"]>;
+      if (nextManifest.health.lastErrorDetailCode === undefined) delete state.lastErrorDetailCode;
+      else state.lastErrorDetailCode = nextManifest.health.lastErrorDetailCode as FeedErrorDetailCode;
       delete state.lastAttemptSourceFeeds;
       delete state.lastAttemptExcludedSourceFeeds;
       delete state.lastAttemptExcludedSourceFeedReasons;
+      return;
     } catch (error) {
+      if (error instanceof SourceFetchError) failureCode = error.failureCode;
       state.lastErrorAt = validDate(now()).toISOString();
       state.lastErrorCode = failureCode;
       state.lastErrorDetailCode = feedErrorDetailCode(error);
+      state.consecutiveRefreshFailures = (state.consecutiveRefreshFailures ?? 0) + 1;
+      manifest = {
+        ...manifest,
+        health: {
+          consecutiveRefreshFailures: state.consecutiveRefreshFailures,
+          lastErrorAt: state.lastErrorAt,
+          lastErrorCode: state.lastErrorCode,
+          lastErrorDetailCode: state.lastErrorDetailCode
+        }
+      };
+      await writeFeedCacheManifest(paths.manifestPath, manifest).catch(() => {});
       throw error;
+    } finally {
+      await releaseLock();
     }
   };
   return {
@@ -199,18 +417,70 @@ export function createAwinFeedController(
   };
 }
 
-async function discoverJoinedFeedUrls(
+type DiscoveredFeed = {
+  feedKey: string;
+  feedKeyHash: string;
+  importedAt: string;
+  url: string;
+  host: string;
+  position: number;
+};
+
+type SourceResolution = {
+  archive?: Uint8Array;
+  entry?: SourceCacheEntry;
+  stale: boolean;
+  fatal?: boolean;
+  error?: unknown;
+  detailCode?: FeedErrorDetailCode;
+};
+
+class SourceFetchError extends Error {
+  constructor(
+    message: string,
+    readonly failureCode: NonNullable<FeedState["lastErrorCode"]>,
+    readonly detailCode: FeedErrorDetailCode,
+    options?: ErrorOptions
+  ) {
+    super(message, options);
+  }
+}
+
+async function discoverJoinedFeeds(
   environment: AwinFeedServiceEnvironment,
   fetchRequest: typeof fetch
-): Promise<string[]> {
-  const response = await fetchRequest(environment.sourceFeedListUrl!, {
-    method: "GET",
-    redirect: "error",
-    headers: { accept: "text/csv, text/plain, application/octet-stream" },
-    signal: AbortSignal.timeout(environment.sourceTimeoutMs)
-  });
-  if (!response.ok) throw new Error(`Awin Feed List returned HTTP ${response.status}`);
-  const encoded = await readLimitedBody(response, MAX_AWIN_FEED_LIST_BYTES, "Awin Feed List");
+): Promise<DiscoveredFeed[]> {
+  let response: Response;
+  try {
+    response = await fetchResponseWithTimeout(environment.sourceFeedListUrl!, {
+      method: "GET",
+      redirect: "error",
+      headers: { accept: "text/csv, text/plain, application/octet-stream" }
+    }, environment.sourceTimeoutMs, fetchRequest);
+  } catch (error) {
+    throw new SourceFetchError(
+      "Awin Feed List response request failed",
+      "SOURCE_REQUEST_FAILED",
+      feedErrorDetailCode(error),
+      { cause: error }
+    );
+  }
+  if (!response.ok) {
+    await response.body?.cancel().catch(() => {});
+    throw new SourceFetchError(
+      `Awin Feed List returned HTTP ${response.status}`,
+      "SOURCE_HTTP_ERROR",
+      httpDetailCode(response.status)
+    );
+  }
+  let encoded: Uint8Array;
+  try {
+    encoded = await readLimitedBody(response, MAX_AWIN_FEED_LIST_BYTES, "Awin Feed List", {
+      timeoutMs: environment.sourceBodyTimeoutMs
+    });
+  } catch (error) {
+    throw new SourceFetchError("Awin Feed List body read failed", "SOURCE_READ_FAILED", feedErrorDetailCode(error), { cause: error });
+  }
   let document: string;
   try {
     document = new TextDecoder("utf-8", { fatal: true }).decode(encoded);
@@ -240,14 +510,253 @@ async function discoverJoinedFeedUrls(
   }
   const numericCompare = (left: string, right: string): number =>
     left.length - right.length || left.localeCompare(right, "en-US");
-  const urls = [...selected.values()]
+  const feeds = [...selected.values()]
     .sort((left, right) =>
       numericCompare(left.advertiserId, right.advertiserId) || numericCompare(left.feedId, right.feedId)
     )
-    .map((feed) => feed.url);
-  if (urls.length === 0) throw new Error("Awin Feed List contains no joined Feeds for the configured region and language");
-  if (new Set(urls).size !== urls.length) throw new Error("Awin Feed List contains duplicate download URLs");
-  return urls;
+    .map((feed, index): DiscoveredFeed => {
+      const feedKey = `${feed.advertiserId}:${feed.feedId}`;
+      return {
+        feedKey,
+        feedKeyHash: sourceFeedKeyHash(feedKey),
+        importedAt: new Date(feed.importedAt).toISOString(),
+        url: feed.url,
+        host: new URL(feed.url).hostname.toLocaleLowerCase("en-US"),
+        position: index + 1
+      };
+    });
+  if (feeds.length === 0) throw new Error("Awin Feed List contains no joined Feeds for the configured region and language");
+  if (new Set(feeds.map((feed) => feed.url)).size !== feeds.length) throw new Error("Awin Feed List contains duplicate download URLs");
+  return feeds;
+}
+
+async function downloadSourceWithRetry(
+  source: DiscoveredFeed,
+  environment: AwinFeedServiceEnvironment,
+  fetchRequest: typeof fetch,
+  reserveRequest: (feedKeyHash: string) => Promise<boolean>,
+  clock: () => number,
+  sleep: (milliseconds: number) => Promise<void>,
+  random: () => number,
+  log: (event: FeedSourceLog) => void
+): Promise<Uint8Array> {
+  let lastError: SourceFetchError | undefined;
+  for (let attempt = 1; attempt <= environment.sourceRetryAttempts + 1; attempt += 1) {
+    if (!await reserveRequest(source.feedKeyHash)) {
+      throw new SourceFetchError(
+        "Awin source hourly request budget exhausted",
+        "SOURCE_REQUEST_FAILED",
+        "SOURCE_RATE_LIMITED"
+      );
+    }
+    const started = clock();
+    let ttfbMs = 0;
+    let bytes = 0;
+    let phase: FeedSourceLog["phase"] = "response";
+    try {
+      const response = await fetchResponseWithTimeout(source.url, {
+        method: "GET",
+        redirect: "error",
+        headers: { accept: "application/gzip, application/x-gzip, application/octet-stream" }
+      }, environment.sourceTimeoutMs, fetchRequest);
+      ttfbMs = Math.max(0, clock() - started);
+      if (!response.ok) {
+        await response.body?.cancel().catch(() => {});
+        throw new SourceFetchError(
+          `Awin source returned HTTP ${response.status}`,
+          "SOURCE_HTTP_ERROR",
+          httpDetailCode(response.status)
+        );
+      }
+      phase = "body";
+      const archive = await readLimitedBody(response, MAX_AWIN_SOURCE_COMPRESSED_BYTES, "Awin source", {
+        timeoutMs: environment.sourceBodyTimeoutMs,
+        onBytes: (value) => { bytes = value; }
+      });
+      bytes = archive.byteLength;
+      logSource(log, source, phase, attempt, ttfbMs, bytes, clock() - started, "success");
+      return archive;
+    } catch (error) {
+      lastError = error instanceof SourceFetchError
+        ? error
+        : new SourceFetchError(
+            phase === "response" ? "Awin source response failed" : "Awin source body read failed",
+            phase === "response" ? "SOURCE_REQUEST_FAILED" : "SOURCE_READ_FAILED",
+            feedErrorDetailCode(error),
+            { cause: error }
+          );
+      const retry = attempt <= environment.sourceRetryAttempts && retryableSourceError(lastError);
+      logSource(log, source, phase, attempt, ttfbMs, bytes, clock() - started, retry ? "retry" : "failed", lastError.detailCode);
+      if (!retry) throw lastError;
+      const exponential = environment.sourceRetryBaseDelayMs * (2 ** (attempt - 1));
+      await sleep(Math.round(exponential * (0.75 + random() * 0.5)));
+    }
+  }
+  throw lastError ?? new SourceFetchError("Awin source failed", "SOURCE_REQUEST_FAILED", "OTHER");
+}
+
+async function fetchResponseWithTimeout(
+  input: string,
+  init: RequestInit,
+  timeoutMs: number,
+  fetchRequest: typeof fetch
+): Promise<Response> {
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+  timer.unref();
+  try {
+    return await fetchRequest(input, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (timedOut) throw new Error("Awin source response aborted due to timeout", { cause: error });
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function retryableSourceError(error: SourceFetchError): boolean {
+  return error.detailCode === "SOURCE_TIMEOUT" ||
+    error.detailCode === "SOURCE_HTTP_429" ||
+    error.detailCode === "SOURCE_HTTP_5XX" ||
+    (error.detailCode === "OTHER" && error.failureCode !== "SOURCE_HTTP_ERROR");
+}
+
+function httpDetailCode(status: number): FeedErrorDetailCode {
+  if (status === 429) return "SOURCE_HTTP_429";
+  if (status >= 500) return "SOURCE_HTTP_5XX";
+  return "OTHER";
+}
+
+function logSource(
+  log: (event: FeedSourceLog) => void,
+  source: DiscoveredFeed,
+  phase: FeedSourceLog["phase"],
+  attempt: number,
+  ttfbMs: number,
+  bytes: number,
+  durationMs: number,
+  outcome: FeedSourceLog["outcome"],
+  detailCode?: FeedErrorDetailCode
+): void {
+  log({
+    event: "awin_feed_source",
+    feedKeyHash: source.feedKeyHash,
+    host: source.host,
+    position: source.position,
+    phase,
+    attempt,
+    ttfbMs: Math.max(0, Math.round(ttfbMs)),
+    bytes: Math.max(0, bytes),
+    durationMs: Math.max(0, Math.round(durationMs)),
+    outcome,
+    ...(detailCode === undefined ? {} : { detailCode })
+  });
+}
+
+async function mapWithConcurrency<T, R>(
+  values: readonly T[],
+  concurrency: number,
+  task: (value: T) => Promise<R>
+): Promise<R[]> {
+  const results = new Array<R>(values.length);
+  let nextIndex = 0;
+  const worker = async (): Promise<void> => {
+    while (nextIndex < values.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await task(values[index]!);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(concurrency, values.length) }, worker));
+  return results;
+}
+
+async function refreshDirectSources(
+  environment: AwinFeedServiceEnvironment,
+  fetchRequest: typeof fetch,
+  now: () => Date,
+  clock: () => number,
+  sleep: (milliseconds: number) => Promise<void>,
+  random: () => number,
+  reserveRequest: (feedKeyHash: string) => Promise<boolean>,
+  log: (event: FeedSourceLog) => void,
+  state: FeedState
+): Promise<void> {
+  const sources = environment.sourceUrls.map((url, index): DiscoveredFeed => {
+    const feedKey = `direct:${index + 1}`;
+    return {
+      feedKey,
+      feedKeyHash: sourceFeedKeyHash(feedKey),
+      importedAt: new Date(0).toISOString(),
+      url,
+      host: new URL(url).hostname.toLocaleLowerCase("en-US"),
+      position: index + 1
+    };
+  });
+  const normalized: Uint8Array[] = [];
+  const excludedSourceFeedReasons: Partial<Record<FeedErrorDetailCode, number>> = {};
+  let firstValidationError: unknown;
+  for (const source of sources) {
+    const archive = await downloadSourceWithRetry(
+      source,
+      environment,
+      fetchRequest,
+      reserveRequest,
+      clock,
+      sleep,
+      random,
+      log
+    );
+    const started = clock();
+    try {
+      normalized.push(mergeAwinFeedArchives([archive]));
+      logSource(log, source, "normalize", 0, 0, archive.byteLength, clock() - started, "success");
+    } catch (error) {
+      firstValidationError ??= error;
+      const detailCode = feedErrorDetailCode(error);
+      excludedSourceFeedReasons[detailCode] = (excludedSourceFeedReasons[detailCode] ?? 0) + 1;
+      logSource(log, source, "normalize", 0, 0, archive.byteLength, clock() - started, "excluded", detailCode);
+    }
+  }
+  state.lastAttemptSourceFeeds = normalized.length;
+  state.lastAttemptExcludedSourceFeeds = sources.length - normalized.length;
+  state.lastAttemptExcludedSourceFeedReasons = excludedSourceFeedReasons;
+  if (normalized.length === 0) {
+    const message = firstValidationError instanceof Error
+      ? firstValidationError.message
+      : "at least one valid Awin Feed is required";
+    throw new SourceFetchError(message, "FEED_INVALID", feedErrorDetailCode(firstValidationError), { cause: firstValidationError });
+  }
+  const archive = normalized.length === 1 ? normalized[0]! : mergeAwinFeedArchives(normalized);
+  const snapshotAt = validDate(now()).toISOString();
+  const snapshot = validatedSnapshot(
+    archive,
+    snapshotAt,
+    normalized.length,
+    sources.length - normalized.length,
+    excludedSourceFeedReasons,
+    0
+  );
+  try {
+    await writeArchiveAtomically(environment.dataPath, archive);
+  } catch (error) {
+    throw new SourceFetchError("Awin snapshot storage write failed", "STORAGE_WRITE_FAILED", "OTHER", { cause: error });
+  }
+  state.snapshot = snapshot;
+  state.lastRefreshAt = snapshotAt;
+  state.lastSuccessfulRefreshAt = snapshotAt;
+  state.consecutiveRefreshFailures = 0;
+  delete state.lastErrorAt;
+  delete state.lastErrorCode;
+  delete state.lastErrorDetailCode;
+  delete state.lastAttemptSourceFeeds;
+  delete state.lastAttemptExcludedSourceFeeds;
+  delete state.lastAttemptExcludedSourceFeedReasons;
+  return;
 }
 
 function feedListValue(record: Record<string, string>, expectedHeader: string): string {
@@ -535,27 +1044,40 @@ async function handleRequest(
     "content-length": String(state.snapshot.archive.byteLength),
     "x-content-type-options": "nosniff",
     "x-feed-row-count": String(state.snapshot.feedRows),
-    "x-feed-source-count": String(state.snapshot.sourceFeeds),
+    ...(state.snapshot.sourceFeeds === undefined
+      ? {}
+      : { "x-feed-source-count": String(state.snapshot.sourceFeeds) }),
     "x-feed-snapshot-at": state.snapshot.snapshotAt
   });
   response.end(state.snapshot.archive);
 }
 
 function feedMetadata(state: Readonly<FeedState>): Record<string, unknown> {
+  const snapshotAgeSeconds = state.snapshot === undefined
+    ? undefined
+    : Math.max(0, Math.floor((Date.now() - Date.parse(
+        state.lastSuccessfulRefreshAt ?? state.snapshot.snapshotAt
+      )) / 1_000));
   return {
     feedStatus: state.snapshot === undefined ? "unavailable" : state.lastErrorAt === undefined ? "ready" : "degraded",
     ...(state.snapshot === undefined
       ? {}
       : {
           snapshotAt: state.snapshot.snapshotAt,
+          snapshotAgeSeconds,
           feedRows: state.snapshot.feedRows,
-          sourceFeeds: state.snapshot.sourceFeeds,
+          ...(state.snapshot.sourceFeeds === undefined ? {} : { sourceFeeds: state.snapshot.sourceFeeds }),
           excludedSourceFeeds: state.snapshot.excludedSourceFeeds,
+          staleSourceFeeds: state.snapshot.staleSourceFeeds,
           ...(state.snapshot.excludedSourceFeeds === 0
             ? {}
             : { excludedSourceFeedReasons: state.snapshot.excludedSourceFeedReasons })
         }),
     ...(state.lastRefreshAt === undefined ? {} : { lastRefreshAt: state.lastRefreshAt }),
+    ...(state.lastSuccessfulRefreshAt === undefined
+      ? {}
+      : { lastSuccessfulRefreshAt: state.lastSuccessfulRefreshAt }),
+    consecutiveRefreshFailures: state.consecutiveRefreshFailures,
     ...(state.lastErrorAt === undefined ? {} : { lastErrorAt: state.lastErrorAt }),
     ...(state.lastErrorCode === undefined ? {} : { lastErrorCode: state.lastErrorCode }),
     ...(state.lastErrorDetailCode === undefined ? {} : { lastErrorDetailCode: state.lastErrorDetailCode }),
@@ -570,13 +1092,22 @@ function feedMetadata(state: Readonly<FeedState>): Record<string, unknown> {
 }
 
 function feedErrorDetailCode(error: unknown): FeedErrorDetailCode {
+  if (error instanceof SourceFetchError) return error.detailCode;
   const message = error instanceof Error ? error.message : "";
-  if (message.includes("aborted due to timeout")) return "SOURCE_TIMEOUT";
+  const errorCode = (error as NodeJS.ErrnoException | undefined)?.code ?? "";
+  if (message.includes("aborted due to timeout") || message.includes("timed out")) return "SOURCE_TIMEOUT";
   if (
     message === "AWIN_FEED_TOO_LARGE" ||
     message.includes("is too large") ||
     message.startsWith("Cannot create a Buffer larger than")
   ) return "SOURCE_TOO_LARGE";
+  if (
+    errorCode.startsWith("Z_") ||
+    errorCode === "ERR_ENCODING_INVALID_ENCODED_DATA" ||
+    message.includes("incorrect header check") ||
+    message.includes("unexpected end of file")
+  ) return "ARCHIVE_INVALID";
+  if (message === "Awin Feed contained no eligible products") return "NO_ELIGIBLE_PRODUCTS";
   if (message === "duplicate Awin merchant product across source Feeds") return "DUPLICATE_PRODUCT_KEY";
   if (message === "invalid enhanced Awin price") return "INVALID_ENHANCED_PRICE";
   if (["duplicate Awin CSV header", "invalid quoted CSV field", "missing Awin CSV header"].includes(message)) return "CSV_INVALID";
@@ -584,11 +1115,10 @@ function feedErrorDetailCode(error: unknown): FeedErrorDetailCode {
   if (message === "invalid Awin merchant ID" || message === "invalid Awin merchant name") return "INVALID_MERCHANT";
   if (message === "unsupported Awin currency") return "UNSUPPORTED_CURRENCY";
   if (message === "inconsistent Awin merchant identity") return "INCONSISTENT_MERCHANT_IDENTITY";
-  if (["Awin link does not match approved relationship", "unapproved Awin URL", "unapproved Awin merchant URL", "invalid Awin image URL"].includes(message)) return "UNAPPROVED_PRODUCT_URL";
+  if (["Invalid URL", "Awin link does not match approved relationship", "unapproved Awin URL", "unapproved Awin merchant URL", "invalid Awin image URL"].includes(message)) return "UNAPPROVED_PRODUCT_URL";
   if (message === "invalid Awin USD price" || message === "Awin USD price out of range") return "INVALID_PRICE";
   if (
-    message === "Awin Feed failed approved merchant validation" ||
-    message === "Awin Feed contained no eligible products"
+    message === "Awin Feed failed approved merchant validation"
   ) return "INDEX_VALIDATION_FAILED";
   return "OTHER";
 }
@@ -596,9 +1126,10 @@ function feedErrorDetailCode(error: unknown): FeedErrorDetailCode {
 function validatedSnapshot(
   archive: Uint8Array,
   snapshotAt: string,
-  sourceFeeds: number,
+  sourceFeeds: number | undefined,
   excludedSourceFeeds = 0,
-  excludedSourceFeedReasons: Partial<Record<FeedErrorDetailCode, number>> = {}
+  excludedSourceFeedReasons: Partial<Record<FeedErrorDetailCode, number>> = {},
+  staleSourceFeeds = 0
 ): FeedSnapshot {
   const index = createAwinFeedIndex(archive, snapshotAt);
   const productKeys = new Set<string>();
@@ -611,16 +1142,18 @@ function validatedSnapshot(
     index.rejectedRows !== 0 ||
     productKeys.size !== index.validRows
   ) {
-    throw new Error("Awin Feed failed approved merchant validation");
+    const firstRejectionReason = Object.keys(index.rejectionReasons).sort()[0];
+    throw new Error(firstRejectionReason ?? "Awin Feed failed approved merchant validation");
   }
   return {
     archive,
     index,
     snapshotAt,
     feedRows: index.feedRows,
-    sourceFeeds,
+    ...(sourceFeeds === undefined ? {} : { sourceFeeds }),
     excludedSourceFeeds,
-    excludedSourceFeedReasons
+    excludedSourceFeedReasons,
+    staleSourceFeeds
   };
 }
 

@@ -21,6 +21,10 @@ export type AwinFeedServiceEnvironment = {
   dataPath: string;
   refreshIntervalMs: number;
   sourceTimeoutMs: number;
+  sourceBodyTimeoutMs: number;
+  sourceRetryAttempts: number;
+  sourceRetryBaseDelayMs: number;
+  staleAfterMs: number;
   offers?: {
     apiToken: string;
     publisherId: string;
@@ -91,10 +95,34 @@ export function parseAwinFeedServiceEnvironment(
     "AWIN_REFRESH_INTERVAL_MINUTES"
   );
   const sourceTimeoutMs = integerInRange(
-    input.AWIN_SOURCE_TIMEOUT_MS ?? "15000",
+    input.AWIN_SOURCE_RESPONSE_TIMEOUT_MS ?? input.AWIN_SOURCE_TIMEOUT_MS ?? "15000",
     1_000,
     60_000,
-    "AWIN_SOURCE_TIMEOUT_MS"
+    "AWIN_SOURCE_RESPONSE_TIMEOUT_MS"
+  );
+  const sourceBodyTimeoutMs = integerInRange(
+    input.AWIN_SOURCE_BODY_TIMEOUT_MS ?? "45000",
+    1_000,
+    120_000,
+    "AWIN_SOURCE_BODY_TIMEOUT_MS"
+  );
+  const sourceRetryAttempts = integerInRange(
+    input.AWIN_SOURCE_RETRY_ATTEMPTS ?? "2",
+    0,
+    2,
+    "AWIN_SOURCE_RETRY_ATTEMPTS"
+  );
+  const sourceRetryBaseDelayMs = integerInRange(
+    input.AWIN_SOURCE_RETRY_BASE_DELAY_MS ?? "1000",
+    100,
+    10_000,
+    "AWIN_SOURCE_RETRY_BASE_DELAY_MS"
+  );
+  const staleAfterMs = integerInRange(
+    input.AWIN_FEED_STALE_AFTER_MINUTES ?? "480",
+    60,
+    10_080,
+    "AWIN_FEED_STALE_AFTER_MINUTES"
   );
   const offersToken = input.AWIN_API_TOKEN?.trim();
   const offers = offersToken === undefined || offersToken === ""
@@ -154,6 +182,10 @@ export function parseAwinFeedServiceEnvironment(
     dataPath,
     refreshIntervalMs: refreshIntervalMinutes * 60_000,
     sourceTimeoutMs,
+    sourceBodyTimeoutMs,
+    sourceRetryAttempts,
+    sourceRetryBaseDelayMs,
+    staleAfterMs: staleAfterMs * 60_000,
     ...(offers === undefined ? {} : { offers }),
     ...(ebay === undefined ? {} : { ebay }),
     officialStorefronts,

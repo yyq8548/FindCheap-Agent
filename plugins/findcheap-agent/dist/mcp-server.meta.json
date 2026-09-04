@@ -3683,6 +3683,11 @@
         {
           "external": true,
           "kind": "import-statement",
+          "path": "node:stream"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
           "path": "node:zlib"
         }
       ]
@@ -4518,7 +4523,7 @@
   },
   "outputs": {
     "../../plugins/findcheap-agent/dist/mcp-server.js": {
-      "bytes": 745088,
+      "bytes": 746269,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
@@ -5114,7 +5119,7 @@
           "bytesInOutput": 750
         },
         "../../packages/awin-feed/src/index.ts": {
-          "bytesInOutput": 13239
+          "bytesInOutput": 14420
         },
         "../../packages/contracts/src/index.ts": {
           "bytesInOutput": 0

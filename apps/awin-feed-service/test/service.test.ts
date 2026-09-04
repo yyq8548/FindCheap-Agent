@@ -12,6 +12,7 @@ import { createAwinFeedController, createAwinFeedHttpServer } from "../src/servi
 const directories: string[] = [];
 
 afterEach(async () => {
+  vi.useRealTimers();
   await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true })));
 });
 
@@ -25,6 +26,13 @@ describe("Awin Feed service", () => {
 
     expect(environment.port).toBe(8080);
     expect(environment.offers).toBeUndefined();
+    expect(environment).toMatchObject({
+      sourceTimeoutMs: 15_000,
+      sourceBodyTimeoutMs: 45_000,
+      sourceRetryAttempts: 2,
+      sourceRetryBaseDelayMs: 1_000,
+      staleAfterMs: 8 * 60 * 60 * 1_000
+    });
   });
 
   it("accepts an optional bounded Railway registry database refresh", () => {
@@ -374,6 +382,9 @@ describe("Awin Feed service", () => {
         status: "ok",
         feedStatus: "ready",
         feedRows: 1,
+        lastSuccessfulRefreshAt: "2026-08-22T01:00:00.000Z",
+        consecutiveRefreshFailures: 0,
+        snapshotAgeSeconds: expect.any(Number),
         offersStatus: "ready",
         offerRows: 1
       });
@@ -540,19 +551,22 @@ describe("Awin Feed service", () => {
     try {
       const health = await fetch(`${origin}/health`);
       expect(health.status).toBe(200);
-      expect(await health.json()).toEqual({ status: "ok", feedStatus: "unavailable" });
+      expect(await health.json()).toEqual({ status: "ok", feedStatus: "unavailable", consecutiveRefreshFailures: 0 });
       const ready = await fetch(`${origin}/ready`);
       expect(ready.status).toBe(503);
-      expect(await ready.json()).toEqual({ feedStatus: "unavailable" });
+      expect(await ready.json()).toEqual({ feedStatus: "unavailable", consecutiveRefreshFailures: 0 });
     } finally {
       await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
     }
   });
 
   it("reports a bounded refresh failure code without exposing the source URL", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "findcheap-awin-failure-"));
+    directories.push(directory);
     const environment = parseAwinFeedServiceEnvironment({
       AWIN_SOURCE_FEED_URL: "https://productdata.awin.com/private/feed.csv.gz",
-      AWIN_FEED_API_TOKEN: "v".repeat(32)
+      AWIN_FEED_API_TOKEN: "v".repeat(32),
+      AWIN_FEED_DATA_PATH: join(directory, "current.csv.gz")
     });
     const controller = createAwinFeedController(environment, {
       fetch: async () => new Response(null, { status: 403 }),
@@ -569,6 +583,226 @@ describe("Awin Feed service", () => {
     for (const sourceUrl of environment.sourceUrls) {
       expect(JSON.stringify(controller.getState())).not.toContain(sourceUrl);
     }
+  });
+
+  it("retries one Feed on 429 and 5xx, then records only safe diagnostics", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "findcheap-awin-retry-"));
+    directories.push(directory);
+    const feedListUrl = "https://ui.awin.com/private/feedList";
+    const feedUrl = "https://productdata.awin.com/private/retry-secret.csv.gz?key=private";
+    const list = feedListCsv([
+      ["20282", "Amazonliss (US)", "US", "Joined", "F102", "Default", "English", "General", "2026-08-25 01:00:00", feedUrl]
+    ]);
+    let sourceAttempts = 0;
+    const logs: unknown[] = [];
+    const controller = createAwinFeedController(parseAwinFeedServiceEnvironment({
+      AWIN_SOURCE_FEED_LIST_URL: feedListUrl,
+      AWIN_FEED_API_TOKEN: "r".repeat(32),
+      AWIN_FEED_DATA_PATH: join(directory, "current.csv.gz")
+    }), {
+      fetch: async (input) => {
+        if (String(input) === feedListUrl) return new Response(list, { status: 200 });
+        sourceAttempts += 1;
+        if (sourceAttempts === 1) return new Response(null, { status: 429 });
+        if (sourceAttempts === 2) return new Response(null, { status: 503 });
+        return new Response(responseBody(fixtureArchive()), { status: 200 });
+      },
+      sleep: async () => {},
+      random: () => 0,
+      log: (event) => logs.push(event)
+    });
+
+    await controller.refresh();
+
+    expect(sourceAttempts).toBe(3);
+    expect(logs).toEqual(expect.arrayContaining([
+      expect.objectContaining({ attempt: 1, phase: "response", outcome: "retry", detailCode: "SOURCE_HTTP_429" }),
+      expect.objectContaining({ attempt: 2, phase: "response", outcome: "retry", detailCode: "SOURCE_HTTP_5XX" }),
+      expect.objectContaining({ attempt: 3, phase: "body", outcome: "success" })
+    ]));
+    const serialized = JSON.stringify(logs);
+    expect(serialized).not.toContain("retry-secret");
+    expect(serialized).not.toContain("private");
+  });
+
+  it("downloads only changed Feeds and restores a failed source from its last valid cache", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "findcheap-awin-incremental-"));
+    directories.push(directory);
+    const dataPath = join(directory, "current.csv.gz");
+    const feedListUrl = "https://ui.awin.com/private/feedList";
+    const feedUrl = "https://productdata.awin.com/private/cached.csv.gz";
+    let importedAt = "2026-08-25 01:00:00";
+    let failSource = false;
+    let sourceDownloads = 0;
+    const fetchRequest = vi.fn(async (input: string | URL | Request) => {
+      if (String(input) === feedListUrl) {
+        return new Response(feedListCsv([
+          ["20282", "Amazonliss (US)", "US", "Joined", "F102", "Default", "English", "General", importedAt, feedUrl]
+        ]), { status: 200 });
+      }
+      sourceDownloads += 1;
+      return failSource
+        ? new Response(null, { status: 503 })
+        : new Response(responseBody(fixtureArchive()), { status: 200 });
+    });
+    const environment = parseAwinFeedServiceEnvironment({
+      AWIN_SOURCE_FEED_LIST_URL: feedListUrl,
+      AWIN_FEED_API_TOKEN: "c".repeat(32),
+      AWIN_FEED_DATA_PATH: dataPath
+    });
+    const controller = createAwinFeedController(environment, {
+      fetch: fetchRequest,
+      sleep: async () => {},
+      now: () => new Date(failSource ? "2026-08-25T03:00:00.000Z" : "2026-08-25T02:00:00.000Z")
+    });
+
+    await controller.refresh();
+    await controller.refresh();
+    expect(sourceDownloads).toBe(1);
+
+    importedAt = "2026-08-25 02:30:00";
+    failSource = true;
+    await controller.refresh();
+
+    expect(sourceDownloads).toBe(4);
+    expect(controller.getState()).toMatchObject({
+      snapshot: { sourceFeeds: 1, staleSourceFeeds: 1 },
+      lastSuccessfulRefreshAt: "2026-08-25T02:00:00.000Z",
+      lastErrorCode: "SOURCE_HTTP_ERROR",
+      lastErrorDetailCode: "SOURCE_HTTP_5XX",
+      consecutiveRefreshFailures: 1
+    });
+    expect(controller.search({ query: "keratin mask", limit: 3 })?.products).toHaveLength(1);
+
+    const restored = createAwinFeedController(environment, { fetch: fetchRequest });
+    await restored.loadExisting();
+    expect(restored.getState()).toMatchObject({
+      snapshot: { sourceFeeds: 1, staleSourceFeeds: 1 },
+      lastSuccessfulRefreshAt: "2026-08-25T02:00:00.000Z",
+      consecutiveRefreshFailures: 1
+    });
+  });
+
+  it("separates Feed List response timeout from source body stall failures", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "findcheap-awin-timeouts-"));
+    directories.push(directory);
+    const feedListUrl = "https://ui.awin.com/private/feedList";
+    const timedOut = createAwinFeedController(parseAwinFeedServiceEnvironment({
+      AWIN_SOURCE_FEED_LIST_URL: feedListUrl,
+      AWIN_FEED_API_TOKEN: "t".repeat(32),
+      AWIN_FEED_DATA_PATH: join(directory, "timeout.csv.gz"),
+      AWIN_SOURCE_RESPONSE_TIMEOUT_MS: "1000",
+      AWIN_SOURCE_RETRY_ATTEMPTS: "0"
+    }), {
+      fetch: async (_input, init) => new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), { once: true });
+      })
+    });
+    await expect(timedOut.refresh()).rejects.toThrow("response request failed");
+    expect(timedOut.getState()).toMatchObject({
+      lastErrorCode: "SOURCE_REQUEST_FAILED",
+      lastErrorDetailCode: "SOURCE_TIMEOUT"
+    });
+
+    const stalled = createAwinFeedController(parseAwinFeedServiceEnvironment({
+      AWIN_SOURCE_FEED_URL: "https://productdata.awin.com/private/stalled.csv.gz",
+      AWIN_FEED_API_TOKEN: "b".repeat(32),
+      AWIN_FEED_DATA_PATH: join(directory, "stalled.csv.gz"),
+      AWIN_SOURCE_BODY_TIMEOUT_MS: "1000",
+      AWIN_SOURCE_RETRY_ATTEMPTS: "0"
+    }), {
+      fetch: async () => new Response(new ReadableStream<Uint8Array>({
+        start(controller) { controller.enqueue(new Uint8Array([31, 139])); }
+      }))
+    });
+    await expect(stalled.refresh()).rejects.toThrow("body read failed");
+    expect(stalled.getState()).toMatchObject({
+      lastErrorCode: "SOURCE_READ_FAILED",
+      lastErrorDetailCode: "SOURCE_TIMEOUT"
+    });
+  });
+
+  it("streams three valid sources beyond the legacy 16 MB decompression bound", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "findcheap-awin-streaming-"));
+    directories.push(directory);
+    const feedListUrl = "https://ui.awin.com/private/feedList";
+    const feeds = new Map([
+      ["https://productdata.awin.com/private/large-1.csv.gz", largeFixtureArchive("20282", "large-1")],
+      ["https://productdata.awin.com/private/large-2.csv.gz", largeFixtureArchive("49085", "large-2")],
+      ["https://productdata.awin.com/private/large-3.csv.gz", largeFixtureArchive("116479", "large-3")]
+    ]);
+    const controller = createAwinFeedController(parseAwinFeedServiceEnvironment({
+      AWIN_SOURCE_FEED_LIST_URL: feedListUrl,
+      AWIN_FEED_API_TOKEN: "s".repeat(32),
+      AWIN_FEED_DATA_PATH: join(directory, "current.csv.gz")
+    }), {
+      fetch: async (input) => String(input) === feedListUrl
+        ? new Response(feedListCsv([
+            ["20282", "Merchant 20282", "US", "Joined", "F102", "Default", "English", "General", "2026-08-25 01:00:00", "https://productdata.awin.com/private/large-1.csv.gz"],
+            ["49085", "Merchant 49085", "US", "Joined", "F103", "Default", "English", "General", "2026-08-25 01:00:00", "https://productdata.awin.com/private/large-2.csv.gz"],
+            ["116479", "Merchant 116479", "US", "Joined", "F104", "Default", "English", "General", "2026-08-25 01:00:00", "https://productdata.awin.com/private/large-3.csv.gz"]
+          ]), { status: 200 })
+        : new Response(responseBody(feeds.get(String(input))!), { status: 200 })
+    });
+
+    await controller.refresh();
+
+    expect(controller.getState()).toMatchObject({ snapshot: { feedRows: 3, sourceFeeds: 3 } });
+  });
+
+  it("reports the internal safe validation reason for an invalid source Feed", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "findcheap-awin-reason-"));
+    directories.push(directory);
+    const feedListUrl = "https://ui.awin.com/private/feedList";
+    const feedUrl = "https://productdata.awin.com/private/invalid.csv.gz";
+    const logs: unknown[] = [];
+    const controller = createAwinFeedController(parseAwinFeedServiceEnvironment({
+      AWIN_SOURCE_FEED_LIST_URL: feedListUrl,
+      AWIN_FEED_API_TOKEN: "i".repeat(32),
+      AWIN_FEED_DATA_PATH: join(directory, "current.csv.gz")
+    }), {
+      fetch: async (input) => String(input) === feedListUrl
+        ? new Response(feedListCsv([
+            ["20282", "Amazonliss (US)", "US", "Joined", "F102", "Default", "English", "General", "2026-08-25 01:00:00", feedUrl]
+          ]), { status: 200 })
+        : new Response(responseBody(fixtureArchive({ merchantId: "invalid" })), { status: 200 }),
+      log: (event) => logs.push(event)
+    });
+
+    await expect(controller.refresh()).rejects.toThrow("invalid Awin merchant ID");
+    expect(controller.getState()).toMatchObject({
+      lastErrorCode: "FEED_INVALID",
+      lastErrorDetailCode: "INVALID_MERCHANT"
+    });
+    expect(logs).toContainEqual(expect.objectContaining({
+      phase: "normalize",
+      outcome: "excluded",
+      detailCode: "INVALID_MERCHANT"
+    }));
+  });
+
+  it("distinguishes a Feed containing only zero-price placeholders", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "findcheap-awin-empty-"));
+    directories.push(directory);
+    const feedListUrl = "https://ui.awin.com/private/feedList";
+    const feedUrl = "https://productdata.awin.com/private/empty.csv.gz";
+    const controller = createAwinFeedController(parseAwinFeedServiceEnvironment({
+      AWIN_SOURCE_FEED_LIST_URL: feedListUrl,
+      AWIN_FEED_API_TOKEN: "e".repeat(32),
+      AWIN_FEED_DATA_PATH: join(directory, "current.csv.gz")
+    }), {
+      fetch: async (input) => String(input) === feedListUrl
+        ? new Response(feedListCsv([
+            ["20282", "Amazonliss (US)", "US", "Joined", "F102", "Default", "English", "General", "2026-08-25 01:00:00", feedUrl]
+          ]), { status: 200 })
+        : new Response(responseBody(enhancedFixtureArchive(["0.00 USD"])), { status: 200 })
+    });
+
+    await expect(controller.refresh()).rejects.toThrow("no eligible products");
+    expect(controller.getState()).toMatchObject({
+      lastErrorCode: "FEED_INVALID",
+      lastErrorDetailCode: "NO_ELIGIBLE_PRODUCTS"
+    });
   });
 });
 
@@ -618,6 +852,21 @@ function enhancedFixtureArchive(prices = ["19.99 USD"]): Buffer {
 
 function oversizedUncompressedArchive(): Buffer {
   return gzipSync("x".repeat(16 * 1024 * 1024 + 1));
+}
+
+function largeFixtureArchive(merchantId: string, productId: string): Buffer {
+  const header = [
+    "aw_deep_link", "product_name", "merchant_product_id", "merchant_image_url", "description",
+    "merchant_category", "search_price", "merchant_name", "merchant_id", "category_name", "currency",
+    "merchant_deep_link", "in_stock", "unused_padding"
+  ];
+  const row = [
+    `https://www.awin1.com/pclick.php?p=1&a=3047955&m=${merchantId}`, `Merchant ${merchantId} Product`, productId,
+    "https://cdn.shopify.com/image.jpg", "Product description", "Products", "19.99",
+    `Merchant ${merchantId}`, merchantId, "Products", "USD", `https://merchant-${merchantId}.example/products/${productId}`, "1",
+    "x".repeat(17 * 1024 * 1024)
+  ];
+  return gzipSync([header, row].map((values) => values.map(csvCell).join(",")).join("\r\n"));
 }
 
 function minimalFixtureArchive(overrides: {

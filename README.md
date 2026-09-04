@@ -166,8 +166,10 @@ Tell me when this jacket is back in stock in black, size M.
 ## Affiliate status
 
 Production uses the private Awin Feed List for publisher `3047955` to discover every `Joined`, US,
-English Feed. The Railway service downloads and validates every matching Feed on startup and every
-six hours, so newly joined programmes become searchable without adding another source URL or product-category rule.
+English Feed. The Railway service serves the last valid snapshot immediately, then refreshes in the
+background. It downloads only Feeds whose `Last Imported` value changed, retries failures per Feed,
+and falls back to that Feed's last valid cache. Newly joined programmes become searchable without
+adding another source URL or product-category rule.
 Only links that carry this publisher ID and the row's merchant ID are returned, with an affiliate disclosure.
 
 Feed rows always provide item price, availability, and merchant product ID; GTIN, MPN, brand, and condition may be absent. Results remain `DISCOVERY_MATCH`, `DISCOVERY_ONLY`, and `condition: UNKNOWN`; they are not exact or same-product comparisons. When an exact prior merchant product path safely resolves to one supported Shopify Variant, a ZIP follow-up can show selected shipping, tax, and estimated total. Otherwise the result remains item-price-only. Coupons and member price remain unavailable unless separately verified. Other product sources keep canonical merchant links unless their own approved relationship is configured. Commission never affects ranking.

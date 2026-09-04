@@ -2,12 +2,15 @@ import { readFile, stat } from "node:fs/promises";
 import { isIP } from "node:net";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { gunzipSync, gzipSync } from "node:zlib";
+import { Readable } from "node:stream";
+import { createGunzip, gunzipSync, gzipSync } from "node:zlib";
 
-export const MAX_AWIN_COMPRESSED_BYTES = 4 * 1024 * 1024;
+export const MAX_AWIN_SOURCE_COMPRESSED_BYTES = 4 * 1024 * 1024;
+export const MAX_AWIN_COMPRESSED_BYTES = 8 * 1024 * 1024;
 export const MAX_AWIN_PUBLIC_SEARCH_RESPONSE_BYTES = 256 * 1024;
 const MAX_SOURCE_UNCOMPRESSED_BYTES = 16 * 1024 * 1024;
-const MAX_MERGED_UNCOMPRESSED_BYTES = 48 * 1024 * 1024;
+const MAX_STREAMED_SOURCE_UNCOMPRESSED_BYTES = 64 * 1024 * 1024;
+const MAX_MERGED_UNCOMPRESSED_BYTES = 80 * 1024 * 1024;
 const MAX_INDEXED_DESCRIPTION_CHARS = 512;
 const COMPACT_AWIN_HEADERS = [
   "aw_deep_link",
@@ -82,6 +85,8 @@ type Dependencies = {
   fileStat?: typeof stat;
   homeDirectory?: () => string;
   fetch?: typeof fetch;
+  clock?: () => number;
+  sleep?: (milliseconds: number) => Promise<void>;
 };
 
 type IndexedProduct = AwinProduct & { searchText: string };
@@ -91,6 +96,7 @@ export type AwinFeedIndex = {
   feedRows: number;
   validRows: number;
   rejectedRows: number;
+  rejectionReasons: Readonly<Record<string, number>>;
   products: readonly IndexedProduct[];
 };
 
@@ -105,13 +111,15 @@ export function createAwinFeedPort(
   const read = dependencies.read ?? readFile;
   const fileStat = dependencies.fileStat ?? stat;
   const fetchRequest = dependencies.fetch ?? fetch;
+  const clock = dependencies.clock ?? Date.now;
+  const sleep = dependencies.sleep ?? ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
   const publicSearch = parsePublicSearchConfiguration(environment);
 
   return {
     async search(rawInput) {
       const input = parseAwinSearchInput(rawInput);
       if (publicSearch !== undefined) {
-        return fetchPublicSearch(publicSearch, input, fetchRequest);
+        return fetchPublicSearch(publicSearch, input, fetchRequest, clock, sleep);
       }
       const remote = parseRemoteConfiguration(environment);
       const archive = remote === undefined
@@ -127,12 +135,13 @@ export function createAwinFeedPort(
 
 export function createAwinFeedIndex(compressed: Uint8Array, snapshotAt: string): AwinFeedIndex {
   const normalizedSnapshotAt = validIsoDate(snapshotAt, "Awin Feed snapshotAt");
-  const { feedRows, parsed } = parseArchive(compressed, normalizedSnapshotAt);
+  const { feedRows, parsed, rejectionReasons } = parseArchive(compressed, normalizedSnapshotAt);
   return {
     snapshotAt: normalizedSnapshotAt,
     feedRows,
     validRows: parsed.length,
     rejectedRows: feedRows - parsed.length,
+    rejectionReasons,
     products: parsed
   };
 }
@@ -259,13 +268,34 @@ function mergeCompactAwinFeedArchives(
   archives: readonly Uint8Array[],
   options: { defaultCurrency?: "USD"; canonicalizeMerchantNames?: boolean }
 ): Uint8Array {
+  const collector = createCompactArchiveCollector(options);
+  for (const archive of archives) visitAwinArchiveRecords(archive, collector.consume);
+  return collector.finish();
+}
+
+export async function mergeAwinFeedArchivesStreaming(
+  archives: readonly Uint8Array[],
+  options: { defaultCurrency?: "USD"; canonicalizeMerchantNames?: boolean } = {}
+): Promise<Uint8Array> {
+  if (archives.length === 0) throw new Error("at least one Awin Feed is required");
+  const collector = createCompactArchiveCollector(options);
+  for (const archive of archives) await visitAwinArchiveRecordsStreaming(archive, collector.consume);
+  return collector.finish();
+}
+
+function createCompactArchiveCollector(
+  options: { defaultCurrency?: "USD"; canonicalizeMerchantNames?: boolean }
+): {
+  consume(record: Record<string, string>): void;
+  finish(): Uint8Array;
+} {
   const header = COMPACT_AWIN_HEADERS.map(csvCell).join(",");
   const lines = [header];
   let csvBytes = Buffer.byteLength(header, "utf8");
   const merchantNames = new Map<string, string>();
   const productKeys = new Set<string>();
-  for (const archive of archives) {
-    visitAwinArchiveRecords(archive, (record) => {
+  return {
+    consume(record) {
       const compacted = compactAwinFeedRecord(normalizeAwinFeedRecord(record, options.defaultCurrency));
       if (compacted === undefined) return;
       const merchantId = requireValue(compacted, "merchant_id");
@@ -282,15 +312,17 @@ function mergeCompactAwinFeedArchives(
       csvBytes += 2 + Buffer.byteLength(line, "utf8");
       if (csvBytes > MAX_MERGED_UNCOMPRESSED_BYTES) throw new Error("AWIN_FEED_TOO_LARGE");
       lines.push(line);
-    });
-  }
-  if (lines.length === 1) throw new Error("Awin Feed contained no eligible products");
-  let csv = lines.join("\r\n");
-  const merged = gzipSync(csv);
-  lines.length = 0;
-  csv = "";
-  if (merged.byteLength > MAX_AWIN_COMPRESSED_BYTES) throw new Error("AWIN_FEED_TOO_LARGE");
-  return merged;
+    },
+    finish() {
+      if (lines.length === 1) throw new Error("Awin Feed contained no eligible products");
+      let csv = lines.join("\r\n");
+      const merged = gzipSync(csv);
+      lines.length = 0;
+      csv = "";
+      if (merged.byteLength > MAX_AWIN_COMPRESSED_BYTES) throw new Error("AWIN_FEED_TOO_LARGE");
+      return merged;
+    }
+  };
 }
 
 function visitAwinArchiveRecords(
@@ -301,6 +333,100 @@ function visitAwinArchiveRecords(
   let csv = gunzipSync(archive, { maxOutputLength: MAX_SOURCE_UNCOMPRESSED_BYTES }).toString("utf8");
   visitAwinCsv(csv, consumeRecord);
   csv = "";
+}
+
+async function visitAwinArchiveRecordsStreaming(
+  archive: Uint8Array,
+  consumeRecord: (record: Record<string, string>) => void
+): Promise<void> {
+  if (archive.byteLength > MAX_AWIN_COMPRESSED_BYTES) throw new Error("AWIN_FEED_TOO_LARGE");
+  const parser = createStreamingAwinCsvParser(consumeRecord);
+  const decoder = new TextDecoder("utf-8", { fatal: true });
+  const gunzip = createGunzip();
+  let decompressedBytes = 0;
+  Readable.from([archive]).pipe(gunzip);
+  try {
+    for await (const chunk of gunzip) {
+      const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array);
+      decompressedBytes += bytes.byteLength;
+      if (decompressedBytes > MAX_STREAMED_SOURCE_UNCOMPRESSED_BYTES) {
+        throw new Error("AWIN_FEED_TOO_LARGE");
+      }
+      parser.write(decoder.decode(bytes, { stream: true }));
+    }
+    parser.write(decoder.decode());
+    parser.finish();
+  } finally {
+    gunzip.destroy();
+  }
+}
+
+function createStreamingAwinCsvParser(
+  consumeRecord: (record: Record<string, string>) => void
+): { write(document: string): void; finish(): void } {
+  let headers: string[] | undefined;
+  let row: string[] = [];
+  let field = "";
+  let quoted = false;
+  let quotePending = false;
+  const consumeRow = (values: string[]): void => {
+    if (!values.some((value) => value !== "")) return;
+    if (headers === undefined) {
+      headers = values;
+      headers[0] = headers[0]!.replace(/^\uFEFF/u, "");
+      if (new Set(headers).size !== headers.length) throw new Error("duplicate Awin CSV header");
+      return;
+    }
+    consumeRecord(Object.fromEntries(headers.map((header, index) => [header, values[index] ?? ""])));
+  };
+  const consumeUnquoted = (character: string): void => {
+    if (character === '"' && field === "") {
+      quoted = true;
+    } else if (character === ",") {
+      row.push(field);
+      field = "";
+    } else if (character === "\n") {
+      row.push(field.replace(/\r$/u, ""));
+      consumeRow(row);
+      row = [];
+      field = "";
+    } else {
+      field += character;
+    }
+  };
+  return {
+    write(document) {
+      for (const character of document) {
+        if (quoted) {
+          if (quotePending) {
+            if (character === '"') {
+              field += '"';
+              quotePending = false;
+              continue;
+            }
+            quoted = false;
+            quotePending = false;
+            consumeUnquoted(character);
+            continue;
+          }
+          if (character === '"') quotePending = true;
+          else field += character;
+          continue;
+        }
+        consumeUnquoted(character);
+      }
+    },
+    finish() {
+      if (quotePending) {
+        quotePending = false;
+        quoted = false;
+      }
+      if (quoted) throw new Error("invalid quoted CSV field");
+      row.push(field.replace(/\r$/u, ""));
+      consumeRow(row);
+      if (headers === undefined || headers.length === 0) throw new Error("missing Awin CSV header");
+    }
+  };
 }
 
 function compactAwinFeedRecord(record: Record<string, string>): Record<string, string> | undefined {
@@ -509,22 +635,24 @@ function toProduct(
 function parseArchive(
   compressed: Uint8Array,
   checkedAt: string
-): { feedRows: number; parsed: IndexedProduct[] } {
+): { feedRows: number; parsed: IndexedProduct[]; rejectionReasons: Record<string, number> } {
   if (compressed.byteLength > MAX_AWIN_COMPRESSED_BYTES) throw new Error("AWIN_FEED_TOO_LARGE");
   let csv = gunzipSync(compressed, { maxOutputLength: MAX_MERGED_UNCOMPRESSED_BYTES }).toString("utf8");
   let feedRows = 0;
   const observedMerchants = new Map<string, ObservedMerchant>();
   const parsed: IndexedProduct[] = [];
+  const rejectionReasons: Record<string, number> = {};
   visitAwinCsv(csv, (record) => {
     feedRows += 1;
     try {
       parsed.push(toProduct(record, checkedAt, observedMerchants));
-    } catch {
-      // Invalid products are reported through rejectedRows.
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : "unknown Awin product validation failure";
+      rejectionReasons[reason] = (rejectionReasons[reason] ?? 0) + 1;
     }
   });
   csv = "";
-  return { feedRows, parsed };
+  return { feedRows, parsed, rejectionReasons };
 }
 
 function parseRemoteConfiguration(environment: Readonly<Record<string, string | undefined>>): {
@@ -581,9 +709,40 @@ function parsePublicSearchConfiguration(environment: Readonly<Record<string, str
 async function fetchPublicSearch(
   configuration: { url: string; timeoutMs: number },
   input: AwinSearchInput,
-  fetchRequest: typeof fetch
+  fetchRequest: typeof fetch,
+  clock: () => number,
+  sleep: (milliseconds: number) => Promise<void>
 ): Promise<AwinSearchResult> {
-  const response = await fetchRequest(configuration.url, {
+  const started = clock();
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const elapsed = Math.max(0, clock() - started);
+    const remaining = configuration.timeoutMs - elapsed;
+    if (remaining < 50) break;
+    const attemptBudget = attempt === 0
+      ? Math.max(50, Math.floor(remaining * 0.6))
+      : remaining;
+    try {
+      return await fetchPublicSearchAttempt(configuration.url, input, fetchRequest, attemptBudget);
+    } catch (error) {
+      lastError = error;
+      if (attempt !== 0 || !retryablePublicSearchError(error)) throw error;
+      const delay = Math.min(75, Math.max(0, configuration.timeoutMs - (clock() - started) - 50));
+      if (delay > 0) await sleep(delay);
+    }
+  }
+  throw lastError ?? new Error("Awin Search service exceeded its retry budget");
+}
+
+class RetryablePublicSearchError extends Error {}
+
+async function fetchPublicSearchAttempt(
+  url: string,
+  input: AwinSearchInput,
+  fetchRequest: typeof fetch,
+  timeoutMs: number
+): Promise<AwinSearchResult> {
+  const response = await fetchRequest(url, {
     method: "POST",
     redirect: "error",
     headers: {
@@ -591,9 +750,14 @@ async function fetchPublicSearch(
       "content-type": "application/json"
     },
     body: JSON.stringify(input),
-    signal: AbortSignal.timeout(configuration.timeoutMs)
+    signal: AbortSignal.timeout(timeoutMs)
   });
-  if (!response.ok) throw new Error(`Awin Search service returned HTTP ${response.status}`);
+  if (!response.ok) {
+    await response.body?.cancel().catch(() => {});
+    const error = `Awin Search service returned HTTP ${response.status}`;
+    if (response.status === 429 || response.status >= 500) throw new RetryablePublicSearchError(error);
+    throw new Error(error);
+  }
   const contentType = response.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
   if (contentType !== "application/json") {
     throw new Error("Awin Search service returned an unsupported content type");
@@ -616,9 +780,14 @@ async function fetchPublicSearch(
       ? product
       : {
           ...product,
-          imageUrl: publicImageProxyUrl(configuration.url, product.merchantId, product.merchantProductId)
+          imageUrl: publicImageProxyUrl(url, product.merchantId, product.merchantProductId)
         })
   };
+}
+
+function retryablePublicSearchError(error: unknown): boolean {
+  return error instanceof RetryablePublicSearchError ||
+    (error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError" || error instanceof TypeError));
 }
 
 function publicImageProxyUrl(searchUrl: string, merchantId: string, merchantProductId: string): string {
@@ -747,7 +916,8 @@ async function fetchRemoteArchive(
 export async function readLimitedBody(
   response: Response,
   limit: number,
-  sourceName = "remote source"
+  sourceName = "remote source",
+  options: { timeoutMs?: number; onBytes?: (bytes: number) => void } = {}
 ): Promise<Uint8Array> {
   const declared = response.headers.get("content-length");
   if (declared !== null && (!/^\d+$/u.test(declared) || Number(declared) > limit)) {
@@ -759,13 +929,17 @@ export async function readLimitedBody(
   let total = 0;
   try {
     while (true) {
-      const next = await reader.read();
+      const next = options.timeoutMs === undefined
+        ? await reader.read()
+        : await readStreamChunkWithTimeout(reader, options.timeoutMs, sourceName);
       if (next.done) break;
       total += next.value.byteLength;
+      options.onBytes?.(total);
       if (total > limit) throw new Error(`${sourceName} response is too large`);
       chunks.push(next.value);
     }
   } finally {
+    await reader.cancel().catch(() => {});
     reader.releaseLock();
   }
   const output = new Uint8Array(total);
@@ -775,6 +949,24 @@ export async function readLimitedBody(
     offset += chunk.byteLength;
   }
   return output;
+}
+
+async function readStreamChunkWithTimeout(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  timeoutMs: number,
+  sourceName: string
+): Promise<ReadableStreamReadResult<Uint8Array>> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      reader.read(),
+      new Promise<never>((_resolve, reject) => {
+        timeout = setTimeout(() => reject(new Error(`${sourceName} body aborted due to timeout`)), timeoutMs);
+      })
+    ]);
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout);
+  }
 }
 
 function requireValue(record: Record<string, string>, key: string): string {
