@@ -3,7 +3,7 @@ import { isIP } from "node:net";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
-import { createGunzip, gunzipSync, gzipSync } from "node:zlib";
+import { createGunzip, createGzip, gunzipSync, gzipSync } from "node:zlib";
 
 export const MAX_AWIN_SOURCE_COMPRESSED_BYTES = 4 * 1024 * 1024;
 export const MAX_AWIN_COMPRESSED_BYTES = 8 * 1024 * 1024;
@@ -278,9 +278,125 @@ export async function mergeAwinFeedArchivesStreaming(
   options: { defaultCurrency?: "USD"; canonicalizeMerchantNames?: boolean } = {}
 ): Promise<Uint8Array> {
   if (archives.length === 0) throw new Error("at least one Awin Feed is required");
-  const collector = createCompactArchiveCollector(options);
-  for (const archive of archives) await visitAwinArchiveRecordsStreaming(archive, collector.consume);
-  return collector.finish();
+  const collector = createStreamingCompactArchiveCollector(options);
+  try {
+    for (const archive of archives) {
+      await visitAwinArchiveRecordsStreaming(archive, collector.consume, collector.drain);
+    }
+    return await collector.finish();
+  } catch (error) {
+    collector.destroy();
+    throw error;
+  }
+}
+
+function createStreamingCompactArchiveCollector(
+  options: { defaultCurrency?: "USD"; canonicalizeMerchantNames?: boolean }
+): {
+  consume(record: Record<string, string>): void;
+  drain(): Promise<void>;
+  finish(): Promise<Uint8Array>;
+  destroy(): void;
+} {
+  const gzip = createGzip();
+  const chunks: Buffer[] = [];
+  const merchantNames = new Map<string, string>();
+  const productKeys = new Set<string>();
+  let csvBytes = 0;
+  let compressedBytes = 0;
+  let rows = 0;
+  let needsDrain = false;
+  let streamError: Error | undefined;
+  gzip.on("data", (chunk: Buffer) => {
+    compressedBytes += chunk.byteLength;
+    if (compressedBytes > MAX_AWIN_COMPRESSED_BYTES) {
+      streamError = new Error("AWIN_FEED_TOO_LARGE");
+      gzip.destroy(streamError);
+      return;
+    }
+    chunks.push(chunk);
+  });
+  gzip.on("error", (error) => {
+    streamError = error;
+  });
+  const write = (value: string): void => {
+    if (streamError !== undefined) throw streamError;
+    if (!gzip.write(value, "utf8")) needsDrain = true;
+  };
+  const drain = async (): Promise<void> => {
+    if (streamError !== undefined) throw streamError;
+    if (!needsDrain) return;
+    await new Promise<void>((resolve, reject) => {
+      const cleanup = (): void => {
+        gzip.off("drain", onDrain);
+        gzip.off("error", onError);
+      };
+      const onDrain = (): void => {
+        cleanup();
+        resolve();
+      };
+      const onError = (error: Error): void => {
+        cleanup();
+        reject(error);
+      };
+      gzip.once("drain", onDrain);
+      gzip.once("error", onError);
+    });
+    needsDrain = false;
+    if (streamError !== undefined) throw streamError;
+  };
+  const header = COMPACT_AWIN_HEADERS.map(csvCell).join(",");
+  csvBytes = Buffer.byteLength(header, "utf8");
+  write(header);
+  return {
+    consume(record) {
+      const compacted = compactAwinFeedRecord(normalizeAwinFeedRecord(record, options.defaultCurrency));
+      if (compacted === undefined) return;
+      const merchantId = requireValue(compacted, "merchant_id");
+      if (options.canonicalizeMerchantNames === true) {
+        const merchantName = requireValue(compacted, "merchant_name");
+        const canonicalName = merchantNames.get(merchantId) ?? merchantName;
+        merchantNames.set(merchantId, canonicalName);
+        compacted.merchant_name = canonicalName;
+      }
+      const productKey = `${merchantId}:${requireValue(compacted, "merchant_product_id")}`;
+      if (productKeys.has(productKey)) throw new Error("duplicate Awin merchant product across source Feeds");
+      productKeys.add(productKey);
+      const line = COMPACT_AWIN_HEADERS.map((column) => csvCell(compacted[column] ?? "")).join(",");
+      csvBytes += 2 + Buffer.byteLength(line, "utf8");
+      if (csvBytes > MAX_MERGED_UNCOMPRESSED_BYTES) throw new Error("AWIN_FEED_TOO_LARGE");
+      write(`\r\n${line}`);
+      rows += 1;
+    },
+    drain,
+    async finish() {
+      if (rows === 0) throw new Error("Awin Feed contained no eligible products");
+      await drain();
+      await new Promise<void>((resolve, reject) => {
+        const cleanup = (): void => {
+          gzip.off("end", onEnd);
+          gzip.off("error", onError);
+        };
+        const onEnd = (): void => {
+          cleanup();
+          resolve();
+        };
+        const onError = (error: Error): void => {
+          cleanup();
+          reject(error);
+        };
+        gzip.once("end", onEnd);
+        gzip.once("error", onError);
+        gzip.end();
+      });
+      if (streamError !== undefined) throw streamError;
+      return Buffer.concat(chunks, compressedBytes);
+    },
+    destroy() {
+      gzip.destroy();
+      chunks.length = 0;
+    }
+  };
 }
 
 function createCompactArchiveCollector(
@@ -337,7 +453,8 @@ function visitAwinArchiveRecords(
 
 async function visitAwinArchiveRecordsStreaming(
   archive: Uint8Array,
-  consumeRecord: (record: Record<string, string>) => void
+  consumeRecord: (record: Record<string, string>) => void,
+  afterChunk?: () => Promise<void>
 ): Promise<void> {
   if (archive.byteLength > MAX_AWIN_COMPRESSED_BYTES) throw new Error("AWIN_FEED_TOO_LARGE");
   const parser = createStreamingAwinCsvParser(consumeRecord);
@@ -353,9 +470,11 @@ async function visitAwinArchiveRecordsStreaming(
         throw new Error("AWIN_FEED_TOO_LARGE");
       }
       parser.write(decoder.decode(bytes, { stream: true }));
+      await afterChunk?.();
     }
     parser.write(decoder.decode());
     parser.finish();
+    await afterChunk?.();
   } finally {
     gunzip.destroy();
   }

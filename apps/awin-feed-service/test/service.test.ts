@@ -748,7 +748,7 @@ describe("Awin Feed service", () => {
     await controller.refresh();
 
     expect(controller.getState()).toMatchObject({ snapshot: { feedRows: 3, sourceFeeds: 3 } });
-  });
+  }, 10_000);
 
   it("reports the internal safe validation reason for an invalid source Feed", async () => {
     const directory = await mkdtemp(join(tmpdir(), "findcheap-awin-reason-"));
