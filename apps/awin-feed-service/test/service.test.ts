@@ -657,8 +657,10 @@ describe("Awin Feed service", () => {
     });
 
     await controller.refresh();
+    const firstProducts = controller.getState().snapshot!.index.products;
     await controller.refresh();
     expect(sourceDownloads).toBe(1);
+    expect(controller.getState().snapshot!.index.products).toBe(firstProducts);
 
     importedAt = "2026-08-25 02:30:00";
     failSource = true;

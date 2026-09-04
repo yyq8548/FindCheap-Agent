@@ -314,14 +314,36 @@ export function createAwinFeedController(
         throw firstSourceValidationError ?? new Error("at least one valid Awin Feed is required");
       }
       const archive = await mergeAwinFeedArchivesStreaming(sourceArchives, mergeOptions);
-      const snapshot = validatedSnapshot(
-        archive,
-        snapshotAt,
-        sourceArchives.length,
-        sources.length - sourceArchives.length,
-        excludedSourceFeedReasons,
-        staleSourceFeeds
-      );
+      const archiveHash = archiveSha256(archive);
+      const currentArchiveHash = state.snapshot === undefined ? undefined : archiveSha256(state.snapshot.archive);
+      let snapshot: FeedSnapshot;
+      if (currentArchiveHash === archiveHash && state.snapshot !== undefined) {
+        snapshot = {
+          archive,
+          index: { ...state.snapshot.index, snapshotAt },
+          snapshotAt,
+          feedRows: state.snapshot.feedRows,
+          sourceFeeds: sourceArchives.length,
+          excludedSourceFeeds: sources.length - sourceArchives.length,
+          excludedSourceFeedReasons,
+          staleSourceFeeds
+        };
+      } else {
+        delete state.snapshot;
+        try {
+          snapshot = validatedSnapshot(
+            archive,
+            snapshotAt,
+            sourceArchives.length,
+            sources.length - sourceArchives.length,
+            excludedSourceFeedReasons,
+            staleSourceFeeds
+          );
+        } catch (error) {
+          await loadExisting().catch(() => {});
+          throw error;
+        }
+      }
       failureCode = "STORAGE_WRITE_FAILED";
       await writeArchiveAtomically(environment.dataPath, archive);
       const degraded = staleSourceFeeds > 0;
@@ -339,7 +361,7 @@ export function createAwinFeedController(
       const nextManifest: FeedCacheManifest = {
         version: 1,
         snapshot: {
-          archiveSha256: archiveSha256(archive),
+          archiveSha256: archiveHash,
           snapshotAt,
           lastSuccessfulRefreshAt,
           feedRows: snapshot.feedRows,
