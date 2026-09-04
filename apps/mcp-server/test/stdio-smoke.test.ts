@@ -97,6 +97,7 @@ describe("installed plugin stdio", () => {
       const shopifyTool = tools.tools.find((tool) => tool.name === "search_products");
       const quoteTool = tools.tools.find((tool) => tool.name === "quote_selected_shopify_product");
       const quotedComparisonTool = tools.tools.find((tool) => tool.name === "quote_and_compare_selected_products");
+      const dealResearchTool = tools.tools.find((tool) => tool.name === "research_selected_product_deal");
       const visualFinalizeTool = tools.tools.find((tool) => tool.name === "finalize_visual_search");
       const renderTool = tools.tools.find((tool) => tool.name === "render_product_cards");
       const compareTool = tools.tools.find((tool) => tool.name === "compare_selected_products");
@@ -208,6 +209,18 @@ describe("installed plugin stdio", () => {
         "variantId",
         "zipCode"
       ]);
+      expect(quoteTool?.inputSchema.required).toEqual(["renderId", "zipCode"]);
+      expect(Object.keys(compareTool?.inputSchema.properties ?? {}).sort()).toEqual([
+        "focus",
+        "mode",
+        "renderId",
+        "responseLocale",
+        "selectionIds"
+      ]);
+      expect(compareTool?.inputSchema.required).toEqual(["renderId"]);
+      expect([...(quotedComparisonTool?.inputSchema.required ?? [])].sort()).toEqual(["renderId", "zipCode"]);
+      expect(dealResearchTool?.inputSchema.required).toEqual(["renderId"]);
+      expect(dealResearchTool?.inputSchema.properties).toHaveProperty("position");
     } finally {
       await client.close();
     }

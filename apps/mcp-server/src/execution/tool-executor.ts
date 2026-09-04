@@ -11,6 +11,21 @@ type OutputSchema = { safeParseAsync(value: unknown): Promise<OutputParseResult>
 
 export const INVALID_TOOL_INPUT = Symbol("findcheap-invalid-tool-input");
 
+const REFERENCE_CONTEXT_FIELDS: Readonly<Record<string, readonly string[]>> = {
+  compare_selected_products: ["renderId"],
+  quote_and_compare_selected_products: ["renderId"],
+  inspect_selected_shopify_product: ["renderId"],
+  quote_selected_shopify_product: ["renderId"],
+  research_selected_product_deal: ["renderId"]
+};
+
+function missingReferenceContext(name: string, input: unknown): boolean {
+  const fields = REFERENCE_CONTEXT_FIELDS[name];
+  if (fields === undefined || input === null || typeof input !== "object" || Array.isArray(input)) return false;
+  const values = input as Record<string, unknown>;
+  return fields.every((field) => values[field] === undefined);
+}
+
 export type ToolExecutionSpec = {
   name: string;
   capability: BackendCapability;
@@ -52,16 +67,24 @@ export class ToolExecutor {
       return toolError("TOOL_NOT_AVAILABLE");
     }
     if (
-      (input !== undefined && (input === null || typeof input !== "object" || Array.isArray(input))) ||
-      (input !== null && typeof input === "object" && INVALID_TOOL_INPUT in input)
+      input !== null &&
+      typeof input === "object" &&
+      INVALID_TOOL_INPUT in input
     ) {
+      const rawInput = (input as { [INVALID_TOOL_INPUT]: unknown })[INVALID_TOOL_INPUT];
+      return toolError(missingReferenceContext(name, rawInput) ? "MISSING_REFERENCE_CONTEXT" : "INVALID_ARGUMENTS");
+    }
+    if (input !== undefined && (input === null || typeof input !== "object" || Array.isArray(input))) {
       return toolError("INVALID_ARGUMENTS");
     }
+    if (missingReferenceContext(name, input)) return toolError("MISSING_REFERENCE_CONTEXT");
     try {
       const parsedInput = spec.inputSchema === undefined
         ? undefined
         : await spec.inputSchema.safeParseAsync(input);
-      if (parsedInput?.success === false) return toolError("INVALID_ARGUMENTS");
+      if (parsedInput?.success === false) {
+        return toolError(missingReferenceContext(name, input) ? "MISSING_REFERENCE_CONTEXT" : "INVALID_ARGUMENTS");
+      }
       const validatedInput = parsedInput?.data ?? input;
       const sanitized = normalizeToolError(sanitizeToolResult(await handler(validatedInput)));
       if (sanitized.isError !== true && spec.outputSchema !== undefined && sanitized.structuredContent === undefined) {

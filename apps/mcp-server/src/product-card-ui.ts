@@ -594,6 +594,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
           void request("tools/call", {
             name: "quote_and_compare_selected_products",
             arguments: {
+              renderId: output.renderId,
               selectionIds: output.entries.map((entry) => entry.selectionId),
               zipCode,
               mode: "AUTO",
@@ -782,6 +783,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
           void request("tools/call", {
             name: "compare_selected_products",
             arguments: {
+              renderId: currentRenderId,
               selectionIds: [...selected],
               mode: "AUTO",
               responseLocale: currentLocale

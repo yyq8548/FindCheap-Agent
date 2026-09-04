@@ -125,18 +125,48 @@ async function connect(now?: () => Date, dependencies: ShoppingServerDependencie
 }
 
 describe("product comparison MCP flow", () => {
+  it("requires explicit prior-result context in the public tool contract", async () => {
+    const client = await connect();
+    const tools = await client.listTools();
+    const comparison = tools.tools.find((tool) => tool.name === "compare_selected_products");
+    const dealResearch = tools.tools.find((tool) => tool.name === "research_selected_product_deal");
+    expect(comparison?.inputSchema.required).toEqual(["renderId"]);
+    expect(comparison?.inputSchema.properties).toHaveProperty("selectionIds");
+    expect(dealResearch?.inputSchema.required).toEqual(["renderId"]);
+    expect(dealResearch?.inputSchema.properties).toHaveProperty("position");
+
+    const missingComparison = await client.callTool({
+      name: "compare_selected_products",
+      arguments: { locale: "zh-CN", mode: "AUTO" }
+    });
+    const missingOrdinal = await client.callTool({
+      name: "research_selected_product_deal",
+      arguments: { position: 1, objective: "CURRENT_DEALS" }
+    });
+
+    expect(missingComparison._meta).toMatchObject({
+      "findcheap/errorCode": "MISSING_REFERENCE_CONTEXT"
+    });
+    expect(missingOrdinal._meta).toMatchObject({
+      "findcheap/errorCode": "MISSING_REFERENCE_CONTEXT"
+    });
+    expect(JSON.stringify([missingComparison, missingOrdinal])).not.toContain("expired");
+  });
+
   it("builds and re-renders one immutable server comparison", async () => {
     const client = await connect();
     const found = await client.callTool({
       name: "search_products",
       arguments: { query: "Valhalla Java pods", limit: 2 }
     });
-    const products = (found.structuredContent as { products: Array<{ selectionId: string }> }).products;
+    const snapshot = found.structuredContent as { renderId: string; products: Array<{ selectionId: string }> };
+    const products = snapshot.products;
     expect(products).toHaveLength(2);
 
     const compared = await client.callTool({
       name: "compare_selected_products",
       arguments: {
+        renderId: snapshot.renderId,
         selectionIds: products.map((product) => product.selectionId),
         mode: "SAME_PRODUCT_OFFERS",
         responseLocale: "zh-CN"
@@ -242,11 +272,13 @@ describe("product comparison MCP flow", () => {
       name: "search_products",
       arguments: { query: "Valhalla Java pods", limit: 2 }
     });
-    const products = (found.structuredContent as { products: Array<{ selectionId: string }> }).products;
+    const snapshot = found.structuredContent as { renderId: string; products: Array<{ selectionId: string }> };
+    const products = snapshot.products;
 
     const compared = await client.callTool({
       name: "quote_and_compare_selected_products",
       arguments: {
+        renderId: snapshot.renderId,
         selectionIds: products.map((product) => product.selectionId),
         zipCode: "10001",
         mode: "SAME_PRODUCT_OFFERS",
@@ -280,14 +312,28 @@ describe("product comparison MCP flow", () => {
     const client = await connect();
     const first = await client.callTool({ name: "search_products", arguments: { query: "Valhalla Java pods", limit: 2 } });
     const second = await client.callTool({ name: "search_products", arguments: { query: "Valhalla Java pods", limit: 2 } });
-    const firstId = (first.structuredContent as { products: Array<{ selectionId: string }> }).products[0]!.selectionId;
-    const secondId = (second.structuredContent as { products: Array<{ selectionId: string }> }).products[1]!.selectionId;
+    const firstSnapshot = first.structuredContent as { renderId: string; products: Array<{ selectionId: string }> };
+    const secondSnapshot = second.structuredContent as { renderId: string; products: Array<{ selectionId: string }> };
+    const firstId = firstSnapshot.products[0]!.selectionId;
+    const secondId = secondSnapshot.products[1]!.selectionId;
 
     const compared = await client.callTool({
       name: "compare_selected_products",
-      arguments: { selectionIds: [firstId, secondId] }
+      arguments: { renderId: firstSnapshot.renderId, selectionIds: [firstId, secondId] }
     });
     expect(compared.structuredContent).toMatchObject({
+      status: "CROSS_SNAPSHOT_UNSUPPORTED",
+      entries: []
+    });
+
+    const rebound = await client.callTool({
+      name: "compare_selected_products",
+      arguments: {
+        renderId: secondSnapshot.renderId,
+        selectionIds: firstSnapshot.products.map((product) => product.selectionId)
+      }
+    });
+    expect(rebound.structuredContent).toMatchObject({
       status: "CROSS_SNAPSHOT_UNSUPPORTED",
       entries: []
     });
@@ -299,6 +345,7 @@ describe("product comparison MCP flow", () => {
     const unknown = await client.callTool({
       name: "compare_selected_products",
       arguments: {
+        renderId: "33333333-3333-4333-8333-333333333333",
         selectionIds: [
           "11111111-1111-4111-8111-111111111111",
           "22222222-2222-4222-8222-222222222222"
@@ -311,12 +358,12 @@ describe("product comparison MCP flow", () => {
       name: "search_products",
       arguments: { query: "Valhalla Java pods", limit: 2 }
     });
-    const selectionIds = (found.structuredContent as { products: Array<{ selectionId: string }> })
-      .products.map((product) => product.selectionId);
+    const snapshot = found.structuredContent as { renderId: string; products: Array<{ selectionId: string }> };
+    const selectionIds = snapshot.products.map((product) => product.selectionId);
     current = new Date("2026-09-03T08:00:00.001Z");
     const expired = await client.callTool({
       name: "compare_selected_products",
-      arguments: { selectionIds }
+      arguments: { renderId: snapshot.renderId, selectionIds }
     });
     expect(expired.structuredContent).toMatchObject({ status: "SELECTION_UNAVAILABLE", entries: [] });
   });

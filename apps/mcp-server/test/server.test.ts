@@ -424,7 +424,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.17.9",
+        version: "0.17.10",
         terminalStage: "DOM_RENDERED",
         stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
       }
@@ -433,7 +433,7 @@ describe("shopping MCP server", () => {
     expect(result.structuredContent).toEqual({ status: "RECORDED" });
     expect(record).toHaveBeenCalledWith(expect.objectContaining({
       renderId,
-      version: "0.17.9",
+      version: "0.17.10",
       terminalStage: "DOM_RENDERED",
       stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
     }));
@@ -441,7 +441,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.17.9",
+        version: "0.17.10",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 14 }
       }
@@ -451,7 +451,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.17.9",
+        version: "0.17.10",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 300_001 }
       }
@@ -462,7 +462,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId: "22222222-2222-4222-8222-222222222222",
-        version: "0.17.9",
+        version: "0.17.10",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 1 }
       }
@@ -851,7 +851,7 @@ describe("shopping MCP server", () => {
 
     const inspected = await client.callTool({
       name: "inspect_selected_shopify_product",
-      arguments: { selectionId: reference.selectionId, variantDimensions: { Size: "S" } }
+      arguments: { renderId: reference.renderId, selectionId: reference.selectionId, variantDimensions: { Size: "S" } }
     });
 
     expect(search).toHaveBeenCalledTimes(1);
@@ -879,7 +879,7 @@ describe("shopping MCP server", () => {
     }).variants[0]!.quoteReference;
     await client.callTool({
       name: "quote_selected_shopify_product",
-      arguments: { selectionId: siblingReference.selectionId, zipCode: "33433" }
+      arguments: { renderId: siblingReference.renderId, selectionId: siblingReference.selectionId, zipCode: "33433" }
     });
     expect(quoteCart).toHaveBeenCalledWith(expect.objectContaining({
       handle: "42797821853914",
@@ -1174,16 +1174,19 @@ describe("Coupon and Watch tools", () => {
       name: "search_shopify_products",
       arguments: { query: "Valhalla Java", limit: 1, comparisonMode: "DISCOVERY", selectionMode: "MERCHANT_DIVERSE" }
     });
-    const products = (found.structuredContent as {
+    const snapshot = found.structuredContent as {
+      renderId: string;
       products: Array<{ selectionId: string; merchant: string; handle: string }>;
-    }).products;
+    };
+    const products = snapshot.products;
     const selectedProduct = products.find((product) => product.handle === "42797821853913");
     expect(selectedProduct).toBeDefined();
     const selectionId = selectedProduct!.selectionId;
+    const position = products.indexOf(selectedProduct!) + 1;
 
     const result = await client.callTool({
       name: "research_selected_product_deal",
-      arguments: { selectionId, objective: "CURRENT_DEALS" }
+      arguments: { renderId: snapshot.renderId, position, objective: "CURRENT_DEALS" }
     });
 
     expect(search).toHaveBeenCalledTimes(1);
@@ -2491,7 +2494,7 @@ describe("Coupon and Watch tools", () => {
 
     const quoted = await client.callTool({
       name: "quote_selected_shopify_product",
-      arguments: { selectionId: reference.selectionId, zipCode: "33065" }
+      arguments: { renderId: reference.renderId, selectionId: reference.selectionId, zipCode: "33065" }
     });
 
     expect(quoted.structuredContent).toMatchObject({

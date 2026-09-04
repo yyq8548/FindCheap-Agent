@@ -186,6 +186,7 @@ export const PRODUCT_COMPARISON_HTML = String.raw`<!doctype html>
           request("tools/call", {
             name: "quote_and_compare_selected_products",
             arguments: {
+              renderId: output.renderId,
               selectionIds: output.entries.map((entry) => entry.selectionId),
               zipCode,
               mode: "AUTO",

@@ -1,11 +1,11 @@
 ---
 name: deals-and-watch
-description: Find verified Coupon, promotion, membership, Cashback, and offline-barcode evidence, or create and manage shopping watches with Codex Automation.
+description: Find verified Coupon, promotion, membership, or Cashback evidence, and manage shopping watches.
 ---
 
-# FindCheap Agent v0.17.9 Deals and Watch
+# FindCheap Agent v0.17.10 Deals and Watch
 
-A live Coupon or Watch request is self-contained. MCP tools are loaded. Do not read Memory, repository files, logs, task files, or plugin cache. Do not reopen this Skill. Send at most one short progress sentence before the first tool call; do not narrate the tool sequence between calls.
+A live Coupon or Watch request is self-contained. Do not read Memory, repository files, logs, task files, or plugin cache. Send at most one short progress sentence before the first tool call; do not narrate the tool sequence between calls.
 
 ## Coupon
 
@@ -13,7 +13,7 @@ Call `find_coupons` once with current-message `responseLocale`. It includes Awin
 
 ## Current deal check
 
-For selected card, call `research_selected_product_deal` with stable `selectionId`; never title-search. Pass ZIP/memberships. Be warm and direct, not salesy. Show best Coupon first: code/benefit; scope—customer, products, exclusions. Blank line; list all deals below. Estimate only when product-confirmed for that ID. Checkout confirms scope/stacking/final amount. Return product/price/stock. No history/forecast/Watch.
+Selected card: call `research_selected_product_deal` with prior `renderId` plus `selectionId` or `position`; never title-search. `MISSING_REFERENCE_CONTEXT`: retry once with that `renderId`, not expired. Pass ZIP/memberships. Be warm and direct, not salesy. Show best Coupon first: code/benefit; scope—customer, products, exclusions. Blank line; list all deals below. Estimate only when product-confirmed. Checkout confirms scope/stacking/final amount. Return product/price/stock. No history/forecast/Watch.
 
 ## Create Watch
 

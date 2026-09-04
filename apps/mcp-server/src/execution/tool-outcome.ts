@@ -2,6 +2,7 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 
 export const TOOL_ERROR_CODES = [
   "INVALID_ARGUMENTS",
+  "MISSING_REFERENCE_CONTEXT",
   "TOOL_NOT_AVAILABLE",
   "TOOL_OUTPUT_REJECTED",
   "TOOL_REQUEST_REJECTED",
@@ -12,6 +13,7 @@ export type ToolErrorCode = (typeof TOOL_ERROR_CODES)[number];
 
 const TOOL_ERROR_MESSAGES: Record<ToolErrorCode, string> = {
   INVALID_ARGUMENTS: "Tool arguments were invalid.",
+  MISSING_REFERENCE_CONTEXT: "Tool call omitted required prior-product reference context.",
   TOOL_NOT_AVAILABLE: "This tool is not available in the current FindCheap configuration.",
   TOOL_OUTPUT_REJECTED: "Tool output did not satisfy FindCheap safety requirements.",
   TOOL_REQUEST_REJECTED: "The requested FindCheap operation was rejected.",

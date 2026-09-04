@@ -100,6 +100,31 @@ describe("shared tool execution boundary", () => {
     expect(handler).toHaveBeenCalledWith({ query: "coffee", limit: 2 });
   });
 
+  it("distinguishes omitted prior-product context from expired references", async () => {
+    const handler = vi.fn(async () => ({ content: [{ type: "text" as const, text: "ran" }] }));
+    const executor = new ToolExecutor({ capabilities: new Set(["CATALOG"]), log: vi.fn() });
+    executor.register({ name: "compare_selected_products", capability: "CATALOG" });
+    executor.register({ name: "research_selected_product_deal", capability: "CATALOG" });
+
+    const comparison = await executor.execute("compare_selected_products", {}, handler);
+    const ordinal = await executor.execute(
+      "research_selected_product_deal",
+      { position: 1, objective: "CURRENT_DEALS" },
+      handler
+    );
+    const unboundIds = await executor.execute(
+      "compare_selected_products",
+      { selectionIds: ["11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"] },
+      handler
+    );
+
+    expect(comparison._meta).toMatchObject({ "findcheap/errorCode": "MISSING_REFERENCE_CONTEXT" });
+    expect(ordinal._meta).toMatchObject({ "findcheap/errorCode": "MISSING_REFERENCE_CONTEXT" });
+    expect(unboundIds._meta).toMatchObject({ "findcheap/errorCode": "MISSING_REFERENCE_CONTEXT" });
+    expect(JSON.stringify(ordinal.content)).not.toContain("expired");
+    expect(handler).not.toHaveBeenCalled();
+  });
+
   it("maps raw failures and invalid output to stable errors", async () => {
     const log = vi.fn();
     const executor = new ToolExecutor({ capabilities: new Set(["CATALOG"]), log });

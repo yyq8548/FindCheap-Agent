@@ -56,8 +56,8 @@ describe("FindCheap Agent plugin contract", () => {
     expect(skill).toContain("Call `search_products` exactly once");
     expect(skill).toContain("`quote_selected_shopify_product`");
     expect(skill).toContain("`inspect_selected_shopify_product`");
-    expect(skill).toContain("`search_products` forbidden; never title-search");
-    expect(skill).toContain("User references to selected or numbered cards are actionable");
+    expect(skill).toContain("Never call `search_products` or title-search");
+    expect(skill).toContain("Always pass the prior `renderId`");
     expect(skill).toContain("prior `renderId`");
     expect(skill).toContain("one-based `position`");
     expect(skill).toContain("Never claim selection arrived unless tool succeeds");
@@ -65,7 +65,7 @@ describe("FindCheap Agent plugin contract", () => {
     expect(skill).toContain("`quote_and_compare_selected_products`");
     expect(skill).toContain("`AUTO`");
     expect(skill).toContain("Server owns facts/prices/recommendation");
-    expect(skill).toContain("never create manual table or call `render_product_comparison`");
+    expect(skill).toContain("never make a manual table or call `render_product_comparison`");
     expect(skill).toContain("Never describe `UNKNOWN` condition as new");
     expect(skill).toContain("`status: OK`, `coverage: COMPLETE`, and `products.length === 0`");
     expect(skill).toContain("partial coverage, unavailable data, malformed response, timeout");
@@ -215,7 +215,7 @@ describe("FindCheap Agent plugin contract", () => {
     };
 
     expect(manifest.name).toBe("findcheap-agent");
-    expect(manifest.version).toMatch(/^0\.17\.9(?:\+codex\.)?/u);
+    expect(manifest.version).toMatch(/^0\.17\.10(?:\+codex\.)?/u);
     expect(manifest.interface.displayName).toBe("FindCheap Agent");
     expect(manifest.interface.longDescription).toMatch(/Codex Plugin Agent/u);
     expect(manifest.interface.longDescription).toMatch(/[Aa]uthorized.*Chrome/u);

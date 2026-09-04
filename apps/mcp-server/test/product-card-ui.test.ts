@@ -148,7 +148,7 @@ describe("product-card MCP Apps UI", () => {
       params: expect.objectContaining({
         name: "report_product_card_metrics",
         arguments: expect.objectContaining({
-          version: "0.17.9",
+          version: "0.17.10",
           terminalStage: "DOM_RENDERED",
           stages: expect.objectContaining({ DOM_RENDERED: expect.any(Number) })
         })
@@ -586,6 +586,7 @@ describe("product-card MCP Apps UI", () => {
 
     const call = messages.find((message) => message.params?.name === "compare_selected_products");
     expect(call?.params?.arguments).toEqual({
+      renderId,
       selectionIds: [firstId, secondId],
       mode: "AUTO",
       responseLocale: "en-US"
@@ -599,6 +600,7 @@ describe("product-card MCP Apps UI", () => {
         result: {
           structuredContent: {
             status: "OK",
+            renderId,
             message: "Different product choices. Delivered totals have not been quoted.",
             locale: "en-US",
             entries: [
@@ -621,6 +623,7 @@ describe("product-card MCP Apps UI", () => {
     nodes(app).find((node) => node.textContent === "Quote delivered totals")?.dispatch("click");
     const quoteCall = messages.find((message) => message.params?.name === "quote_and_compare_selected_products");
     expect(quoteCall?.params?.arguments).toEqual({
+      renderId,
       selectionIds: [firstId, secondId],
       zipCode: "10001",
       mode: "AUTO",
@@ -763,7 +766,7 @@ describe("product-card MCP Apps UI", () => {
       method: "ui/initialize",
       params: {
         protocolVersion: "2026-01-26",
-        appInfo: { name: "FindCheap Agent product cards", version: "0.17.9" },
+        appInfo: { name: "FindCheap Agent product cards", version: "0.17.10" },
         appCapabilities: { availableDisplayModes: ["inline"] }
       }
     });

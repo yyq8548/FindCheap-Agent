@@ -82,6 +82,7 @@ describe("product comparison MCP Apps UI", () => {
       status: "OK",
       message: "Server comparison",
       comparisonId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      renderId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
       evaluatedAt: "2026-09-03T06:00:00.000Z",
       expiresAt: "2026-09-03T07:00:00.000Z",
       locale: "en-US",
@@ -196,6 +197,7 @@ describe("product comparison MCP Apps UI", () => {
       (message) => message.params?.name === "quote_and_compare_selected_products"
     );
     expect(quoteCall?.params?.arguments).toEqual({
+      renderId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
       selectionIds: [
         "11111111-1111-4111-8111-111111111111",
         "22222222-2222-4222-8222-222222222222"

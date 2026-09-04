@@ -57,13 +57,16 @@ function schemaParser(
 
 function boundaryConfig(config: unknown, inputSchema: z.ZodTypeAny | undefined): unknown {
   if (config === null || typeof config !== "object" || inputSchema === undefined) return config;
-  const boundarySchema = inputSchema.catch(() => ({ [INVALID_TOOL_INPUT]: true }));
-  if ("shape" in inputSchema) {
-    Object.defineProperty(boundarySchema, "shape", {
-      configurable: false,
-      enumerable: false,
-      get: () => inputSchema.shape
-    });
-  }
+  const fallbackSchema = inputSchema.catch((context: { input: unknown }) => ({
+    [INVALID_TOOL_INPUT]: context.input
+  }));
+  const boundarySchema = new Proxy(inputSchema, {
+    get: (target, property) => {
+      if (property === "safeParse") return fallbackSchema.safeParse.bind(fallbackSchema);
+      if (property === "safeParseAsync") return fallbackSchema.safeParseAsync.bind(fallbackSchema);
+      if (property === "shape" && Reflect.get(target, property, target) === undefined) return {};
+      return Reflect.get(target, property, target) as unknown;
+    }
+  });
   return { ...config, inputSchema: boundarySchema };
 }
