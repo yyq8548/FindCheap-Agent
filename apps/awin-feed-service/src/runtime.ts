@@ -34,7 +34,7 @@ export async function startAwinFeedRuntime(
   };
   await controller.loadExisting();
   await offers?.loadExisting();
-  await controller.refresh().catch(() => {});
+  await controller.refresh().catch((error) => logFeedValidationFailure(controller, error));
   await offers?.refresh().catch(() => {});
   await refreshRegistries().catch(() => {});
   const server = createAwinFeedHttpServer(
@@ -50,7 +50,7 @@ export async function startAwinFeedRuntime(
   server.listen(environment.port, environment.host);
   await once(server, "listening");
   const timer = setInterval(() => {
-    void controller.refresh().catch(() => {});
+    void controller.refresh().catch((error) => logFeedValidationFailure(controller, error));
   }, environment.refreshIntervalMs);
   timer.unref();
   const offersTimer = offers === undefined ? undefined : setInterval(() => {
@@ -75,4 +75,13 @@ export async function startAwinFeedRuntime(
       }
     }
   };
+}
+
+function logFeedValidationFailure(
+  controller: ReturnType<typeof createAwinFeedController>,
+  error: unknown
+): void {
+  if (controller.getState().lastErrorCode !== "FEED_INVALID") return;
+  const message = error instanceof Error ? error.message : "unknown validation failure";
+  process.stderr.write(`[awin-feed-refresh] FEED_INVALID: ${message}\n`);
 }

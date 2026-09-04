@@ -256,6 +256,63 @@ describe("Awin Feed service", () => {
     });
   });
 
+  it("isolates an oversized source Feed and publishes the remaining validated snapshot", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "findcheap-awin-oversized-"));
+    directories.push(directory);
+    const validUrl = "https://productdata.awin.com/private/valid.csv.gz";
+    const oversizedUrl = "https://productdata.awin.com/private/oversized.csv.gz";
+    const validArchive = fixtureArchive();
+    const oversizedArchive = oversizedUncompressedArchive();
+    const controller = createAwinFeedController(parseAwinFeedServiceEnvironment({
+      AWIN_SOURCE_FEED_URL: validUrl,
+      AWIN_SOURCE_FEED_URL_2: oversizedUrl,
+      AWIN_FEED_API_TOKEN: "q".repeat(32),
+      AWIN_FEED_DATA_PATH: join(directory, "current.csv.gz")
+    }), {
+      fetch: async (input) => new Response(responseBody(String(input) === validUrl ? validArchive : oversizedArchive), {
+        status: 200,
+        headers: { "content-type": "application/gzip" }
+      }),
+      now: () => new Date("2026-08-25T06:00:00.000Z")
+    });
+
+    await controller.refresh();
+
+    expect(controller.getState()).toMatchObject({
+      snapshot: {
+        feedRows: 1,
+        sourceFeeds: 1,
+        excludedSourceFeeds: 1,
+        excludedSourceFeedReasons: { SOURCE_TOO_LARGE: 1 }
+      },
+      lastRefreshAt: "2026-08-25T06:00:00.000Z"
+    });
+    expect(controller.search({ query: "keratin mask", limit: 3 })?.products).toHaveLength(1);
+  });
+
+  it("fails closed when every source Feed is invalid", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "findcheap-awin-all-invalid-"));
+    directories.push(directory);
+    const controller = createAwinFeedController(parseAwinFeedServiceEnvironment({
+      AWIN_SOURCE_FEED_URL: "https://productdata.awin.com/private/oversized.csv.gz",
+      AWIN_FEED_API_TOKEN: "q".repeat(32),
+      AWIN_FEED_DATA_PATH: join(directory, "current.csv.gz")
+    }), {
+      fetch: async () => new Response(responseBody(oversizedUncompressedArchive()), { status: 200 }),
+      now: () => new Date("2026-08-25T06:00:00.000Z")
+    });
+
+    await expect(controller.refresh()).rejects.toThrow("Cannot create a Buffer larger than");
+    expect(controller.getState()).toMatchObject({
+      lastErrorCode: "FEED_INVALID",
+      lastErrorDetailCode: "SOURCE_TOO_LARGE",
+      lastAttemptSourceFeeds: 0,
+      lastAttemptExcludedSourceFeeds: 1,
+      lastAttemptExcludedSourceFeedReasons: { SOURCE_TOO_LARGE: 1 }
+    });
+    expect(controller.getState().snapshot).toBeUndefined();
+  });
+
   it("serves only authenticated snapshots and exposes bounded health metadata", async () => {
     const directory = await mkdtemp(join(tmpdir(), "findcheap-awin-http-"));
     directories.push(directory);
@@ -506,7 +563,8 @@ describe("Awin Feed service", () => {
 
     expect(controller.getState()).toMatchObject({
       lastErrorAt: "2026-08-22T02:00:00.000Z",
-      lastErrorCode: "SOURCE_HTTP_ERROR"
+      lastErrorCode: "SOURCE_HTTP_ERROR",
+      lastErrorDetailCode: "OTHER"
     });
     for (const sourceUrl of environment.sourceUrls) {
       expect(JSON.stringify(controller.getState())).not.toContain(sourceUrl);
@@ -556,6 +614,10 @@ function enhancedFixtureArchive(prices = ["19.99 USD"]): Buffer {
     ];
   });
   return gzipSync([header, ...rows].map((values) => values.map(csvCell).join(",")).join("\r\n"));
+}
+
+function oversizedUncompressedArchive(): Buffer {
+  return gzipSync("x".repeat(16 * 1024 * 1024 + 1));
 }
 
 function minimalFixtureArchive(overrides: {

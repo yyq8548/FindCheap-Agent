@@ -9,6 +9,29 @@ export const MAX_AWIN_PUBLIC_SEARCH_RESPONSE_BYTES = 256 * 1024;
 const MAX_SOURCE_UNCOMPRESSED_BYTES = 16 * 1024 * 1024;
 const MAX_MERGED_UNCOMPRESSED_BYTES = 48 * 1024 * 1024;
 const MAX_INDEXED_DESCRIPTION_CHARS = 512;
+const COMPACT_AWIN_HEADERS = [
+  "aw_deep_link",
+  "product_name",
+  "merchant_product_id",
+  "merchant_image_url",
+  "description",
+  "merchant_category",
+  "search_price",
+  "merchant_name",
+  "merchant_id",
+  "category_name",
+  "currency",
+  "merchant_deep_link",
+  "in_stock",
+  "brand_name",
+  "product_model",
+  "model_number",
+  "ean",
+  "upc",
+  "mpn",
+  "product_GTIN",
+  "condition"
+] as const;
 const DEFAULT_FEED_NAME = "datafeed_3047955.csv.gz";
 const APPROVED_PUBLISHER_ID = "3047955";
 const APPROVED_AFFILIATE_HOST = "www.awin1.com";
@@ -188,17 +211,12 @@ export function mergeAwinFeedArchives(
   } = {}
 ): Uint8Array {
   if (archives.length === 0) throw new Error("at least one Awin Feed is required");
+  if (options.compactRecords === true) return mergeCompactAwinFeedArchives(archives, options);
   const records: Array<Record<string, string>> = [];
   for (const archive of archives) {
-    if (archive.byteLength > MAX_AWIN_COMPRESSED_BYTES) throw new Error("AWIN_FEED_TOO_LARGE");
-    const feed = parseAwinCsv(
-      gunzipSync(archive, { maxOutputLength: MAX_SOURCE_UNCOMPRESSED_BYTES }).toString("utf8")
-    );
-    for (const record of feed.records) {
-      const normalized = normalizeAwinFeedRecord(record, options.defaultCurrency);
-      const compacted = options.compactRecords === true ? compactAwinFeedRecord(normalized) : normalized;
-      if (compacted !== undefined) records.push(compacted);
-    }
+    visitAwinArchiveRecords(archive, (record) => {
+      records.push(normalizeAwinFeedRecord(record, options.defaultCurrency));
+    });
   }
   if (options.canonicalizeMerchantNames === true) {
     const merchantNames = new Map<string, string>();
@@ -235,6 +253,54 @@ export function mergeAwinFeedArchives(
   csv = "";
   if (merged.byteLength > MAX_AWIN_COMPRESSED_BYTES) throw new Error("AWIN_FEED_TOO_LARGE");
   return merged;
+}
+
+function mergeCompactAwinFeedArchives(
+  archives: readonly Uint8Array[],
+  options: { defaultCurrency?: "USD"; canonicalizeMerchantNames?: boolean }
+): Uint8Array {
+  const header = COMPACT_AWIN_HEADERS.map(csvCell).join(",");
+  const lines = [header];
+  let csvBytes = Buffer.byteLength(header, "utf8");
+  const merchantNames = new Map<string, string>();
+  const productKeys = new Set<string>();
+  for (const archive of archives) {
+    visitAwinArchiveRecords(archive, (record) => {
+      const compacted = compactAwinFeedRecord(normalizeAwinFeedRecord(record, options.defaultCurrency));
+      if (compacted === undefined) return;
+      const merchantId = requireValue(compacted, "merchant_id");
+      if (options.canonicalizeMerchantNames === true) {
+        const merchantName = requireValue(compacted, "merchant_name");
+        const canonicalName = merchantNames.get(merchantId) ?? merchantName;
+        merchantNames.set(merchantId, canonicalName);
+        compacted.merchant_name = canonicalName;
+      }
+      const productKey = `${merchantId}:${requireValue(compacted, "merchant_product_id")}`;
+      if (productKeys.has(productKey)) throw new Error("duplicate Awin merchant product across source Feeds");
+      productKeys.add(productKey);
+      const line = COMPACT_AWIN_HEADERS.map((column) => csvCell(compacted[column] ?? "")).join(",");
+      csvBytes += 2 + Buffer.byteLength(line, "utf8");
+      if (csvBytes > MAX_MERGED_UNCOMPRESSED_BYTES) throw new Error("AWIN_FEED_TOO_LARGE");
+      lines.push(line);
+    });
+  }
+  if (lines.length === 1) throw new Error("Awin Feed contained no eligible products");
+  let csv = lines.join("\r\n");
+  const merged = gzipSync(csv);
+  lines.length = 0;
+  csv = "";
+  if (merged.byteLength > MAX_AWIN_COMPRESSED_BYTES) throw new Error("AWIN_FEED_TOO_LARGE");
+  return merged;
+}
+
+function visitAwinArchiveRecords(
+  archive: Uint8Array,
+  consumeRecord: (record: Record<string, string>) => void
+): void {
+  if (archive.byteLength > MAX_AWIN_COMPRESSED_BYTES) throw new Error("AWIN_FEED_TOO_LARGE");
+  let csv = gunzipSync(archive, { maxOutputLength: MAX_SOURCE_UNCOMPRESSED_BYTES }).toString("utf8");
+  visitAwinCsv(csv, consumeRecord);
+  csv = "";
 }
 
 function compactAwinFeedRecord(record: Record<string, string>): Record<string, string> | undefined {
@@ -308,8 +374,16 @@ export function parseAwinCsv(document: string): {
   headers: string[];
   records: Array<Record<string, string>>;
 } {
-  let headers: string[] | undefined;
   const records: Array<Record<string, string>> = [];
+  const headers = visitAwinCsv(document, (record) => records.push(record));
+  return { headers, records };
+}
+
+function visitAwinCsv(
+  document: string,
+  consumeRecord: (record: Record<string, string>) => void
+): string[] {
+  let headers: string[] | undefined;
   let row: string[] = [];
   let field = "";
   let quoted = false;
@@ -321,7 +395,7 @@ export function parseAwinCsv(document: string): {
       if (new Set(headers).size !== headers.length) throw new Error("duplicate Awin CSV header");
       return;
     }
-    records.push(Object.fromEntries(headers.map((header, index) => [header, values[index] ?? ""])));
+    consumeRecord(Object.fromEntries(headers.map((header, index) => [header, values[index] ?? ""])));
   };
   for (let index = 0; index < document.length; index += 1) {
     const character = document[index]!;
@@ -356,7 +430,7 @@ export function parseAwinCsv(document: string): {
   row.push(field.replace(/\r$/u, ""));
   consumeRow(row);
   if (headers === undefined || headers.length === 0) throw new Error("missing Awin CSV header");
-  return { headers, records };
+  return headers;
 }
 
 type ObservedMerchant = { name: string };
@@ -438,21 +512,18 @@ function parseArchive(
 ): { feedRows: number; parsed: IndexedProduct[] } {
   if (compressed.byteLength > MAX_AWIN_COMPRESSED_BYTES) throw new Error("AWIN_FEED_TOO_LARGE");
   let csv = gunzipSync(compressed, { maxOutputLength: MAX_MERGED_UNCOMPRESSED_BYTES }).toString("utf8");
-  const rows = parseAwinCsv(csv);
-  csv = "";
-  const feedRows = rows.records.length;
+  let feedRows = 0;
   const observedMerchants = new Map<string, ObservedMerchant>();
   const parsed: IndexedProduct[] = [];
-  for (let index = 0; index < feedRows; index += 1) {
-    const record = rows.records[index]!;
-    rows.records[index] = undefined as never;
+  visitAwinCsv(csv, (record) => {
+    feedRows += 1;
     try {
       parsed.push(toProduct(record, checkedAt, observedMerchants));
     } catch {
       // Invalid products are reported through rejectedRows.
     }
-  }
-  rows.records.length = 0;
+  });
+  csv = "";
   return { feedRows, parsed };
 }
 

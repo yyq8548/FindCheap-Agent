@@ -37,6 +37,8 @@ type FeedSnapshot = {
   snapshotAt: string;
   feedRows: number;
   sourceFeeds: number;
+  excludedSourceFeeds: number;
+  excludedSourceFeedReasons: Partial<Record<FeedErrorDetailCode, number>>;
 };
 
 type FeedState = {
@@ -44,7 +46,26 @@ type FeedState = {
   lastRefreshAt?: string;
   lastErrorAt?: string;
   lastErrorCode?: "SOURCE_REQUEST_FAILED" | "SOURCE_HTTP_ERROR" | "SOURCE_READ_FAILED" | "FEED_LIST_INVALID" | "FEED_INVALID" | "STORAGE_WRITE_FAILED";
+  lastErrorDetailCode?: FeedErrorDetailCode;
+  lastAttemptSourceFeeds?: number;
+  lastAttemptExcludedSourceFeeds?: number;
+  lastAttemptExcludedSourceFeedReasons?: Partial<Record<FeedErrorDetailCode, number>>;
 };
+
+type FeedErrorDetailCode =
+  | "SOURCE_TIMEOUT"
+  | "SOURCE_TOO_LARGE"
+  | "DUPLICATE_PRODUCT_KEY"
+  | "INVALID_ENHANCED_PRICE"
+  | "CSV_INVALID"
+  | "MISSING_REQUIRED_FIELD"
+  | "INVALID_MERCHANT"
+  | "UNSUPPORTED_CURRENCY"
+  | "INCONSISTENT_MERCHANT_IDENTITY"
+  | "UNAPPROVED_PRODUCT_URL"
+  | "INVALID_PRICE"
+  | "INDEX_VALIDATION_FAILED"
+  | "OTHER";
 
 type Dependencies = {
   fetch?: typeof fetch;
@@ -79,12 +100,24 @@ export function createAwinFeedController(
   };
   const runRefresh = async (): Promise<void> => {
     let failureCode: NonNullable<FeedState["lastErrorCode"]> = "SOURCE_REQUEST_FAILED";
+    delete state.lastAttemptSourceFeeds;
+    delete state.lastAttemptExcludedSourceFeeds;
+    delete state.lastAttemptExcludedSourceFeedReasons;
     try {
       if (environment.sourceFeedListUrl !== undefined) failureCode = "FEED_LIST_INVALID";
       const sourceUrls = environment.sourceFeedListUrl === undefined
         ? environment.sourceUrls
         : await discoverJoinedFeedUrls(environment, fetchRequest);
+      const mergeOptions = environment.sourceFeedListUrl === undefined
+        ? {}
+        : {
+            ...(environment.sourceFeedRegion === "US" ? { defaultCurrency: "USD" as const } : {}),
+            canonicalizeMerchantNames: true,
+            compactRecords: true
+          };
       const sourceArchives: Uint8Array[] = [];
+      const excludedSourceFeedReasons: Partial<Record<FeedErrorDetailCode, number>> = {};
+      let firstSourceValidationError: unknown;
       for (const sourceUrl of sourceUrls) {
         const response = await fetchRequest(sourceUrl, {
           method: "GET",
@@ -97,34 +130,50 @@ export function createAwinFeedController(
           throw new Error(`Awin source returned HTTP ${response.status}`);
         }
         failureCode = "SOURCE_READ_FAILED";
-        sourceArchives.push(await readLimitedBody(
+        const sourceArchive = await readLimitedBody(
           response,
           MAX_AWIN_COMPRESSED_BYTES,
           "Awin source"
-        ));
+        );
+        try {
+          const normalizedArchive = mergeAwinFeedArchives([sourceArchive], mergeOptions);
+          sourceArchives.push(normalizedArchive);
+        } catch (error) {
+          firstSourceValidationError ??= error;
+          const reasonCode = feedErrorDetailCode(error);
+          excludedSourceFeedReasons[reasonCode] = (excludedSourceFeedReasons[reasonCode] ?? 0) + 1;
+        }
       }
+      state.lastAttemptSourceFeeds = sourceArchives.length;
+      state.lastAttemptExcludedSourceFeeds = sourceUrls.length - sourceArchives.length;
+      state.lastAttemptExcludedSourceFeedReasons = excludedSourceFeedReasons;
       const snapshotAt = validDate(now()).toISOString();
       failureCode = "FEED_INVALID";
-      const archive = mergeAwinFeedArchives(
-        sourceArchives,
-        environment.sourceFeedListUrl === undefined
-          ? {}
-          : {
-              ...(environment.sourceFeedRegion === "US" ? { defaultCurrency: "USD" as const } : {}),
-              canonicalizeMerchantNames: true,
-              compactRecords: true
-            }
+      if (sourceArchives.length === 0) {
+        throw firstSourceValidationError ?? new Error("at least one valid Awin Feed is required");
+      }
+      const archive = mergeAwinFeedArchives(sourceArchives, mergeOptions);
+      const snapshot = validatedSnapshot(
+        archive,
+        snapshotAt,
+        sourceArchives.length,
+        sourceUrls.length - sourceArchives.length,
+        excludedSourceFeedReasons
       );
-      const snapshot = validatedSnapshot(archive, snapshotAt, sourceUrls.length);
       failureCode = "STORAGE_WRITE_FAILED";
       await writeArchiveAtomically(environment.dataPath, archive);
       state.snapshot = snapshot;
       state.lastRefreshAt = snapshotAt;
       delete state.lastErrorAt;
       delete state.lastErrorCode;
+      delete state.lastErrorDetailCode;
+      delete state.lastAttemptSourceFeeds;
+      delete state.lastAttemptExcludedSourceFeeds;
+      delete state.lastAttemptExcludedSourceFeedReasons;
     } catch (error) {
       state.lastErrorAt = validDate(now()).toISOString();
       state.lastErrorCode = failureCode;
+      state.lastErrorDetailCode = feedErrorDetailCode(error);
       throw error;
     }
   };
@@ -500,15 +549,57 @@ function feedMetadata(state: Readonly<FeedState>): Record<string, unknown> {
       : {
           snapshotAt: state.snapshot.snapshotAt,
           feedRows: state.snapshot.feedRows,
-          sourceFeeds: state.snapshot.sourceFeeds
+          sourceFeeds: state.snapshot.sourceFeeds,
+          excludedSourceFeeds: state.snapshot.excludedSourceFeeds,
+          ...(state.snapshot.excludedSourceFeeds === 0
+            ? {}
+            : { excludedSourceFeedReasons: state.snapshot.excludedSourceFeedReasons })
         }),
     ...(state.lastRefreshAt === undefined ? {} : { lastRefreshAt: state.lastRefreshAt }),
     ...(state.lastErrorAt === undefined ? {} : { lastErrorAt: state.lastErrorAt }),
-    ...(state.lastErrorCode === undefined ? {} : { lastErrorCode: state.lastErrorCode })
+    ...(state.lastErrorCode === undefined ? {} : { lastErrorCode: state.lastErrorCode }),
+    ...(state.lastErrorDetailCode === undefined ? {} : { lastErrorDetailCode: state.lastErrorDetailCode }),
+    ...(state.lastAttemptSourceFeeds === undefined ? {} : { lastAttemptSourceFeeds: state.lastAttemptSourceFeeds }),
+    ...(state.lastAttemptExcludedSourceFeeds === undefined
+      ? {}
+      : { lastAttemptExcludedSourceFeeds: state.lastAttemptExcludedSourceFeeds }),
+    ...(state.lastAttemptExcludedSourceFeedReasons === undefined
+      ? {}
+      : { lastAttemptExcludedSourceFeedReasons: state.lastAttemptExcludedSourceFeedReasons })
   };
 }
 
-function validatedSnapshot(archive: Uint8Array, snapshotAt: string, sourceFeeds: number): FeedSnapshot {
+function feedErrorDetailCode(error: unknown): FeedErrorDetailCode {
+  const message = error instanceof Error ? error.message : "";
+  if (message.includes("aborted due to timeout")) return "SOURCE_TIMEOUT";
+  if (
+    message === "AWIN_FEED_TOO_LARGE" ||
+    message.includes("is too large") ||
+    message.startsWith("Cannot create a Buffer larger than")
+  ) return "SOURCE_TOO_LARGE";
+  if (message === "duplicate Awin merchant product across source Feeds") return "DUPLICATE_PRODUCT_KEY";
+  if (message === "invalid enhanced Awin price") return "INVALID_ENHANCED_PRICE";
+  if (["duplicate Awin CSV header", "invalid quoted CSV field", "missing Awin CSV header"].includes(message)) return "CSV_INVALID";
+  if (message.startsWith("missing Awin field:")) return "MISSING_REQUIRED_FIELD";
+  if (message === "invalid Awin merchant ID" || message === "invalid Awin merchant name") return "INVALID_MERCHANT";
+  if (message === "unsupported Awin currency") return "UNSUPPORTED_CURRENCY";
+  if (message === "inconsistent Awin merchant identity") return "INCONSISTENT_MERCHANT_IDENTITY";
+  if (["Awin link does not match approved relationship", "unapproved Awin URL", "unapproved Awin merchant URL", "invalid Awin image URL"].includes(message)) return "UNAPPROVED_PRODUCT_URL";
+  if (message === "invalid Awin USD price" || message === "Awin USD price out of range") return "INVALID_PRICE";
+  if (
+    message === "Awin Feed failed approved merchant validation" ||
+    message === "Awin Feed contained no eligible products"
+  ) return "INDEX_VALIDATION_FAILED";
+  return "OTHER";
+}
+
+function validatedSnapshot(
+  archive: Uint8Array,
+  snapshotAt: string,
+  sourceFeeds: number,
+  excludedSourceFeeds = 0,
+  excludedSourceFeedReasons: Partial<Record<FeedErrorDetailCode, number>> = {}
+): FeedSnapshot {
   const index = createAwinFeedIndex(archive, snapshotAt);
   const productKeys = new Set<string>();
   for (const product of index.products) {
@@ -522,7 +613,15 @@ function validatedSnapshot(archive: Uint8Array, snapshotAt: string, sourceFeeds:
   ) {
     throw new Error("Awin Feed failed approved merchant validation");
   }
-  return { archive, index, snapshotAt, feedRows: index.feedRows, sourceFeeds };
+  return {
+    archive,
+    index,
+    snapshotAt,
+    feedRows: index.feedRows,
+    sourceFeeds,
+    excludedSourceFeeds,
+    excludedSourceFeedReasons
+  };
 }
 
 function etagMatches(requestValue: string | undefined, currentValue: string): boolean {
