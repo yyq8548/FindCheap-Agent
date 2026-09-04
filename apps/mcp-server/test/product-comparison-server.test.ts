@@ -161,6 +161,58 @@ describe("product comparison MCP flow", () => {
     expect(rendered.structuredContent).toEqual(compared.structuredContent);
   });
 
+  it("resolves card selections synced by the UI from the same render snapshot", async () => {
+    const client = await connect();
+    const found = await client.callTool({
+      name: "search_products",
+      arguments: { query: "Valhalla Java pods", limit: 2 }
+    });
+    const snapshot = found.structuredContent as {
+      renderId: string;
+      products: Array<{ selectionId: string }>;
+    };
+    const selectionIds = snapshot.products.map((product) => product.selectionId);
+
+    const synced = await client.callTool({
+      name: "sync_product_card_selection",
+      arguments: { renderId: snapshot.renderId, selectionIds, revision: 2 }
+    });
+    expect(synced.structuredContent).toEqual({ status: "RECORDED", selectedCount: 2 });
+    const stale = await client.callTool({
+      name: "sync_product_card_selection",
+      arguments: { renderId: snapshot.renderId, selectionIds: [selectionIds[0]], revision: 1 }
+    });
+    expect(stale.structuredContent).toEqual({ status: "IGNORED", selectedCount: 2 });
+
+    const compared = await client.callTool({
+      name: "compare_selected_products",
+      arguments: { renderId: snapshot.renderId, responseLocale: "zh-CN" }
+    });
+    expect(compared.structuredContent).toMatchObject({
+      status: "OK",
+      renderId: snapshot.renderId,
+      locale: "zh-CN",
+      entries: [{ selectionId: selectionIds[0] }, { selectionId: selectionIds[1] }]
+    });
+  });
+
+  it("rejects foreign UI selections and missing synced choices", async () => {
+    const client = await connect();
+    const first = await client.callTool({ name: "search_products", arguments: { query: "Valhalla Java pods", limit: 2 } });
+    const second = await client.callTool({ name: "search_products", arguments: { query: "Valhalla Java pods", limit: 2 } });
+    const firstSnapshot = first.structuredContent as { renderId: string };
+    const foreignId = (second.structuredContent as { products: Array<{ selectionId: string }> }).products[0]!.selectionId;
+
+    expect((await client.callTool({
+      name: "sync_product_card_selection",
+      arguments: { renderId: firstSnapshot.renderId, selectionIds: [foreignId], revision: 1 }
+    })).isError).toBe(true);
+    expect((await client.callTool({
+      name: "compare_selected_products",
+      arguments: { renderId: firstSnapshot.renderId }
+    })).structuredContent).toMatchObject({ status: "SELECTION_UNAVAILABLE", entries: [] });
+  });
+
   it("quotes same-snapshot selections and compares delivered totals server-side", async () => {
     const checkedAt = "2026-09-03T06:05:00.000Z";
     const expiresAt = "2026-09-03T06:15:00.000Z";

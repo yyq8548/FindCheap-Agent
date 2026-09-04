@@ -1,9 +1,9 @@
 ---
 name: compare-products
-description: Live shopping. Initial search: load first; one localized line, then tool. No plan/Memory/repo/logs.
+description: Live shopping. Initial search: load, one localized line, tool. No plan/Memory/repo/logs.
 ---
 
-# FindCheap Agent v0.17.8 Product Search
+# FindCheap Agent v0.17.9 Product Search
 
 Search/Chrome: R0; ZIP quote: R1. Never checkout/reserve/buy/pay/persist/request address.
 
@@ -17,11 +17,11 @@ Search/Chrome: R0; ZIP quote: R1. Never checkout/reserve/buy/pay/persist/request
 6. `SAME_PRODUCT` needs identity; `DISCOVERY_ONLY` is not like-for-like. `POSSIBLE_SAME_ITEM`: model/style or type+brand+3 hard clues. `HIGHLY_SIMILAR`: type+2 hard clues. Both require no conflict. `SAME_STYLE`: requested alternatives. Never `EXACT` without stable identity. Max one `NEEDS_CLARIFICATION` question.
 
 ## Selected product
-`search_products` is forbidden; never title-search. Cards support 2–4 selection and `Compare selected`. Without IDs, never call with `[]`, invent/ask IDs, or claim controls missing; say use `Compare selected`. With IDs, call `compare_selected_products` once using same-snapshot IDs, locale, `AUTO`; omit ordinary `focus`, max 3. Totals: `not quoted: provide ZIP` when supported; `quote unsupported: merchant checkout only` otherwise. Image failure=`loading failed`, not reference rejection. Use comparison ZIP action; never recover IDs. Call `quote_and_compare_selected_products` once. Server owns facts/prices/recommendation; never create a manual table or call `render_product_comparison`.
+`search_products` forbidden; never title-search. User references to selected or numbered cards are actionable. Selected: `compare_selected_products` once with prior `renderId`; execution resolves synced snapshot IDs. First/second: selected tool with prior `renderId` + one-based `position`. Never claim selection arrived unless tool succeeds; missing state: report unavailable, never ask IDs/repeat clicks. Locale, `AUTO`; omit normal `focus`, max 3. `not quoted`: ask ZIP if supported; `quote unsupported`: merchant checkout only. Comparison ZIP: `quote_and_compare_selected_products` once with `renderId`. Server owns facts/prices/recommendation; never create manual table or call `render_product_comparison`.
 
-- Size/color/stock: call `inspect_selected_shopify_product` once with `selectionId` and `variantDimensions`.
-- One-product total: ask missing ZIP; call `quote_selected_shopify_product` once when supported. For `MERCHANT_CHECKOUT_ONLY`, do not ask for ZIP; checkout finalizes total.
-- Deals: `research_selected_product_deal` with `selectionId`. Show best Coupon first: code/benefit; scope—customer, products, exclusions. Blank line; list all deals below. Numeric discount may show estimated price only for confirmed product ID/terms. Checkout confirms scope/stacking/final amount. No history/forecast/Watch.
+- Size/color/stock: `inspect_selected_shopify_product` once with exact reference and `variantDimensions`.
+- One-product total: ask missing ZIP; call `quote_selected_shopify_product` once when supported. For `MERCHANT_CHECKOUT_ONLY`, no ZIP; checkout finalizes total.
+- Deals: `research_selected_product_deal` with exact reference. Show best Coupon first: code/benefit; scope—customer, products, exclusions. Blank line; list all deals below. Numeric discount may show estimated price only for confirmed product ID/terms. Checkout confirms scope/stacking/final amount. No history/forecast/Watch.
 - On quote error, explain returned code; offer checkout or existing card. Never invent total or search replacement.
 - Expired reference: report failure and require one new user-initiated search.
 

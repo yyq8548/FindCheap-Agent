@@ -91,6 +91,7 @@ describe("installed plugin stdio", () => {
         "pause_watch",
         "delete_watch",
         "render_product_cards",
+        "sync_product_card_selection",
         "report_product_card_metrics"
       ]);
       const shopifyTool = tools.tools.find((tool) => tool.name === "search_products");
@@ -201,6 +202,7 @@ describe("installed plugin stdio", () => {
         "findcheap/errorCode": "TOOL_REQUEST_REJECTED"
       });
       expect(Object.keys(quoteTool?.inputSchema.properties ?? {}).sort()).toEqual([
+        "position",
         "renderId",
         "selectionId",
         "variantId",

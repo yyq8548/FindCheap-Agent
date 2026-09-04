@@ -115,6 +115,8 @@ export type { WatchStore } from "./watch-store.js";
 export type { AwinProductPort } from "../../../packages/awin-feed/src/index.js";
 
 const SelectionIdSchema = z.string().uuid();
+const ProductPositionSchema = z.number().int().min(1).max(MAX_PRODUCT_CARDS)
+  .describe("One-based position in the immutable product list returned by search_products.");
 const VisualSessionIdSchema = z.string().uuid();
 export type { ProductCardTelemetry, ProductCardTelemetrySink } from "./product-card-telemetry.js";
 
@@ -126,6 +128,15 @@ export const MAX_VISUAL_SEARCH_SNAPSHOTS = 32;
 export const MAX_VISUAL_CANDIDATES = 6;
 export const MAX_RELAXED_VISUAL_CANDIDATES = 3;
 export const MAX_VISUAL_CANDIDATE_OUTPUT_DATA_CHARS = 400_000;
+
+const ProductCardSelectionInputSchema = z.object({
+  renderId: z.string().uuid(),
+  selectionIds: z.array(SelectionIdSchema).max(4).refine(
+    (values) => new Set(values).size === values.length,
+    { message: "selectionIds must contain unique values" }
+  ),
+  revision: z.number().int().min(1).max(1_000_000)
+}).strict();
 
 function uniqueVisualTerms(values: Array<string | undefined>): string[] {
   return [...new Set(values
@@ -299,13 +310,36 @@ export const ShopifyProductsInputSchema = ShopifyProductsToolInputSchema;
 const ShopifySelectedQuoteInputSchema = z.object({
   selectionId: SelectionIdSchema.optional(),
   renderId: z.string().uuid().optional(),
+  position: ProductPositionSchema.optional(),
   variantId: z.string().regex(/^[A-Za-z0-9._:-]{1,100}$/u).optional(),
   zipCode: z.string().regex(/^\d{5}(?:-\d{4})?$/u),
 }).strict();
 
-const QuotedProductComparisonInputSchema = ProductComparisonInputSchema.extend({
+const ProductComparisonToolInputBaseSchema = ProductComparisonInputSchema
+  .omit({ selectionIds: true })
+  .extend({
+    selectionIds: ProductComparisonInputSchema.shape.selectionIds.optional(),
+    renderId: z.string().uuid().optional()
+  })
+  .strict();
+
+function validateComparisonSelector(
+  value: { selectionIds?: string[] | undefined; renderId?: string | undefined },
+  context: z.RefinementCtx
+): void {
+  if ((value.selectionIds === undefined) === (value.renderId === undefined)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "provide either selectionIds or renderId"
+    });
+  }
+}
+
+const ProductComparisonToolInputSchema = ProductComparisonToolInputBaseSchema.superRefine(validateComparisonSelector);
+
+const QuotedProductComparisonInputSchema = ProductComparisonToolInputBaseSchema.extend({
   zipCode: z.string().regex(/^\d{5}(?:-\d{4})?$/u)
-});
+}).superRefine(validateComparisonSelector);
 
 export const VisualCandidateSearchInputSchema = SearchProductsInputSchema
   .omit({ limit: true })
@@ -350,7 +384,9 @@ export const FinalizeVisualSearchInputSchema = z.object({
 }).strict();
 
 const DealConciergeInputSchema = z.object({
-  selectionId: SelectionIdSchema,
+  selectionId: SelectionIdSchema.optional(),
+  renderId: z.string().uuid().optional(),
+  position: ProductPositionSchema.optional(),
   zipCode: z.string().regex(/^\d{5}(?:-\d{4})?$/u).optional(),
   membershipIds: MembershipIdsSchema.optional(),
   objective: z.enum(["CURRENT_DEALS", "CHEAPEST_PATH"]).default("CURRENT_DEALS")
@@ -407,6 +443,7 @@ function quoteFailureMessage(code: ShopifyQuoteFailureCode): string {
 const ShopifySelectedProductInputSchema = z.object({
   selectionId: SelectionIdSchema.optional(),
   renderId: z.string().uuid().optional(),
+  position: ProductPositionSchema.optional(),
   variantId: z.string().regex(/^\d{1,30}$/u).optional(),
   variantDimensions: z.record(
     z.string().trim().min(1).max(100),
@@ -1943,6 +1980,7 @@ export function createShoppingServer(
   };
   const watchChecks = new Map<string, Promise<WatchEvaluation>>();
   const selections = new Map<string, { renderId: string; variantId: string }>();
+  const cardSelections = new Map<string, { revision: number; selectionIds: string[] }>();
   const renderSnapshots = new Map<string, {
     expiresAt: number;
     content: ProductCardContent & { renderId: string };
@@ -1969,6 +2007,7 @@ export function createShoppingServer(
         if (product.selectionId !== undefined) selections.delete(product.selectionId);
       }
     }
+    cardSelections.delete(renderId);
     renderSnapshots.delete(renderId);
   };
   const preflightQuoteCapabilities = async (content: ProductCardContent) => {
@@ -2066,12 +2105,25 @@ export function createShoppingServer(
   const resolveSelectionReference = (reference: {
     selectionId?: string | undefined;
     renderId?: string | undefined;
+    position?: number | undefined;
     variantId?: string | undefined;
-  }) => reference.selectionId !== undefined
-    ? selections.get(reference.selectionId)
-    : reference.renderId !== undefined && reference.variantId !== undefined
-      ? { renderId: reference.renderId, variantId: reference.variantId }
-      : undefined;
+  }) => {
+    if (reference.selectionId !== undefined) return selections.get(reference.selectionId);
+    if (reference.renderId === undefined) return undefined;
+    if (reference.position !== undefined) {
+      const product = renderSnapshots.get(reference.renderId)?.content.products[reference.position - 1];
+      return product === undefined ? undefined : { renderId: reference.renderId, variantId: product.handle };
+    }
+    return reference.variantId === undefined
+      ? undefined
+      : { renderId: reference.renderId, variantId: reference.variantId };
+  };
+  const resolveComparisonSelectionIds = (input: {
+    selectionIds?: string[] | undefined;
+    renderId?: string | undefined;
+  }): string[] | undefined => input.selectionIds ?? (
+    input.renderId === undefined ? undefined : cardSelections.get(input.renderId)?.selectionIds
+  );
   const recoverableQuoteResult = (
     snapshot: (typeof renderSnapshots extends Map<string, infer T> ? T : never),
     selectedHandle: string,
@@ -2308,7 +2360,7 @@ export function createShoppingServer(
     "search_products",
     {
       title: "FindCheap",
-      description: "For an initial text search, after the required Skill is loaded, match current user-message language and use exactly one progress sentence before this tool: English 'Searching for suitable products.'; Chinese '正在搜索合适商品。'. Selected-product follow-ups do not use that generic sentence. Never output a plan or read Memory, Skill files, repository files, logs, task files, or plugin caches. Text-only product-search entrypoint; call once. A tool error is not a zero-result search; report the returned safe error honestly. For a newly attached image use search_visual_candidates and then finalize_visual_search instead. Always pass responseLocale from the user's current message, even when query is translated into English for catalog retrieval. Keep query focused on product identity; pass use, budget, and size only in their typed fields. Pass family in productType, explicit brand in brand with brandMode=REQUIRED, objective must-have attributes in requiredFeatures, explicit disqualifiers in excludedFeatures, and preferences in preferences. One requiredFeatures entry may contain explicitly acceptable alternatives separated by 'or' and must stay under 160 characters. Pass primaryUse, preferredSize, requiredSize, maxItemPriceCents, or budgetFlexible only when the user states them; never infer them. A size explicitly required or selected from the clarification belongs in requiredSize; use preferredSize only when the user says it is flexible or merely preferred. Broad high-variance products return one clarification before source search when decision constraints are missing. Full-size or large-package requests exclude sample, trial-size, and tester products. Never put a brand in productType or requiredFeatures. Use CONTINUE_PREVIOUS_PRODUCT when the user adds budget, use, size, or constraints; CORRECT_PREVIOUS_PRODUCT only for changed identity; NEW_PRODUCT for a different shopping goal. Missing soft evidence remains a limitation-labeled DISCOVERY_MATCH; hard conflicts exclude. Return at most 8 cards in three display tiers: 2 verified official-store matches, 3 trusted high matches, and 3 best-value high matches. Display tier never determines the primary choice; render the backend-selected primary recommendation first. When recommendation.state is READY, recommend only recommendation.primarySelectionId; otherwise recommend none. Equivalent fit and trust prefer a confirmed after-Coupon price, then the raw item price; merchant-level or unconfirmed offers never override a lower price. Use selectionMode=LOWEST_PRICE only when requested; it never collapses the three display tiers. maxItemPriceCents is a ceiling, never a spending target. If every merchant is unverified, show research leads but recommend none for purchase. Never recommend a product absent from returned cards. Commercial relationships never affect relevance or ranking. Reuse selectionId for follow-ups, never print it, and never search a selected title again.",
+      description: "For an initial text search, after the required Skill is loaded, match current user-message language and use exactly one progress sentence before this tool: English 'Searching for suitable products.'; Chinese '正在搜索合适商品。'. Selected-product follow-ups do not use that generic sentence. Never output a plan or read Memory, Skill files, repository files, logs, task files, or plugin caches. Text-only product-search entrypoint; call once. A tool error is not a zero-result search; report the returned safe error honestly. For a newly attached image use search_visual_candidates and then finalize_visual_search instead. Always pass responseLocale from the user's current message, even when query is translated into English for catalog retrieval. Keep query focused on product identity; pass use, budget, and size only in their typed fields. Pass family in productType, explicit brand in brand with brandMode=REQUIRED, objective must-have attributes in requiredFeatures, explicit disqualifiers in excludedFeatures, and preferences in preferences. One requiredFeatures entry may contain explicitly acceptable alternatives separated by 'or' and must stay under 160 characters. Pass primaryUse, preferredSize, requiredSize, maxItemPriceCents, or budgetFlexible only when the user states them; never infer them. A size explicitly required or selected from the clarification belongs in requiredSize; use preferredSize only when the user says it is flexible or merely preferred. Broad high-variance products return one clarification before source search when decision constraints are missing. Full-size or large-package requests exclude sample, trial-size, and tester products. Never put a brand in productType or requiredFeatures. Use CONTINUE_PREVIOUS_PRODUCT when the user adds budget, use, size, or constraints; CORRECT_PREVIOUS_PRODUCT only for changed identity; NEW_PRODUCT for a different shopping goal. Missing soft evidence remains a limitation-labeled DISCOVERY_MATCH; hard conflicts exclude. Return at most 8 cards in three display tiers: 2 verified official-store matches, 3 trusted high matches, and 3 best-value high matches. Display tier never determines the primary choice; render the backend-selected primary recommendation first. When recommendation.state is READY, recommend only recommendation.primarySelectionId; otherwise recommend none. Equivalent fit and trust prefer a confirmed after-Coupon price, then the raw item price; merchant-level or unconfirmed offers never override a lower price. Use selectionMode=LOWEST_PRICE only when requested; it never collapses the three display tiers. maxItemPriceCents is a ceiling, never a spending target. If every merchant is unverified, show research leads but recommend none for purchase. Never recommend a product absent from returned cards. Commercial relationships never affect relevance or ranking. Reuse selectionId for exact follow-ups; use renderId for UI-synced choices and renderId plus one-based position for ordinal references. Never print IDs or search a selected title again.",
       inputSchema: SearchProductsInputSchema,
       outputSchema: ShopifyProductsOutputShape,
       annotations: {
@@ -2773,7 +2825,7 @@ export function createShoppingServer(
     "inspect_selected_shopify_product",
     {
       title: "Inspect a selected Shopify product",
-      description: "Check size, color, other variants, or current availability for exactly one native Shopify catalog product returned by search_products. Never call this when the current turn includes a newly attached image; that image starts NEW_PRODUCT through search_visual_candidates. Pass selectionId directly; never scan task history, session files, or run another catalog search. Awin cards can be quoted when supported but cannot use this variant-inspection tool.",
+      description: "Check size, color, other variants, or current availability for exactly one native Shopify catalog product returned by search_products. Use selectionId, or use renderId plus one-based position for a user reference such as 'the first product'. Never call this when the current turn includes a newly attached image; that image starts NEW_PRODUCT through search_visual_candidates. Never scan task history, guess by title, or run another catalog search. Awin cards can be quoted when supported but cannot use this variant-inspection tool.",
       inputSchema: ShopifySelectedProductInputSchema,
       outputSchema: ShopifySelectedProductOutputShape,
       annotations: {
@@ -2913,7 +2965,7 @@ export function createShoppingServer(
     "quote_selected_shopify_product",
     {
       title: "Quote a selected product",
-      description: "Call only when the selected card is DELIVERED_TOTAL_SUPPORTED or ZIP_ESTIMATE_ONLY and the user supplied a ZIP. Never call this when the current turn includes a newly attached image; that image starts NEW_PRODUCT through search_visual_candidates. If ZIP is missing, ask only for ZIP. For MERCHANT_CHECKOUT_ONLY, do not ask for ZIP and do not call this tool; explain that shipping, tax, and final total require merchant checkout. Quote exactly one prior selectionId without Memory, repo scans, plan narration, title search, or street-address request.",
+      description: "Call only when the referenced card is DELIVERED_TOTAL_SUPPORTED or ZIP_ESTIMATE_ONLY and the user supplied a ZIP. Use selectionId, or use renderId plus one-based position for a user reference such as 'the first product'. Never call this when the current turn includes a newly attached image; that image starts NEW_PRODUCT through search_visual_candidates. If ZIP is missing, ask only for ZIP. For MERCHANT_CHECKOUT_ONLY, do not ask for ZIP and do not call this tool; explain that shipping, tax, and final total require merchant checkout. Never guess by title, request a street address, or run another search.",
       inputSchema: ShopifySelectedQuoteInputSchema,
       outputSchema: ShopifyProductsOutputShape,
       annotations: {
@@ -3027,7 +3079,7 @@ export function createShoppingServer(
     "quote_and_compare_selected_products",
     {
       title: "Quote and compare selected products",
-      description: "Quote 2-4 prior selectionIds from one immutable search snapshot for a supplied ZIP, then let the server compare delivered totals, calculate the delta, and choose the recommendation. Use this instead of multiple single-product quote calls and never calculate totals or differences in prose.",
+      description: "Quote and compare 2-4 products from one immutable search snapshot for a supplied ZIP. Pass selectionIds directly, or pass renderId to use the card choices already synced by the UI. The execution layer rejects missing, stale, foreign, or cross-snapshot selections. Use this instead of multiple single-product quote calls and never calculate totals or differences in prose.",
       inputSchema: QuotedProductComparisonInputSchema,
       outputSchema: ProductComparisonOutputSchema,
       annotations: {
@@ -3044,13 +3096,26 @@ export function createShoppingServer(
       }
     },
     async (rawInput) => {
-      const input = QuotedProductComparisonInputSchema.parse(rawInput);
+      const request = QuotedProductComparisonInputSchema.parse(rawInput);
       const localizedError = (english: string, chinese: string) => ({
         isError: true,
         content: [{
           type: "text" as const,
-          text: input.responseLocale === "zh-CN" ? chinese : english
+          text: request.responseLocale === "zh-CN" ? chinese : english
         }]
+      });
+      const selectionIds = resolveComparisonSelectionIds(request);
+      if (selectionIds === undefined || selectionIds.length < 2 || selectionIds.length > 4) {
+        return localizedError(
+          "No valid 2-4 product UI selection is synced for this search snapshot.",
+          "该搜索快照没有已同步的 2–4 个有效商品选择。"
+        );
+      }
+      const input = ProductComparisonInputSchema.parse({
+        selectionIds,
+        mode: request.mode,
+        focus: request.focus,
+        responseLocale: request.responseLocale
       });
       const references = input.selectionIds.map((selectionId) => selections.get(selectionId));
       if (references.some((reference) => reference === undefined)) {
@@ -3098,7 +3163,7 @@ export function createShoppingServer(
             : snapshot.sourceResult.products.find((product) => product.handle === selectedCard!.handle);
           if (selected === undefined) throw new ShopifyCartQuoteError("MERCHANT_CART_UNAVAILABLE");
           return {
-            ...withCartQuote(selectedCard!, await cartQuotes!.quote(selected, input.zipCode)),
+            ...withCartQuote(selectedCard!, await cartQuotes!.quote(selected, request.zipCode)),
             selectionId: input.selectionIds[index]!
           };
         }));
@@ -3141,7 +3206,7 @@ export function createShoppingServer(
     "research_selected_product_deal",
     {
       title: "Check current price and deals",
-      description: "Check one exact prior selectionId for current verified merchant deals, current price, optional delivered-price evidence, and inventory. Never call this when the current turn includes a newly attached image; that image starts NEW_PRODUCT through search_visual_candidates. Never search the selected title again. Return current evidence only; do not make historical or buy-or-wait claims. Monitoring is created only after an explicit Watch request.",
+      description: "Check one exact prior product for current verified merchant deals, current price, optional delivered-price evidence, and inventory. Use selectionId, or use renderId plus one-based position for a user reference such as 'the first product'. Never call this when the current turn includes a newly attached image; that image starts NEW_PRODUCT through search_visual_candidates. Never search or guess by title. Return current evidence only; do not make historical or buy-or-wait claims. Monitoring is created only after an explicit Watch request.",
       inputSchema: DealConciergeInputSchema,
       outputSchema: DealConciergeOutputShape,
       annotations: {
@@ -3227,7 +3292,7 @@ export function createShoppingServer(
         structuredContent: {
           status: "OK" as const,
           message,
-          selectionId: parsed.selectionId,
+          selectionId: selectedCard.selectionId,
           selectedProduct: {
             merchantId: selectedCard.merchantId,
             merchant: selectedCard.merchant,
@@ -3251,8 +3316,8 @@ export function createShoppingServer(
     "compare_selected_products",
     {
       title: "Compare selected products",
-      description: "Build one evidence-backed 2-4 column comparison from selectionIds returned by the same live search snapshot. Never call with absent or empty IDs; the user must use the native Compare selected action when UI selections are not available to the model. Omit focus for an ordinary comparison; when the user explicitly names priorities, pass at most 3 unique focus values. Call once. The server determines identity mode, facts, comparable price basis, delivered-total status, price delta, limitations, and recommendation. Never write pros, cons, prices, or a recommended ID. SAME_PRODUCT_OFFERS fails closed unless stable identity, variants, and known condition match.",
-      inputSchema: ProductComparisonInputSchema,
+      description: "Build one evidence-backed 2-4 column comparison. Pass selectionIds directly, or pass renderId when the user refers to products selected in the cards; the execution layer resolves the UI-synced IDs from that immutable snapshot. Treat 'compare my selected products' as an actionable request. Omit focus for an ordinary comparison; when the user explicitly names priorities, pass at most 3 unique focus values. Call once. Never claim a selection arrived unless this tool succeeds. The server owns facts, price basis, delta, limitations, and recommendation. SAME_PRODUCT_OFFERS fails closed unless stable identity, variants, and known condition match.",
+      inputSchema: ProductComparisonToolInputSchema,
       outputSchema: ProductComparisonOutputSchema,
       annotations: {
         readOnlyHint: true,
@@ -3268,17 +3333,32 @@ export function createShoppingServer(
       }
     },
     async (rawInput) => {
-      const input = ProductComparisonInputSchema.parse(rawInput);
+      const request = ProductComparisonToolInputSchema.parse(rawInput);
       const failure = (
         status: "SELECTION_UNAVAILABLE" | "CROSS_SNAPSHOT_UNSUPPORTED",
         english: string,
         chinese: string
       ): ProductComparisonOutput => ({
         status,
-        message: input.responseLocale === "zh-CN" ? chinese : english,
-        locale: input.responseLocale,
-        focus: input.focus,
+        message: request.responseLocale === "zh-CN" ? chinese : english,
+        locale: request.responseLocale,
+        focus: request.focus,
         entries: []
+      });
+      const selectionIds = resolveComparisonSelectionIds(request);
+      if (selectionIds === undefined || selectionIds.length < 2 || selectionIds.length > 4) {
+        const content = failure(
+          "SELECTION_UNAVAILABLE",
+          "No valid 2-4 product UI selection is synced for this search snapshot.",
+          "该搜索快照没有已同步的 2–4 个有效商品选择。"
+        );
+        return { content: [{ type: "text" as const, text: content.message }], structuredContent: content };
+      }
+      const input = ProductComparisonInputSchema.parse({
+        selectionIds,
+        mode: request.mode,
+        focus: request.focus,
+        responseLocale: request.responseLocale
       });
       const references = input.selectionIds.map((selectionId) => selections.get(selectionId));
       if (references.some((reference) => reference === undefined)) {
@@ -3826,6 +3906,61 @@ export function createShoppingServer(
           text: `Rendered ${snapshot.content.products.length} product card${snapshot.content.products.length === 1 ? "" : "s"} with explicit identity labels.`
         }],
         structuredContent: snapshot.content
+      };
+    }
+  );
+
+  toolRegistrar.registerTool(
+    "sync_product_card_selection",
+    {
+      title: "Sync product-card selection",
+      description: "Store bounded UI selection state for one active immutable product-card snapshot.",
+      inputSchema: ProductCardSelectionInputSchema,
+      outputSchema: {
+        status: z.enum(["RECORDED", "IGNORED"]),
+        selectedCount: z.number().int().min(0).max(4)
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false
+      },
+      _meta: { ui: { visibility: ["app"] } }
+    },
+    async (input) => {
+      const selection = ProductCardSelectionInputSchema.parse(input);
+      const snapshot = renderSnapshots.get(selection.renderId);
+      if (snapshot === undefined || snapshot.expiresAt <= now().getTime()) {
+        deleteSnapshot(selection.renderId);
+        return {
+          isError: true,
+          content: [{ type: "text" as const, text: "Product-card selection snapshot is unavailable." }]
+        };
+      }
+      const validSelectionIds = new Set(snapshot.content.products.flatMap((product) =>
+        product.selectionId === undefined ? [] : [product.selectionId]
+      ));
+      if (selection.selectionIds.some((selectionId) => !validSelectionIds.has(selectionId))) {
+        return {
+          isError: true,
+          content: [{ type: "text" as const, text: "Product-card selection does not belong to this snapshot." }]
+        };
+      }
+      const current = cardSelections.get(selection.renderId);
+      if (current !== undefined && current.revision >= selection.revision) {
+        return {
+          content: [{ type: "text" as const, text: "Stale product-card selection update ignored." }],
+          structuredContent: { status: "IGNORED" as const, selectedCount: current.selectionIds.length }
+        };
+      }
+      cardSelections.set(selection.renderId, {
+        revision: selection.revision,
+        selectionIds: [...selection.selectionIds]
+      });
+      return {
+        content: [{ type: "text" as const, text: "Product-card selection synced." }],
+        structuredContent: { status: "RECORDED" as const, selectedCount: selection.selectionIds.length }
       };
     }
   );

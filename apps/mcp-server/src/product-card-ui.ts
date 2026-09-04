@@ -724,9 +724,32 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
         : products.length + " product card" + (products.length === 1 ? "" : "s") + " / identity labels / " + priceSummary));
       const comparable = products.filter((product) => typeof product?.selectionId === "string");
       const selected = new Set();
+      let selectionRevision = 0;
       const selectionButtons = new Map();
       let compareButton;
       let compareStatus;
+      const syncSelection = () => {
+        if (!currentRenderId) return;
+        const revision = ++selectionRevision;
+        void request("tools/call", {
+          name: "sync_product_card_selection",
+          arguments: {
+            renderId: currentRenderId,
+            selectionIds: [...selected],
+            revision
+          }
+        }, 2000).then((result) => {
+          const synced = extractStructuredContent(result);
+          if (!synced || !["RECORDED", "IGNORED"].includes(synced.status)) throw new Error("selection sync failed");
+        }).catch(() => {
+          if (compareStatus && revision === selectionRevision) {
+            compareStatus.textContent = text(
+              "Selection could not be synced. Use Compare selected now.",
+              "选择状态未能同步，请直接点击“对比已选商品”。"
+            );
+          }
+        });
+      };
       const updateCompareControls = () => {
         for (const [selectionId, button] of selectionButtons) {
           const active = selected.has(selectionId);
@@ -950,6 +973,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
               if (selected.has(product.selectionId)) selected.delete(product.selectionId);
               else if (selected.size < 4) selected.add(product.selectionId);
               updateCompareControls();
+              syncSelection();
             });
             selectionButtons.set(product.selectionId, toggle);
             body.append(toggle);

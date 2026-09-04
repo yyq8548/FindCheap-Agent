@@ -148,7 +148,7 @@ describe("product-card MCP Apps UI", () => {
       params: expect.objectContaining({
         name: "report_product_card_metrics",
         arguments: expect.objectContaining({
-          version: "0.17.8",
+          version: "0.17.9",
           terminalStage: "DOM_RENDERED",
           stages: expect.objectContaining({ DOM_RENDERED: expect.any(Number) })
         })
@@ -555,9 +555,10 @@ describe("product-card MCP Apps UI", () => {
     });
     const firstId = "11111111-1111-4111-8111-111111111111";
     const secondId = "22222222-2222-4222-8222-222222222222";
+    const renderId = "33333333-3333-4333-8333-333333333333";
     const window = {
       parent,
-      openai: { toolOutput: { locale: "en-US", products: [product(firstId, "Laptop A"), product(secondId, "Laptop B")] } },
+      openai: { toolOutput: { renderId, locale: "en-US", products: [product(firstId, "Laptop A"), product(secondId, "Laptop B")] } },
       addEventListener: (type: string, listener: (event: TestEvent) => void) => { listeners.set(type, listener); },
       setTimeout: () => 1,
       clearTimeout: () => undefined,
@@ -576,6 +577,11 @@ describe("product-card MCP Apps UI", () => {
     expect(toggles).toHaveLength(2);
     toggles[0]!.dispatch("click");
     toggles[1]!.dispatch("click");
+    const syncCalls = messages.filter((message) => message.params?.name === "sync_product_card_selection");
+    expect(syncCalls.map((message) => message.params?.arguments)).toEqual([
+      { renderId, selectionIds: [firstId], revision: 1 },
+      { renderId, selectionIds: [firstId, secondId], revision: 2 }
+    ]);
     nodes(app).find((node) => node.textContent === "Compare selected (2)")?.dispatch("click");
 
     const call = messages.find((message) => message.params?.name === "compare_selected_products");
@@ -757,7 +763,7 @@ describe("product-card MCP Apps UI", () => {
       method: "ui/initialize",
       params: {
         protocolVersion: "2026-01-26",
-        appInfo: { name: "FindCheap Agent product cards", version: "0.17.8" },
+        appInfo: { name: "FindCheap Agent product cards", version: "0.17.9" },
         appCapabilities: { availableDisplayModes: ["inline"] }
       }
     });

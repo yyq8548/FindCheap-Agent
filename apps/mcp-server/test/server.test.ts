@@ -124,6 +124,7 @@ describe("shopping MCP server", () => {
     const legacyShopifyTool = tools.tools.find((candidate) => candidate.name === "search_shopify_products");
     const createWatchTool = tools.tools.find((candidate) => candidate.name === "create_watch");
     const renderTool = tools.tools.find((candidate) => candidate.name === "render_product_cards");
+    const selectionTool = tools.tools.find((candidate) => candidate.name === "sync_product_card_selection");
     const metricsTool = tools.tools.find((candidate) => candidate.name === "report_product_card_metrics");
     expect(searchTool?._meta).toMatchObject({
       ui: { resourceUri: "ui://findcheap/product-cards/v33.html" },
@@ -135,6 +136,7 @@ describe("shopping MCP server", () => {
         visibility: ["app"]
       }
     });
+    expect(selectionTool?._meta).toMatchObject({ ui: { visibility: ["app"] } });
     expect(metricsTool?._meta).toMatchObject({ ui: { visibility: ["app"] } });
     expect(legacyShopifyTool?._meta).toMatchObject({ ui: { visibility: ["app"] } });
     expect(createWatchTool?.inputSchema).toMatchObject({
@@ -204,6 +206,7 @@ describe("shopping MCP server", () => {
       "pause_watch",
       "delete_watch",
       "render_product_cards",
+      "sync_product_card_selection",
       "report_product_card_metrics"
     ]);
     expect(Object.keys(tools.tools[0]?.inputSchema.properties ?? {}).sort()).toEqual([
@@ -267,6 +270,8 @@ describe("shopping MCP server", () => {
     });
     expect(Object.keys(tools.tools.find((tool) => tool.name === "render_product_cards")?.inputSchema.properties ?? {}))
       .toEqual(["renderId"]);
+    expect(Object.keys(tools.tools.find((tool) => tool.name === "sync_product_card_selection")?.inputSchema.properties ?? {}).sort())
+      .toEqual(["renderId", "revision", "selectionIds"]);
     expect(Object.keys(tools.tools.find((tool) => tool.name === "report_product_card_metrics")?.inputSchema.properties ?? {}).sort())
       .toEqual(["renderId", "stages", "terminalStage", "version"]);
     expect(tools.tools[0]?.annotations).toMatchObject({
@@ -419,7 +424,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.17.8",
+        version: "0.17.9",
         terminalStage: "DOM_RENDERED",
         stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
       }
@@ -428,7 +433,7 @@ describe("shopping MCP server", () => {
     expect(result.structuredContent).toEqual({ status: "RECORDED" });
     expect(record).toHaveBeenCalledWith(expect.objectContaining({
       renderId,
-      version: "0.17.8",
+      version: "0.17.9",
       terminalStage: "DOM_RENDERED",
       stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
     }));
@@ -436,7 +441,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.17.8",
+        version: "0.17.9",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 14 }
       }
@@ -446,7 +451,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.17.8",
+        version: "0.17.9",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 300_001 }
       }
@@ -457,7 +462,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId: "22222222-2222-4222-8222-222222222222",
-        version: "0.17.8",
+        version: "0.17.9",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 1 }
       }
@@ -669,13 +674,13 @@ describe("shopping MCP server", () => {
         selectionMode: "MERCHANT_DIVERSE"
       }
     });
-    const product = (first.structuredContent as {
-      products: Array<{ quoteReference: { selectionId: string; renderId: string; variantId: string } }>;
-    }).products[0]!;
+    const result = first.structuredContent as {
+      renderId: string;
+    };
 
     const quoted = await client.callTool({
       name: "quote_selected_shopify_product",
-      arguments: { selectionId: product.quoteReference.selectionId, zipCode: "33433" }
+      arguments: { renderId: result.renderId, position: 1, zipCode: "33433" }
     });
 
     expect(search).toHaveBeenCalledTimes(1);
@@ -770,6 +775,14 @@ describe("shopping MCP server", () => {
     expect(result.isError).toBe(true);
     expect(JSON.stringify(result.content)).toContain("does not belong to that search result");
     expect(search).toHaveBeenCalledTimes(1);
+    expect(quoteCart).not.toHaveBeenCalled();
+
+    const missingPosition = await client.callTool({
+      name: "quote_selected_shopify_product",
+      arguments: { renderId, position: 8, zipCode: "33433" }
+    });
+    expect(missingPosition.isError).toBe(true);
+    expect(JSON.stringify(missingPosition.content)).toContain("reference is unavailable");
     expect(quoteCart).not.toHaveBeenCalled();
 
     const titleRetry = await client.callTool({
