@@ -1,9 +1,9 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { recordSourceRequest, sourceFeedKeyHash } from "../src/source-cache.js";
+import { acquireRefreshLock, recordSourceRequest, sourceFeedKeyHash } from "../src/source-cache.js";
 
 const directories: string[] = [];
 
@@ -24,5 +24,22 @@ describe("Awin source request ledger", () => {
     }
     await expect(recordSourceRequest(path, hash, new Date(started + 5_000))).resolves.toBe(false);
     await expect(recordSourceRequest(path, hash, new Date(started + 60 * 60 * 1_000 + 1))).resolves.toBe(true);
+  });
+
+  it("keeps a live refresh exclusive and reclaims an abandoned lease after one minute", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "findcheap-awin-lock-"));
+    directories.push(directory);
+    const path = join(directory, "refresh.lock");
+    const started = new Date("2026-08-25T01:00:00.000Z");
+    await mkdir(directory, { recursive: true });
+    await writeFile(path, JSON.stringify({ token: "abandoned", startedAt: started.toISOString() }));
+    await utimes(path, started, started);
+
+    await expect(acquireRefreshLock(path, new Date(started.getTime() + 59_000)))
+      .rejects.toThrow("already running");
+    const release = await acquireRefreshLock(path, new Date(started.getTime() + 60_001));
+    await expect(acquireRefreshLock(path, new Date(started.getTime() + 60_002)))
+      .rejects.toThrow("already running");
+    await release();
   });
 });

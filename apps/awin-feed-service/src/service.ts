@@ -178,12 +178,13 @@ export function createAwinFeedController(
     }
   };
   const runRefresh = async (): Promise<void> => {
-    const releaseLock = await acquireRefreshLock(paths.refreshLockPath, validDate(now()));
+    let releaseLock: (() => Promise<void>) | undefined;
     let failureCode: NonNullable<FeedState["lastErrorCode"]> = "SOURCE_REQUEST_FAILED";
     delete state.lastAttemptSourceFeeds;
     delete state.lastAttemptExcludedSourceFeeds;
     delete state.lastAttemptExcludedSourceFeedReasons;
     try {
+      releaseLock = await acquireRefreshLock(paths.refreshLockPath, validDate(now()));
       if (environment.sourceFeedListUrl === undefined) {
         await refreshDirectSources(
           environment,
@@ -392,7 +393,7 @@ export function createAwinFeedController(
       await writeFeedCacheManifest(paths.manifestPath, manifest).catch(() => {});
       throw error;
     } finally {
-      await releaseLock();
+      await releaseLock?.();
     }
   };
   return {

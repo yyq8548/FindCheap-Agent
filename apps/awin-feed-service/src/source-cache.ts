@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, readdir, rename, stat, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, stat, unlink, utimes, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import { z } from "zod";
@@ -10,7 +10,8 @@ const HASH_PATTERN = /^[a-f0-9]{64}$/u;
 const MAX_SOURCE_ENTRIES = 1_000;
 const REQUEST_WINDOW_MS = 60 * 60 * 1_000;
 const MAX_REQUESTS_PER_SOURCE_PER_HOUR = 5;
-const REFRESH_LOCK_STALE_MS = 20 * 60 * 1_000;
+const REFRESH_LOCK_STALE_MS = 60_000;
+const REFRESH_LOCK_HEARTBEAT_MS = 10_000;
 
 const FeedErrorCodeSchema = z.enum([
   "SOURCE_REQUEST_FAILED",
@@ -220,7 +221,12 @@ export async function acquireRefreshLock(
     await unlink(path).catch(() => {});
     if (!await attempt()) throw new Error("Awin Feed refresh is already running");
   }
+  const heartbeat = setInterval(() => {
+    void renewRefreshLock(path, token);
+  }, REFRESH_LOCK_HEARTBEAT_MS);
+  heartbeat.unref();
   return async () => {
+    clearInterval(heartbeat);
     try {
       const lock = JSON.parse(await readFile(path, "utf8")) as { token?: unknown };
       if (lock.token === token) await unlink(path);
@@ -228,6 +234,17 @@ export async function acquireRefreshLock(
       // Lock cleanup is best effort; stale locks expire.
     }
   };
+}
+
+async function renewRefreshLock(path: string, token: string): Promise<void> {
+  try {
+    const lock = JSON.parse(await readFile(path, "utf8")) as { token?: unknown };
+    if (lock.token !== token) return;
+    const now = new Date();
+    await utimes(path, now, now);
+  } catch {
+    // A missing or replaced lease belongs to the next refresh attempt.
+  }
 }
 
 async function writeFileAtomically(path: string, data: Uint8Array): Promise<void> {
