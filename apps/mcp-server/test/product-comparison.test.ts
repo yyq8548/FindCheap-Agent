@@ -326,4 +326,30 @@ describe("deterministic product comparison", () => {
     ], identity);
     expect(affiliate.recommendation).toEqual(canonical.recommendation);
   });
+
+  it("makes unlike-product recommendations conditional on actual attributes, not equal evidence counts", () => {
+    const result = buildProductComparison(input, [
+      product({ title: "Short human hair wig", sku: "SHORT", gtins: [],
+        featureEvidence: ["human hair", "short finger waves"], preferenceEvidence: [],
+        pricing: { deliveredPrice: { status: "UNAVAILABLE" } } }),
+      product({ selectionId: selectionB, title: "Long synthetic wig", sku: "LONG", gtins: [],
+        featureEvidence: ["synthetic fiber", "28 inch long"], preferenceEvidence: [],
+        itemPrice: { amountCents: 1_899, currency: "USD" }, pricing: { deliveredPrice: { status: "UNAVAILABLE" } } })
+    ], identity);
+    expect(result.mode).toBe("PRODUCT_CHOICES");
+    expect(result.recommendation?.reasonCodes).not.toContain("LOWER_PRICE");
+    expect(result.recommendation?.conditions?.join(" ")).toContain("human hair");
+    expect(result.recommendation?.limitations?.join(" ")).toContain("equivalent suitability");
+    expect(result.message).toContain("conditional");
+    expect(result.priceDelta?.amountCents).toBe(400);
+  });
+
+  it("keeps same-product offers unconditional and invariant to display-group reassignment", () => {
+    const baseline = buildProductComparison(input, [product(), product({ selectionId: selectionB })], identity);
+    const regrouped = buildProductComparison(input, [
+      product({ presentationGroup: "BEST_VALUE" }), product({ selectionId: selectionB, presentationGroup: "TRUSTED_MATCH" })
+    ], identity);
+    expect(regrouped.recommendation).toEqual(baseline.recommendation);
+    expect(regrouped.recommendation?.conditions).toBeUndefined();
+  });
 });

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { SearchRun } from "./search-run.js";
 
 import type {
   AwinProduct,
@@ -13,7 +14,8 @@ import type {
 } from "./shopify-client.js";
 import type { EbayBrowsePort, EbayProduct, EbaySearchResult } from "./ebay-client.js";
 import {
-  VerifiedDealsSchema,
+  searchDealsWithStatus,
+  type DealLookupResult,
   type DealPort,
   type VerifiedDeal
 } from "./deal-client.js";
@@ -132,6 +134,7 @@ export type SearchProductsInput = z.infer<typeof SearchProductsInputSchema>;
 /** Internal execution controls. These are never exposed through the MCP schema. */
 export type SearchProductsExecutionInput = SearchProductsInput & {
   deferVisualFiltering?: boolean;
+  searchRun?: SearchRun;
 };
 
 type CandidateBase = {
@@ -141,6 +144,7 @@ type CandidateBase = {
   preferenceEvidence: string[];
   requiredFeatureLimitations: string[];
   verifiedCoupons: VerifiedDeal[];
+  dealLookupStatus?: DealLookupResult["status"];
   identityStatus: Exclude<ShopifyMatchStatus, "IRRELEVANT">;
   identityEvidence: string[];
   resultGroup: "REQUESTED_PRODUCT" | "DISCOVERY" | "ALTERNATIVE";
@@ -210,6 +214,8 @@ export const CodexVisualVerdictSchema = z.object({
 export type CodexVisualVerdict = z.infer<typeof CodexVisualVerdictSchema>;
 
 export type UnifiedSearchExecution = {
+  searchRun?: SearchRun;
+  reviewPool?: UnifiedCandidate[];
   candidates: UnifiedCandidate[];
   awinResult?: AwinSearchResult;
   shopifyResult?: ShopifySearchResult;
@@ -274,8 +280,8 @@ export function finalizeCodexVisualCandidates(
     const ignoredConflictCount = verdict.conflicts.length - visibleConflicts.length;
     const uniqueMatches = new Map(visibleMatches.map((entry) => [entry.attribute, entry]));
     const matchCount = uniqueMatches.size;
-    const structuralMatchCount = [...uniqueMatches.keys()]
-      .filter((attribute) => attribute !== "COLOR" && attribute !== "PATTERN").length;
+    const structuralAttributes = new Set(["SILHOUETTE", "NECKLINE", "SLEEVE", "CLOSURE", "COLLAR", "WAIST", "HEM", "LENGTH", "PRINT_PLACEMENT", "DISTINCTIVE_DETAIL"]);
+    const structuralMatchCount = [...uniqueMatches.keys()].filter((attribute) => structuralAttributes.has(attribute)).length;
     const colorwayOnlyConflict = visibleConflicts.length > 0 &&
       visibleConflicts.every((entry) => entry.attribute === "COLOR" || entry.attribute === "PATTERN") &&
       structuralMatchCount >= 3;
@@ -339,9 +345,12 @@ export async function searchProducts(
     merchantTrustRegistry?: MerchantTrustRegistryPort;
   }
 ): Promise<UnifiedSearchExecution> {
+  const searchRun = rawInput.searchRun ?? new SearchRun();
   await Promise.all([
-    ports.officialStorefrontRegistry?.refresh(),
-    ports.merchantTrustRegistry?.refresh()
+    ports.officialStorefrontRegistry === undefined ? undefined
+      : searchRun.read("REGISTRY", "official", () => ports.officialStorefrontRegistry!.refresh()),
+    ports.merchantTrustRegistry === undefined ? undefined
+      : searchRun.read("REGISTRY", "trust", () => ports.merchantTrustRegistry!.refresh())
   ]);
   const rawRequiredFeatures = unique([
     ...rawInput.requiredFeatures,
@@ -429,11 +438,11 @@ export async function searchProducts(
   const queryAwin = async (query: string, limit: number, merge: boolean): Promise<void> => {
     if (!affiliateEligible) return;
     try {
-      const result = await ports.awin.search({
+      const result = await searchRun.read("AWIN", JSON.stringify([query, limit]), () => ports.awin.search({
         query,
         limit,
         ...(input.maxItemPriceCents === undefined ? {} : { maxItemPriceCents: input.maxItemPriceCents })
-      });
+      }));
       awinResult = result;
       awinStatus = "COMPLETE";
       const incoming = result.products
@@ -450,15 +459,13 @@ export async function searchProducts(
         .filter((candidate): candidate is UnifiedCandidate => candidate !== undefined);
       affiliateCandidates = merge ? mergeCandidates(affiliateCandidates, incoming) : incoming;
     } catch {
-      if (awinResult === undefined) {
-        awinStatus = "UNAVAILABLE";
-        awinError = "DATA_SOURCE_UNAVAILABLE";
-      }
+      awinStatus = "UNAVAILABLE";
+      awinError = "DATA_SOURCE_UNAVAILABLE";
     }
   };
   const queryShopify = async (query: string, limit: number, merge: boolean): Promise<void> => {
     try {
-      const result = await ports.shopify.search({
+      const result = await searchRun.read("SHOPIFY", JSON.stringify([query, limit]), () => ports.shopify.search({
         query,
         limit,
         comparisonMode: searchIntent === "VISUAL_DISCOVERY" ? "DISCOVERY" : input.comparisonMode,
@@ -466,7 +473,7 @@ export async function searchProducts(
         ...(input.maxItemPriceCents === undefined ? {} : { maxItemPriceCents: input.maxItemPriceCents }),
         ...(input.zipCode === undefined ? {} : { zipCode: input.zipCode }),
         membershipIds: input.membershipIds ?? []
-      });
+      }));
       shopifyResult = result;
       observedShopifyProducts = mergeShopifyProducts(observedShopifyProducts, result.products);
       shopifyStatus = result.coverage;
@@ -491,12 +498,12 @@ export async function searchProducts(
   const queryEbay = async (query: string, limit: number, merge: boolean): Promise<void> => {
     if (ports.ebay === undefined || ebayStatus === "SKIPPED") return;
     try {
-      const result = await ports.ebay.search({
+      const result = await searchRun.read("EBAY", JSON.stringify([query, limit]), () => ports.ebay!.search({
         query,
         limit,
         ...(input.maxItemPriceCents === undefined ? {} : { maxItemPriceCents: input.maxItemPriceCents }),
         ...(input.zipCode === undefined ? {} : { zipCode: input.zipCode })
-      });
+      }));
       ebayResult = result;
       ebayStatus = "COMPLETE";
       const incoming = result.products
@@ -515,7 +522,7 @@ export async function searchProducts(
     } catch (error) {
       if (error instanceof Error && error.message === "SOURCE_NOT_CONFIGURED") {
         if (ebayResult === undefined) ebayStatus = "SKIPPED";
-      } else if (ebayResult === undefined) {
+      } else {
         ebayStatus = "UNAVAILABLE";
         ebayError = "DATA_SOURCE_UNAVAILABLE";
       }
@@ -579,11 +586,11 @@ export async function searchProducts(
     const visualExcludedBefore = visualExcludedKeys.size;
     try {
       for (const attempt of buildOfficialStoreQueries(input, searchIntent)) {
-        const products = await ports.officialShopify.search({
+          const products = await searchRun.read("OFFICIAL", JSON.stringify([officialSeed.sourceHost, attempt.query]), () => ports.officialShopify!.search({
           seed: officialSeed,
           query: attempt.query,
           limit: 12
-        });
+          }));
         const newProducts = mergeShopifyProducts(officialProducts, products);
         officialProducts.splice(0, officialProducts.length, ...newProducts);
         const incoming = products
@@ -642,13 +649,15 @@ export async function searchProducts(
     }
   }
 
-  const enrichedCandidates = await addVerifiedCoupons(
-    [...affiliateCandidates, ...shopifyCandidates, ...ebayCandidates],
-    ports.deals,
-    input.membershipIds ?? []
+  const rawCandidates = [...affiliateCandidates, ...shopifyCandidates, ...ebayCandidates];
+  const enrichedCandidates = input.deferVisualFiltering === true ? rawCandidates : await addVerifiedCoupons(
+    rawCandidates, ports.deals, input.membershipIds ?? [], searchRun
   );
+  const reviewPool = input.deferVisualFiltering === true
+    ? selectVisualReviewCandidates(enrichedCandidates, 18, input.visualInput)
+    : undefined;
   const candidates = input.deferVisualFiltering === true
-    ? selectVisualReviewCandidates(enrichedCandidates, input.limit)
+    ? reviewPool!.slice(0, input.limit)
     : selectPresentationCandidates(
         [...enrichedCandidates].sort(
           input.selectionMode === "LOWEST_PRICE" ? compareLowestPrice : compareRankedCandidates
@@ -664,11 +673,14 @@ export async function searchProducts(
     shopifyStatus !== "PARTIAL";
   const chromeFallbackEligible =
     candidates.length === 0 &&
+    !searchRun.diagnostics().budgetExhausted &&
     queriedSourcesComplete &&
     searchPasses === 2;
 
   return {
     candidates,
+    searchRun,
+    ...(reviewPool === undefined ? {} : { reviewPool }),
     ...(awinResult === undefined ? {} : { awinResult }),
     ...(shopifyResult === undefined ? {} : { shopifyResult }),
     ...(ebayResult === undefined ? {} : { ebayResult }),
@@ -1451,12 +1463,15 @@ function mergeShopifyProducts(current: ShopifyProduct[], incoming: ShopifyProduc
   return [...products.values()];
 }
 
-async function addVerifiedCoupons(
+export async function addVerifiedCoupons(
   candidates: UnifiedCandidate[],
   deals: DealPort | undefined,
-  membershipIds: string[]
+  membershipIds: string[],
+  searchRun?: SearchRun
 ): Promise<UnifiedCandidate[]> {
-  if (deals === undefined || candidates.length === 0) return candidates;
+  if (deals === undefined || candidates.length === 0) return candidates.map((candidate) => ({
+    ...candidate, dealLookupStatus: "UNAVAILABLE" as const
+  }));
   const merchants = new Map<string, string>();
   for (const candidate of [...candidates].sort(compareRankedCandidates)) {
     const merchant = candidateMerchant(candidate);
@@ -1464,22 +1479,24 @@ async function addVerifiedCoupons(
     if (!merchants.has(key)) merchants.set(key, merchant);
     if (merchants.size === 12) break;
   }
-  const results: Array<readonly [string, VerifiedDeal[]]> = await Promise.all([...merchants].map(async ([key, merchant]) => {
+  const results: Array<readonly [string, DealLookupResult]> = await Promise.all([...merchants].map(async ([key, merchant]) => {
     try {
-      const verified = VerifiedDealsSchema.parse(await deals.search({
+      const read = () => searchDealsWithStatus(deals, {
         merchant,
         membershipIds,
         channel: "ONLINE"
-      })).filter(isCoupon);
-      return [key, verified] as const;
+      });
+      const lookup = await (searchRun === undefined ? read() : searchRun.read("DEALS", key, read));
+      return [key, { ...lookup, deals: lookup.deals.filter(isCoupon) }] as const;
     } catch {
-      return [key, [] as VerifiedDeal[]] as const;
+      return [key, { status: "UNAVAILABLE" as const, deals: [], reasonCodes: [] }] as const;
     }
   }));
   const byMerchant = new Map(results);
   return candidates.map((candidate) => ({
     ...candidate,
-    verifiedCoupons: byMerchant.get(normalize(candidateMerchant(candidate))) ?? []
+    verifiedCoupons: byMerchant.get(normalize(candidateMerchant(candidate)))?.deals ?? [],
+    dealLookupStatus: byMerchant.get(normalize(candidateMerchant(candidate)))?.status ?? "UNAVAILABLE"
   }));
 }
 

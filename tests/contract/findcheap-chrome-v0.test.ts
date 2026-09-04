@@ -159,11 +159,24 @@ describe("FindCheap Agent plugin contract", () => {
     for (const skill of [compareSkill, dealsSkill]) {
       expect(skill).toContain("Show best Coupon first: code/benefit");
       expect(skill).toContain("scope—customer, products, exclusions");
-      expect(skill).toContain("Blank line; list all deals below");
+      expect(skill).toContain("summary.recommendedDealId");
+      expect(skill).toContain("Other offers: collapsed or on request");
+      expect(skill).not.toContain("Blank line; list all deals below");
       expect(skill).toContain("Checkout confirms scope/stacking");
     }
     expect(compareSkill).toContain("Numeric discount may show estimated price");
     expect(dealsSkill).toContain("Be warm and direct, not salesy");
+  });
+
+  it("allows one pre-execution correction without retrying network or policy failures", async () => {
+    for (const file of [skillPath, watchSkillPath]) {
+      const skill = await readFile(file, "utf8");
+      expect(skill).toContain("CORRECT_ARGUMENTS");
+      expect(skill).toContain("REUSE_ORIGINAL_REFERENCE");
+      expect(skill).toContain("INPUT_VALIDATION");
+      expect(skill).toContain("one corrected submission");
+      expect(skill).toContain("No agent retry for network/safety failures");
+    }
   });
 
   it("defines one bounded, user-authorized web-wide merchant workflow", async () => {
@@ -215,7 +228,7 @@ describe("FindCheap Agent plugin contract", () => {
     };
 
     expect(manifest.name).toBe("findcheap-agent");
-    expect(manifest.version).toMatch(/^0\.17\.10(?:\+codex\.)?/u);
+    expect(manifest.version).toMatch(/^0\.17\.11(?:\+codex\.)?/u);
     expect(manifest.interface.displayName).toBe("FindCheap Agent");
     expect(manifest.interface.longDescription).toMatch(/Codex Plugin Agent/u);
     expect(manifest.interface.longDescription).toMatch(/[Aa]uthorized.*Chrome/u);

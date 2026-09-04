@@ -1,7 +1,6 @@
-import {
-  merchantRecommendationRank,
-  resolveMerchantTrust
-} from "./merchant-trust.js";
+import { resolveMerchantTrust } from "./merchant-trust.js";
+import { assessRanking, compareRankingAssessments } from "./ranking-assessment.js";
+import { assessSelectedProductDeal } from "./deal-assessment.js";
 import {
   dealApplicabilityRank,
   estimatedItemPriceAfterCoupon
@@ -10,6 +9,7 @@ import type {
   SearchProductsInput,
   UnifiedCandidate
 } from "./search-products.js";
+import { normalizeVisualEvidence, type VisualProductInput } from "./visual-product-discovery.js";
 
 export const OFFICIAL_PRODUCT_CARD_LIMIT = 2;
 export const TRUSTED_PRODUCT_CARD_LIMIT = 3;
@@ -28,28 +28,24 @@ export function compareRankedCandidates(left: UnifiedCandidate, right: UnifiedCa
   if (visualDifference !== 0) return visualDifference;
   const groupDifference = resultGroupRank(left.resultGroup) - resultGroupRank(right.resultGroup);
   if (groupDifference !== 0) return groupDifference;
-  const matchDifference = matchRank(right) - matchRank(left);
-  if (matchDifference !== 0) return matchDifference;
-  const limitationDifference = left.requiredFeatureLimitations.length - right.requiredFeatureLimitations.length;
-  if (limitationDifference !== 0) return limitationDifference;
-  const featureDifference = right.featureEvidence.length - left.featureEvidence.length;
-  if (featureDifference !== 0) return featureDifference;
-  const tierDifference = merchantRecommendationRank(left.recommendationTier) -
-    merchantRecommendationRank(right.recommendationTier);
-  if (tierDifference !== 0) return tierDifference;
-  const availabilityDifference = availabilityRank(left) - availabilityRank(right);
-  if (availabilityDifference !== 0) return availabilityDifference;
-  const preferenceDifference = right.preferenceEvidence.length - left.preferenceEvidence.length;
-  if (preferenceDifference !== 0) return preferenceDifference;
-  const effectivePriceDifference = candidateEffectivePrice(left) - candidateEffectivePrice(right);
-  if (effectivePriceDifference !== 0) return effectivePriceDifference;
-  const priceDifference = candidatePrice(left) - candidatePrice(right);
-  if (priceDifference !== 0) return priceDifference;
-  const couponDifference = candidateCouponRank(right) - candidateCouponRank(left);
-  if (couponDifference !== 0) return couponDifference;
-  const ratingDifference = productRating(right) - productRating(left);
-  if (ratingDifference !== 0) return ratingDifference;
-  return candidateTitle(left).localeCompare(candidateTitle(right));
+  return compareRankingAssessments(candidateRanking(left), candidateRanking(right));
+}
+
+function candidateRanking(candidate: UnifiedCandidate) {
+  const source = candidate.awinProduct ?? candidate.shopifyProduct ?? candidate.ebayProduct;
+  const registered = resolveMerchantTrust(new URL(source.merchantUrl).hostname, candidateMerchant(candidate));
+  const trust = candidate.shopifyProduct?.merchantTrust ?? (candidate.source === "AWIN_PRODUCT_FEED" &&
+    registered.level !== "RISKY" && registered.verification !== "INDEPENDENT"
+    ? { level: "ESTABLISHED_RETAILER" as const, verification: "INDEPENDENT" as const }
+    : registered);
+  return assessRanking({
+    title: candidateTitle(candidate), matchStatus: candidate.identityStatus,
+    recommendationTier: candidate.recommendationTier, merchantTrust: trust,
+    availability: source.availability, requiredFeatureLimitations: candidate.requiredFeatureLimitations,
+    featureEvidence: candidate.featureEvidence, preferenceEvidence: candidate.preferenceEvidence,
+    itemPriceCents: candidatePrice(candidate), confirmedCouponPriceCents: candidateEffectivePrice(candidate),
+    couponRank: candidateCouponRank(candidate)
+  });
 }
 
 export function selectPresentationCandidates(
@@ -96,7 +92,8 @@ export function selectPresentationCandidates(
 
 export function selectVisualReviewCandidates(
   candidates: UnifiedCandidate[],
-  limit: number
+  limit: number,
+  visual?: VisualProductInput
 ): UnifiedCandidate[] {
   // Metadata-only SAME_STYLE is not a final verdict. Product-family conflicts
   // were already removed before candidate images reached this review queue.
@@ -110,7 +107,24 @@ export function selectVisualReviewCandidates(
   const general = eligible.filter((candidate) =>
     !isOfficialCandidate(candidate) && candidate.recommendationTier === "GENERAL_UNVERIFIED"
   );
-  return [...official, ...trusted, ...general].slice(0, limit).map((candidate) => ({
+  const colors = visual === undefined ? [] : normalizeVisualEvidence(visual)
+    .filter((entry) => entry.attribute === "COLOR" && entry.visibility === "VISIBLE")
+    .map((entry) => entry.value.toLocaleLowerCase("en-US").replace(/gray/gu, "grey"));
+  const styles = new Map<string, UnifiedCandidate[]>();
+  for (const candidate of [...official, ...trusted, ...general]) {
+    const style = `${candidateMerchantKey(candidate)}:${candidateTitle(candidate)
+      .split(/\s+(?:\||--|—)\s+/u)[0]!.normalize("NFKC").toLocaleLowerCase("en-US")}`;
+    const entries = styles.get(style) ?? [];
+    entries.push(candidate);
+    styles.set(style, entries);
+  }
+  const groups = [...styles.values()].map((entries) => entries.sort((left, right) => {
+    const colorMatch = (candidate: UnifiedCandidate) => colors.some((color) =>
+      candidateTitle(candidate).toLocaleLowerCase("en-US").replace(/gray/gu, "grey").includes(color));
+    return Number(colorMatch(right)) - Number(colorMatch(left));
+  }));
+  const diverse = [...groups.map((entries) => entries[0]!), ...groups.flatMap((entries) => entries.slice(1))];
+  return diverse.slice(0, limit).map((candidate) => ({
     ...candidate,
     presentationGroup: isOfficialCandidate(candidate)
       ? "OFFICIAL_STORE" as const
@@ -211,24 +225,6 @@ function resultGroupRank(group: UnifiedCandidate["resultGroup"]): number {
   }
 }
 
-function availabilityRank(candidate: UnifiedCandidate): number {
-  const value = candidate.source === "AWIN_PRODUCT_FEED"
-    ? candidate.awinProduct.availability
-    : candidate.source === "SHOPIFY_GLOBAL_CATALOG"
-      ? candidate.shopifyProduct.availability
-      : candidate.ebayProduct.availability;
-  return value === "IN_STOCK" ? 0 : value === "UNKNOWN" ? 1 : 2;
-}
-
-function productRating(candidate: UnifiedCandidate): number {
-  return candidate.source === "SHOPIFY_GLOBAL_CATALOG" ? candidate.shopifyProduct.productRating?.value ?? 0 : 0;
-}
-
-function matchRank(candidate: UnifiedCandidate): number {
-  const status = candidate.identityStatus;
-  return status === "EXACT" ? 3 : status === "DISCOVERY_MATCH" ? 2 : 1;
-}
-
 function candidatePrice(candidate: UnifiedCandidate): number {
   if (candidate.source === "AWIN_PRODUCT_FEED") return candidate.awinProduct.itemPrice.amountCents;
   if (candidate.source === "EBAY_BROWSE") return candidate.ebayProduct.itemPrice.amountCents;
@@ -240,7 +236,7 @@ function candidateEffectivePrice(candidate: UnifiedCandidate): number {
   if (!Number.isSafeInteger(itemPrice)) return itemPrice;
   return estimatedItemPriceAfterCoupon(
     itemPrice,
-    candidate.verifiedCoupons,
+    candidate.verifiedCoupons.filter((deal) => assessCandidateDeal(candidate, deal).status === "CONFIRMED"),
     candidateProductId(candidate)
   ) ?? itemPrice;
 }
@@ -248,9 +244,20 @@ function candidateEffectivePrice(candidate: UnifiedCandidate): number {
 function candidateCouponRank(candidate: UnifiedCandidate): number {
   const productId = candidateProductId(candidate);
   return candidate.verifiedCoupons.reduce(
-    (rank, deal) => Math.max(rank, dealApplicabilityRank(deal, productId)),
+    (rank, deal) => {
+      const assessment = assessCandidateDeal(candidate, deal);
+      return Math.max(rank, assessment.recommendationEligible ? dealApplicabilityRank(deal, productId) : -1);
+    },
     -1
   );
+}
+
+function assessCandidateDeal(candidate: UnifiedCandidate, deal: UnifiedCandidate["verifiedCoupons"][number]) {
+  const price = candidatePrice(candidate);
+  return assessSelectedProductDeal(deal, {
+    merchantProductId: candidateProductId(candidate), title: candidateTitle(candidate),
+    ...(price === Number.MAX_SAFE_INTEGER ? {} : { itemPrice: { amountCents: price, currency: "USD" as const } })
+  });
 }
 
 function candidateProductId(candidate: UnifiedCandidate): string {

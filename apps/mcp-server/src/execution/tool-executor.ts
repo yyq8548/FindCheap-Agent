@@ -2,9 +2,10 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import type { BackendCapability } from "./capabilities.js";
 import { sanitizeToolResult } from "./external-data-fence.js";
-import { normalizeToolError, ToolOutputRejectedError, toolError } from "./tool-outcome.js";
+import { safeInputIssues } from "./input-validation.js";
+import { normalizeToolError, ToolOutputRejectedError, toolError, type ToolFailurePhase } from "./tool-outcome.js";
 
-type ParseResult = { success: true; data: unknown } | { success: false };
+type ParseResult = { success: true; data: unknown } | { success: false; error?: z.ZodError };
 type InputSchema = { safeParseAsync(value: unknown): Promise<ParseResult> };
 type OutputParseResult = { success: true; data: unknown } | { success: false };
 type OutputSchema = { safeParseAsync(value: unknown): Promise<OutputParseResult> };
@@ -71,22 +72,28 @@ export class ToolExecutor {
       typeof input === "object" &&
       INVALID_TOOL_INPUT in input
     ) {
-      const rawInput = (input as { [INVALID_TOOL_INPUT]: unknown })[INVALID_TOOL_INPUT];
-      return toolError(missingReferenceContext(name, rawInput) ? "MISSING_REFERENCE_CONTEXT" : "INVALID_ARGUMENTS");
+      const invalid = (input as { [INVALID_TOOL_INPUT]: { input: unknown; error: z.ZodError } })[INVALID_TOOL_INPUT];
+      return missingReferenceContext(name, invalid.input)
+        ? toolError("MISSING_REFERENCE_CONTEXT")
+        : toolError("INVALID_ARGUMENTS", { issues: safeInputIssues(invalid.error, spec.inputSchema) });
     }
     if (input !== undefined && (input === null || typeof input !== "object" || Array.isArray(input))) {
       return toolError("INVALID_ARGUMENTS");
     }
     if (missingReferenceContext(name, input)) return toolError("MISSING_REFERENCE_CONTEXT");
+    let phase: ToolFailurePhase = "INPUT_VALIDATION";
     try {
       const parsedInput = spec.inputSchema === undefined
         ? undefined
         : await spec.inputSchema.safeParseAsync(input);
       if (parsedInput?.success === false) {
-        return toolError(missingReferenceContext(name, input) ? "MISSING_REFERENCE_CONTEXT" : "INVALID_ARGUMENTS");
+        return toolError("INVALID_ARGUMENTS", { issues: safeInputIssues(parsedInput.error, spec.inputSchema) });
       }
       const validatedInput = parsedInput?.data ?? input;
-      const sanitized = normalizeToolError(sanitizeToolResult(await handler(validatedInput)));
+      phase = "DOMAIN_EXECUTION";
+      const result = await handler(validatedInput);
+      phase = "OUTPUT_VALIDATION";
+      const sanitized = normalizeToolError(sanitizeToolResult(result));
       if (sanitized.isError !== true && spec.outputSchema !== undefined && sanitized.structuredContent === undefined) {
         this.#log(`[findcheap-tool-executor] ${name} output rejected`);
         return toolError("TOOL_OUTPUT_REJECTED");
@@ -102,10 +109,13 @@ export class ToolExecutor {
         structuredContent: parsedOutput.data as Record<string, unknown>
       };
     } catch (error) {
-      if (error instanceof z.ZodError) return toolError("INVALID_ARGUMENTS");
+      if (error instanceof z.ZodError && phase === "INPUT_VALIDATION") {
+        return toolError("INVALID_ARGUMENTS", { issues: safeInputIssues(error, spec.inputSchema) });
+      }
+      if (error instanceof z.ZodError && phase === "OUTPUT_VALIDATION") return toolError("TOOL_OUTPUT_REJECTED");
       if (error instanceof ToolOutputRejectedError) return toolError("TOOL_OUTPUT_REJECTED");
       this.#log(`[findcheap-tool-executor] ${name} failed`);
-      return toolError("TOOL_EXECUTION_FAILED");
+      return toolError("TOOL_EXECUTION_FAILED", { phase });
     }
   }
 }

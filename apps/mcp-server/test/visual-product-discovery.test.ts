@@ -8,10 +8,14 @@ import {
   classifyVisualProduct,
   enforceVisualEvidenceAuthority,
   hasVisualProductFamilyConflict,
+  isVisualAttributeOccluded,
+  normalizeVisualEvidence,
   relaxVisualProductInput,
-  visualOfficialStoreSearchQueries
+  visualOfficialStoreSearchQueries,
+  visualSearchTerms
 } from "../src/visual-product-discovery.js";
 import { DOEN_VISUAL_GOLDEN_CASES } from "./fixtures/doen-visual-golden.js";
+import { BLACK_DRESS_OBSERVATIONS, PARTLY_OCCLUDED_BLOUSE } from "./fixtures/visual-observation-regressions.js";
 
 const GoldenTaskSchema = z.object({
   id: z.string(),
@@ -28,6 +32,129 @@ const GoldenTaskSchema = z.object({
 });
 
 describe("visual product discovery", () => {
+  it("accepts the production 101-character observation value with bounded payloads", () => {
+    expect(BLACK_DRESS_OBSERVATIONS.observations[4]!.value).toHaveLength(101);
+    expect(VisualProductInputSchema.safeParse(BLACK_DRESS_OBSERVATIONS).success).toBe(true);
+    for (const invalid of [
+      { observations: [{ attribute: "DETAIL", value: "x".repeat(241), confidence: 1 }] },
+      { observations: Array.from({ length: 25 }, () => ({ attribute: "DETAIL", value: "lace", confidence: 1 })) },
+      { imageUrl: "http://example.com/dress.jpg" },
+      { imageUrl: "https://user:password@example.com/dress.jpg" }
+    ]) expect(VisualProductInputSchema.safeParse({ productType: "dress", ...invalid }).success).toBe(false);
+  });
+
+  it("preserves distinctive observations in both initial and second-pass retrieval", () => {
+    const visual = VisualProductInputSchema.parse(BLACK_DRESS_OBSERVATIONS);
+    const relaxed = relaxVisualProductInput(visual);
+    expect(relaxed).toMatchObject({ brand: "DOEN", productType: "dress" });
+    expect(relaxed.distinctiveDetails).toEqual([
+      BLACK_DRESS_OBSERVATIONS.observations[4]!.value,
+      BLACK_DRESS_OBSERVATIONS.observations[5]!.value
+    ]);
+    expect(visualSearchTerms(visual).join(" ")).toMatch(/lace/u);
+    expect(visualOfficialStoreSearchQueries(visual)[0]?.query).toMatch(/lace/u);
+    expect(visualOfficialStoreSearchQueries(relaxed)[0]?.query).toMatch(/lace/u);
+  });
+
+  it("keeps visible chest ruffles and front tie when only the right shoulder is partly hidden", () => {
+    const visual = VisualProductInputSchema.parse(PARTLY_OCCLUDED_BLOUSE);
+    expect(relaxVisualProductInput(visual).distinctiveDetails).toEqual(
+      PARTLY_OCCLUDED_BLOUSE.distinctiveDetails.slice(0, 2)
+    );
+  });
+
+  it("uses the same query and classification for legacy fields and direct observations", () => {
+    const legacy = VisualProductInputSchema.parse({
+      brand: "DOEN", productType: "dress", colors: ["black"],
+      neckline: "boat neck", sleeveType: "cap sleeves", silhouette: "a line"
+    });
+    const observed = VisualProductInputSchema.parse({
+      brand: "DOEN", productType: "dress",
+      observations: [
+        { attribute: "COLOR", value: "black", confidence: 0.95 },
+        { attribute: "NECKLINE", value: "boat neck", confidence: 0.95 },
+        { attribute: "SLEEVE_TYPE", value: "cap sleeves", confidence: 0.95 },
+        { attribute: "SILHOUETTE", value: "a line", confidence: 0.95 }
+      ]
+    });
+    const candidate = { title: "DOEN Black Boat Neck Cap Sleeve A-line Dress", productType: "dress" };
+    expect(visualSearchTerms(observed)).toEqual(visualSearchTerms(legacy));
+    expect(visualOfficialStoreSearchQueries(observed)).toEqual(visualOfficialStoreSearchQueries(legacy));
+    expect(relaxVisualProductInput(observed)).toEqual(relaxVisualProductInput(legacy));
+    expect(classifyVisualProduct(observed, candidate)).toEqual(classifyVisualProduct(legacy, candidate));
+  });
+
+  it("does not count repeated synonymous observations as independent structural matches", () => {
+    const visual = VisualProductInputSchema.parse({
+      brand: "DOEN", productType: "dress", neckline: "boat neck",
+      distinctiveDetails: ["bateau neckline"],
+      observations: [
+        { attribute: "NECKLINE", value: "boat neck", confidence: 0.95 },
+        { attribute: "neckline", value: "bateau neckline", confidence: 0.99 }
+      ]
+    });
+    const result = classifyVisualProduct(visual, { title: "DOEN Bateau Neckline Dress" });
+    expect(result?.group).toBe("SAME_STYLE");
+    expect(result?.evidence.filter((entry) => entry.startsWith("visual attribute matched:"))).toHaveLength(1);
+  });
+
+  it("does not turn unknown visibility into support or a conflict", () => {
+    const visual = VisualProductInputSchema.parse({
+      brand: "DOEN", productType: "dress",
+      observations: [{ attribute: "SLEEVE", value: "sleeveless", confidence: 1, visibility: "UNKNOWN" }]
+    });
+    const result = classifyVisualProduct(visual, { title: "DOEN Long Sleeve Dress" });
+    expect(result?.group).toBe("SAME_STYLE");
+    expect(result?.evidence.some((entry) => entry.startsWith("visual attribute matched:"))).toBe(false);
+    expect(visualSearchTerms(visual).join(" ")).not.toContain("sleeveless");
+  });
+
+  it("keeps explicit uncertainty when the same attribute is repeated as a confident observation", () => {
+    const visual = VisualProductInputSchema.parse({
+      brand: "DOEN", productType: "dress", sleeveType: "sleeveless",
+      observations: [
+        { attribute: "SLEEVE", value: "sleeveless", confidence: 0.5, visibility: "UNKNOWN" },
+        { attribute: "SLEEVE", value: "sleeveless", confidence: 1 }
+      ]
+    });
+    expect(isVisualAttributeOccluded(visual, "SLEEVE")).toBe(true);
+    expect(classifyVisualProduct(visual, { title: "DOEN Long Sleeve Dress" })?.group).toBe("SAME_STYLE");
+    expect(relaxVisualProductInput(visual).distinctiveDetails).toBeUndefined();
+  });
+
+  it("tracks explicit local visibility without applying a right-side occlusion to the left", () => {
+    const visual = VisualProductInputSchema.parse({
+      productType: "blouse",
+      occlusions: ["Right shoulder is hidden by a raised hand"],
+      observations: [
+        { attribute: "SLEEVE", value: "flutter sleeves", region: "left shoulder", confidence: 0.95 },
+        { attribute: "DETAIL", value: "scalloped lace", region: "right shoulder", confidence: 0.95 }
+      ]
+    });
+    expect(normalizeVisualEvidence(visual)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ value: "flutter sleeves", visibility: "VISIBLE", source: "OBSERVATION" }),
+      expect.objectContaining({ value: "scalloped lace", visibility: "UNKNOWN" })
+    ]));
+    expect(relaxVisualProductInput(visual).distinctiveDetails).toEqual(["flutter sleeves"]);
+  });
+
+  it("does not reintroduce downgraded hard clues as exclusive model-authored constraints", () => {
+    const visual = enforceVisualEvidenceAuthority(VisualProductInputSchema.parse({
+      productType: "dress", brand: "DOEN", hardClues: ["sleeveless"]
+    }));
+    expect(classifyVisualProduct(visual, { title: "DOEN Long Sleeve Dress" })?.group).toBe("SAME_STYLE");
+  });
+
+  it("does not retain the hem or closure when those attributes are explicitly hidden", () => {
+    const visual = VisualProductInputSchema.parse({
+      productType: "dress", hem: "scalloped lace hem", closure: "back zipper",
+      occlusions: ["The hem and back closure are outside the photograph"]
+    });
+    expect(isVisualAttributeOccluded(visual, "HEM")).toBe(true);
+    expect(isVisualAttributeOccluded(visual, "CLOSURE")).toBe(true);
+    expect(relaxVisualProductInput(visual).distinctiveDetails).toBeUndefined();
+  });
+
   it("locks the visible product family before candidate-image review", () => {
     const visual = VisualProductInputSchema.parse({ productType: "women's blouse" });
     expect(hasVisualProductFamilyConflict(visual, { title: "DÔEN Adair Slide" })).toBe(true);

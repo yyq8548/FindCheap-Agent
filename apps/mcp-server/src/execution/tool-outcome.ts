@@ -1,4 +1,5 @@
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import type { SafeInputIssue } from "./input-validation.js";
 
 export const TOOL_ERROR_CODES = [
   "INVALID_ARGUMENTS",
@@ -10,6 +11,7 @@ export const TOOL_ERROR_CODES = [
 ] as const;
 
 export type ToolErrorCode = (typeof TOOL_ERROR_CODES)[number];
+export type ToolFailurePhase = "CAPABILITY_CHECK" | "INPUT_VALIDATION" | "DOMAIN_EXECUTION" | "OUTPUT_VALIDATION";
 
 const TOOL_ERROR_MESSAGES: Record<ToolErrorCode, string> = {
   INVALID_ARGUMENTS: "Tool arguments were invalid.",
@@ -27,22 +29,39 @@ export class ToolOutputRejectedError extends Error {
   }
 }
 
-export function toolError(code: ToolErrorCode): CallToolResult {
+export function toolError(
+  code: ToolErrorCode,
+  options: { phase?: ToolFailurePhase; issues?: SafeInputIssue[] } = {}
+): CallToolResult {
   const message = TOOL_ERROR_MESSAGES[code];
+  const inputFailure = code === "INVALID_ARGUMENTS" || code === "MISSING_REFERENCE_CONTEXT";
+  const details = {
+    version: 1,
+    phase: options.phase ?? (inputFailure ? "INPUT_VALIDATION"
+      : code === "TOOL_OUTPUT_REJECTED" ? "OUTPUT_VALIDATION"
+        : code === "TOOL_NOT_AVAILABLE" ? "CAPABILITY_CHECK" : "DOMAIN_EXECUTION"),
+    recovery: code === "INVALID_ARGUMENTS" ? { action: "CORRECT_ARGUMENTS", maxAttempts: 1 }
+      : code === "MISSING_REFERENCE_CONTEXT" ? { action: "REUSE_ORIGINAL_REFERENCE", maxAttempts: 1 }
+        : { action: "NONE", maxAttempts: 0 },
+    ...(options.issues === undefined ? {} : { issues: options.issues.slice(0, 5) })
+  };
   return {
     isError: true,
-    content: [{ type: "text", text: `[${code}] ${message}` }],
-    _meta: { "findcheap/errorCode": code }
+    content: [{ type: "text", text: `[${code}] ${message}\n${JSON.stringify(details)}` }],
+    _meta: { "findcheap/errorCode": code, "findcheap/errorDetails": details }
   };
 }
 
 export function normalizeToolError(result: CallToolResult): CallToolResult {
   if (result.isError !== true) return result;
+  const originalCode = result._meta?.["findcheap/errorCode"];
+  const code = typeof originalCode === "string" && TOOL_ERROR_CODES.includes(originalCode as ToolErrorCode)
+    ? originalCode : "TOOL_REQUEST_REJECTED";
   return {
     ...result,
     _meta: {
       ...result._meta,
-      "findcheap/errorCode": "TOOL_REQUEST_REJECTED"
+      "findcheap/errorCode": code
     }
   };
 }

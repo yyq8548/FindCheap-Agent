@@ -77,6 +77,51 @@ function executeUi(output: Record<string, unknown>) {
 }
 
 describe("product comparison MCP Apps UI", () => {
+  it("preserves Coupon lookup state, server summary, and ineligible assessment in comparisons", () => {
+    const { app } = executeUi({
+      status: "OK", locale: "zh-CN", message: "比较", mode: "PRODUCT_CHOICES", priceBasis: "ITEM_PRICE",
+      entries: [
+        { selectionId: "a", title: "A", merchant: "A", dealLookupStatus: "UNAVAILABLE", verifiedDeals: [] },
+        {
+          selectionId: "b", title: "B", merchant: "B", dealLookupStatus: "PARTIAL",
+          dealSummary: { status: "MERCHANT_CANDIDATE", recommendedDealId: "primary", reasonCodes: [] },
+          verifiedDeals: [
+            { dealId: "excluded", title: "SAVE50", kind: "COUPON", productApplicability: "MERCHANT_WIDE",
+              assessment: { status: "INELIGIBLE", reasonCodes: ["MINIMUM_SPEND_NOT_MET"], recommendationEligible: false } },
+            { dealId: "primary", title: "TRY18", kind: "COUPON", productApplicability: "MERCHANT_WIDE",
+              assessment: { status: "CONDITIONAL", reasonCodes: ["MERCHANT_ELIGIBILITY_UNCONFIRMED"], recommendationEligible: true } }
+          ]
+        }
+      ]
+    });
+    expect(text(app)).toContain("优惠查询暂不可用");
+    expect(text(app)).toContain("优惠查询仅部分完成");
+    expect(text(app)).toContain("此商品适用性未确认");
+    const folded = nodes(app).find((node) => node.tagName === "DETAILS");
+    expect(folded).toBeDefined();
+    expect(text(folded!)).toContain("SAVE50");
+    expect(text(folded!)).toContain("不适用于此商品");
+    expect(text(folded!)).not.toContain("TRY18");
+    expect(text(app)).not.toContain("暂无已验证优惠");
+  });
+
+  it.each(["en-US", "zh-CN"])("renders server decision conditions and limitations safely in %s", (locale) => {
+    const { app } = executeUi({
+      status: "OK", locale, message: "Comparison", mode: "PRODUCT_CHOICES", priceBasis: "ITEM_PRICE",
+      recommendation: {
+        state: "READY", recommendedSelectionId: "a", reasonCodes: [],
+        conditions: [locale === "zh-CN" ? "如果你更看重短发款式" : "If you prefer a short style"],
+        limitations: ["<img src=x onerror=alert(1)>"]
+      },
+      entries: [{ selectionId: "a", title: "Short wig", merchant: "A" }, { selectionId: "b", title: "Long wig", merchant: "B" }]
+    });
+    expect(text(app)).toContain(locale === "zh-CN" ? "推荐条件" : "Recommendation conditions");
+    expect(text(app)).toContain(locale === "zh-CN" ? "如果你更看重短发款式" : "If you prefer a short style");
+    expect(text(app)).toContain(locale === "zh-CN" ? "比较限制" : "Comparison limitations");
+    expect(text(app)).toContain("<img src=x onerror=alert(1)>");
+    expect(nodes(app).some((node) => node.tagName === "IMG")).toBe(false);
+  });
+
   it("renders server facts, price delta, unknowns, variants, and focus order", () => {
     const output = {
       status: "OK",

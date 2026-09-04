@@ -21,6 +21,7 @@ class FakeNode {
   placeholder = "";
   ariaPressed = "false";
   private readonly listeners = new Map<string, () => void>();
+  constructor(readonly tagName = "DIV") {}
 
   append(...nodes: FakeNode[]) {
     this.children.push(...nodes);
@@ -48,9 +49,132 @@ function nodes(node: FakeNode): FakeNode[] {
   return [node, ...node.children.flatMap(nodes)];
 }
 
+function renderFixture(output: Record<string, unknown>): FakeNode {
+  const app = new FakeNode("MAIN");
+  const window = {
+    parent: { postMessage: () => undefined }, openai: { toolOutput: output },
+    addEventListener: () => undefined, setTimeout: () => 1, clearTimeout: () => undefined,
+    requestAnimationFrame: (callback: () => void) => { callback(); return 1; }
+  };
+  const document = {
+    getElementById: () => app, createElement: (tag: string) => new FakeNode(tag.toUpperCase()),
+    documentElement: { dataset: {}, scrollWidth: 700, scrollHeight: 320 },
+    body: { scrollWidth: 700, scrollHeight: 320 }
+  };
+  vm.runInNewContext(PRODUCT_CARD_HTML.match(/<script>([\s\S]*)<\/script>/u)![1]!, {
+    window, document, URL, Intl, Number, String, Array, Object, Promise, Map, Set, Math, Date
+  });
+  return app;
+}
+
+function couponFixture(coupons: Record<string, unknown>) {
+  return {
+    locale: "zh-CN", products: [{
+      selectionId: "fixture", title: "示例商品", merchant: "商家", matchStatus: "EXACT",
+      condition: "NEW", availability: "IN_STOCK", presentationGroup: "OFFICIAL_STORE",
+      recommendationTier: "TRUSTED_OR_AFFILIATE", merchantUrl: "https://merchant.example/product",
+      purchaseLink: { kind: "APPROVED_AFFILIATE", url: "https://affiliate.example/click" }, coupons,
+      card: { title: "示例商品", merchant: "商家", primaryPrice: { amountCents: 4000, currency: "USD" } }
+    }]
+  };
+}
+
 describe("product-card MCP Apps UI", () => {
+  it("uses the server Coupon summary and folds other merchant offers without confirming product eligibility", () => {
+    const app = renderFixture(couponFixture({
+      lookupStatus: "COMPLETE", summary: { status: "MERCHANT_CANDIDATE", recommendedDealId: "recommended", reasonCodes: [] },
+      verified: [
+        { dealId: "wholesale", code: "WHOLESALE30", productApplicability: "MERCHANT_WIDE", assessment: { status: "INELIGIBLE", reasonCodes: ["MINIMUM_SPEND_NOT_MET"], recommendationEligible: false } },
+        { dealId: "recommended", code: "TRY18", productApplicability: "MERCHANT_WIDE", assessment: { status: "CONDITIONAL", reasonCodes: ["MERCHANT_ELIGIBILITY_UNCONFIRMED"], recommendationEligible: true } },
+        { dealId: "other", code: "<img src=x onerror=alert(1)>", productApplicability: "MERCHANT_WIDE" }
+      ]
+    }));
+    expect(nodes(app).find((node) => node.className === "badge" && node.textContent.includes("TRY18"))).toBeDefined();
+    const couponSection = nodes(app).find((node) => node.className === "coupon-summary");
+    expect(couponSection).toBeDefined();
+    expect(text(couponSection!)).toContain("Findcheap 找到了可用的coupon");
+    expect(text(couponSection!)).toContain("此商品适用性未确认");
+    expect(text(couponSection!)).toContain("商家适用条件未确认");
+    const folded = nodes(couponSection!).find((node) => node.tagName === "DETAILS");
+    expect(folded).toBeDefined();
+    expect(text(folded!)).toContain("WHOLESALE30");
+    expect(text(folded!)).toContain("不适用于此商品");
+    expect(nodes(app).some((node) => node.tagName === "IMG")).toBe(false);
+    expect(text(app)).not.toContain("已验证优惠：TRY18");
+  });
+
+  it("does not call a failed Coupon lookup empty or available", () => {
+    const app = renderFixture(couponFixture({ lookupStatus: "UNAVAILABLE", verified: [] }));
+    expect(text(app)).toContain("优惠查询暂不可用");
+    expect(text(app)).not.toContain("Findcheap 找到了可用的coupon");
+    expect(text(app)).not.toContain("暂无优惠");
+  });
+
+  it("keeps partial Coupon coverage distinct from a completed search", () => {
+    const app = renderFixture(couponFixture({ lookupStatus: "PARTIAL", verified: [{ id: "one", code: "SAVE10", productApplicability: "MERCHANT_WIDE" }] }));
+    expect(text(app)).toContain("优惠查询仅部分完成");
+    expect(text(app)).toContain("此商品适用性未确认");
+  });
+
+  it("does not invent a best Coupon or discounted price when the server has no eligible recommendation", () => {
+    const app = renderFixture(couponFixture({
+      lookupStatus: "COMPLETE", summary: { status: "NO_ELIGIBLE_DEAL", reasonCodes: ["MINIMUM_SPEND_NOT_MET"] },
+      verified: [{ dealId: "minimum", code: "SAVE50", productApplicability: "PRODUCT_CONFIRMED",
+        assessment: { status: "INELIGIBLE", reasonCodes: ["MINIMUM_SPEND_NOT_MET"], recommendationEligible: false } }],
+      estimatedItemPriceAfterCoupon: { amountCents: 100, currency: "USD" }
+    }));
+    expect(text(app)).toContain("暂无已确认适用于此商品的优惠");
+    expect(text(app)).toContain("不适用于此商品");
+    expect(text(app)).not.toContain("Findcheap 找到了可用的coupon");
+    expect(text(app)).not.toContain("已验证优惠：SAVE50");
+    expect(text(app)).not.toContain("使用优惠后预计");
+  });
+
+  it("localizes the Coupon summary in English without promoting merchant-wide evidence", () => {
+    const output = couponFixture({ lookupStatus: "PARTIAL", verified: [{ code: "TRY18", productApplicability: "MERCHANT_WIDE" }] });
+    const app = renderFixture({ ...output, locale: "en-US" });
+    expect(text(app)).toContain("Coupon lookup only partially completed");
+    expect(text(app)).toContain("FindCheap found an available coupon.");
+    expect(text(app)).toContain("Not confirmed for this product");
+    expect(text(app)).not.toContain("Confirmed for this product");
+    expect(text(app)).not.toContain("优惠查询");
+  });
+
+  it("shows comparison decision conditions and limitations in the native card comparison", () => {
+    const app = renderFixture({
+      status: "OK", locale: "zh-CN", message: "比较", recommendation: {
+        state: "READY", recommendedSelectionId: "a", conditions: ["如果你更看重短发款式"],
+        limitations: ["不同材质，不能只凭商品价判断体验"]
+      },
+      entries: [{ selectionId: "a", title: "短假发", merchant: "A" }, { selectionId: "b", title: "长假发", merchant: "B" }]
+    });
+    expect(text(app)).toContain("推荐条件");
+    expect(text(app)).toContain("如果你更看重短发款式");
+    expect(text(app)).toContain("比较限制");
+    expect(text(app)).toContain("不同材质，不能只凭商品价判断体验");
+  });
+
+  it("retains deal lookup and assessment metadata in the inline comparison", () => {
+    const app = renderFixture({
+      status: "OK", locale: "zh-CN", message: "比较",
+      entries: [
+        { selectionId: "a", title: "A", merchant: "A", dealLookupStatus: "UNAVAILABLE", verifiedDeals: [] },
+        { selectionId: "b", title: "B", merchant: "B", dealLookupStatus: "COMPLETE",
+          dealSummary: { status: "NO_ELIGIBLE_DEAL", reasonCodes: ["MINIMUM_SPEND_NOT_MET"] },
+          verifiedDeals: [{ dealId: "excluded", code: "SAVE50", productApplicability: "MERCHANT_WIDE",
+            assessment: { status: "INELIGIBLE", reasonCodes: ["MINIMUM_SPEND_NOT_MET"], recommendationEligible: false } }] }
+      ]
+    });
+    expect(text(app)).toContain("优惠查询暂不可用");
+    expect(text(app)).toContain("暂无已确认适用于此商品的优惠");
+    const folded = nodes(app).find((node) => node.tagName === "DETAILS");
+    expect(folded).toBeDefined();
+    expect(text(folded!)).toContain("SAVE50");
+    expect(text(folded!)).toContain("不适用于此商品");
+  });
+
   it("uses an embedded Codex-native surface with responsive cards", () => {
-    expect(PRODUCT_CARD_UI_URI).toBe("ui://findcheap/product-cards/v33.html");
+    expect(PRODUCT_CARD_UI_URI).toBe("ui://findcheap/product-cards/v34.html");
     expect(PRODUCT_CARD_HTML).toContain("--fc-surface:");
     expect(PRODUCT_CARD_HTML).toContain("background: var(--fc-action);");
     expect(PRODUCT_CARD_HTML).toContain("@media (max-width: 640px)");
@@ -148,7 +272,7 @@ describe("product-card MCP Apps UI", () => {
       params: expect.objectContaining({
         name: "report_product_card_metrics",
         arguments: expect.objectContaining({
-          version: "0.17.10",
+          version: "0.17.11",
           terminalStage: "DOM_RENDERED",
           stages: expect.objectContaining({ DOM_RENDERED: expect.any(Number) })
         })
@@ -766,7 +890,7 @@ describe("product-card MCP Apps UI", () => {
       method: "ui/initialize",
       params: {
         protocolVersion: "2026-01-26",
-        appInfo: { name: "FindCheap Agent product cards", version: "0.17.10" },
+        appInfo: { name: "FindCheap Agent product cards", version: "0.17.11" },
         appCapabilities: { availableDisplayModes: ["inline"] }
       }
     });

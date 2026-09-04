@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { assessSelectedProductDeal } from "./deal-assessment.js";
 
 export const DealKindSchema = z.enum([
   "COUPON",
@@ -77,7 +78,8 @@ export function estimatedItemPriceAfterCoupon(
     if (
       deal.productApplicability !== "PRODUCT_CONFIRMED" ||
       !dealAppliesToProduct(deal, productId) ||
-      deal.eligibility.length > 0
+      deal.eligibility.length > 0 ||
+      assessSelectedProductDeal(deal, { merchantProductId: productId, itemPrice: { amountCents: itemPriceCents, currency: "USD" } }).status !== "CONFIRMED"
     ) return [];
     const hasPercentDiscount = deal.discountPercent !== undefined;
     const hasFixedDiscount = deal.discountAmountCents !== undefined;
@@ -101,15 +103,61 @@ export type DealSearchInput = z.infer<typeof DealSearchInputSchema>;
 
 export const VerifiedDealsSchema = z.array(VerifiedDealSchema).max(200);
 
+export const DealLookupStatusSchema = z.enum(["COMPLETE", "PARTIAL", "UNAVAILABLE"]);
+export const DealLookupReasonSchema = z.enum([
+  "TIMEOUT", "RATE_LIMITED", "UPSTREAM_UNAVAILABLE", "INVALID_RESPONSE", "STALE_EVIDENCE", "NOT_CONFIGURED"
+]);
+export const DealLookupResultSchema = z.object({
+  status: DealLookupStatusSchema,
+  reasonCodes: z.array(DealLookupReasonSchema).max(6),
+  deals: VerifiedDealsSchema
+}).strict();
+export type DealLookupResult = z.infer<typeof DealLookupResultSchema>;
+export type DealLookupReason = z.infer<typeof DealLookupReasonSchema>;
+
 export interface DealPort {
   search(input: DealSearchInput): Promise<VerifiedDeal[]>;
+  searchWithStatus?(input: DealSearchInput): Promise<DealLookupResult>;
 }
 
 export function createUnavailableDealPort(): DealPort {
-  return { search: async () => { throw new Error("DATA_SOURCE_UNAVAILABLE"); } };
+  return {
+    search: async () => { throw new Error("DATA_SOURCE_UNAVAILABLE"); },
+    searchWithStatus: async () => unavailableDeals("NOT_CONFIGURED")
+  };
 }
 
-const ProviderResponseSchema = z.object({ deals: z.array(VerifiedDealSchema).max(200) }).strict();
+const ProviderResponseSchema = z.object({ deals: z.array(z.unknown()).max(200) }).strict();
+
+export async function searchDealsWithStatus(port: DealPort, input: DealSearchInput): Promise<DealLookupResult> {
+  try {
+    if (port.searchWithStatus !== undefined) return DealLookupResultSchema.parse(await port.searchWithStatus(input));
+    return validateDealRecords(await port.search(input));
+  } catch (error) {
+    return unavailableDeals(error instanceof z.ZodError ? "INVALID_RESPONSE" : sourceFailureReason(error));
+  }
+}
+
+function validateDealRecords(value: unknown): DealLookupResult {
+  const records = z.array(z.unknown()).max(200).safeParse(value);
+  if (!records.success) return unavailableDeals("INVALID_RESPONSE");
+  const deals: VerifiedDeal[] = [];
+  for (const record of records.data) {
+    const parsed = VerifiedDealSchema.safeParse(record);
+    if (parsed.success) deals.push(parsed.data);
+  }
+  if (deals.length === records.data.length) return { status: "COMPLETE", reasonCodes: [], deals };
+  return { status: deals.length === 0 ? "UNAVAILABLE" : "PARTIAL", reasonCodes: ["INVALID_RESPONSE"], deals };
+}
+
+function unavailableDeals(reason: DealLookupReason): DealLookupResult {
+  return { status: "UNAVAILABLE", reasonCodes: [reason], deals: [] };
+}
+
+function sourceFailureReason(error: unknown): DealLookupReason {
+  return error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError")
+    ? "TIMEOUT" : "UPSTREAM_UNAVAILABLE";
+}
 
 export function createDealPortFromEnvironment(
   environment: NodeJS.ProcessEnv | Record<string, string | undefined>,
@@ -120,8 +168,7 @@ export function createDealPortFromEnvironment(
   if (configuration === undefined) return createUnavailableDealPort();
   const { endpoint, token } = configuration;
 
-  return {
-    async search(input) {
+  const searchWithStatus = async (input: DealSearchInput): Promise<DealLookupResult> => {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 5_000);
       try {
@@ -136,22 +183,33 @@ export function createDealPortFromEnvironment(
           },
           body: JSON.stringify(DealSearchInputSchema.parse(input))
         });
-        if (!response.ok) throw new Error("DATA_SOURCE_UNAVAILABLE");
+        if (!response.ok) return unavailableDeals(response.status === 429 ? "RATE_LIMITED" : "UPSTREAM_UNAVAILABLE");
         const contentLength = Number(response.headers.get("content-length"));
-        if (Number.isFinite(contentLength) && contentLength > 524_288) throw new Error("DATA_SOURCE_UNAVAILABLE");
+        if (Number.isFinite(contentLength) && contentLength > 524_288) return unavailableDeals("INVALID_RESPONSE");
         if (!(response.headers.get("content-type") ?? "").toLowerCase().includes("application/json")) {
-          throw new Error("DATA_SOURCE_UNAVAILABLE");
+          return unavailableDeals("INVALID_RESPONSE");
         }
         const text = await readBoundedText(response, 524_288);
-        const parsed = ProviderResponseSchema.parse(JSON.parse(text));
+        const parsed = ProviderResponseSchema.safeParse(JSON.parse(text));
+        if (!parsed.success) return unavailableDeals("INVALID_RESPONSE");
+        const result = validateDealRecords(parsed.data.deals);
         const timestamp = now().getTime();
-        return parsed.deals.filter((deal) => {
+        return { ...result, deals: result.deals.filter((deal) => {
           const channelsMatch = input.channel === "ANY" || deal.channels.includes(input.channel);
           return channelsMatch && Date.parse(deal.validFrom) <= timestamp && Date.parse(deal.validTo) > timestamp;
-        });
+        }) };
+      } catch (error) {
+        return unavailableDeals(error instanceof SyntaxError ? "INVALID_RESPONSE" : sourceFailureReason(error));
       } finally {
         clearTimeout(timeout);
       }
+  };
+  return {
+    searchWithStatus,
+    async search(input) {
+      const result = await searchWithStatus(input);
+      if (result.status !== "COMPLETE") throw new Error("DATA_SOURCE_UNAVAILABLE");
+      return result.deals;
     }
   };
 }

@@ -57,8 +57,8 @@ function schemaParser(
 
 function boundaryConfig(config: unknown, inputSchema: z.ZodTypeAny | undefined): unknown {
   if (config === null || typeof config !== "object" || inputSchema === undefined) return config;
-  const fallbackSchema = inputSchema.catch((context: { input: unknown }) => ({
-    [INVALID_TOOL_INPUT]: context.input
+  const fallbackSchema = inputSchema.catch((context: { input: unknown; error: z.ZodError }) => ({
+    [INVALID_TOOL_INPUT]: { input: context.input, error: context.error }
   }));
   const boundarySchema = new Proxy(inputSchema, {
     get: (target, property) => {

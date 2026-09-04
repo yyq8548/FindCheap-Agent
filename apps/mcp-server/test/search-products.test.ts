@@ -822,6 +822,25 @@ describe("unified product search", () => {
     expect(result.chromeFallbackEligible).toBe(false);
   });
 
+  it.each([0, 1])("preserves %i first-pass Awin products but degrades coverage after expansion failure", async (count) => {
+    const first = await awin(count === 0 ? [] : [awinProduct("retained-awin", 1_800)]).search({ query: "hair mask", limit: 12 });
+    const search = vi.fn<AwinProductPort["search"]>().mockResolvedValueOnce(first)
+      .mockRejectedValue(new Error("second-pass network unavailable"));
+    const result = await searchProducts(SearchProductsInputSchema.parse({ query: "hair mask", limit: 3 }), {
+      awin: { search }, shopify: shopify([])
+    });
+    expect(search).toHaveBeenCalledTimes(2);
+    expect(result.awinResult).toBe(first);
+    expect(result.candidates).toHaveLength(count);
+    if (count > 0) expect(result.candidates[0]).toMatchObject({
+      source: "AWIN_PRODUCT_FEED", awinProduct: { merchantProductId: "retained-awin" }
+    });
+    expect(result.sourceStatus.awin).toBe("UNAVAILABLE");
+    expect(result.sourceErrors).toMatchObject({ awin: "DATA_SOURCE_UNAVAILABLE" });
+    expect(result.chromeFallbackEligible).toBe(false);
+    expect(result.searchRun?.diagnostics().budgetExhausted).toBe(false);
+  });
+
   it("returns at most eight cards in the 2 official, 3 trusted, 3 best-value tiers", async () => {
     const official = (handle: string) => shopifyProduct(handle, 4_000, "NEW", {
       merchant: "SKIMS",
@@ -1089,6 +1108,23 @@ describe("unified product search", () => {
 
     expect(result.sourceErrors).toMatchObject({ ebay: "DATA_SOURCE_UNAVAILABLE" });
     expect(result.chromeFallbackEligible).toBe(false);
+  });
+
+  it.each([0, 1])("preserves %i first-pass eBay products but degrades coverage after expansion failure", async (count) => {
+    const first = await ebay(count === 0 ? [] : [ebayProduct("71", 2_100)]).search({ query: "headphones", limit: 1 });
+    const search = vi.fn<EbayBrowsePort["search"]>().mockResolvedValueOnce(first)
+      .mockRejectedValue(new Error("second-pass network unavailable"));
+    const result = await searchProducts(SearchProductsInputSchema.parse({ query: "headphones", limit: 3 }), {
+      awin: awin([]), ebay: { search }, shopify: shopify([])
+    });
+    expect(search).toHaveBeenCalledTimes(2);
+    expect(result.ebayResult).toBe(first);
+    expect(result.candidates).toHaveLength(count);
+    if (count > 0) expect(result.candidates[0]).toMatchObject({ source: "EBAY_BROWSE", ebayProduct: { itemId: "v1|71|0" } });
+    expect(result.sourceStatus.ebay).toBe("UNAVAILABLE");
+    expect(result.sourceErrors).toMatchObject({ ebay: "DATA_SOURCE_UNAVAILABLE" });
+    expect(result.chromeFallbackEligible).toBe(false);
+    expect(result.searchRun?.diagnostics().budgetExhausted).toBe(false);
   });
 
   it("skips eBay without degrading coverage when the gateway is not configured", async () => {
@@ -1399,7 +1435,7 @@ describe("unified product search", () => {
     expect(result.visualProductsExcluded).toBe(1);
   });
 
-  it("enforces an explicit DÔEN brand and preserves it in the bounded visual second pass", async () => {
+  it("enforces the explicit DÔEN brand while reusing an identical second-pass source query", async () => {
     const candidate = shopifyProduct("doen-black-lace", 27_800, "UNKNOWN", {
       merchant: "DÔEN",
       sourceHost: "www.shopdoen.com",
@@ -1418,9 +1454,7 @@ describe("unified product search", () => {
       productType: "Dresses",
       description: "Black mini dress with tiered lace panels"
     });
-    const shopifySearch = vi.fn()
-      .mockResolvedValueOnce(shopifyResult([otherBrand]))
-      .mockResolvedValueOnce(shopifyResult([candidate, otherBrand]));
+    const shopifySearch = vi.fn<ShopifyPort["search"]>(async () => shopifyResult([candidate, otherBrand]));
 
     const result = await searchProducts(SearchProductsInputSchema.parse({
       query: "DÔEN black lace tiered mini dress",
@@ -1445,11 +1479,12 @@ describe("unified product search", () => {
     });
     expect(result.candidates).toHaveLength(1);
     expect(result.brandProductsExcluded).toBe(1);
+    expect(shopifySearch).toHaveBeenCalledTimes(1);
     expect(shopifySearch.mock.calls[0]?.[0].comparisonMode).toBe("SAME_PRODUCT");
-    expect(shopifySearch.mock.calls[1]?.[0].comparisonMode).toBe("SAME_PRODUCT");
-    expect(shopifySearch.mock.calls[1]?.[0].query).toBe("DÔEN black lace tiered mini dress");
+    expect(shopifySearch.mock.calls[0]?.[0].query).toBe("DÔEN black lace tiered mini dress");
+    expect(result.searchRun?.diagnostics().cacheHits).toBeGreaterThanOrEqual(1);
     expect(result.sourcePassDiagnostics).toEqual([
-      expect.objectContaining({ pass: 1, acceptedCandidates: expect.objectContaining({ shopify: 0 }) }),
+      expect.objectContaining({ pass: 1, query: "DÔEN black lace tiered mini dress", acceptedCandidates: expect.objectContaining({ shopify: 1 }) }),
       expect.objectContaining({ pass: 2, query: "DÔEN black lace tiered mini dress", acceptedCandidates: expect.objectContaining({ shopify: 1 }) })
     ]);
   });
@@ -1475,6 +1510,9 @@ describe("unified product search", () => {
     expect(result.searchPasses).toBe(2);
     expect(result.brandProductsExcluded).toBe(1);
     expect(result.chromeFallbackEligible).toBe(true);
+    expect(shopifySearch).toHaveBeenCalledTimes(2);
+    expect(shopifySearch.mock.calls[0]?.[0].query).not.toBe(shopifySearch.mock.calls[1]?.[0].query);
+    expect(shopifySearch.mock.calls.every(([request]) => request.query?.startsWith("DÔEN ") === true)).toBe(true);
     expect(shopifySearch.mock.calls[1]?.[0].query).toBe("DÔEN dress");
   });
 

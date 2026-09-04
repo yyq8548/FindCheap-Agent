@@ -3,6 +3,7 @@ import {
   VerifiedDealSchema,
   createDealPortFromEnvironment,
   estimatedItemPriceAfterCoupon,
+  searchDealsWithStatus,
   hasDealProviderConfiguration
 } from "../src/deal-client.js";
 
@@ -24,6 +25,50 @@ const deal = {
 };
 
 describe("Deals API client", () => {
+  it.each([429, 500])("reports safe source status for HTTP %s", async (status) => {
+    const port = createDealPortFromEnvironment({ FINDCHEAP_DEALS_API_URL: "https://deals.example", FINDCHEAP_DEALS_API_TOKEN: "secret" },
+      (async () => new Response("private provider message", { status })) as typeof fetch);
+    expect(await searchDealsWithStatus(port, { merchant: "Merchant", membershipIds: [], channel: "ANY" })).toEqual({
+      status: "UNAVAILABLE", reasonCodes: [status === 429 ? "RATE_LIMITED" : "UPSTREAM_UNAVAILABLE"], deals: []
+    });
+  });
+
+  it("retains independently valid records with explicit partial status", async () => {
+    const port = createDealPortFromEnvironment({ FINDCHEAP_DEALS_API_URL: "https://deals.example", FINDCHEAP_DEALS_API_TOKEN: "secret" },
+      (async () => new Response(JSON.stringify({ deals: [deal, { ...deal, verificationStatus: "UNVERIFIED" }] }), { headers: { "content-type": "application/json" } })) as typeof fetch,
+      () => new Date("2026-08-18T12:00:00.000Z"));
+    expect(await searchDealsWithStatus(port, { merchant: "Merchant", membershipIds: [], channel: "ANY" })).toMatchObject({ status: "PARTIAL", reasonCodes: ["INVALID_RESPONSE"], deals: [deal] });
+  });
+
+  it("classifies timeout without leaking raw provider errors", async () => {
+    const port = createDealPortFromEnvironment({ FINDCHEAP_DEALS_API_URL: "https://deals.example", FINDCHEAP_DEALS_API_TOKEN: "secret" },
+      (async () => { throw new DOMException("https://private.example/?key=secret", "TimeoutError"); }) as typeof fetch);
+    const result = await searchDealsWithStatus(port, { merchant: "Merchant", membershipIds: [], channel: "ANY" });
+    expect(result).toEqual({ status: "UNAVAILABLE", reasonCodes: ["TIMEOUT"], deals: [] });
+  });
+
+  it("aborts a stalled request within the existing five second budget", async () => {
+    vi.useFakeTimers();
+    try {
+      const port = createDealPortFromEnvironment({ FINDCHEAP_DEALS_API_URL: "https://deals.example", FINDCHEAP_DEALS_API_TOKEN: "secret" },
+        ((_url, init) => new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), { once: true });
+        })) as typeof fetch);
+      const pending = searchDealsWithStatus(port, { merchant: "Merchant", membershipIds: [], channel: "ANY" });
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(await pending).toEqual({ status: "UNAVAILABLE", reasonCodes: ["TIMEOUT"], deals: [] });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("classifies malformed JSON as unavailable rather than an empty offer list", async () => {
+    const port = createDealPortFromEnvironment({ FINDCHEAP_DEALS_API_URL: "https://deals.example", FINDCHEAP_DEALS_API_TOKEN: "secret" },
+      (async () => new Response("{broken", { headers: { "content-type": "application/json" } })) as typeof fetch);
+    expect(await searchDealsWithStatus(port, { merchant: "Merchant", membershipIds: [], channel: "ANY" }))
+      .toEqual({ status: "UNAVAILABLE", reasonCodes: ["INVALID_RESPONSE"], deals: [] });
+  });
+
   it("uses a bounded authenticated HTTPS request and filters by channel", async () => {
     const fetcher = vi.fn(async () => new Response(JSON.stringify({ deals: [deal] }), {
       status: 200,
@@ -126,5 +171,21 @@ describe("Deals API client", () => {
       ...parsed,
       discountAmountCents: 500
     }], "sku-1")).toBeUndefined();
+    expect(estimatedItemPriceAfterCoupon(1_200, [{
+      ...parsed,
+      title: "20% off",
+      description: "10% off this item"
+    }], "sku-1")).toBeUndefined();
+    expect(estimatedItemPriceAfterCoupon(3_641, [{
+      ...parsed, title: "50% off", discountPercent: 50, description: "For hair bundles only"
+    }], "sku-1")).toBeUndefined();
+    for (const description of ["Valid for hair bundles", "Exclusively for hair bundles"]) {
+      expect(estimatedItemPriceAfterCoupon(3_641, [{ ...parsed, title: "50% off", discountPercent: 50, description }], "sku-1"))
+        .toBeUndefined();
+    }
+    for (const description of ["Orders $100+", "Orders USD100+", "USD100+", "orders of $100 or more", "Orders $100 using cart subtotal", "$100 or more orders"]) {
+      expect(estimatedItemPriceAfterCoupon(2_000, [{ ...parsed, title: "75% off", discountPercent: 75, description }], "sku-1"), description)
+        .toBeUndefined();
+    }
   });
 });

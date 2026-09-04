@@ -1,4 +1,5 @@
 import type { SearchProductsInput } from "./search-products.js";
+import { assessRanking, compareRankingAssessments, hasEquivalentFitEvidence } from "./ranking-assessment.js";
 
 export const RECOMMENDATION_REASON_CODES = [
   "EXACT_MATCH",
@@ -25,6 +26,7 @@ type RecommendationProduct = {
   recommendationTier?: "TRUSTED_OR_AFFILIATE" | "HIGH_RATED_UNVERIFIED" | "GENERAL_UNVERIFIED" | undefined;
   merchantTrust: {
     verification: "INDEPENDENT" | "UNVERIFIED";
+    level?: "OFFICIAL" | "AUTHORIZED_RETAILER" | "ESTABLISHED_RETAILER" | "UNKNOWN" | "RISKY" | undefined;
   };
   availability: "IN_STOCK" | "OUT_OF_STOCK" | "UNKNOWN";
   featureEvidence?: string[] | undefined;
@@ -103,30 +105,27 @@ export function highVarianceClarification(input: SearchProductsInput): {
 export function choosePrimaryRecommendation(products: RecommendationProduct[]): RecommendationDecision {
   if (products.length === 0) return { state: "NO_MATCH", reasonCodes: [] };
   const eligible = products
-    .map((product, index) => ({ product, index }))
-    .filter(({ product }) =>
-      product.presentationGroup !== "BEST_VALUE" &&
-      product.recommendationTier !== "GENERAL_UNVERIFIED" &&
-      product.merchantTrust.verification === "INDEPENDENT" &&
-      product.availability !== "OUT_OF_STOCK" &&
-      product.matchStatus !== "SIMILAR" &&
-      limitations(product) === 0
-    );
+    .map((product, index) => ({ product, index, assessment: assessRanking({
+      ...product,
+      itemPriceCents: product.itemPrice?.amountCents,
+      confirmedCouponPriceCents: product.coupons.estimatedItemPriceAfterCoupon?.amountCents,
+      couponRank: couponRank(product)
+    }) }))
+    .filter(({ assessment }) => assessment.primaryEligible);
   if (eligible.length === 0) return { state: "RESEARCH_ONLY", reasonCodes: [] };
 
-  eligible.sort((left, right) => comparePrimary(left.product, right.product));
+  eligible.sort((left, right) => compareRankingAssessments(left.assessment, right.assessment));
   const selected = eligible[0]!;
   const reasonCodes: RecommendationReasonCode[] = [
     selected.product.matchStatus === "EXACT" ? "EXACT_MATCH" : "BEST_FIT"
   ];
   if (selected.product.merchantTrust.verification === "INDEPENDENT") reasonCodes.push("TRUSTED_MERCHANT");
-  const peers = eligible.filter(({ product }) => sameFit(product, selected.product));
-  const peerPrices = peers.map(({ product }) => comparablePrice(product));
-  const selectedPrice = comparablePrice(selected.product);
+  const peers = eligible.filter(({ assessment }) => hasEquivalentFitEvidence(assessment, selected.assessment));
+  const peerPrices = peers.map(({ assessment }) => assessment.effectivePriceCents);
+  const selectedPrice = selected.assessment.effectivePriceCents;
   if (
     peers.length > 1 &&
-    peerPrices.every((value): value is number => value !== undefined) &&
-    selectedPrice !== undefined &&
+    peerPrices.every((value) => value !== Number.MAX_SAFE_INTEGER) &&
     selectedPrice === Math.min(...peerPrices) &&
     peerPrices.some((value) => value > selectedPrice)
   ) {
@@ -139,61 +138,6 @@ export function choosePrimaryRecommendation(products: RecommendationProduct[]): 
     reasonCodes: reasonCodes.slice(0, 3),
     primaryProductIndex: selected.index
   };
-}
-
-function comparePrimary(left: RecommendationProduct, right: RecommendationProduct): number {
-  return matchRank(left) - matchRank(right) ||
-    limitations(left) - limitations(right) ||
-    fitEvidence(right) - fitEvidence(left) ||
-    preferenceEvidence(right) - preferenceEvidence(left) ||
-    trustRank(left) - trustRank(right) ||
-    availabilityRank(left) - availabilityRank(right) ||
-    comparablePrice(left) - comparablePrice(right) ||
-    price(left) - price(right) ||
-    couponRank(right) - couponRank(left) ||
-    right.matchEvidence.length - left.matchEvidence.length ||
-    left.title.localeCompare(right.title);
-}
-
-function sameFit(left: RecommendationProduct, right: RecommendationProduct): boolean {
-  return matchRank(left) === matchRank(right) &&
-    limitations(left) === limitations(right) &&
-    fitEvidence(left) === fitEvidence(right) &&
-    preferenceEvidence(left) === preferenceEvidence(right) &&
-    trustRank(left) === trustRank(right) &&
-    availabilityRank(left) === availabilityRank(right);
-}
-
-function matchRank(product: RecommendationProduct): number {
-  return product.matchStatus === "EXACT" ? 0 : product.matchStatus === "DISCOVERY_MATCH" ? 1 : 2;
-}
-
-function limitations(product: RecommendationProduct): number {
-  return product.requiredFeatureLimitations?.length ?? 0;
-}
-
-function fitEvidence(product: RecommendationProduct): number {
-  return (product.featureEvidence?.length ?? 0) + (product.preferenceEvidence?.length ?? 0);
-}
-
-function preferenceEvidence(product: RecommendationProduct): number {
-  return product.preferenceEvidence?.length ?? 0;
-}
-
-function trustRank(product: RecommendationProduct): number {
-  return product.merchantTrust.verification === "INDEPENDENT" ? 0 : 1;
-}
-
-function availabilityRank(product: RecommendationProduct): number {
-  return product.availability === "IN_STOCK" ? 0 : product.availability === "UNKNOWN" ? 1 : 2;
-}
-
-function price(product: RecommendationProduct): number {
-  return product.itemPrice?.amountCents ?? Number.MAX_SAFE_INTEGER;
-}
-
-function comparablePrice(product: RecommendationProduct): number {
-  return product.coupons.estimatedItemPriceAfterCoupon?.amountCents ?? price(product);
 }
 
 function couponRank(product: RecommendationProduct): number {

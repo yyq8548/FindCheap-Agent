@@ -3801,6 +3801,16 @@
       "format": "esm",
       "imports": []
     },
+    "src/deal-assessment.ts": {
+      "format": "esm",
+      "imports": [
+        {
+          "kind": "import-statement",
+          "original": "zod",
+          "path": "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/index.js"
+        }
+      ]
+    },
     "src/deal-client.ts": {
       "format": "esm",
       "imports": [
@@ -3808,6 +3818,11 @@
           "kind": "import-statement",
           "original": "zod",
           "path": "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/index.js"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./deal-assessment.js",
+          "path": "src/deal-assessment.ts"
         }
       ]
     },
@@ -3818,6 +3833,11 @@
           "kind": "import-statement",
           "original": "./deal-client.js",
           "path": "src/deal-client.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./deal-assessment.js",
+          "path": "src/deal-assessment.ts"
         }
       ]
     },
@@ -3845,6 +3865,16 @@
         }
       ]
     },
+    "src/execution/input-validation.ts": {
+      "format": "esm",
+      "imports": [
+        {
+          "kind": "import-statement",
+          "original": "zod",
+          "path": "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/index.js"
+        }
+      ]
+    },
     "src/execution/tool-executor.ts": {
       "format": "esm",
       "imports": [
@@ -3857,6 +3887,11 @@
           "kind": "import-statement",
           "original": "./external-data-fence.js",
           "path": "src/execution/external-data-fence.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./input-validation.js",
+          "path": "src/execution/input-validation.ts"
         },
         {
           "kind": "import-statement",
@@ -3969,8 +4004,23 @@
         },
         {
           "kind": "import-statement",
+          "original": "./ranking-assessment.js",
+          "path": "src/ranking-assessment.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./deal-assessment.js",
+          "path": "src/deal-assessment.ts"
+        },
+        {
+          "kind": "import-statement",
           "original": "./deal-client.js",
           "path": "src/deal-client.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./visual-product-discovery.js",
+          "path": "src/visual-product-discovery.ts"
         }
       ]
     },
@@ -4026,6 +4076,16 @@
           "kind": "import-statement",
           "original": "./product-recommendation.js",
           "path": "src/product-recommendation.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./deal-assessment.js",
+          "path": "src/deal-assessment.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./deal-client.js",
+          "path": "src/deal-client.ts"
         }
       ]
     },
@@ -4035,9 +4095,23 @@
     },
     "src/product-recommendation.ts": {
       "format": "esm",
+      "imports": [
+        {
+          "kind": "import-statement",
+          "original": "./ranking-assessment.js",
+          "path": "src/ranking-assessment.ts"
+        }
+      ]
+    },
+    "src/ranking-assessment.ts": {
+      "format": "esm",
       "imports": []
     },
     "src/sales-tax-estimator.ts": {
+      "format": "esm",
+      "imports": []
+    },
+    "src/search-diagnostics.ts": {
       "format": "esm",
       "imports": []
     },
@@ -4048,6 +4122,11 @@
           "kind": "import-statement",
           "original": "zod",
           "path": "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/index.js"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./search-run.js",
+          "path": "src/search-run.ts"
         },
         {
           "kind": "import-statement",
@@ -4086,6 +4165,16 @@
         }
       ]
     },
+    "src/search-run.ts": {
+      "format": "esm",
+      "imports": [
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:crypto"
+        }
+      ]
+    },
     "src/server.ts": {
       "format": "esm",
       "imports": [
@@ -4113,6 +4202,21 @@
           "kind": "import-statement",
           "original": "./execution/tool-executor.js",
           "path": "src/execution/tool-executor.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./execution/tool-outcome.js",
+          "path": "src/execution/tool-outcome.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./search-run.js",
+          "path": "src/search-run.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./search-diagnostics.js",
+          "path": "src/search-diagnostics.ts"
         },
         {
           "kind": "import-statement",
@@ -4188,6 +4292,11 @@
           "kind": "import-statement",
           "original": "./deal-concierge.js",
           "path": "src/deal-concierge.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./deal-assessment.js",
+          "path": "src/deal-assessment.ts"
         },
         {
           "kind": "import-statement",
@@ -4523,7 +4632,7 @@
   },
   "outputs": {
     "../../plugins/findcheap-agent/dist/mcp-server.js": {
-      "bytes": 755446,
+      "bytes": 784993,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
@@ -4541,6 +4650,11 @@
           "external": true,
           "kind": "import-statement",
           "path": "node:process"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:crypto"
         },
         {
           "external": true,
@@ -4759,7 +4873,7 @@
           "bytesInOutput": 1980
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/core.js": {
-          "bytesInOutput": 12301
+          "bytesInOutput": 12305
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/refs/data.json": {
           "bytesInOutput": 358
@@ -5095,7 +5209,7 @@
           "bytesInOutput": 649
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v4/core/schemas.js": {
-          "bytesInOutput": 18932
+          "bytesInOutput": 18935
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v4/core/to-json-schema.js": {
           "bytesInOutput": 11445
@@ -5142,11 +5256,14 @@
         "src/backend.ts": {
           "bytesInOutput": 447
         },
+        "src/deal-assessment.ts": {
+          "bytesInOutput": 4579
+        },
         "src/deal-client.ts": {
-          "bytesInOutput": 4793
+          "bytesInOutput": 6157
         },
         "src/deal-concierge.ts": {
-          "bytesInOutput": 1840
+          "bytesInOutput": 2877
         },
         "src/ebay-client.ts": {
           "bytesInOutput": 3766
@@ -5157,14 +5274,17 @@
         "src/execution/external-data-fence.ts": {
           "bytesInOutput": 1860
         },
+        "src/execution/input-validation.ts": {
+          "bytesInOutput": 2051
+        },
         "src/execution/tool-executor.ts": {
-          "bytesInOutput": 1894
+          "bytesInOutput": 2157
         },
         "src/execution/tool-outcome.ts": {
-          "bytesInOutput": 812
+          "bytesInOutput": 1561
         },
         "src/execution/tool-registry.ts": {
-          "bytesInOutput": 920
+          "bytesInOutput": 942
         },
         "src/generic-official-store-search.ts": {
           "bytesInOutput": 8106
@@ -5179,46 +5299,55 @@
           "bytesInOutput": 1326
         },
         "src/product-candidate-ranking.ts": {
-          "bytesInOutput": 4428
+          "bytesInOutput": 4886
         },
         "src/product-card-telemetry.ts": {
           "bytesInOutput": 814
         },
         "src/product-card-ui.ts": {
-          "bytesInOutput": 57337
+          "bytesInOutput": 62753
         },
         "src/product-comparison-ui.ts": {
-          "bytesInOutput": 22002
+          "bytesInOutput": 24678
         },
         "src/product-comparison.ts": {
-          "bytesInOutput": 8708
+          "bytesInOutput": 10674
         },
         "src/product-constraint-matcher.ts": {
           "bytesInOutput": 11191
         },
         "src/product-recommendation.ts": {
-          "bytesInOutput": 4084
+          "bytesInOutput": 3193
+        },
+        "src/ranking-assessment.ts": {
+          "bytesInOutput": 1851
         },
         "src/sales-tax-estimator.ts": {
           "bytesInOutput": 1784
         },
+        "src/search-diagnostics.ts": {
+          "bytesInOutput": 1059
+        },
         "src/search-products.ts": {
-          "bytesInOutput": 27063
+          "bytesInOutput": 27867
+        },
+        "src/search-run.ts": {
+          "bytesInOutput": 1453
         },
         "src/server.ts": {
-          "bytesInOutput": 120181
+          "bytesInOutput": 123133
         },
         "src/shopify-cart-quote.ts": {
-          "bytesInOutput": 10340
+          "bytesInOutput": 10343
         },
         "src/shopify-client.ts": {
           "bytesInOutput": 181
         },
         "src/shopify-global-catalog-client.ts": {
-          "bytesInOutput": 22058
+          "bytesInOutput": 22060
         },
         "src/shopify-match.ts": {
-          "bytesInOutput": 7892
+          "bytesInOutput": 7896
         },
         "src/shopify-official-store-search.ts": {
           "bytesInOutput": 9961
@@ -5236,7 +5365,7 @@
           "bytesInOutput": 1958
         },
         "src/visual-product-discovery.ts": {
-          "bytesInOutput": 14596
+          "bytesInOutput": 16318
         },
         "src/watch-service.ts": {
           "bytesInOutput": 6032

@@ -1,7 +1,7 @@
 import { FINDCHEAP_VERSION } from "../../../config/version.js";
 import { MAX_PRODUCT_CARDS } from "./product-candidate-ranking.js";
 
-export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v33.html";
+export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v34.html";
 
 export const PRODUCT_CARD_RESOURCE_DOMAINS = [
   "https://cdn.shopify.com",
@@ -324,35 +324,65 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       if (label.startsWith("Estimated tax (")) return "预估税费（" + label.slice(15, -1) + "）";
       return label;
     };
+    const couponOffers = (product) => Array.isArray(product?.coupons?.verified)
+      ? product.coupons.verified.filter((offer) => offer && typeof offer === "object") : [];
+    const primaryCoupon = (product) => {
+      if (product?.coupons?.lookupStatus === "UNAVAILABLE") return undefined;
+      const offers = couponOffers(product);
+      const summary = product?.coupons?.summary;
+      if (summary !== undefined) {
+        if (!["CONFIRMED_DEAL", "MERCHANT_CANDIDATE"].includes(summary.status) || typeof summary.recommendedDealId !== "string") return undefined;
+        return offers.find((offer) => offer.dealId === summary.recommendedDealId &&
+          offer.assessment?.status !== "INELIGIBLE" && offer.assessment?.recommendationEligible !== false);
+      }
+      return offers.find((offer) => offer.assessment?.status !== "INELIGIBLE");
+    };
+    const couponConfirmed = (offer) => offer?.productApplicability === "PRODUCT_CONFIRMED" &&
+      (offer.assessment === undefined || offer.assessment.status === "CONFIRMED");
+    const couponValue = (offer) => offer?.code ? String(offer.code)
+      : typeof offer?.discountPercent === "number" && Number.isFinite(offer.discountPercent)
+        ? offer.discountPercent + "%" : offer?.discountAmount ? money(offer.discountAmount) : String(offer?.title || "");
+    const couponEligibility = (offer) => couponConfirmed(offer)
+      ? text("Confirmed for this product", "已确认适用于此商品")
+      : offer?.assessment?.status === "INELIGIBLE"
+        ? text("Not eligible for this product", "不适用于此商品")
+        : text("Not confirmed for this product", "此商品适用性未确认");
+    const couponReasons = (offer) => (Array.isArray(offer?.assessment?.reasonCodes) ? offer.assessment.reasonCodes : []).map((reason) => ({
+      PRODUCT_ID_CONFIRMED: text("Product ID confirmed", "商品 ID 已确认"),
+      PRODUCT_ID_MISMATCH: text("Different product ID", "商品 ID 不符"),
+      PRODUCT_SCOPE_MISMATCH: text("Different product scope", "优惠商品范围不符"),
+      MINIMUM_SPEND_NOT_MET: text("Minimum spend not met", "未达到最低消费金额"),
+      MINIMUM_SPEND_UNCONFIRMED: text("Minimum spend requires confirmation", "最低消费条件需确认"),
+      WHOLESALE_ONLY: text("Wholesale eligibility required", "需符合批发资格"),
+      CUSTOMER_ELIGIBILITY_UNCONFIRMED: text("Customer eligibility requires confirmation", "客户资格需确认"),
+      TERMS_CONFLICT: text("Offer terms conflict", "优惠条款存在冲突"),
+      SCOPE_UNVERIFIED: text("Offer scope unverified", "优惠范围未验证"),
+      MERCHANT_ELIGIBILITY_UNCONFIRMED: text("Merchant eligibility requires confirmation", "商家适用条件未确认")
+    })[reason] || text("Eligibility requires confirmation", "适用条件需确认")).join("; ");
     const couponBadgeText = (product, cardData) => {
-      const first = Array.isArray(product?.coupons?.verified) ? product.coupons.verified[0] : undefined;
+      const first = primaryCoupon(product);
       const extra = Array.isArray(product?.coupons?.verified) && product.coupons.verified.length > 1
         ? " +" + (product.coupons.verified.length - 1)
         : "";
-      const value = first?.code
-        ? String(first.code)
-        : Number.isFinite(Number(first?.discountPercent))
-          ? Number(first.discountPercent) + "%"
-          : first?.discountAmount
-            ? money(first.discountAmount)
-            : first?.title ? String(first.title) : "";
-      if (value && first?.productApplicability === "PRODUCT_CONFIRMED") {
+      const value = couponValue(first);
+      if (value && couponConfirmed(first)) {
         return text("Verified Coupon: ", "已验证优惠：") + value + extra;
       }
       if (value && first?.productApplicability === "MERCHANT_WIDE") {
         return text("Merchant offer: ", "商家优惠：") + value + extra;
       }
       if (value) return text("Offer eligibility unconfirmed: ", "优惠待确认：") + value + extra;
+      if (product?.coupons?.summary !== undefined || product?.coupons?.lookupStatus === "UNAVAILABLE") return "";
       const raw = String(cardData?.couponLabel || "").replace(/^Coupon:\s*/iu, "");
       return raw ? text("Coupon: ", "优惠：") + raw : "";
     };
     const couponNoticeText = (product) => {
-      const first = Array.isArray(product?.coupons?.verified) ? product.coupons.verified[0] : undefined;
+      const first = primaryCoupon(product);
       if (!first) return "";
       const expires = Number.isFinite(Date.parse(first.validTo))
         ? text(" Valid through ", " 有效至 ") + new Date(first.validTo).toLocaleDateString(currentLocale === "zh-CN" ? "zh-CN" : "en-US") + "."
         : "";
-      if (first.productApplicability === "PRODUCT_CONFIRMED") {
+      if (couponConfirmed(first)) {
         return text(
           "This offer is verified for this product; stacking and the final amount are confirmed at checkout.",
           "该优惠已确认适用于此商品；能否叠加及最终金额以结账页为准。"
@@ -368,6 +398,37 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
         "A current offer was found, but it is not confirmed for this product.",
         "发现当前优惠，但尚未确认适用于此商品。"
       ) + expires;
+    };
+    const appendCouponSummary = (body, product) => {
+      const offers = couponOffers(product);
+      const lookupStatus = product?.coupons?.lookupStatus;
+      if (offers.length === 0 && !lookupStatus) return;
+      const section = make("section", "coupon-summary");
+      if (lookupStatus === "UNAVAILABLE") section.append(make("div", "limitations", text("Coupon lookup unavailable; this does not mean no offers exist.", "优惠查询暂不可用；不代表没有优惠。")));
+      if (lookupStatus === "PARTIAL") section.append(make("div", "limitations", text("Coupon lookup only partially completed.", "优惠查询仅部分完成。")));
+      const first = primaryCoupon(product);
+      if (first) {
+        if (product?.sourceEnvironment !== "SANDBOX" && product?.purchaseLink?.kind === "APPROVED_AFFILIATE") {
+          section.append(make("div", "disclosure", text("FindCheap found an available coupon.", "Findcheap 找到了可用的coupon")));
+        }
+        section.append(make("div", "details", couponValue(first) + " · " + couponEligibility(first)));
+        const reasons = couponReasons(first);
+        if (reasons) section.append(make("div", "limitations", reasons));
+        section.append(make("div", "limitations", couponNoticeText(product)));
+      } else if (lookupStatus === "COMPLETE") {
+        section.append(make("div", "limitations", text("No confirmed applicable offer for this product.", "暂无已确认适用于此商品的优惠。")));
+      }
+      const otherOffers = offers.filter((offer) => offer !== first);
+      if (otherOffers.length > 0) {
+        const more = make("details", "more coupon-more");
+        more.append(make("summary", "", text("Other merchant offers", "其他商家优惠") + " (" + otherOffers.length + ")"));
+        for (const offer of otherOffers) {
+          const details = [couponValue(offer), couponEligibility(offer), couponReasons(offer)].filter(Boolean).join(" · ");
+          more.append(make("div", "details", details));
+        }
+        section.append(more);
+      }
+      body.append(section);
     };
     let initializeAttempts = 0;
     let nextRequestId = 1;
@@ -557,6 +618,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       INDEPENDENT: "独立验证", UNVERIFIED: "未验证"
     })[value] || String(value || "");
     const renderComparison = (output) => {
+      if (output.locale === "zh-CN" || output.locale === "en-US") currentLocale = output.locale;
       app.replaceChildren();
       const back = make("button", "compare-toggle", text("Back to results", "返回商品卡"));
       back.type = "button";
@@ -568,6 +630,15 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
         return;
       }
       app.append(make("div", "summary", output.message));
+      const decision = output.recommendation ?? output.decision;
+      for (const [key, label] of [["conditions", text("Recommendation conditions", "推荐条件")], ["limitations", text("Comparison limitations", "比较限制")]]) {
+        const values = Array.isArray(decision?.[key]) ? decision[key].filter((value) => typeof value === "string") : [];
+        if (values.length > 0) {
+          const section = make("section", "summary");
+          section.append(make("strong", "", label), comparisonList(values));
+          app.append(section);
+        }
+      }
       const canQuote = output.entries.length <= 4 &&
         output.entries.some((entry) => entry.deliveredTotalStatus === "NOT_QUOTED") &&
         output.entries.every((entry) => entry.deliveredTotalStatus !== "MERCHANT_CHECKOUT_ONLY" && typeof entry.selectionId === "string");
@@ -638,6 +709,13 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
         [text("Compared price", "对比价格"), (entry) => make("span", entry.comparedPrice ? "price" : "details", entry.comparedPrice ? money(entry.comparedPrice) : text("Unavailable", "不可用"))],
         [text("Item price", "商品价"), (entry) => make("span", entry.itemPrice ? "" : "details", entry.itemPrice ? money(entry.itemPrice) : text("Unknown", "未知"))],
         [text("Delivered total", "到手价"), delivered],
+        [text("Verified deals", "已验证优惠"), (entry) => {
+          const section = make("div");
+          appendCouponSummary(section, { coupons: {
+            verified: entry.verifiedDeals, lookupStatus: entry.dealLookupStatus, summary: entry.dealSummary
+          } });
+          return section.children.length > 0 ? section : make("span", "details", text("No verified deal", "暂无已验证优惠"));
+        }],
         [text("Condition", "商品状态"), (entry) => make("span", "", comparisonLabel(entry.condition))],
         [text("Availability", "库存"), (entry) => make("span", "", comparisonLabel(entry.availability))],
         [text("Merchant trust", "商家信任"), (entry) => make("span", "", comparisonLabel(entry.merchantTrust?.level) + " · " + comparisonLabel(entry.merchantTrust?.verification))],
@@ -889,7 +967,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
           const priceBlock = make("div", "");
           priceBlock.append(make("div", "price", money(cardData.primaryPrice)));
           if (cardData.priceLabel) priceBlock.append(make("div", "details", cardLabelText(cardData.priceLabel)));
-          if (product?.coupons?.estimatedItemPriceAfterCoupon) {
+          if (product?.coupons?.estimatedItemPriceAfterCoupon && couponConfirmed(primaryCoupon(product))) {
             priceBlock.append(make("div", "details", text("Estimated after Coupon: ", "使用优惠后预计：") +
               money(product.coupons.estimatedItemPriceAfterCoupon)));
           }
@@ -957,16 +1035,13 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
           moreContent.append(make("div", "observed", observedAt(product.checkedAt)));
           more.append(moreContent);
           body.append(more);
-          const couponNotice = couponNoticeText(product);
           body.append(make("div", "limitations notice", (product?.pricing?.scope === "SHOPIFY_CART_ESTIMATE"
             ? text("Estimated for the supplied ZIP; checkout confirms the final total. ", "基于所提供 ZIP 估算；最终金额以结账页为准。")
-            : text("Current item price verified; shipping and tax are confirmed at checkout. ", "当前仅核实商品价；运费和税费以结账页为准。")) +
-            (couponNotice === "" ? "" : " " + couponNotice)));
+            : text("Current item price verified; shipping and tax are confirmed at checkout. ", "当前仅核实商品价；运费和税费以结账页为准。"))));
           if (product?.sourceEnvironment === "SANDBOX") {
             body.append(make("div", "disclosure", text("eBay Sandbox review only. This test link does not earn a commission.", "仅供 eBay Sandbox 测试；此测试链接不会产生佣金。")));
-          } else if (product?.purchaseLink?.kind === "APPROVED_AFFILIATE" && couponNotice !== "") {
-            body.append(make("div", "disclosure", text("FindCheap found an available coupon.", "Findcheap 找到了可用的coupon")));
           }
+          appendCouponSummary(body, product);
           if (typeof product?.selectionId === "string" && comparable.length >= 2) {
             const toggle = make("button", "compare-toggle", text("Select for comparison", "选择对比"));
             toggle.type = "button";

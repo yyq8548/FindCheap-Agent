@@ -152,6 +152,43 @@ describe("product recommendation", () => {
       })
     ])).toEqual({ state: "RESEARCH_ONLY", reasonCodes: [] });
   });
+
+  it("keeps primary choice unchanged when trusted products move between all three display groups", () => {
+    for (const group of ["OFFICIAL_STORE", "TRUSTED_MATCH", "BEST_VALUE"] as const) {
+      const decision = choosePrimaryRecommendation([
+        product({ title: "Expensive", presentationGroup: "OFFICIAL_STORE", price: 2_000 }),
+        { ...product({ title: "Best fit cheaper", presentationGroup: "TRUSTED_MATCH", price: 1_000 }), presentationGroup: group }
+      ]);
+      expect(decision).toMatchObject({ state: "READY", primaryProductIndex: 1 });
+    }
+  });
+
+  it("does not treat equal evidence counts for different needs as equivalent fit", () => {
+    const decision = choosePrimaryRecommendation([
+      { ...product({ title: "Short human hair", presentationGroup: "TRUSTED_MATCH", price: 1_000 }),
+        featureEvidence: ["human hair", "short finger waves"], preferenceEvidence: [] },
+      { ...product({ title: "Long synthetic hair", presentationGroup: "TRUSTED_MATCH", price: 2_000 }),
+        featureEvidence: ["synthetic fiber", "28 inch long"], preferenceEvidence: [] }
+    ]);
+    expect(decision.reasonCodes).not.toContain("LOWER_PRICE");
+  });
+
+  it.each(["RISKY", "UNKNOWN"] as const)("does not promote contradictory independently verified %s merchants", (level) => {
+    const decision = choosePrimaryRecommendation([{
+      ...product({ title: "Conflicted merchant", presentationGroup: "TRUSTED_MATCH", price: 100 }),
+      merchantTrust: { level, verification: "INDEPENDENT" as const }
+    }]);
+    expect(decision).toEqual({ state: "RESEARCH_ONLY", reasonCodes: [] });
+  });
+
+  it("does not use a merchant-wide coupon estimate as a confirmed product price", () => {
+    const decision = choosePrimaryRecommendation([
+      product({ title: "Lower raw price", presentationGroup: "TRUSTED_MATCH", price: 1_000 }),
+      product({ title: "Unconfirmed coupon", presentationGroup: "TRUSTED_MATCH", price: 2_000,
+        coupon: { productApplicability: "MERCHANT_WIDE", estimatedPrice: 500 } })
+    ]);
+    expect(decision.primaryProductIndex).toBe(0);
+  });
 });
 
 function product(options: {

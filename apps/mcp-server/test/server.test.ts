@@ -127,12 +127,12 @@ describe("shopping MCP server", () => {
     const selectionTool = tools.tools.find((candidate) => candidate.name === "sync_product_card_selection");
     const metricsTool = tools.tools.find((candidate) => candidate.name === "report_product_card_metrics");
     expect(searchTool?._meta).toMatchObject({
-      ui: { resourceUri: "ui://findcheap/product-cards/v33.html" },
-      "openai/outputTemplate": "ui://findcheap/product-cards/v33.html"
+      ui: { resourceUri: "ui://findcheap/product-cards/v34.html" },
+      "openai/outputTemplate": "ui://findcheap/product-cards/v34.html"
     });
     expect(renderTool?._meta).toMatchObject({
       ui: {
-        resourceUri: "ui://findcheap/product-cards/v33.html",
+        resourceUri: "ui://findcheap/product-cards/v34.html",
         visibility: ["app"]
       }
     });
@@ -151,15 +151,15 @@ describe("shopping MCP server", () => {
     expect(resources.resources).toHaveLength(2);
     expect(resources.resources).toEqual(expect.arrayContaining([expect.objectContaining({
       name: "findcheap-product-cards",
-      uri: "ui://findcheap/product-cards/v33.html",
+      uri: "ui://findcheap/product-cards/v34.html",
       mimeType: "text/html;profile=mcp-app"
     }), expect.objectContaining({
       name: "findcheap-product-comparison",
-      uri: "ui://findcheap/product-comparison/v3.html",
+      uri: "ui://findcheap/product-comparison/v4.html",
       mimeType: "text/html;profile=mcp-app"
     })]));
 
-    const resource = await client.readResource({ uri: "ui://findcheap/product-cards/v33.html" });
+    const resource = await client.readResource({ uri: "ui://findcheap/product-cards/v34.html" });
     const content = resource.contents[0];
     const html = content !== undefined && "text" in content ? content.text : "";
     expect(html).toContain("ui/notifications/tool-result");
@@ -424,7 +424,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.17.10",
+        version: "0.17.11",
         terminalStage: "DOM_RENDERED",
         stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
       }
@@ -433,7 +433,7 @@ describe("shopping MCP server", () => {
     expect(result.structuredContent).toEqual({ status: "RECORDED" });
     expect(record).toHaveBeenCalledWith(expect.objectContaining({
       renderId,
-      version: "0.17.10",
+      version: "0.17.11",
       terminalStage: "DOM_RENDERED",
       stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
     }));
@@ -441,7 +441,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.17.10",
+        version: "0.17.11",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 14 }
       }
@@ -451,7 +451,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.17.10",
+        version: "0.17.11",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 300_001 }
       }
@@ -462,7 +462,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId: "22222222-2222-4222-8222-222222222222",
-        version: "0.17.10",
+        version: "0.17.11",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 1 }
       }
@@ -1356,6 +1356,15 @@ describe("Coupon and Watch tools", () => {
     const content = result.content as Array<{ type: string }>;
     expect(content.filter((item) => item.type === "image")).toHaveLength(2);
     expect((result.structuredContent as { candidates: unknown[] }).candidates).toHaveLength(2);
+    expect(result._meta).toMatchObject({
+      "findcheap/visualImageLoadDiagnostics": {
+        attempted: 3,
+        downloaded: 3,
+        loaded: 2,
+        outputBudgetSkipped: 1,
+        failures: []
+      }
+    });
     expect(JSON.stringify(result).length).toBeLessThan(512_000);
   });
 
@@ -1477,9 +1486,9 @@ describe("Coupon and Watch tools", () => {
     });
     expect(result._meta).toMatchObject({
       "findcheap/visualImageLoadDiagnostics": {
-        attempted: 1,
+        attempted: 2,
         loaded: 0,
-        failures: [{ code: "REQUEST_FAILED", sourceHost: "cdn.shopify.com", count: 1 }]
+        failures: [{ code: "REQUEST_FAILED", sourceHost: "cdn.shopify.com", count: 2 }]
       }
     });
     const localized = await client.callTool({
@@ -1611,10 +1620,8 @@ describe("Coupon and Watch tools", () => {
       selectionMode: "MERCHANT_DIVERSE",
       membershipIds: []
     });
-    let sourceCall = 0;
-    const search = vi.fn<ShopifyPort["search"]>(async () => {
-      sourceCall += 1;
-      const relaxed = sourceCall > 2;
+    const search = vi.fn<ShopifyPort["search"]>(async (input) => {
+      const relaxed = input.query?.includes("square neckline with lace inset") === true;
       return {
         ...baseline,
         products: [{
@@ -1706,7 +1713,7 @@ describe("Coupon and Watch tools", () => {
     });
     const retryContent = retry.content as Array<{ type: string; text?: string }>;
     expect(retryContent[0]?.text).toContain("Final answer is forbidden");
-    expect(search.mock.calls[2]?.[0].query).toContain("dress square neckline with lace inset short puff sleeves");
+    expect(search.mock.calls[1]?.[0].query).toContain("dress square neckline with lace inset short puff sleeves");
     expect(retry.content).toEqual(expect.arrayContaining([
       expect.objectContaining({ type: "image", mimeType: "image/jpeg" })
     ]));
@@ -1732,7 +1739,7 @@ describe("Coupon and Watch tools", () => {
       status: "OK",
       products: [{ visualMatchGroup: "HIGHLY_SIMILAR", selectionId: expect.any(String) }]
     });
-    expect(search).toHaveBeenCalledTimes(4);
+    expect(search).toHaveBeenCalledTimes(2);
   });
 
   it("renders an official-store fallback card when the catalog source is unavailable", async () => {
@@ -1958,7 +1965,7 @@ describe("Coupon and Watch tools", () => {
         priceBasis: "DELIVERED_TOTAL",
         deliveredPrice: { amountCents: 1_900, currency: "USD" }
       } });
-    expect(search).toHaveBeenCalledTimes(2);
+    expect(search).toHaveBeenCalledTimes(1);
     expect(quoteCart).toHaveBeenCalledTimes(3);
     expect((await client.callTool({ name: "list_watches", arguments: {} })).structuredContent)
       .toMatchObject({ watches: [{ watchId, priceBasis: "DELIVERED_TOTAL" }] });

@@ -9,6 +9,7 @@ import {
 } from "../src/execution/external-data-fence.js";
 import { capabilityMappedTools, requiredCapabilityForTool } from "../src/execution/capabilities.js";
 import { ToolExecutor } from "../src/execution/tool-executor.js";
+import { toolError } from "../src/execution/tool-outcome.js";
 
 describe("shared tool execution boundary", () => {
   it("normalizes hostile external text without preserving forged role boundaries", () => {
@@ -100,6 +101,125 @@ describe("shared tool execution boundary", () => {
     expect(handler).toHaveBeenCalledWith({ query: "coffee", limit: 2 });
   });
 
+  it("returns bounded model-visible field corrections without exposing input values", async () => {
+    const handler = vi.fn(async () => ({ content: [{ type: "text" as const, text: "ran" }] }));
+    const executor = new ToolExecutor({ capabilities: new Set(["VISUAL_SEARCH"]), log: vi.fn() });
+    executor.register({
+      name: "search_visual_candidates",
+      capability: "VISUAL_SEARCH",
+      inputSchema: z.object({
+        visualInput: z.object({ observations: z.array(z.object({ value: z.string().max(100) })) })
+      }).strict()
+    });
+    const privateValue = `private-api-key-${"x".repeat(101)}`;
+    const invalid = await executor.execute("search_visual_candidates", {
+      visualInput: { observations: [{ value: privateValue }] }
+    }, handler);
+    expect(invalid._meta).toMatchObject({
+      "findcheap/errorCode": "INVALID_ARGUMENTS",
+      "findcheap/errorDetails": {
+        version: 1,
+        phase: "INPUT_VALIDATION",
+        recovery: { action: "CORRECT_ARGUMENTS", maxAttempts: 1 },
+        issues: [{ path: "visualInput.observations[0].value", code: "TOO_LONG", maximum: 100, action: "SHORTEN_TEXT" }]
+      }
+    });
+    expect(JSON.stringify(invalid.content)).toContain("visualInput.observations[0].value");
+    expect(JSON.stringify(invalid.content)).toContain("SHORTEN_TEXT");
+    expect(JSON.stringify(invalid)).not.toContain(privateValue);
+    expect(invalid.structuredContent).toBeUndefined();
+    expect(handler).not.toHaveBeenCalled();
+
+    await executor.execute("search_visual_candidates", {
+      visualInput: { observations: [{ value: "x".repeat(100) }] }
+    }, handler);
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not echo unknown keys, dynamic paths, enum values, or custom validation messages", async () => {
+    const executor = new ToolExecutor({ capabilities: new Set(["CATALOG"]), log: vi.fn() });
+    const secret = "secret_private_token";
+    executor.register({
+      name: "search_products",
+      capability: "CATALOG",
+      inputSchema: z.object({
+        query: z.string().superRefine((_value, context) => context.addIssue({
+          code: z.ZodIssueCode.custom, path: [secret], message: `https://private.invalid/${secret}`
+        })),
+        mode: z.enum(["SAFE"]),
+        metadata: z.record(z.string().max(2))
+      }).strict()
+    });
+    const result = await executor.execute("search_products", {
+      query: "query", mode: secret, metadata: { [secret]: secret }, [secret]: secret
+    }, vi.fn());
+    expect(result._meta).toMatchObject({ "findcheap/errorCode": "INVALID_ARGUMENTS" });
+    expect(JSON.stringify(result)).not.toContain(secret);
+    expect(JSON.stringify(result)).not.toContain("private.invalid");
+    expect(JSON.stringify(result)).toContain("UNSUPPORTED_FIELDS");
+  });
+
+  it("bounds correction details and keeps handler and output schema failures out of input recovery", async () => {
+    const log = vi.fn();
+    const executor = new ToolExecutor({ capabilities: new Set(["CATALOG"]), log });
+    executor.register({
+      name: "search_products", capability: "CATALOG",
+      inputSchema: z.object({ values: z.array(z.string().max(1)) }),
+      outputSchema: z.object({ status: z.literal("OK") })
+    });
+    const invalid = await executor.execute("search_products", { values: Array(20).fill("secret") }, vi.fn());
+    const details = invalid._meta?.["findcheap/errorDetails"] as { issues: unknown[] };
+    expect(details.issues).toHaveLength(5);
+    expect(JSON.stringify(invalid)).not.toContain("secret");
+
+    const handlerFailure = await executor.execute("search_products", { values: ["a"] }, async () => {
+      z.object({ secret: z.string() }).parse({ secret: 1 });
+      return { content: [] };
+    });
+    expect(handlerFailure._meta).toMatchObject({
+      "findcheap/errorCode": "TOOL_EXECUTION_FAILED",
+      "findcheap/errorDetails": { phase: "DOMAIN_EXECUTION", recovery: { action: "NONE", maxAttempts: 0 } }
+    });
+    expect(JSON.stringify(handlerFailure)).not.toContain("secret");
+    const outputFailure = await executor.execute("search_products", { values: ["a"] }, async () => ({
+      content: [], structuredContent: { status: "PRIVATE" }
+    }));
+    expect(outputFailure._meta).toMatchObject({
+      "findcheap/errorCode": "TOOL_OUTPUT_REJECTED",
+      "findcheap/errorDetails": { phase: "OUTPUT_VALIDATION", recovery: { action: "NONE", maxAttempts: 0 } }
+    });
+    expect(JSON.stringify(outputFailure)).not.toContain("PRIVATE");
+    expect(JSON.stringify(log.mock.calls)).not.toContain("secret");
+  });
+
+  it("preserves trusted stable error codes without accepting unknown codes", async () => {
+    const executor = new ToolExecutor({ capabilities: new Set(["CATALOG"]), log: vi.fn() });
+    executor.register({ name: "search_products", capability: "CATALOG" });
+    const stable = await executor.execute("search_products", {}, async () => toolError("TOOL_NOT_AVAILABLE"));
+    expect(stable._meta).toMatchObject({ "findcheap/errorCode": "TOOL_NOT_AVAILABLE" });
+    const unknown = await executor.execute("search_products", {}, async () => ({
+      isError: true, content: [], _meta: { "findcheap/errorCode": "UNKNOWN_UPSTREAM_CODE" }
+    }));
+    expect(unknown._meta).toMatchObject({ "findcheap/errorCode": "TOOL_REQUEST_REJECTED" });
+  });
+
+  it("classifies a thrown output Zod error as output rejection, not caller correction", async () => {
+    const executor = new ToolExecutor({ capabilities: new Set(["CATALOG"]), log: vi.fn() });
+    executor.register({
+      name: "search_products", capability: "CATALOG",
+      outputSchema: z.object({ status: z.string() }).transform(() => {
+        throw new z.ZodError([{ code: z.ZodIssueCode.custom, path: ["private_output"], message: "secret backend state" }]);
+      })
+    });
+    const result = await executor.execute("search_products", {}, async () => ({ content: [], structuredContent: { status: "OK" } }));
+    expect(result._meta).toMatchObject({
+      "findcheap/errorCode": "TOOL_OUTPUT_REJECTED",
+      "findcheap/errorDetails": { phase: "OUTPUT_VALIDATION", recovery: { action: "NONE", maxAttempts: 0 } }
+    });
+    expect(JSON.stringify(result)).not.toContain("private_output");
+    expect(JSON.stringify(result)).not.toContain("secret backend state");
+  });
+
   it("distinguishes omitted prior-product context from expired references", async () => {
     const handler = vi.fn(async () => ({ content: [{ type: "text" as const, text: "ran" }] }));
     const executor = new ToolExecutor({ capabilities: new Set(["CATALOG"]), log: vi.fn() });
@@ -122,6 +242,9 @@ describe("shared tool execution boundary", () => {
     expect(ordinal._meta).toMatchObject({ "findcheap/errorCode": "MISSING_REFERENCE_CONTEXT" });
     expect(unboundIds._meta).toMatchObject({ "findcheap/errorCode": "MISSING_REFERENCE_CONTEXT" });
     expect(JSON.stringify(ordinal.content)).not.toContain("expired");
+    expect(ordinal._meta).toMatchObject({
+      "findcheap/errorDetails": { recovery: { action: "REUSE_ORIGINAL_REFERENCE", maxAttempts: 1 } }
+    });
     expect(handler).not.toHaveBeenCalled();
   });
 

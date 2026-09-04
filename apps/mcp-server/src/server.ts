@@ -3,6 +3,9 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { createFindCheapBackend, type FindCheapBackend } from "./backend.js";
 import { ToolExecutor } from "./execution/tool-executor.js";
+import { toolError } from "./execution/tool-outcome.js";
+import { SearchRun } from "./search-run.js";
+import { searchDiagnostics, type SearchOutcome } from "./search-diagnostics.js";
 import { createExecutedToolRegistrar } from "./execution/tool-registry.js";
 import {
   ProductComparisonInputSchema,
@@ -62,15 +65,17 @@ import {
 } from "./product-recommendation.js";
 import {
   DealSearchInputSchema,
+  DealLookupStatusSchema,
+  DealLookupReasonSchema,
   VerifiedDealsSchema,
   createUnavailableDealPort,
-  dealApplicabilityRank,
   dealAppliesToProduct,
   estimatedItemPriceAfterCoupon,
   type DealPort,
   type VerifiedDeal
 } from "./deal-client.js";
 import { researchSelectedProductDeal } from "./deal-concierge.js";
+import { DealAssessmentSchema, DealSummarySchema, assessSelectedProductDeal, rankAssessedDeals } from "./deal-assessment.js";
 import {
   WatchSpecSchema,
   WatchSpecInputSchema,
@@ -90,6 +95,7 @@ import {
   candidateImageUrl,
   candidateMerchant,
   candidateTitle,
+  addVerifiedCoupons,
   finalizeCodexVisualCandidates,
   searchProducts,
   type CodexVisualVerdict,
@@ -101,6 +107,7 @@ import {
 import {
   VisualProductInputSchema,
   enforceVisualEvidenceAuthority,
+  isVisualAttributeOccluded,
   relaxVisualProductInput
 } from "./visual-product-discovery.js";
 import {
@@ -145,7 +152,7 @@ function uniqueVisualTerms(values: Array<string | undefined>): string[] {
     .filter(Boolean))];
 }
 
-function visualRetrievalSearchInput(input: SearchProductsInput, relaxed: boolean): SearchProductsExecutionInput {
+function visualRetrievalSearchInput(input: SearchProductsInput, relaxed: boolean, searchRun?: SearchRun): SearchProductsExecutionInput {
   const visual = input.visualInput!;
   const retrievalVisual = relaxed ? relaxVisualProductInput(visual) : visual;
   const brand = input.brand ?? retrievalVisual.brand;
@@ -167,17 +174,14 @@ function visualRetrievalSearchInput(input: SearchProductsInput, relaxed: boolean
   const query = exactQuery || descriptiveQuery;
   return {
     ...input,
+    ...(searchRun === undefined ? {} : { searchRun }),
     query: query.length >= 2 ? query.slice(0, 300) : input.query,
     limit: MAX_VISUAL_CANDIDATES,
     allowAlternatives: input.allowAlternatives,
-    requiredFeatures: [],
     preferences: uniqueVisualTerms([
       ...input.preferences,
-      ...input.requiredFeatures,
-      ...input.features
+      ...(input.featureMode === "PREFERRED" ? input.features : [])
     ]).slice(0, 10),
-    features: [],
-    featureMode: "PREFERRED",
     // Keep visual evidence for official-store query generation, but do not let
     // sparse catalog metadata reject candidates before Codex reviews images.
     visualInput: retrievalVisual,
@@ -194,8 +198,13 @@ function visualCandidateKey(candidate: UnifiedCandidate): string {
   try {
     const url = new URL(merchantUrl);
     url.hash = "";
-    url.search = "";
-    return `${url.hostname.toLocaleLowerCase("en-US")}${url.pathname.replace(/\/$/u, "")}`;
+    // Tracking is not identity; variant parameters and the actual candidate
+    // image are. Reviewing one colour must not consume every colour of a style.
+    for (const key of [...url.searchParams.keys()]) {
+      if (/^(?:utm_.+|gclid|fbclid|msclkid|awc|awinaffid)$/iu.test(key)) url.searchParams.delete(key);
+    }
+    url.searchParams.sort();
+    return `${url.hostname.toLocaleLowerCase("en-US")}${url.pathname.replace(/\/$/u, "")}${url.search}|${candidateImageUrl(candidate) ?? ""}`;
   } catch {
     // Source-specific fallback keeps malformed external identity isolated.
   }
@@ -221,14 +230,26 @@ type VisualSearchFailureCode =
   | "OFFICIAL_ZERO_RESULTS"
   | "NO_CATALOG_CANDIDATES"
   | "NO_LOADABLE_IMAGES"
+  | "VISUAL_EVIDENCE_INSUFFICIENT"
+  | "SEARCH_BUDGET_EXHAUSTED"
   | "CANDIDATES_CONFLICTED";
 
 function visualSearchFailure(
   execution: UnifiedSearchExecution,
-  fallbackCode: Extract<VisualSearchFailureCode, "NO_CATALOG_CANDIDATES" | "NO_LOADABLE_IMAGES" | "CANDIDATES_CONFLICTED">,
+  fallbackCode: Extract<VisualSearchFailureCode, "NO_CATALOG_CANDIDATES" | "NO_LOADABLE_IMAGES" | "CANDIDATES_CONFLICTED" | "VISUAL_EVIDENCE_INSUFFICIENT">,
   locale: "en-US" | "zh-CN"
 ): { code: VisualSearchFailureCode; message: string; sourceHost?: string } {
   const localized = (english: string, chinese: string) => locale === "zh-CN" ? chinese : english;
+  if (execution.searchRun?.diagnostics().budgetExhausted === true) return {
+    code: "SEARCH_BUDGET_EXHAUSTED",
+    message: localized("Search budget was reached; retrieval is incomplete, not proof that the product is absent.",
+      "本次检索预算已用尽，检索尚不完整，不能据此判断商品不存在。")
+  };
+  if (fallbackCode === "VISUAL_EVIDENCE_INSUFFICIENT") return {
+    code: fallbackCode,
+    message: localized("Reviewed candidates lack enough visible matching evidence; this is not a confirmed visual conflict.",
+      "已检查候选的可见匹配证据不足；这不等于已确认存在款式冲突。")
+  };
   const official = execution.officialStoreFallback;
   if (official.status === "UNAVAILABLE") {
     return {
@@ -262,8 +283,8 @@ function visualSearchFailure(
     ? {
         code: fallbackCode,
         message: localized(
-          "Candidate image loading failed under the secure policy; the uploaded reference image was accepted.",
-          "候选商品图片加载失败（安全策略）；上传的参考图片已接受。"
+          "Candidate image loading failed; the uploaded reference image was accepted. This is not a reference-image safety rejection.",
+          "候选商品图片加载失败；上传的参考图片已接受，并非参考图片被安全规则拒绝。"
         )
       }
     : {
@@ -273,6 +294,13 @@ function visualSearchFailure(
           "已找到候选商品，但所有已检查图片都存在清晰且未被遮挡的冲突。"
         )
       };
+}
+
+function searchTraceMeta(execution: UnifiedSearchExecution, outcome: SearchOutcome,
+  counts: Parameters<typeof searchDiagnostics>[2] = {}) {
+  const trace = { ...searchDiagnostics(execution, outcome, counts), buildVersion: FINDCHEAP_VERSION };
+  process.stderr.write(`[findcheap-search-trace] ${JSON.stringify(trace)}\n`);
+  return { "findcheap/searchTrace": trace };
 }
 
 const MembershipIdsSchema = z
@@ -367,7 +395,7 @@ const VisualCandidateOutputShape = {
     requiredNextTool: z.literal("finalize_visual_search")
   }).strict().optional(),
   visualSearchFailure: z.object({
-    code: z.enum(["OFFICIAL_SOURCE_UNAVAILABLE", "OFFICIAL_ZERO_RESULTS", "NO_CATALOG_CANDIDATES", "NO_LOADABLE_IMAGES", "CANDIDATES_CONFLICTED"]),
+    code: z.enum(["OFFICIAL_SOURCE_UNAVAILABLE", "OFFICIAL_ZERO_RESULTS", "NO_CATALOG_CANDIDATES", "NO_LOADABLE_IMAGES", "CANDIDATES_CONFLICTED", "VISUAL_EVIDENCE_INSUFFICIENT", "SEARCH_BUDGET_EXHAUSTED"]),
     message: z.string(),
     sourceHost: z.string().optional()
   }).strict().optional()
@@ -415,7 +443,10 @@ const DealConciergeOutputShape = {
     checkedAt: z.string()
   }).strict().optional(),
   quoteStatus: z.enum(["NOT_REQUESTED", "ESTIMATED", "UNAVAILABLE"]),
-  dealStatus: z.enum(["CURRENT_DEAL_FOUND", "NO_CURRENT_DEAL", "OUT_OF_STOCK", "CURRENT_PRICE_UNAVAILABLE"]).optional(),
+  dealStatus: z.enum(["CURRENT_DEAL_FOUND", "NO_CURRENT_DEAL", "DEAL_LOOKUP_UNAVAILABLE", "OUT_OF_STOCK", "CURRENT_PRICE_UNAVAILABLE"]).optional(),
+  dealLookupStatus: DealLookupStatusSchema.optional(),
+  dealLookupReasonCodes: z.array(DealLookupReasonSchema).optional(),
+  dealSummary: DealSummarySchema.optional(),
   limitations: z.array(z.string()),
   deals: z.array(z.object({
     dealId: z.string(), merchant: z.string(), kind: z.string(), title: z.string(), description: z.string(),
@@ -425,7 +456,8 @@ const DealConciergeOutputShape = {
     applicableProductIds: z.array(z.string()).optional(),
     eligibility: z.array(z.string()), channels: z.array(z.string()), sourceUrl: z.string().url(), checkedAt: z.string(),
     validFrom: z.string(), validTo: z.string(), verificationStatus: z.literal("VERIFIED"),
-    applicability: z.enum(["PRODUCT_CONFIRMED", "REQUIRES_MERCHANT_CONFIRMATION"])
+    applicability: z.enum(["PRODUCT_CONFIRMED", "REQUIRES_MERCHANT_CONFIRMATION"]),
+    assessment: DealAssessmentSchema.optional()
   }).strict()),
   objective: z.enum(["CURRENT_DEALS", "CHEAPEST_PATH"]).optional()
 };
@@ -595,13 +627,17 @@ const ShopifyProductOutputSchema = z.object({
   freshness: z.object({ status: z.literal("OBSERVED_AT_QUERY"), checkedAt: z.string() }),
   coupons: z.object({
     status: z.enum(["VERIFIED", "UNAVAILABLE"]),
+    lookupStatus: DealLookupStatusSchema.optional(),
+    summary: DealSummarySchema.optional(),
     verified: z.array(z.object({
+      dealId: z.string().optional(),
       title: z.string(),
       kind: z.enum(["COUPON", "PROMO_CODE", "BRAND_PROMOTION"]),
       code: z.string().optional(),
       discountPercent: z.number().min(0).max(100).optional(),
       discountAmount: MoneyOutputSchema.optional(),
       productApplicability: z.enum(["PRODUCT_CONFIRMED", "MERCHANT_WIDE", "UNKNOWN"]),
+      assessment: DealAssessmentSchema.optional(),
       eligibility: z.array(z.string()),
       validTo: z.string(),
       sourceUrl: z.string().url()
@@ -652,6 +688,7 @@ const ShopifyProductOutputSchema = z.object({
 
 const ShopifyProductsOutputShape = {
   renderId: z.string().uuid().optional(),
+  traceId: z.string().uuid().optional(),
   locale: z.enum(["en-US", "zh-CN"]).optional(),
   status: z.enum(["OK", "NEEDS_CLARIFICATION", "DATA_SOURCE_UNAVAILABLE"]),
   message: z.string(),
@@ -747,7 +784,7 @@ const ShopifyProductsOutputShape = {
     candidates: z.array(VisualCandidateDescriptorShape).min(1).max(MAX_VISUAL_CANDIDATES)
   }).strict().optional(),
   visualSearchFailure: z.object({
-    code: z.enum(["OFFICIAL_SOURCE_UNAVAILABLE", "OFFICIAL_ZERO_RESULTS", "NO_CATALOG_CANDIDATES", "NO_LOADABLE_IMAGES", "CANDIDATES_CONFLICTED"]),
+    code: z.enum(["OFFICIAL_SOURCE_UNAVAILABLE", "OFFICIAL_ZERO_RESULTS", "NO_CATALOG_CANDIDATES", "NO_LOADABLE_IMAGES", "CANDIDATES_CONFLICTED", "VISUAL_EVIDENCE_INSUFFICIENT", "SEARCH_BUDGET_EXHAUSTED"]),
     message: z.string(),
     sourceHost: z.string().optional()
   }).strict().optional()
@@ -1047,10 +1084,10 @@ function unifiedResult(
   );
   const products = execution.candidates.flatMap((candidate) => {
     if (candidate.source === "AWIN_PRODUCT_FEED") {
-      return [withVerifiedCoupons(awinCardProduct(candidate), candidate.verifiedCoupons)];
+      return [withVerifiedCoupons(awinCardProduct(candidate), candidate.verifiedCoupons, candidate.dealLookupStatus)];
     }
     if (candidate.source === "EBAY_BROWSE") {
-      return [withVerifiedCoupons(ebayCardProduct(candidate), candidate.verifiedCoupons)];
+      return [withVerifiedCoupons(ebayCardProduct(candidate), candidate.verifiedCoupons, candidate.dealLookupStatus)];
     }
     const card = shopifyCards.get(candidate.shopifyProduct.handle);
     return card === undefined ? [] : [withVerifiedCoupons({
@@ -1069,13 +1106,14 @@ function unifiedResult(
         visualMatchEvidence: candidate.visualMatchEvidence ?? []
       }),
       recommendationTier: candidate.recommendationTier
-    }, candidate.verifiedCoupons)];
+    }, candidate.verifiedCoupons, candidate.dealLookupStatus)];
   });
   const affiliateCount = products.filter((product) => product.affiliateState === "APPROVED").length;
   const itemPriceCount = products.filter((product) => product.itemPrice !== undefined).length;
   const couponCount = products.reduce((count, product) => count + product.coupons.verified.length, 0);
   const unavailableSource = Object.values(execution.sourceStatus).includes("UNAVAILABLE");
-  const partialSource = execution.sourceStatus.shopify === "PARTIAL";
+  const budgetExhausted = execution.searchRun?.diagnostics().budgetExhausted === true;
+  const partialSource = execution.sourceStatus.shopify === "PARTIAL" || budgetExhausted;
   const highRatedUnverifiedCount = products.filter((product) =>
     product.recommendationTier === "HIGH_RATED_UNVERIFIED"
   ).length;
@@ -1220,7 +1258,7 @@ function unifiedResult(
           : "MIXED" as const,
       cartQuoteCoverage,
       quality: {
-        status: unavailableSource || products.some((product) =>
+        status: unavailableSource || partialSource || products.length === 0 || products.some((product) =>
           product.condition === "UNKNOWN" || product.recommendationTier !== "TRUSTED_OR_AFFILIATE"
           || (product.requiredFeatureLimitations?.length ?? 0) > 0
         )
@@ -1232,6 +1270,8 @@ function unifiedResult(
         affiliateLinksApproved: affiliateCount,
         limitations: [
           ...(unavailableSource ? ["one configured source was unavailable"] : []),
+          ...(budgetExhausted ? ["search budget exhausted; source coverage is incomplete"] : []),
+          ...(products.length === 0 ? ["no qualifying product returned; source health is not match success"] : []),
           ...(products.some((product) => product.condition === "UNKNOWN")
             ? ["one or more product conditions are unverified"]
             : []),
@@ -1449,21 +1489,29 @@ function ebayCardProduct(candidate: UnifiedCandidate): ProductCardProduct {
 
 function withVerifiedCoupons(
   product: ProductCardProduct,
-  deals: VerifiedDeal[]
+  deals: VerifiedDeal[],
+  lookupStatus: "COMPLETE" | "PARTIAL" | "UNAVAILABLE" = "UNAVAILABLE"
 ): ProductCardProduct {
-  const rankedDeals = deals.filter((deal): deal is VerifiedDeal & {
+  const rankedDeals = rankAssessedDeals(deals.filter((deal): deal is VerifiedDeal & {
     kind: "COUPON" | "PROMO_CODE" | "BRAND_PROMOTION";
   } =>
     (deal.kind === "COUPON" || deal.kind === "PROMO_CODE" || deal.kind === "BRAND_PROMOTION") &&
     dealAppliesToProduct(deal, product.handle)
-  ).sort((left, right) =>
-    dealApplicabilityRank(right, product.handle) - dealApplicabilityRank(left, product.handle) ||
-    couponProductRelevance(right, product.title) - couponProductRelevance(left, product.title) ||
-    Number(right.code !== undefined) - Number(left.code !== undefined) ||
-    left.validTo.localeCompare(right.validTo)
-  );
+  ).map((deal) => ({ ...deal, assessment: assessSelectedProductDeal(deal, {
+    merchantProductId: product.handle, title: product.title,
+    ...(product.itemPrice === undefined ? {} : { itemPrice: product.itemPrice })
+  }) })));
+  const preferred = rankedDeals.find((deal) => deal.assessment.recommendationEligible);
+  const summary = {
+    status: preferred?.assessment.status === "CONFIRMED" ? "CONFIRMED_DEAL" as const
+      : preferred !== undefined ? "MERCHANT_CANDIDATE" as const
+        : lookupStatus !== "COMPLETE" ? "UNAVAILABLE" as const : "NO_ELIGIBLE_DEAL" as const,
+    ...(preferred === undefined ? {} : { recommendedDealId: preferred.dealId }),
+    reasonCodes: preferred?.assessment.reasonCodes ?? []
+  };
   const coupons = rankedDeals.flatMap((deal) => {
     return [{
+      dealId: deal.dealId,
       title: deal.title,
       kind: deal.kind,
       ...(deal.code === undefined ? {} : { code: deal.code }),
@@ -1471,13 +1519,15 @@ function withVerifiedCoupons(
       ...(deal.discountAmountCents === undefined
         ? {}
         : { discountAmount: { amountCents: deal.discountAmountCents, currency: "USD" as const } }),
-      productApplicability: deal.productApplicability ?? "UNKNOWN" as const,
+      productApplicability: deal.assessment.status === "CONFIRMED" ? "PRODUCT_CONFIRMED" as const
+        : deal.productApplicability === "MERCHANT_WIDE" ? "MERCHANT_WIDE" as const : "UNKNOWN" as const,
+      assessment: deal.assessment,
       eligibility: deal.eligibility,
       validTo: deal.validTo,
       sourceUrl: deal.sourceUrl
     }];
   });
-  if (coupons.length === 0) return product;
+  if (coupons.length === 0) return { ...product, coupons: { ...product.coupons, lookupStatus, summary } };
   const first = coupons[0]!;
   const couponValue = first.code !== undefined
     ? first.code
@@ -1493,11 +1543,14 @@ function withVerifiedCoupons(
       : `Offer eligibility unconfirmed: ${couponValue}`;
   const estimatedPrice = product.itemPrice === undefined
     ? undefined
-    : estimatedItemPriceAfterCoupon(product.itemPrice.amountCents, rankedDeals, product.handle);
+    : estimatedItemPriceAfterCoupon(product.itemPrice.amountCents,
+      rankedDeals.filter((deal) => deal.assessment.status === "CONFIRMED"), product.handle);
   return {
     ...product,
     coupons: {
       status: "VERIFIED",
+      lookupStatus,
+      summary,
       verified: coupons,
       ...(estimatedPrice === undefined
         ? {}
@@ -1505,14 +1558,6 @@ function withVerifiedCoupons(
     },
     card: { ...product.card, couponLabel }
   };
-}
-
-function couponProductRelevance(deal: VerifiedDeal, productTitle: string): number {
-  const offerText = `${deal.title} ${deal.description} ${deal.eligibility.join(" ")}`
-    .normalize("NFKC").toLocaleLowerCase("en-US");
-  const tokens = productTitle.normalize("NFKC").toLocaleLowerCase("en-US")
-    .match(/[\p{L}\p{N}]+/gu)?.filter((token) => token.length >= 3) ?? [];
-  return new Set(tokens.filter((token) => offerText.includes(token))).size;
 }
 
 function awinQuoteSeed(product: ProductCardProduct): AwinShopifyQuoteSeed {
@@ -2162,10 +2207,7 @@ export function createShoppingServer(
     ...(officialStorefrontRegistry === undefined ? {} : { officialStorefrontRegistry }),
     ...(merchantTrustRegistry === undefined ? {} : { merchantTrustRegistry })
   });
-  const buildUnifiedResponse = async (input: SearchProductsInput, execution: UnifiedSearchExecution) => {
-    const selectedShopifyHandles = new Set(execution.candidates.flatMap((candidate) =>
-      candidate.shopifyProduct === undefined ? [] : [candidate.shopifyProduct.handle]
-    ));
+  const buildUnifiedResponse = async (input: SearchProductsInput, execution: UnifiedSearchExecution, outcome?: SearchOutcome) => {
     const selectedShopifyProducts = execution.candidates.flatMap((candidate) =>
       candidate.shopifyProduct === undefined ? [] : [candidate.shopifyProduct]
     );
@@ -2173,9 +2215,9 @@ export function createShoppingServer(
       ? { ...emptyShopifySearchResult(input), products: selectedShopifyProducts }
       : {
           ...execution.shopifyResult,
-          products: execution.shopifyResult.products.filter((product) =>
-            selectedShopifyHandles.has(product.handle)
-          )
+          // Candidates retain accepted products across passes and sources. The
+          // last source response is diagnostic context, not the selected set.
+          products: selectedShopifyProducts
         };
     const enriched = selectedShopifyProducts.length === 0 && execution.shopifyResult === undefined
       ? { result: initialShopify, attempted: 0, succeeded: 0 }
@@ -2203,7 +2245,14 @@ export function createShoppingServer(
       attempted: enriched.attempted,
       succeeded: enriched.succeeded
     });
-    return { response, enriched };
+    const returned = response.structuredContent.products.length;
+    const terminalOutcome = outcome ?? (returned > 0 ? "MATCH_FOUND"
+      : Object.values(execution.sourceStatus).includes("UNAVAILABLE") ? "SOURCE_UNAVAILABLE" : "NO_CANDIDATES");
+    return { response: {
+      ...response,
+      _meta: searchTraceMeta(execution, terminalOutcome, { returned }),
+      structuredContent: { ...response.structuredContent, traceId: execution.searchRun?.traceId }
+    }, enriched };
   };
   const pruneComparisonSnapshots = () => {
     const currentTime = now().getTime();
@@ -2235,57 +2284,70 @@ export function createShoppingServer(
     const emptyDiagnostics = {
       attempted: 0,
       loaded: 0,
+      downloaded: 0,
+      outputBudgetSkipped: 0,
       failures: [] as Array<{ code: VisualCandidateImageFailureCode; sourceHost?: string; count: number }>
     };
     if (visualCandidateImages === undefined) return { entries: [], diagnostics: emptyDiagnostics };
     const seen = new Set(excludedKeys);
-    const attempted = execution.candidates.flatMap((candidate) => {
+    const pool = (execution.reviewPool ?? execution.candidates).flatMap((candidate) => {
       const key = visualCandidateKey(candidate);
       if (seen.has(key) || candidateImageUrl(candidate) === undefined) return [];
       seen.add(key);
       return [candidate];
-    }).slice(0, limit);
-    const loaded = await Promise.all(attempted.map(async (candidate) => {
-      const imageUrl = candidateImageUrl(candidate)!;
-      try {
-        return { candidate, image: await visualCandidateImages.load(imageUrl), failure: undefined };
-      } catch (error) {
-        let sourceHost: string | undefined;
-        try {
-          sourceHost = new URL(imageUrl).hostname.toLocaleLowerCase("en-US");
-        } catch {
-          // Invalid external URLs are represented by a stable reason code only.
-        }
-        const failure = error instanceof VisualCandidateImageError
-          ? { code: error.code, ...(error.sourceHost === undefined ? {} : { sourceHost: error.sourceHost }) }
-          : { code: "REQUEST_FAILED" as const, ...(sourceHost === undefined ? {} : { sourceHost }) };
-        return { candidate, image: undefined, failure };
-      }
-    }));
-    const available = loaded.flatMap((entry) => entry.image === undefined
-      ? []
-      : [{ candidate: entry.candidate, image: entry.image }]
-    );
-    const selected: typeof available = [];
+    }).slice(0, 12);
+    const selected: Array<{ candidate: UnifiedCandidate; image: Awaited<ReturnType<VisualCandidateImagePort["load"]>> }> = [];
+    const failures: Array<{ code: VisualCandidateImageFailureCode; sourceHost?: string }> = [];
+    let attempted = 0;
+    let downloaded = 0;
+    let outputBudgetSkipped = 0;
     let encodedChars = 0;
-    for (const entry of available) {
-      if (encodedChars + entry.image.data.length > MAX_VISUAL_CANDIDATE_OUTPUT_DATA_CHARS) continue;
-      selected.push(entry);
-      encodedChars += entry.image.data.length;
+    // Fill failed/oversized image slots from the existing bounded pool before
+    // spending the one relaxed retrieval. Only returned images count as reviewed.
+    for (let offset = 0; offset < pool.length && selected.length < limit;) {
+      const batch = pool.slice(offset, offset + limit - selected.length);
+      offset += batch.length;
+      const loaded = await Promise.all(batch.map(async (candidate) => {
+        const imageUrl = candidateImageUrl(candidate)!;
+        attempted += 1;
+        try {
+          const read = () => visualCandidateImages.load(imageUrl);
+          const image = await (execution.searchRun === undefined ? read() : execution.searchRun.read("IMAGE", imageUrl, read));
+          return { candidate, image };
+        } catch (error) {
+          let sourceHost: string | undefined;
+          try { sourceHost = new URL(imageUrl).hostname.toLocaleLowerCase("en-US"); } catch { /* safe code only */ }
+          failures.push(error instanceof VisualCandidateImageError
+            ? { code: error.code, ...(error.sourceHost === undefined ? {} : { sourceHost: error.sourceHost }) }
+            : { code: "REQUEST_FAILED", ...(sourceHost === undefined ? {} : { sourceHost }) });
+          return undefined;
+        }
+      }));
+      for (const entry of loaded) {
+        if (entry === undefined) continue;
+        downloaded += 1;
+        if (encodedChars + entry.image.data.length > MAX_VISUAL_CANDIDATE_OUTPUT_DATA_CHARS) {
+          outputBudgetSkipped += 1;
+          continue;
+        }
+        selected.push(entry);
+        encodedChars += entry.image.data.length;
+      }
     }
     const failureCounts = new Map<string, { code: VisualCandidateImageFailureCode; sourceHost?: string; count: number }>();
-    for (const entry of loaded) {
-      if (entry.failure === undefined) continue;
-      const key = `${entry.failure.code}:${entry.failure.sourceHost ?? ""}`;
+    for (const failure of failures) {
+      const key = `${failure.code}:${failure.sourceHost ?? ""}`;
       const existing = failureCounts.get(key);
-      if (existing === undefined) failureCounts.set(key, { ...entry.failure, count: 1 });
+      if (existing === undefined) failureCounts.set(key, { ...failure, count: 1 });
       else existing.count += 1;
     }
     return {
       entries: selected.map(({ candidate, image }) => ({ candidate, image })),
       diagnostics: {
-        attempted: attempted.length,
+        attempted,
         loaded: selected.length,
+        downloaded,
+        outputBudgetSkipped,
         failures: [...failureCounts.values()]
       }
     };
@@ -2294,6 +2356,8 @@ export function createShoppingServer(
     ...items: Array<{
       attempted: number;
       loaded: number;
+      downloaded: number;
+      outputBudgetSkipped: number;
       failures: Array<{ code: VisualCandidateImageFailureCode; sourceHost?: string; count: number }>;
     }>
   ) => {
@@ -2309,6 +2373,8 @@ export function createShoppingServer(
     return {
       attempted: items.reduce((total, item) => total + item.attempted, 0),
       loaded: items.reduce((total, item) => total + item.loaded, 0),
+      downloaded: items.reduce((total, item) => total + item.downloaded, 0),
+      outputBudgetSkipped: items.reduce((total, item) => total + item.outputBudgetSkipped, 0),
       failures: [...failureCounts.values()]
     };
   };
@@ -2422,28 +2488,6 @@ export function createShoppingServer(
       }
       const execution = await runUnifiedSearch(input);
       const { response, enriched } = await buildUnifiedResponse(input, execution);
-      process.stderr.write(`[findcheap-search-debug] ${JSON.stringify({
-        recordedAt: now().toISOString(),
-        sourceStatus: execution.sourceStatus,
-        searchPasses: execution.searchPasses,
-        sourcePassDiagnostics: execution.sourcePassDiagnostics,
-        featureProductsExcluded: execution.featureProductsExcluded,
-        brandProductsExcluded: execution.brandProductsExcluded,
-        visualProductsExcluded: execution.visualProductsExcluded,
-        officialStoreFallback: execution.officialStoreFallback,
-        awin: execution.awinResult?.diagnostics,
-        ebay: execution.ebayResult?.diagnostics,
-        shopify: enriched.result.diagnostics,
-        cardsReturned: response.structuredContent.products.length,
-        qualityStatus: response.structuredContent.quality.status,
-        coverage: response.structuredContent.coverage,
-        comparisonStatus: response.structuredContent.comparison.status,
-        priceScope: response.structuredContent.priceScope,
-        comparisonMode: input.comparisonMode,
-        visualDiscovery: input.visualInput !== undefined,
-        selectionMode: input.selectionMode,
-        chromeFallbackEligible: execution.chromeFallbackEligible
-      })}\n`);
       if (response.structuredContent.products.length === 0) return response;
       const preflight = await preflightQuoteCapabilities(response.structuredContent);
       const recommendation = choosePrimaryRecommendation(preflight.content.products);
@@ -2535,20 +2579,21 @@ export function createShoppingServer(
         limit: 3,
         allowAlternatives: parsed.allowAlternatives
       };
-      const searchInput = visualRetrievalSearchInput(finalInput, false);
+      const searchRun = new SearchRun();
+      const searchInput = visualRetrievalSearchInput(finalInput, false, searchRun);
       let execution = await runUnifiedSearch(searchInput);
       let imageLoad = await loadVisualCandidates(execution);
       let available = imageLoad.entries;
       let attempt: 1 | 2 = 1;
-      const reviewedCandidateKeys = new Set(execution.candidates.map(visualCandidateKey));
+      const reviewedCandidateKeys = new Set(available.map((entry) => visualCandidateKey(entry.candidate)));
       if (available.length === 0) {
-        const relaxedExecution = await runUnifiedSearch(visualRetrievalSearchInput(finalInput, true));
+        const relaxedExecution = await runUnifiedSearch(visualRetrievalSearchInput(finalInput, true, searchRun));
         const relaxedImageLoad = await loadVisualCandidates(
           relaxedExecution,
           reviewedCandidateKeys,
           MAX_RELAXED_VISUAL_CANDIDATES
         );
-        for (const candidate of relaxedExecution.candidates) reviewedCandidateKeys.add(visualCandidateKey(candidate));
+        for (const entry of relaxedImageLoad.entries) reviewedCandidateKeys.add(visualCandidateKey(entry.candidate));
         const diagnostics = mergeVisualImageLoadDiagnostics(imageLoad.diagnostics, relaxedImageLoad.diagnostics);
         if (relaxedImageLoad.entries.length === 0) {
           const fallbackCode = diagnostics.attempted === 0 ? "NO_CATALOG_CANDIDATES" : "NO_LOADABLE_IMAGES";
@@ -2556,7 +2601,9 @@ export function createShoppingServer(
           const message = `${failure.message} ${parsed.responseLocale === "zh-CN" ? "未生成视觉推荐。" : "No visual recommendation was produced."}`;
           return {
             content: [{ type: "text" as const, text: message }],
-            _meta: { "findcheap/visualImageLoadDiagnostics": diagnostics },
+            _meta: { ...searchTraceMeta(relaxedExecution, fallbackCode === "NO_LOADABLE_IMAGES" ? "NO_LOADABLE_IMAGES" : "NO_CANDIDATES",
+              { imageAttempts: diagnostics.attempted, imagesLoaded: diagnostics.loaded, returned: 0 }),
+              "findcheap/visualImageLoadDiagnostics": diagnostics },
             structuredContent: {
               status: "NO_IMAGE_CANDIDATES" as const,
               message,
@@ -2591,7 +2638,9 @@ export function createShoppingServer(
       const message = `Review all ${candidateEntries.length} labeled candidate images against the user's reference image. Then call finalize_visual_search once with visualSessionId ${visualSessionId}.`;
       return {
         content: visualCandidateContent(message, candidateEntries),
-        _meta: { "findcheap/visualImageLoadDiagnostics": imageLoad.diagnostics },
+        _meta: { ...searchTraceMeta(execution, "REVIEW_REQUIRED", {
+          imageAttempts: imageLoad.diagnostics.attempted, imagesLoaded: available.length }),
+          "findcheap/visualImageLoadDiagnostics": imageLoad.diagnostics },
         structuredContent: {
           status: "OK" as const,
           message,
@@ -2642,6 +2691,9 @@ export function createShoppingServer(
         if (candidate === undefined) throw new Error("VISUAL_CANDIDATE_NOT_IN_SESSION");
         reviewed.push({ candidate, verdict: entry.verdict });
       }
+      if (reviewed.length !== snapshot.candidates.size) return toolError("INVALID_ARGUMENTS", {
+        issues: [{ path: "verdicts", code: "REQUIRED", action: "SUPPLY_REQUIRED_FIELD", minimum: snapshot.candidates.size }]
+      });
       visualSearchSnapshots.delete(input.visualSessionId);
       const finalCandidates = finalizeCodexVisualCandidates(
         reviewed,
@@ -2650,7 +2702,7 @@ export function createShoppingServer(
         snapshot.input.visualInput
       );
       if (finalCandidates.length === 0 && snapshot.attempt === 1) {
-        const relaxedInput = visualRetrievalSearchInput(snapshot.input, true);
+        const relaxedInput = visualRetrievalSearchInput(snapshot.input, true, snapshot.execution.searchRun);
         const relaxedExecution = await runUnifiedSearch(relaxedInput);
         const relaxedImageLoad = await loadVisualCandidates(
           relaxedExecution,
@@ -2682,13 +2734,15 @@ export function createShoppingServer(
             ])
           });
           pruneVisualSearchSnapshots();
-          const message = `REVIEW REQUIRED. Final answer is forbidden. Every first-pass candidate conflicted with the reference image. Review all ${candidateEntries.length} relaxed candidates, then call finalize_visual_search once with visualSessionId ${visualSessionId}. Do not relax product family or accept visible conflicts.`;
+          const message = `REVIEW REQUIRED. Final answer is forbidden. No first-pass candidate had sufficient non-conflicting visual evidence. Review all ${candidateEntries.length} relaxed candidates, then call finalize_visual_search once with visualSessionId ${visualSessionId}. Do not relax product family or accept visible conflicts.`;
           const emptyExecution = { ...relaxedExecution, candidates: [] };
-          const { response } = await buildUnifiedResponse(snapshot.input, emptyExecution);
+          const { response } = await buildUnifiedResponse(snapshot.input, emptyExecution, "REVIEW_REQUIRED");
           return {
             ...response,
             content: visualCandidateContent(message, candidateEntries),
-            _meta: { "findcheap/visualImageLoadDiagnostics": relaxedImageLoad.diagnostics },
+            _meta: { ...searchTraceMeta(relaxedExecution, "REVIEW_REQUIRED", { reviewed: reviewed.length,
+              imageAttempts: relaxedImageLoad.diagnostics.attempted, imagesLoaded: available.length }),
+              "findcheap/visualImageLoadDiagnostics": relaxedImageLoad.diagnostics },
             structuredContent: {
               ...response.structuredContent,
               message,
@@ -2708,11 +2762,11 @@ export function createShoppingServer(
           const failure = visualSearchFailure(relaxedExecution, "NO_LOADABLE_IMAGES", snapshot.input.responseLocale ?? "en-US");
           const message = `${failure.message} ${snapshot.input.responseLocale === "zh-CN" ? "未生成视觉推荐。" : "No visual recommendation was produced."}`;
           const emptyExecution = { ...relaxedExecution, candidates: [] };
-          const { response } = await buildUnifiedResponse(snapshot.input, emptyExecution);
+          const { response } = await buildUnifiedResponse(snapshot.input, emptyExecution, "NO_LOADABLE_IMAGES");
           return {
             ...response,
             content: [{ type: "text" as const, text: message }],
-            _meta: { "findcheap/visualImageLoadDiagnostics": relaxedImageLoad.diagnostics },
+            _meta: { ...response._meta, "findcheap/visualImageLoadDiagnostics": relaxedImageLoad.diagnostics },
             structuredContent: {
               ...response.structuredContent,
               message,
@@ -2721,16 +2775,23 @@ export function createShoppingServer(
           };
         }
       }
-      const execution: UnifiedSearchExecution = { ...snapshot.execution, candidates: finalCandidates };
-      const { response, enriched } = await buildUnifiedResponse(snapshot.input, execution);
+      const candidatesWithDeals = await addVerifiedCoupons(finalCandidates,
+        toolAvailability.verifiedDeals ? dealPort : undefined, snapshot.input.membershipIds ?? [], snapshot.execution.searchRun);
+      const execution: UnifiedSearchExecution = { ...snapshot.execution, candidates: candidatesWithDeals };
+      const allConflicted = reviewed.every(({ verdict }) => verdict.conflicts.some((entry) =>
+        snapshot.input.visualInput === undefined || !isVisualAttributeOccluded(snapshot.input.visualInput, entry.attribute)));
+      const emptyOutcome = allConflicted ? "CANDIDATES_CONFLICTED" : "VISUAL_EVIDENCE_INSUFFICIENT";
+      const { response, enriched } = await buildUnifiedResponse(snapshot.input, execution,
+        finalCandidates.length > 0 ? "MATCH_FOUND" : emptyOutcome);
       if (response.structuredContent.products.length === 0) {
         const failure = visualSearchFailure(
           snapshot.execution,
-          "CANDIDATES_CONFLICTED",
+          emptyOutcome,
           snapshot.input.responseLocale ?? "en-US"
         );
         return {
           ...response,
+          _meta: searchTraceMeta(execution, emptyOutcome, { reviewed: reviewed.length, returned: 0 }),
           content: [{ type: "text" as const, text: failure.message }],
           structuredContent: {
             ...response.structuredContent,
@@ -3280,6 +3341,7 @@ export function createShoppingServer(
         selected: {
           merchantProductId: selectedCard.handle,
           merchant: selectedCard.merchant,
+          title: selectedCard.title,
           availability: selectedCard.availability,
           ...(selectedCard.itemPrice === undefined ? {} : { itemPrice: selectedCard.itemPrice }),
           checkedAt: selectedCard.checkedAt,
@@ -3295,8 +3357,9 @@ export function createShoppingServer(
       const priceEvidence = research.currentPrice === undefined
         ? "Current price: unavailable."
         : `Current ${research.currentPrice.basis === "DELIVERED_TOTAL" ? "estimated delivered total" : "item price"}: USD ${(research.currentPrice.amount.amountCents / 100).toFixed(2)}; checked at ${research.currentPrice.checkedAt}.`;
-      const dealEvidence = research.deals.length === 0
-        ? "Verified deals: none found."
+      const dealEvidence = research.dealLookupStatus !== "COMPLETE" && research.deals.length === 0
+        ? "Deal source unavailable or incomplete; coupon availability cannot be determined."
+        : research.deals.length === 0 ? "Verified deals: none found in the completed lookup."
         : `Verified deals: ${research.deals.map((deal) => [
             deal.title,
             deal.code === undefined ? undefined : `code ${deal.code}`,
@@ -3313,6 +3376,7 @@ export function createShoppingServer(
       ].join(" ");
       return {
         content: [{ type: "text" as const, text: message }],
+        _meta: { "findcheap/referenceTrace": { traceId: snapshot.content.traceId, renderId: reference.renderId, operation: "DEAL_RESEARCH" } },
         structuredContent: {
           status: "OK" as const,
           message,
@@ -3328,6 +3392,9 @@ export function createShoppingServer(
           ...(research.currentPrice === undefined ? {} : { currentPrice: research.currentPrice }),
           quoteStatus: research.quoteStatus,
           dealStatus: research.dealStatus,
+          dealLookupStatus: research.dealLookupStatus,
+          dealLookupReasonCodes: research.dealLookupReasonCodes,
+          dealSummary: research.dealSummary,
           limitations: research.limitations,
           deals: research.deals,
           objective: parsed.objective
@@ -3448,7 +3515,8 @@ export function createShoppingServer(
         comparisonSnapshots.set(comparisonId, { expiresAt: comparisonExpiresAt, content });
         pruneComparisonSnapshots();
       }
-      return { content: [{ type: "text" as const, text: content.message }], structuredContent: content };
+      return { content: [{ type: "text" as const, text: content.message }], structuredContent: content,
+        _meta: { "findcheap/referenceTrace": { traceId: snapshot.content.traceId, renderId, operation: "COMPARISON" } } };
     }
   );
 

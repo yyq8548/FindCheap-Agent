@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { RECOMMENDATION_REASON_CODES, choosePrimaryRecommendation } from "./product-recommendation.js";
+import { DealAssessmentSchema, DealSummarySchema, type DealAssessment, type DealSummary } from "./deal-assessment.js";
+import { DealLookupStatusSchema } from "./deal-client.js";
 
 const MoneySchema = z.object({
   amountCents: z.number().int().nonnegative(),
@@ -55,6 +57,8 @@ const ComparisonEntrySchema = z.object({
     verification: z.enum(["INDEPENDENT", "UNVERIFIED"])
   }).strict(),
   verifiedDeals: z.array(z.object({
+    dealId: z.string().optional(),
+    assessment: DealAssessmentSchema.optional(),
     kind: z.enum(["COUPON", "PROMO_CODE", "BRAND_PROMOTION"]),
     title: z.string(),
     code: z.string().optional(),
@@ -63,6 +67,8 @@ const ComparisonEntrySchema = z.object({
     productApplicability: z.enum(["PRODUCT_CONFIRMED", "MERCHANT_WIDE", "UNKNOWN"]),
     validTo: z.string()
   }).strict()),
+  dealLookupStatus: DealLookupStatusSchema.optional(),
+  dealSummary: DealSummarySchema.optional(),
   identityEvidence: z.array(z.string()),
   requirementEvidence: z.array(z.string()),
   preferenceEvidence: z.array(z.string()),
@@ -97,7 +103,9 @@ export const ProductComparisonOutputSchema = z.object({
   recommendation: z.object({
     state: z.enum(["READY", "RESEARCH_ONLY", "NO_MATCH"]),
     recommendedSelectionId: z.string().uuid().optional(),
-    reasonCodes: z.array(z.enum(RECOMMENDATION_REASON_CODES)).max(3)
+    reasonCodes: z.array(z.enum(RECOMMENDATION_REASON_CODES)).max(3),
+    conditions: z.array(z.string()).max(3).optional(),
+    limitations: z.array(z.string()).max(3).optional()
   }).strict().optional(),
   entries: z.array(ComparisonEntrySchema).max(4)
 }).strict();
@@ -137,7 +145,11 @@ export type ComparableProduct = {
     verification: "INDEPENDENT" | "UNVERIFIED";
   };
   coupons: {
+    lookupStatus?: z.infer<typeof DealLookupStatusSchema>;
+    summary?: DealSummary;
     verified: Array<{
+      dealId?: string;
+      assessment?: DealAssessment;
       kind: "COUPON" | "PROMO_CODE" | "BRAND_PROMOTION";
       title: string;
       code?: string;
@@ -189,11 +201,28 @@ export function buildProductComparison(
   const recommendedSelectionId = decision.primaryProductIndex === undefined
     ? undefined
     : entries[decision.primaryProductIndex]?.selectionId;
+  const selectedProduct = decision.primaryProductIndex === undefined ? undefined : products[decision.primaryProductIndex];
+  const conditionalChoice = mode === "PRODUCT_CHOICES" && selectedProduct !== undefined;
+  const selectedEvidence = [...new Set([
+    ...(selectedProduct?.featureEvidence ?? []), ...(selectedProduct?.preferenceEvidence ?? [])
+  ])].slice(0, 2);
   const recommendation = {
     state: decision.state === "READY" ? "READY" as const
       : decision.state === "NO_MATCH" ? "NO_MATCH" as const : "RESEARCH_ONLY" as const,
     ...(recommendedSelectionId === undefined ? {} : { recommendedSelectionId }),
-    reasonCodes: decision.reasonCodes
+    reasonCodes: decision.reasonCodes,
+    ...(conditionalChoice ? {
+      conditions: [selectedEvidence.length > 0
+        ? localize(input.responseLocale,
+            `Consider this choice only if these documented attributes fit your needs: ${selectedEvidence.join("; ")}.`,
+            `仅当这些已有证据的属性符合你的需求时优先考虑：${selectedEvidence.join("；")}。`)
+        : localize(input.responseLocale,
+            "Confirm the product type, material, size and intended use before accepting this choice.",
+            "接受此选择前，请确认商品类型、材质、尺寸和用途符合需求。")],
+      limitations: [localize(input.responseLocale,
+        "Different identities or variants are being compared; equal evidence counts or a lower price do not establish equivalent suitability.",
+        "比较的是不同身份或规格的商品；证据数量相同或价格更低，并不代表用途和适合程度相同。")]
+    } : {})
   };
   const delta = priceDelta(entries, priceBasis);
   const comparisonMessage = localize(input.responseLocale,
@@ -219,7 +248,9 @@ export function buildProductComparison(
         );
   return {
     status: "OK",
-    message: `${comparisonMessage} ${pricingMessage}`,
+    message: `${comparisonMessage} ${pricingMessage}${conditionalChoice ? localize(input.responseLocale,
+      " This recommendation is conditional on the documented attributes meeting your needs, not price alone.",
+      " 此推荐以已有证据的属性满足你的需求为条件，不能仅凭价格决定。") : ""}`,
     comparisonId: identity.comparisonId,
     renderId: identity.renderId,
     expiresAt: identity.expiresAt,
@@ -281,6 +312,8 @@ function comparisonEntry(
       verification: product.merchantTrust.verification
     },
     verifiedDeals: product.coupons.verified.map((deal) => ({
+      ...(deal.dealId === undefined ? {} : { dealId: deal.dealId }),
+      ...(deal.assessment === undefined ? {} : { assessment: deal.assessment }),
       kind: deal.kind,
       title: deal.title,
       ...(deal.code === undefined ? {} : { code: deal.code }),
@@ -289,6 +322,8 @@ function comparisonEntry(
       productApplicability: deal.productApplicability ?? "UNKNOWN",
       validTo: deal.validTo
     })),
+    ...(product.coupons.lookupStatus === undefined ? {} : { dealLookupStatus: product.coupons.lookupStatus }),
+    ...(product.coupons.summary === undefined ? {} : { dealSummary: product.coupons.summary }),
     identityEvidence: product.matchEvidence,
     requirementEvidence: product.featureEvidence ?? [],
     preferenceEvidence: product.preferenceEvidence ?? [],

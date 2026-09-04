@@ -1,6 +1,6 @@
 import { FINDCHEAP_VERSION } from "../../../config/version.js";
 
-export const PRODUCT_COMPARISON_UI_URI = "ui://findcheap/product-comparison/v3.html";
+export const PRODUCT_COMPARISON_UI_URI = "ui://findcheap/product-comparison/v4.html";
 
 export const PRODUCT_COMPARISON_HTML = String.raw`<!doctype html>
 <html>
@@ -160,6 +160,15 @@ export const PRODUCT_COMPARISON_HTML = String.raw`<!doctype html>
         summary.push(text(locale, "Price spread: " + spread + range, "价差：" + spread + range));
       }
       app.append(make("div", "summary", summary.join(" · ")));
+      const decision = output.recommendation ?? output.decision;
+      for (const [key, label] of [["conditions", text(locale, "Recommendation conditions", "推荐条件")], ["limitations", text(locale, "Comparison limitations", "比较限制")]]) {
+        const values = Array.isArray(decision?.[key]) ? decision[key].filter((value) => typeof value === "string") : [];
+        if (values.length > 0) {
+          const section = make("section", "summary");
+          section.append(make("strong", "", label), list(values, locale));
+          app.append(section);
+        }
+      }
       const canQuote = output.entries.length <= 4 &&
         output.entries.some((entry) => entry.deliveredTotalStatus === "NOT_QUOTED") &&
         output.entries.every((entry) => entry.deliveredTotalStatus !== "MERCHANT_CHECKOUT_ONLY" && typeof entry.selectionId === "string");
@@ -224,21 +233,46 @@ export const PRODUCT_COMPARISON_HTML = String.raw`<!doctype html>
         header.append(cell);
       });
       table.append(header);
-      const deal = (entry) => list(entry.verifiedDeals?.map((offer) => {
+      const dealText = (offer) => {
         const details = [displayValue(offer.kind, locale), offer.title].filter(Boolean);
         if (offer.code) details.push(text(locale, "code " + offer.code, "优惠码 " + offer.code));
         if (Number.isFinite(offer.discountPercent)) details.push(String(offer.discountPercent) + "%");
         const amount = money(offer.discountAmount, locale);
         if (amount) details.push(text(locale, amount + " off", "减免 " + amount));
-        details.push(offer.productApplicability === "PRODUCT_CONFIRMED"
+        details.push(offer.productApplicability === "PRODUCT_CONFIRMED" &&
+          (offer.assessment === undefined || offer.assessment.status === "CONFIRMED")
           ? text(locale, "confirmed for this product", "已确认适用于此商品")
+          : offer.assessment?.status === "INELIGIBLE"
+            ? text(locale, "not eligible for this product", "不适用于此商品")
           : offer.productApplicability === "MERCHANT_WIDE"
-            ? text(locale, "merchant offer; product eligibility requires confirmation", "商家优惠；商品适用性待确认")
+            ? text(locale, "merchant offer; product eligibility requires confirmation", "商家优惠；此商品适用性未确认")
             : text(locale, "product eligibility unconfirmed", "商品适用性未确认"));
         const validTo = dateTime(offer.validTo, locale) || offer.validTo;
         if (validTo) details.push(text(locale, "valid to " + validTo, "有效期至 " + validTo));
         return details.join(" · ");
-      }), locale, "No verified deal", "暂无已验证优惠");
+      };
+      const deal = (entry) => {
+        const offers = Array.isArray(entry.verifiedDeals) ? entry.verifiedDeals.filter((offer) => offer && typeof offer === "object") : [];
+        const summary = entry.dealSummary;
+        const primary = entry.dealLookupStatus === "UNAVAILABLE" ? undefined
+          : summary !== undefined
+            ? ["CONFIRMED_DEAL", "MERCHANT_CANDIDATE"].includes(summary.status) && typeof summary.recommendedDealId === "string"
+              ? offers.find((offer) => offer.dealId === summary.recommendedDealId &&
+                offer.assessment?.status !== "INELIGIBLE" && offer.assessment?.recommendationEligible !== false) : undefined
+            : offers.find((offer) => offer.assessment?.status !== "INELIGIBLE");
+        const section = make("div");
+        if (entry.dealLookupStatus === "UNAVAILABLE") section.append(make("div", "unknown", text(locale, "Coupon lookup unavailable; this does not mean no offers exist.", "优惠查询暂不可用；不代表没有优惠。")));
+        if (entry.dealLookupStatus === "PARTIAL") section.append(make("div", "unknown", text(locale, "Coupon lookup only partially completed.", "优惠查询仅部分完成。")));
+        if (primary) section.append(list([dealText(primary)], locale));
+        else if (entry.dealLookupStatus === "COMPLETE") section.append(make("div", "unknown", text(locale, "No confirmed applicable offer for this product.", "暂无已确认适用于此商品的优惠。")));
+        const others = offers.filter((offer) => offer !== primary);
+        if (others.length > 0) {
+          const more = make("details");
+          more.append(make("summary", "", text(locale, "Other merchant offers", "其他商家优惠") + " (" + others.length + ")"), list(others.map(dealText), locale));
+          section.append(more);
+        }
+        return section.children.length > 0 ? section : list([], locale, "No verified deal", "暂无已验证优惠");
+      };
       const recommendation = (entry) => {
         const decision = output.recommendation;
         if (!decision) return make("span", "unknown", text(locale, "Unavailable", "不可用"));
