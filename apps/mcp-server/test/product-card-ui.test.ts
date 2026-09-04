@@ -50,7 +50,7 @@ function nodes(node: FakeNode): FakeNode[] {
 
 describe("product-card MCP Apps UI", () => {
   it("uses an embedded Codex-native surface with responsive cards", () => {
-    expect(PRODUCT_CARD_UI_URI).toBe("ui://findcheap/product-cards/v32.html");
+    expect(PRODUCT_CARD_UI_URI).toBe("ui://findcheap/product-cards/v33.html");
     expect(PRODUCT_CARD_HTML).toContain("--fc-surface:");
     expect(PRODUCT_CARD_HTML).toContain("background: var(--fc-action);");
     expect(PRODUCT_CARD_HTML).toContain("@media (max-width: 640px)");
@@ -639,6 +639,11 @@ describe("product-card MCP Apps UI", () => {
           presentationGroup: "OFFICIAL_STORE",
           recommendationTier: "TRUSTED_OR_AFFILIATE",
           merchantUrl: "https://example.com/products/item",
+          purchaseLink: {
+            kind: "APPROVED_AFFILIATE",
+            url: "https://affiliate.example/click",
+            disclosure: "We may earn a commission if you buy through this link."
+          },
           coupons: {
             status: "VERIFIED",
             verified: [{
@@ -710,6 +715,8 @@ describe("product-card MCP Apps UI", () => {
     expect(output).toContain("值得先看");
     expect(output).toContain("为什么匹配");
     expect(output).toContain("商品状态未核实");
+    expect(output).toContain("Findcheap 找到了可用的coupon");
+    expect(output).not.toContain("佣金");
     expect(output).not.toContain("Coupon: SAVE20");
     expect(nodes(app).filter((node) => node.className === "badge").map((node) => node.textContent))
       .not.toContain("未知");
@@ -823,7 +830,8 @@ describe("product-card MCP Apps UI", () => {
     expect(text(app)).toContain("Verified Coffee");
     expect(text(app)).toContain("$14.99");
     expect(text(app)).toContain("1 product card");
-    expect(text(app)).toContain("We may earn a commission if you buy through this link. This does not raise your price or affect ranking.");
+    expect(text(app)).not.toContain("We may earn a commission");
+    expect(text(app)).not.toContain("FindCheap found an available coupon.");
     expect(text(app)).toContain("Quote unsupported: shipping, tax, and final total require merchant checkout.");
 
     listeners.get("openai:set_globals")?.({

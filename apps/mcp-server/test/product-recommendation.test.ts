@@ -126,6 +126,32 @@ describe("product recommendation", () => {
 
     expect(decision).toEqual({ state: "RESEARCH_ONLY", reasonCodes: [] });
   });
+
+  it("never recommends a product with an unresolved required feature", () => {
+    const decision = choosePrimaryRecommendation([
+      product({
+        title: "Lower-priced unresolved match",
+        presentationGroup: "TRUSTED_MATCH",
+        price: 100_000,
+        requiredFeatureLimitations: ["dandruff control"]
+      }),
+      product({
+        title: "Verified required-feature match",
+        presentationGroup: "OFFICIAL_STORE",
+        price: 120_000
+      })
+    ]);
+
+    expect(decision).toMatchObject({ state: "READY", primaryProductIndex: 1 });
+    expect(choosePrimaryRecommendation([
+      product({
+        title: "Only unresolved match",
+        presentationGroup: "TRUSTED_MATCH",
+        price: 100_000,
+        requiredFeatureLimitations: ["dandruff control"]
+      })
+    ])).toEqual({ state: "RESEARCH_ONLY", reasonCodes: [] });
+  });
 });
 
 function product(options: {
@@ -135,6 +161,7 @@ function product(options: {
   presentationGroup: "OFFICIAL_STORE" | "TRUSTED_MATCH";
   merchantVerified?: boolean;
   recommendationTier?: "TRUSTED_OR_AFFILIATE" | "HIGH_RATED_UNVERIFIED";
+  requiredFeatureLimitations?: string[];
   coupon?: {
     productApplicability: "PRODUCT_CONFIRMED" | "MERCHANT_WIDE";
     estimatedPrice?: number;
@@ -149,7 +176,7 @@ function product(options: {
     availability: "IN_STOCK" as const,
     featureEvidence: ["product family matched"],
     preferenceEvidence: ["use matched"],
-    requiredFeatureLimitations: [],
+    requiredFeatureLimitations: options.requiredFeatureLimitations ?? [],
     matchEvidence: ["identity evidence"],
     itemPrice: { amountCents: options.price, currency: "USD" as const },
     coupons: options.coupon === undefined

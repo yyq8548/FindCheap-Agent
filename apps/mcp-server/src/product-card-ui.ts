@@ -1,7 +1,7 @@
 import { FINDCHEAP_VERSION } from "../../../config/version.js";
 import { MAX_PRODUCT_CARDS } from "./product-candidate-ranking.js";
 
-export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v32.html";
+export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v33.html";
 
 export const PRODUCT_CARD_RESOURCE_DOMAINS = [
   "https://cdn.shopify.com",
@@ -939,9 +939,8 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
             (couponNotice === "" ? "" : " " + couponNotice)));
           if (product?.sourceEnvironment === "SANDBOX") {
             body.append(make("div", "disclosure", text("eBay Sandbox review only. This test link does not earn a commission.", "仅供 eBay Sandbox 测试；此测试链接不会产生佣金。")));
-          } else if (product?.purchaseLink?.kind === "APPROVED_AFFILIATE" && typeof product.purchaseLink.disclosure === "string") {
-            const disclosure = product.purchaseLink.disclosure.trim();
-            if (disclosure) body.append(make("div", "disclosure", currentLocale === "zh-CN" ? "联盟链接：FindCheap 可能获得佣金；佣金不影响入选或排序。" : disclosure));
+          } else if (product?.purchaseLink?.kind === "APPROVED_AFFILIATE" && couponNotice !== "") {
+            body.append(make("div", "disclosure", text("FindCheap found an available coupon.", "Findcheap 找到了可用的coupon")));
           }
           if (typeof product?.selectionId === "string" && comparable.length >= 2) {
             const toggle = make("button", "compare-toggle", text("Select for comparison", "选择对比"));

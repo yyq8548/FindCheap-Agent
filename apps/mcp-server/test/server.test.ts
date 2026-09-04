@@ -126,12 +126,12 @@ describe("shopping MCP server", () => {
     const renderTool = tools.tools.find((candidate) => candidate.name === "render_product_cards");
     const metricsTool = tools.tools.find((candidate) => candidate.name === "report_product_card_metrics");
     expect(searchTool?._meta).toMatchObject({
-      ui: { resourceUri: "ui://findcheap/product-cards/v32.html" },
-      "openai/outputTemplate": "ui://findcheap/product-cards/v32.html"
+      ui: { resourceUri: "ui://findcheap/product-cards/v33.html" },
+      "openai/outputTemplate": "ui://findcheap/product-cards/v33.html"
     });
     expect(renderTool?._meta).toMatchObject({
       ui: {
-        resourceUri: "ui://findcheap/product-cards/v32.html",
+        resourceUri: "ui://findcheap/product-cards/v33.html",
         visibility: ["app"]
       }
     });
@@ -149,7 +149,7 @@ describe("shopping MCP server", () => {
     expect(resources.resources).toHaveLength(2);
     expect(resources.resources).toEqual(expect.arrayContaining([expect.objectContaining({
       name: "findcheap-product-cards",
-      uri: "ui://findcheap/product-cards/v32.html",
+      uri: "ui://findcheap/product-cards/v33.html",
       mimeType: "text/html;profile=mcp-app"
     }), expect.objectContaining({
       name: "findcheap-product-comparison",
@@ -157,7 +157,7 @@ describe("shopping MCP server", () => {
       mimeType: "text/html;profile=mcp-app"
     })]));
 
-    const resource = await client.readResource({ uri: "ui://findcheap/product-cards/v32.html" });
+    const resource = await client.readResource({ uri: "ui://findcheap/product-cards/v33.html" });
     const content = resource.contents[0];
     const html = content !== undefined && "text" in content ? content.text : "";
     expect(html).toContain("ui/notifications/tool-result");

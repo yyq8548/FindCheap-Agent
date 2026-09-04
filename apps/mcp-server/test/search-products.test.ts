@@ -51,6 +51,14 @@ function ebay(products = [ebayProduct("1", 2100)]): EbayBrowsePort {
 }
 
 describe("unified product search", () => {
+  it("accepts a bounded descriptive hard-feature alternative", () => {
+    const feature = "contains ketoconazole, selenium sulfide, or zinc pyrithione as an active anti-dandruff ingredient";
+
+    expect(feature.length).toBeGreaterThan(80);
+    expect(SearchProductsInputSchema.parse({ query: "anti-dandruff shampoo", requiredFeatures: [feature] }))
+      .toMatchObject({ requiredFeatures: [feature] });
+  });
+
   it("rejects a visual attribute reported as both a match and a conflict", () => {
     const evidence = {
       attribute: "DISTINCTIVE_DETAIL" as const,

@@ -109,7 +109,8 @@ export function choosePrimaryRecommendation(products: RecommendationProduct[]): 
       product.recommendationTier !== "GENERAL_UNVERIFIED" &&
       product.merchantTrust.verification === "INDEPENDENT" &&
       product.availability !== "OUT_OF_STOCK" &&
-      product.matchStatus !== "SIMILAR"
+      product.matchStatus !== "SIMILAR" &&
+      limitations(product) === 0
     );
   if (eligible.length === 0) return { state: "RESEARCH_ONLY", reasonCodes: [] };
 

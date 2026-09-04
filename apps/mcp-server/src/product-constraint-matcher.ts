@@ -26,6 +26,13 @@ export function evaluateFeature(searchable: string, feature: string): FeatureMat
   const normalizedSearchable = normalize(searchable);
   const normalizedFeature = normalize(feature);
 
+  const alternatives = disjunctiveAlternatives(normalizedFeature);
+  if (alternatives.length > 1) {
+    const statuses = alternatives.map((alternative) => evaluateFeature(normalizedSearchable, alternative));
+    if (statuses.includes("MATCHED")) return "MATCHED";
+    return statuses.every((status) => status === "CONTRADICTED") ? "CONTRADICTED" : "UNKNOWN";
+  }
+
   const requestedResolution = resolution(normalizedFeature);
   if (requestedResolution !== undefined) {
     const observed = resolution(normalizedSearchable);
@@ -72,6 +79,16 @@ export function evaluateFeature(searchable: string, feature: string): FeatureMat
   if (requestedTokens.length === 0) return "UNKNOWN";
   const observedTokens = new Set(meaningfulTokens(normalizedSearchable));
   return requestedTokens.every((token) => observedTokens.has(token)) ? "MATCHED" : "UNKNOWN";
+}
+
+function disjunctiveAlternatives(feature: string): string[] {
+  if (!/\bor\b/u.test(feature)) return [];
+  const expression = feature
+    .replace(/^(?:contains?|with)\s+/u, "")
+    .replace(/\s+as\s+an?\s+active(?:\s+anti[-\s]?dandruff)?\s+ingredient.*$/u, "")
+    .replace(/,\s*or\s+/gu, " or ")
+    .replace(/,/gu, " or ");
+  return expression.split(/\s+or\s+/u).map((value) => value.trim()).filter(Boolean);
 }
 
 type SemanticFeature = {

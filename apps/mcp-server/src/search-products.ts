@@ -102,7 +102,7 @@ export const SearchProductsInputSchema = z.object({
   brand: z.string().trim().min(1).max(100).transform(canonicalBrandName).optional(),
   brandMode: z.enum(["REQUIRED", "PREFERRED", "OBSERVED"]).default("REQUIRED"),
   productType: z.string().trim().min(1).max(100).optional(),
-  requiredFeatures: z.array(z.string().trim().min(1).max(80)).max(10)
+  requiredFeatures: z.array(z.string().trim().min(1).max(160)).max(10)
     .refine((values) => new Set(values.map(normalize)).size === values.length, "required features must be unique")
     .default([]),
   excludedFeatures: z.array(z.string().trim().min(1).max(80)).max(10)
@@ -121,7 +121,7 @@ export const SearchProductsInputSchema = z.object({
     .default("NEW_PRODUCT"),
   visualInput: VisualProductInputSchema.optional(),
   // Backward-compatible input for clients installed before v0.9.5.
-  features: z.array(z.string().trim().min(1).max(80)).max(10)
+  features: z.array(z.string().trim().min(1).max(160)).max(10)
     .refine((values) => new Set(values.map(normalize)).size === values.length, "features must be unique")
     .default([]),
   featureMode: z.enum(["PREFERRED", "REQUIRED"]).default("PREFERRED")

@@ -114,4 +114,12 @@ describe("product constraint matcher", () => {
     expect(evaluateFeature("MacBook Pro laptop", "14-inch display")).toBe("UNKNOWN");
     expect(evaluateFeature("MacBook Pro 13-inch display", "14-inch display")).toBe("CONTRADICTED");
   });
+
+  it("matches any explicitly accepted alternative in one hard constraint", () => {
+    const feature = "contains ketoconazole, selenium sulfide, or zinc pyrithione as an active anti-dandruff ingredient";
+
+    expect(evaluateFeature("Nizoral shampoo with 2% ketoconazole", feature)).toBe("MATCHED");
+    expect(evaluateFeature("Anti-dandruff shampoo with selenium sulfide", feature)).toBe("MATCHED");
+    expect(evaluateFeature("Tea tree clarifying shampoo", feature)).toBe("UNKNOWN");
+  });
 });
