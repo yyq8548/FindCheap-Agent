@@ -38,4 +38,19 @@ describe("bounded search run", () => {
       vi.useRealTimers();
     }
   });
+
+  it("shares pending images and failed URLs without retaining successful image bytes", async () => {
+    const run = new SearchRun();
+    const load = vi.fn(async () => "image-bytes");
+    expect(await Promise.all([run.read("IMAGE", "shared-image", load), run.read("IMAGE", "shared-image", load)]))
+      .toEqual(["image-bytes", "image-bytes"]);
+    expect(load).toHaveBeenCalledOnce();
+    await run.read("IMAGE", "shared-image", load);
+    expect(load).toHaveBeenCalledTimes(2);
+    const failure = vi.fn(async () => { throw new Error("IMAGE_UNAVAILABLE"); });
+    await expect(run.read("IMAGE", "failed-image", failure)).rejects.toThrow("IMAGE_UNAVAILABLE");
+    await expect(run.read("IMAGE", "failed-image", failure)).rejects.toThrow("IMAGE_UNAVAILABLE");
+    expect(failure).toHaveBeenCalledOnce();
+    expect(run.diagnostics()).toMatchObject({ imageRequests: 3, cacheHits: 2, budgetExhausted: false });
+  });
 });

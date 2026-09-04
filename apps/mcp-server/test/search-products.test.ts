@@ -1938,8 +1938,8 @@ describe("unified product search", () => {
 
     expect(officialSearch.mock.calls.map(([input]) => input.query)).toEqual([
       "black lace tiered mini dress",
-      "dress black lace tiered",
-      "dress"
+      "dress black mini lace tiered",
+      "dress black mini"
     ]);
     expect(result.candidates[0]?.source).toBe("SHOPIFY_GLOBAL_CATALOG");
     expect(result.officialStoreFallback.diagnostic).toEqual({

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { compareLowestPrice, compareRankedCandidates, selectVisualReviewCandidates } from "../src/product-candidate-ranking.js";
 import type { UnifiedCandidate } from "../src/search-products.js";
 import type { VerifiedDeal } from "../src/deal-client.js";
-import { VisualProductInputSchema } from "../src/visual-product-discovery.js";
+import { classifyVisualProduct, VisualProductInputSchema, type VisualProductInput } from "../src/visual-product-discovery.js";
 
 function candidate(handle: string, title: string): UnifiedCandidate {
   return {
@@ -20,6 +20,71 @@ function candidate(handle: string, title: string): UnifiedCandidate {
 }
 
 describe("visual review pool", () => {
+  const visual = VisualProductInputSchema.parse({
+    brand: "DOEN", productType: "dress", colors: ["black"],
+    neckline: "boat neck", sleeveType: "cap sleeve", length: "mini"
+  });
+
+  it("moves a seventh structural match into the first six without asserting exact identity", () => {
+    const earlier = Array.from({ length: 6 }, (_, index) =>
+      visuallyAssessedCandidate(`plain-${index}`, `Plain ${index} Dress | Black`, "black dress", visual)
+    );
+    const target = visuallyAssessedCandidate("target", "Lace Mini Dress | Black", "black mini dress with boat neck and cap sleeve", visual);
+    const input = [...earlier, target];
+    const result = selectVisualReviewCandidates(input, 6, visual);
+
+    expect(result.map(item => item.shopifyProduct?.handle)).toEqual(["target", "plain-0", "plain-1", "plain-2", "plain-3", "plain-4"]);
+    expect(result[0]).toMatchObject({ identityStatus: "DISCOVERY_MATCH", visualMatchScore: target.visualMatchScore });
+    expect(input[6]).toBe(target);
+  });
+
+  it("keeps official and trusted candidates ahead of stronger unverified structural matches", () => {
+    const official = visuallyAssessedCandidate("official", "Official Dress | Black", "black dress", visual);
+    if (official.source !== "SHOPIFY_GLOBAL_CATALOG") throw new Error("invalid fixture");
+    official.shopifyProduct = {
+      ...official.shopifyProduct, merchant: "DOEN", sourceHost: "www.shopdoen.com",
+      merchantUrl: "https://www.shopdoen.com/products/official-dress-black",
+      merchantTrust: { level: "OFFICIAL", verification: "INDEPENDENT", evidence: ["fixture"] }
+    };
+    const trusted = visuallyAssessedCandidate("trusted", "Trusted Dress | Black", "black mini dress", visual);
+    trusted.recommendationTier = "TRUSTED_OR_AFFILIATE";
+    const unverified = visuallyAssessedCandidate("unverified", "DOEN Unverified Dress | Black", "black mini dress with boat neck and cap sleeve", visual);
+    if (unverified.source !== "SHOPIFY_GLOBAL_CATALOG") throw new Error("invalid fixture");
+    unverified.shopifyProduct.merchant = "DOEN";
+
+    const result = selectVisualReviewCandidates([unverified, trusted, official], 3, visual);
+
+    expect(result.map(item => item.shopifyProduct?.handle)).toEqual(["official", "trusted", "unverified"]);
+    expect(result.map(item => item.presentationGroup)).toEqual(["OFFICIAL_STORE", "TRUSTED_MATCH", "BEST_VALUE"]);
+  });
+
+  it("preserves source order when only brand, color, or material matches", () => {
+    const colorVisual = VisualProductInputSchema.parse({ brand: "DOEN", productType: "dress", colors: ["black"], materials: ["cotton"] });
+    const input = [
+      visuallyAssessedCandidate("brand", "First Dress", "dress", colorVisual),
+      visuallyAssessedCandidate("color", "Second Dress | Black", "black dress", colorVisual),
+      visuallyAssessedCandidate("material", "Third Dress | Black", "black cotton dress", colorVisual)
+    ];
+
+    expect(input[2]!.visualMatchScore).toBeGreaterThan(input[0]!.visualMatchScore!);
+    expect(selectVisualReviewCandidates(input, 3, colorVisual).map(item => item.shopifyProduct?.handle))
+      .toEqual(["brand", "color", "material"]);
+  });
+
+  it("keeps structural ties stable and the requested color representative ahead of sibling variants", () => {
+    const input = [
+      visuallyAssessedCandidate("plain", "Plain Dress | Black", "black dress", visual),
+      visuallyAssessedCandidate("pink", "Lace Dress | Pink", "mini dress with boat neck and cap sleeve", visual),
+      visuallyAssessedCandidate("black", "Lace Dress | Black", "black mini dress with boat neck and cap sleeve", visual),
+      visuallyAssessedCandidate("other", "Other Mini Dress | Black", "black mini dress with boat neck and cap sleeve", visual)
+    ];
+
+    expect(selectVisualReviewCandidates(input, 3, visual).map(item => item.shopifyProduct?.handle))
+      .toEqual(["black", "other", "plain"]);
+    expect(selectVisualReviewCandidates(input, 4, visual).map(item => item.shopifyProduct?.handle))
+      .toEqual(["black", "other", "plain", "pink"]);
+  });
+
   it("does not let one style's color variants crowd out different silhouettes", () => {
     const result = selectVisualReviewCandidates([
       candidate("a", "Slip Dress | Black"), candidate("b", "Slip Dress | Pink"),
@@ -37,6 +102,15 @@ describe("visual review pool", () => {
     expect(result.map(item => item.shopifyProduct?.handle)).toEqual(["grey", "mini", "pink"]);
   });
 });
+
+function visuallyAssessedCandidate(handle: string, title: string, description: string, visual: VisualProductInput): UnifiedCandidate {
+  const result = candidate(handle, title);
+  if (result.source !== "SHOPIFY_GLOBAL_CATALOG") throw new Error("invalid fixture");
+  result.shopifyProduct = { ...result.shopifyProduct, description, productType: "dress", brand: "DOEN" };
+  const match = classifyVisualProduct(visual, result.shopifyProduct);
+  if (match === undefined) throw new Error("fixture must have a metadata match");
+  return { ...result, visualMatchGroup: match.group, visualMatchEvidence: match.evidence, visualMatchScore: match.score };
+}
 
 describe("candidate coupon ranking", () => {
   const confirmed: VerifiedDeal = {

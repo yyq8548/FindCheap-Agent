@@ -46,21 +46,39 @@ describe("visual product discovery", () => {
   it("preserves distinctive observations in both initial and second-pass retrieval", () => {
     const visual = VisualProductInputSchema.parse(BLACK_DRESS_OBSERVATIONS);
     const relaxed = relaxVisualProductInput(visual);
-    expect(relaxed).toMatchObject({ brand: "DOEN", productType: "dress" });
+    expect(relaxed).toMatchObject({
+      brand: "DOEN", productType: "dress", colors: ["black"], length: "mini, above-knee length"
+    });
     expect(relaxed.distinctiveDetails).toEqual([
       BLACK_DRESS_OBSERVATIONS.observations[4]!.value,
-      BLACK_DRESS_OBSERVATIONS.observations[5]!.value
+      BLACK_DRESS_OBSERVATIONS.observations[1]!.value
     ]);
     expect(visualSearchTerms(visual).join(" ")).toMatch(/lace/u);
     expect(visualOfficialStoreSearchQueries(visual)[0]?.query).toMatch(/lace/u);
     expect(visualOfficialStoreSearchQueries(relaxed)[0]?.query).toMatch(/lace/u);
+    for (const { query } of visualOfficialStoreSearchQueries(relaxed)) {
+      expect(query).toMatch(/\bblack\b/u);
+      expect(query).toMatch(/\bmini\b/u);
+    }
+    expect(visualOfficialStoreSearchQueries(relaxed)[0]?.query).toContain("boat neck");
+    expect(classifyVisualProduct(relaxed, { title: "DOEN Cornella Dress", productType: "dress" })?.group).toBe("SAME_STYLE");
   });
 
   it("keeps visible chest ruffles and front tie when only the right shoulder is partly hidden", () => {
     const visual = VisualProductInputSchema.parse(PARTLY_OCCLUDED_BLOUSE);
-    expect(relaxVisualProductInput(visual).distinctiveDetails).toEqual(
+    const relaxed = relaxVisualProductInput(visual);
+    expect(relaxed.distinctiveDetails).toEqual(
       PARTLY_OCCLUDED_BLOUSE.distinctiveDetails.slice(0, 2)
     );
+    expect(relaxed).toMatchObject({ brand: "DOEN", productType: "shirt", colors: ["ivory cream"] });
+    const queries = visualOfficialStoreSearchQueries(relaxed);
+    for (const { query } of queries) {
+      expect(query).toContain("shirt");
+      expect(query).toContain("ivory cream");
+    }
+    expect(queries[0]?.query).toContain("ruffle");
+    expect(queries[0]?.query).toContain("tie front");
+    expect(hasVisualProductFamilyConflict(relaxed, { title: "DOEN Leather Slide" })).toBe(true);
   });
 
   it("uses the same query and classification for legacy fields and direct observations", () => {
@@ -122,6 +140,54 @@ describe("visual product discovery", () => {
     expect(relaxVisualProductInput(visual).distinctiveDetails).toBeUndefined();
   });
 
+  it("does not promote duplicate low-confidence observations into strong relaxed attributes", () => {
+    const visual = VisualProductInputSchema.parse({
+      brand: "DOEN", productType: "mini dress", colors: ["black"], length: "mini", sleeveType: "sleeveless",
+      observations: [
+        { attribute: "COLOR", value: "black", confidence: 0.5 },
+        { attribute: "LENGTH", value: "mini", confidence: 0.5 },
+        { attribute: "SLEEVE", value: "sleeveless", confidence: 0.5 },
+        { attribute: "SLEEVE", value: "sleeveless", confidence: 1 }
+      ]
+    });
+    const relaxed = relaxVisualProductInput(visual);
+    expect(relaxed).toMatchObject({ brand: "DOEN", productType: "dress", colors: [] });
+    expect(relaxed.length).toBeUndefined();
+    expect(relaxed.distinctiveDetails).toBeUndefined();
+    expect(classifyVisualProduct(relaxed, { title: "DOEN White Long Sleeve Maxi Dress" })?.group).toBe("SAME_STYLE");
+    expect(normalizeVisualEvidence(visual).filter((entry) => !entry.inferred)).toEqual([]);
+  });
+
+  it("retains bounded long anchor observations without overflowing compact legacy fields", () => {
+    const length = "mini above-knee length " + "visible hem ".repeat(8);
+    const relaxed = relaxVisualProductInput(VisualProductInputSchema.parse({
+      productType: "dress", colors: ["black"],
+      observations: [{ attribute: "LENGTH", value: length, confidence: 0.95 }]
+    }));
+    expect(VisualProductInputSchema.safeParse(relaxed).success).toBe(true);
+    expect(relaxed.length).toBeUndefined();
+    expect(normalizeVisualEvidence(relaxed)).toContainEqual(expect.objectContaining({
+      attribute: "LENGTH", value: length.trim(), visibility: "VISIBLE", inferred: false
+    }));
+    for (const { query } of visualOfficialStoreSearchQueries(relaxed)) expect(query).toContain("mini");
+  });
+
+  it.each(["UNKNOWN", "PARTIAL", "OCCLUDED"] as const)(
+    "does not restore %s length or color through legacy fields or the product subtype", (visibility) => {
+      const relaxed = relaxVisualProductInput(VisualProductInputSchema.parse({
+        brand: "DOEN", productType: "mini dress", colors: ["black"], length: "mini",
+        observations: [
+          { attribute: "COLOR", value: "black", confidence: 1, visibility },
+          { attribute: "LENGTH", value: "mini", confidence: 1, visibility }
+        ]
+      }));
+      expect(relaxed).toMatchObject({ brand: "DOEN", productType: "dress", colors: [] });
+      expect(relaxed.length).toBeUndefined();
+      expect(visualOfficialStoreSearchQueries(relaxed)).toEqual([{ stage: "FULL", query: "dress" }]);
+      expect(classifyVisualProduct(relaxed, { title: "DOEN White Maxi Dress" })?.group).toBe("SAME_STYLE");
+    }
+  );
+
   it("tracks explicit local visibility without applying a right-side occlusion to the left", () => {
     const visual = VisualProductInputSchema.parse({
       productType: "blouse",
@@ -175,7 +241,7 @@ describe("visual product discovery", () => {
     expect(governed.softClues).toEqual(["heather gray", "square neckline", "maxi length"]);
   });
 
-  it("keeps product family and two structural details in the one relaxed visual search", () => {
+  it("keeps product family, color, length and only two structural details in the one relaxed visual search", () => {
     const relaxed = relaxVisualProductInput({
       brand: "DÔEN",
       productType: "women's mini dress",
@@ -192,17 +258,17 @@ describe("visual product discovery", () => {
     expect(relaxed).toMatchObject({
       brand: "DÔEN",
       productType: "mini dress",
-      colors: [],
+      colors: ["black"],
       materials: [],
       patterns: [],
       styleClues: [],
       distinctiveDetails: ["horizontal shirred tiers", "scalloped lace hem"]
     });
     expect(visualOfficialStoreSearchQueries(relaxed)).toEqual([
-      { stage: "FULL", query: "mini dress smocked lace" },
-      { stage: "CORE", query: "dress smocked lace" },
-      { stage: "SYNONYM", query: "dress shirred lace" },
-      { stage: "CATEGORY", query: "dress" }
+      { stage: "FULL", query: "mini dress black smocked lace" },
+      { stage: "CORE", query: "dress black mini smocked lace" },
+      { stage: "SYNONYM", query: "dress black mini shirred lace" },
+      { stage: "CATEGORY", query: "dress black mini" }
     ]);
   });
 
@@ -472,8 +538,8 @@ describe("visual product discovery", () => {
       silhouette: "gathered full skirt"
     });
 
-    expect(queries).toContainEqual({ stage: "CORE", query: "dress floral smocked cream" });
-    expect(queries).toContainEqual({ stage: "SYNONYM", query: "dress floral shirred cream" });
+    expect(queries).toContainEqual({ stage: "FULL", query: "dress cream floral smocked" });
+    expect(queries).toContainEqual({ stage: "SYNONYM", query: "dress cream floral shirred" });
     expect(queries.filter((attempt) => attempt.stage === "SYNONYM")).toHaveLength(1);
   });
 
@@ -491,7 +557,7 @@ describe("visual product discovery", () => {
       sleeveType: "sleeveless"
     });
 
-    expect(queries).toContainEqual({ stage: "SYNONYM", query: "dress long slip lounge" });
+    expect(queries).toContainEqual({ stage: "SYNONYM", query: "dress gray maxi long slip lounge" });
   });
 
   it("keeps distinctive neckline, sleeve, tie, ruffle, and slit structure in official queries", () => {

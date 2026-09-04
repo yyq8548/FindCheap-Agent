@@ -1277,7 +1277,7 @@ function buildOfficialStoreQueries(
   const category = input.productType?.trim() || visualCategory;
   const queries: VisualOfficialStoreQuery[] = [
     { stage: "FULL", query: withoutBrand || category || input.query },
-    { stage: "CORE", query: unique([category ?? "", ...withoutBrand.split(/\s+/u).slice(0, 3)]).join(" ") },
+    { stage: "CORE", query: unique([...(category ?? "").split(/\s+/u), ...withoutBrand.split(/\s+/u).slice(0, 3)]).join(" ") },
     { stage: "CATEGORY", query: category ?? withoutBrand ?? input.query }
   ];
   const seen = new Set<string>();

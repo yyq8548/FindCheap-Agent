@@ -69,7 +69,7 @@ async function connect(search: ShopifyPort["search"], dependencies: ShoppingServ
   return client;
 }
 
-type VisualSession = { visualSessionId: string; candidates: Array<{ candidateId: string }> };
+type VisualSession = { visualSessionId: string; candidates: Array<{ candidateId: string; title: string }> };
 const blackDetail = "multiple horizontal sheer floral lace insertion bands alternating with densely gathered opaque panels";
 const blackDressRequest = {
   query: "DOEN dress", brand: "DOEN", brandMode: "REQUIRED", productType: "dress",
@@ -371,6 +371,94 @@ describe("sanitized conversational workflow replay", () => {
     expect(sync.isError).toBe(true);
     const missing = await client.callTool({ name: "compare_selected_products", arguments: { mode: "AUTO" } });
     expect(missing._meta).toMatchObject({ "findcheap/errorCode": "MISSING_REFERENCE_CONTEXT" });
+    expect(search).toHaveBeenCalledTimes(calls);
+  });
+
+  it("reviews the seventh recalled dress before spending the second round on a new search", async () => {
+    // Sparse, equally ranked metadata keeps the target seventh; model verdicts are synthetic.
+    const pool = Array.from({ length: 9 }, (_, index) => visualProduct(`queued-${String(index).padStart(2, "0")}${index === 6 ? "-cornella" : ""}`));
+    const search = vi.fn<ShopifyPort["search"]>(async () => result(pool));
+    const load = vi.fn(async () => ({ data: Buffer.from("synthetic-image").toString("base64"), mimeType: "image/jpeg" as const }));
+    const client = await connect(search, { visualCandidateImages: { load } });
+    const first = await client.callTool({ name: "search_visual_candidates", arguments: blackDressRequest });
+    const initial = first.structuredContent as VisualSession;
+    expect(initial.candidates).toHaveLength(6);
+    const calls = search.mock.calls.length;
+
+    const retry = await rejectAll(client, initial);
+    const second = (retry.structuredContent as { visualReview: VisualSession }).visualReview;
+    expect(second).toMatchObject({ finalAnswerAllowed: false, candidates: pool.slice(6).map(({ title }) => ({ title })) });
+    expect(search).toHaveBeenCalledTimes(calls);
+    expect(load).toHaveBeenCalledTimes(9);
+    expect(second.candidates.every(({ candidateId }) => !initial.candidates.some((entry) => entry.candidateId === candidateId))).toBe(true);
+
+    const final = await client.callTool({ name: "finalize_visual_search", arguments: {
+      visualSessionId: second.visualSessionId,
+      verdicts: second.candidates.map(({ candidateId, title }) => ({ candidateId, verdict: title.includes("cornella") ? {
+        classification: "HIGHLY_SIMILAR", conflicts: [], matches: [
+          { attribute: "PRODUCT_TYPE", referenceEvidence: "dress", candidateEvidence: "dress" },
+          { attribute: "DISTINCTIVE_DETAIL", referenceEvidence: blackDetail, candidateEvidence: "horizontal lace insertion bands" },
+          { attribute: "NECKLINE", referenceEvidence: "boat neckline", candidateEvidence: "boat neckline" }
+        ]
+      } : { classification: "CONFLICT", conflicts: [
+        { attribute: "NECKLINE", referenceEvidence: "boat neckline", candidateEvidence: "deep V neckline" }
+      ] } }))
+    } });
+    expect(final.isError).not.toBe(true);
+    expect(final.structuredContent).toMatchObject({ products: [{ title: pool[6]!.title, merchantUrl: pool[6]!.merchantUrl, matchStatus: "DISCOVERY_MATCH" }] });
+    expect((final.structuredContent as { products: unknown[] }).products).toHaveLength(1);
+    expect(search).toHaveBeenCalledTimes(calls);
+  });
+
+  it("reserves second-round images and does not reload failed or already reviewed candidates", async () => {
+    const pool = Array.from({ length: 12 }, (_, index) => visualProduct(`budget-pool-${String(index).padStart(2, "0")}`));
+    const search = vi.fn<ShopifyPort["search"]>(async () => result(pool));
+    const load = vi.fn(async (url: string) => {
+      if (/budget-pool-0[0-3]\.jpg/u.test(url)) throw new Error("IMAGE_UNAVAILABLE");
+      return { data: Buffer.from("synthetic-image").toString("base64"), mimeType: "image/jpeg" as const };
+    });
+    const client = await connect(search, { visualCandidateImages: { load } });
+    const first = await client.callTool({ name: "search_visual_candidates", arguments: blackDressRequest });
+    const initial = first.structuredContent as VisualSession;
+    expect(initial.candidates).toHaveLength(5);
+    expect(load).toHaveBeenCalledTimes(9);
+    const calls = search.mock.calls.length;
+    const retry = await rejectAll(client, initial);
+    const second = (retry.structuredContent as { visualReview: VisualSession }).visualReview;
+    expect(second).toMatchObject({ candidates: pool.slice(9).map(({ title }) => ({ title })) });
+    expect(load).toHaveBeenCalledTimes(12);
+    expect(new Set(load.mock.calls.map(([url]) => url)).size).toBe(12);
+    expect(search).toHaveBeenCalledTimes(calls);
+    const final = await rejectAll(client, second);
+    expect(final.structuredContent).toMatchObject({ products: [], visualSearchFailure: { code: "CANDIDATES_CONFLICTED" } });
+    expect(final.structuredContent).not.toHaveProperty("visualReview");
+    expect(search).toHaveBeenCalledTimes(calls);
+    expect(load).toHaveBeenCalledTimes(12);
+  });
+
+  it.each([false, true])("fills only second-round vacancies without duplicating the retained candidate or exceeding image output (large images: %s)", async (largeImages) => {
+    const pool = Array.from({ length: 7 }, (_, index) => visualProduct(`pending-${index}`));
+    const additional = [visualProduct("supplement-one"), visualProduct("supplement-two")];
+    const search = vi.fn<ShopifyPort["search"]>(async (input) => result((input.query ?? "").includes("horizontal")
+      ? [pool[6]!, ...additional] : pool));
+    const load = vi.fn(async (url: string) => ({
+      data: largeImages && /pending-6|supplement/u.test(url) ? "a".repeat(240_000) : Buffer.from("synthetic-image").toString("base64"),
+      mimeType: "image/jpeg" as const
+    }));
+    const client = await connect(search, { visualCandidateImages: { load } });
+    const first = await client.callTool({ name: "search_visual_candidates", arguments: blackDressRequest });
+    const retry = await rejectAll(client, first.structuredContent as VisualSession);
+    const second = (retry.structuredContent as { visualReview: VisualSession }).visualReview;
+    expect(second).toMatchObject({ stage: "RELAXED_REVIEW", finalAnswerAllowed: false });
+    expect(second.candidates.map(({ title }) => title)).toEqual(largeImages
+      ? [pool[6]!.title] : [pool[6]!.title, ...additional.map(({ title }) => title)]);
+    expect(load.mock.calls.filter(([url]) => url === pool[6]!.imageUrl)).toHaveLength(1);
+    const images = (retry.content as Array<{ type: string; data?: string }>).filter(({ type }) => type === "image");
+    expect(images.reduce((total, entry) => total + (entry.data?.length ?? 0), 0)).toBeLessThanOrEqual(400_000);
+    const calls = search.mock.calls.length;
+    const final = await rejectAll(client, second);
+    expect(final.structuredContent).toMatchObject({ products: [] });
+    expect(final.structuredContent).not.toHaveProperty("visualReview");
     expect(search).toHaveBeenCalledTimes(calls);
   });
 });

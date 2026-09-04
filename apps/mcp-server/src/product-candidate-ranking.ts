@@ -111,7 +111,10 @@ export function selectVisualReviewCandidates(
     .filter((entry) => entry.attribute === "COLOR" && entry.visibility === "VISIBLE")
     .map((entry) => entry.value.toLocaleLowerCase("en-US").replace(/gray/gu, "grey"));
   const styles = new Map<string, UnifiedCandidate[]>();
-  for (const candidate of [...official, ...trusted, ...general]) {
+  const ranked = [official, trusted, general].flatMap((group) => group.sort((left, right) =>
+    visualReviewStructureScore(right) - visualReviewStructureScore(left)
+  ));
+  for (const candidate of ranked) {
     const style = `${candidateMerchantKey(candidate)}:${candidateTitle(candidate)
       .split(/\s+(?:\||--|—)\s+/u)[0]!.normalize("NFKC").toLocaleLowerCase("en-US")}`;
     const entries = styles.get(style) ?? [];
@@ -132,6 +135,14 @@ export function selectVisualReviewCandidates(
         ? "BEST_VALUE" as const
         : "TRUSTED_MATCH" as const
   }));
+}
+
+function visualReviewStructureScore(candidate: UnifiedCandidate): number {
+  // Brand, color, and material alone do not establish structural similarity.
+  const structuralMatch = candidate.visualMatchEvidence?.some((entry) =>
+    /^visual attribute matched: (?:silhouette|length|neckline|sleeve|closure|collar|waist|hem|detail|distinctive detail): /u.test(entry)
+  );
+  return structuralMatch ? candidate.visualMatchScore ?? 0 : 0;
 }
 
 export function countDisplayEligibleCandidates(

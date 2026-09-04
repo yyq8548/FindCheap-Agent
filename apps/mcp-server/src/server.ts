@@ -775,7 +775,7 @@ const ShopifyProductsOutputShape = {
   questions: z.array(z.string()),
   products: z.array(ShopifyProductOutputSchema).max(MAX_PRODUCT_CARDS),
   visualReview: z.object({
-    stage: z.literal("RELAXED_REVIEW"),
+    stage: z.enum(["POOL_REVIEW", "RELAXED_REVIEW"]),
     terminal: z.literal(false),
     finalAnswerAllowed: z.literal(false),
     requiredNextTool: z.literal("finalize_visual_search"),
@@ -2045,6 +2045,7 @@ export function createShoppingServer(
     candidates: Map<string, UnifiedCandidate>;
     attempt: 1 | 2;
     reviewedCandidateKeys: Set<string>;
+    imageAttemptedKeys: Set<string>;
   }>();
   const comparisonSnapshots = new Map<string, {
     expiresAt: number;
@@ -2279,8 +2280,10 @@ export function createShoppingServer(
   const loadVisualCandidates = async (
     execution: UnifiedSearchExecution,
     excludedKeys: ReadonlySet<string> = new Set(),
-    limit = MAX_VISUAL_CANDIDATES
+    limit = MAX_VISUAL_CANDIDATES,
+    options: { maxAttempts?: number; maxDataChars?: number } = {}
   ) => {
+    const attemptedKeys = new Set<string>();
     const emptyDiagnostics = {
       attempted: 0,
       loaded: 0,
@@ -2288,14 +2291,14 @@ export function createShoppingServer(
       outputBudgetSkipped: 0,
       failures: [] as Array<{ code: VisualCandidateImageFailureCode; sourceHost?: string; count: number }>
     };
-    if (visualCandidateImages === undefined) return { entries: [], diagnostics: emptyDiagnostics };
+    if (visualCandidateImages === undefined) return { entries: [], diagnostics: emptyDiagnostics, attemptedKeys };
     const seen = new Set(excludedKeys);
     const pool = (execution.reviewPool ?? execution.candidates).flatMap((candidate) => {
       const key = visualCandidateKey(candidate);
       if (seen.has(key) || candidateImageUrl(candidate) === undefined) return [];
       seen.add(key);
       return [candidate];
-    }).slice(0, 12);
+    }).slice(0, options.maxAttempts ?? 12);
     const selected: Array<{ candidate: UnifiedCandidate; image: Awaited<ReturnType<VisualCandidateImagePort["load"]>> }> = [];
     const failures: Array<{ code: VisualCandidateImageFailureCode; sourceHost?: string }> = [];
     let attempted = 0;
@@ -2310,6 +2313,7 @@ export function createShoppingServer(
       const loaded = await Promise.all(batch.map(async (candidate) => {
         const imageUrl = candidateImageUrl(candidate)!;
         attempted += 1;
+        attemptedKeys.add(visualCandidateKey(candidate));
         try {
           const read = () => visualCandidateImages.load(imageUrl);
           const image = await (execution.searchRun === undefined ? read() : execution.searchRun.read("IMAGE", imageUrl, read));
@@ -2326,7 +2330,7 @@ export function createShoppingServer(
       for (const entry of loaded) {
         if (entry === undefined) continue;
         downloaded += 1;
-        if (encodedChars + entry.image.data.length > MAX_VISUAL_CANDIDATE_OUTPUT_DATA_CHARS) {
+        if (encodedChars + entry.image.data.length > (options.maxDataChars ?? MAX_VISUAL_CANDIDATE_OUTPUT_DATA_CHARS)) {
           outputBudgetSkipped += 1;
           continue;
         }
@@ -2343,6 +2347,7 @@ export function createShoppingServer(
     }
     return {
       entries: selected.map(({ candidate, image }) => ({ candidate, image })),
+      attemptedKeys,
       diagnostics: {
         attempted,
         loaded: selected.length,
@@ -2582,18 +2587,23 @@ export function createShoppingServer(
       const searchRun = new SearchRun();
       const searchInput = visualRetrievalSearchInput(finalInput, false, searchRun);
       let execution = await runUnifiedSearch(searchInput);
-      let imageLoad = await loadVisualCandidates(execution);
+      // Preserve three of the shared twelve image requests for the second review.
+      let imageLoad = await loadVisualCandidates(execution, new Set(), MAX_VISUAL_CANDIDATES, {
+        maxAttempts: 12 - MAX_RELAXED_VISUAL_CANDIDATES
+      });
       let available = imageLoad.entries;
       let attempt: 1 | 2 = 1;
       const reviewedCandidateKeys = new Set(available.map((entry) => visualCandidateKey(entry.candidate)));
+      const imageAttemptedKeys = new Set(imageLoad.attemptedKeys);
       if (available.length === 0) {
         const relaxedExecution = await runUnifiedSearch(visualRetrievalSearchInput(finalInput, true, searchRun));
         const relaxedImageLoad = await loadVisualCandidates(
           relaxedExecution,
-          reviewedCandidateKeys,
+          imageAttemptedKeys,
           MAX_RELAXED_VISUAL_CANDIDATES
         );
         for (const entry of relaxedImageLoad.entries) reviewedCandidateKeys.add(visualCandidateKey(entry.candidate));
+        for (const key of relaxedImageLoad.attemptedKeys) imageAttemptedKeys.add(key);
         const diagnostics = mergeVisualImageLoadDiagnostics(imageLoad.diagnostics, relaxedImageLoad.diagnostics);
         if (relaxedImageLoad.entries.length === 0) {
           const fallbackCode = diagnostics.attempted === 0 ? "NO_CATALOG_CANDIDATES" : "NO_LOADABLE_IMAGES";
@@ -2613,7 +2623,7 @@ export function createShoppingServer(
           };
         }
         execution = relaxedExecution;
-        imageLoad = { entries: relaxedImageLoad.entries, diagnostics };
+        imageLoad = { entries: relaxedImageLoad.entries, diagnostics, attemptedKeys: imageAttemptedKeys };
         available = relaxedImageLoad.entries;
         attempt = 2;
       }
@@ -2632,7 +2642,8 @@ export function createShoppingServer(
         execution: { ...execution, candidates: candidateEntries.map((entry) => entry.candidate) },
         candidates: candidateMap,
         attempt,
-        reviewedCandidateKeys
+        reviewedCandidateKeys,
+        imageAttemptedKeys
       });
       pruneVisualSearchSnapshots();
       const message = `Review all ${candidateEntries.length} labeled candidate images against the user's reference image. Then call finalize_visual_search once with visualSessionId ${visualSessionId}.`;
@@ -2702,14 +2713,32 @@ export function createShoppingServer(
         snapshot.input.visualInput
       );
       if (finalCandidates.length === 0 && snapshot.attempt === 1) {
-        const relaxedInput = visualRetrievalSearchInput(snapshot.input, true, snapshot.execution.searchRun);
-        const relaxedExecution = await runUnifiedSearch(relaxedInput);
-        const relaxedImageLoad = await loadVisualCandidates(
-          relaxedExecution,
-          snapshot.reviewedCandidateKeys,
+        // A recalled seventh result must not disappear when the first six conflict.
+        let secondExecution = snapshot.execution;
+        let secondImageLoad = await loadVisualCandidates(
+          secondExecution,
+          snapshot.imageAttemptedKeys,
           MAX_RELAXED_VISUAL_CANDIDATES
         );
-        const available = relaxedImageLoad.entries;
+        const imageAttemptedKeys = new Set([...snapshot.imageAttemptedKeys, ...secondImageLoad.attemptedKeys]);
+        let stage: "POOL_REVIEW" | "RELAXED_REVIEW" = "POOL_REVIEW";
+        const remainingDataChars = MAX_VISUAL_CANDIDATE_OUTPUT_DATA_CHARS -
+          secondImageLoad.entries.reduce((total, entry) => total + entry.image.data.length, 0);
+        if (secondImageLoad.entries.length < MAX_RELAXED_VISUAL_CANDIDATES && remainingDataChars > 0 &&
+            snapshot.execution.searchRun?.diagnostics().budgetExhausted !== true) {
+          stage = "RELAXED_REVIEW";
+          secondExecution = await runUnifiedSearch(visualRetrievalSearchInput(snapshot.input, true, snapshot.execution.searchRun));
+          const supplemental = await loadVisualCandidates(secondExecution, imageAttemptedKeys,
+            MAX_RELAXED_VISUAL_CANDIDATES - secondImageLoad.entries.length, { maxDataChars: remainingDataChars });
+          for (const key of supplemental.attemptedKeys) imageAttemptedKeys.add(key);
+          secondImageLoad = {
+            entries: [...secondImageLoad.entries, ...supplemental.entries],
+            diagnostics: mergeVisualImageLoadDiagnostics(secondImageLoad.diagnostics, supplemental.diagnostics),
+            attemptedKeys: imageAttemptedKeys
+          };
+        }
+        const available = secondImageLoad.entries;
+        snapshot.execution = secondExecution;
         if (available.length > 0) {
           pruneVisualSearchSnapshots();
           const visualSessionId = randomUUID();
@@ -2723,7 +2752,7 @@ export function createShoppingServer(
             expiresAt: expiresAtMs,
             input: snapshot.input,
             execution: {
-              ...relaxedExecution,
+              ...secondExecution,
               candidates: candidateEntries.map((entry) => entry.candidate)
             },
             candidates: new Map(candidateEntries.map((entry) => [entry.candidateId, entry.candidate])),
@@ -2731,23 +2760,24 @@ export function createShoppingServer(
             reviewedCandidateKeys: new Set([
               ...snapshot.reviewedCandidateKeys,
               ...candidateEntries.map((entry) => visualCandidateKey(entry.candidate))
-            ])
+            ]),
+            imageAttemptedKeys
           });
           pruneVisualSearchSnapshots();
-          const message = `REVIEW REQUIRED. Final answer is forbidden. No first-pass candidate had sufficient non-conflicting visual evidence. Review all ${candidateEntries.length} relaxed candidates, then call finalize_visual_search once with visualSessionId ${visualSessionId}. Do not relax product family or accept visible conflicts.`;
-          const emptyExecution = { ...relaxedExecution, candidates: [] };
+          const message = `REVIEW REQUIRED. Final answer is forbidden. No first-pass candidate had sufficient non-conflicting visual evidence. Review all ${candidateEntries.length} remaining candidates, then call finalize_visual_search once with visualSessionId ${visualSessionId}. Do not relax product family or accept visible conflicts. This is the final review round.`;
+          const emptyExecution = { ...secondExecution, candidates: [] };
           const { response } = await buildUnifiedResponse(snapshot.input, emptyExecution, "REVIEW_REQUIRED");
           return {
             ...response,
             content: visualCandidateContent(message, candidateEntries),
-            _meta: { ...searchTraceMeta(relaxedExecution, "REVIEW_REQUIRED", { reviewed: reviewed.length,
-              imageAttempts: relaxedImageLoad.diagnostics.attempted, imagesLoaded: available.length }),
-              "findcheap/visualImageLoadDiagnostics": relaxedImageLoad.diagnostics },
+            _meta: { ...searchTraceMeta(secondExecution, "REVIEW_REQUIRED", { reviewed: reviewed.length,
+              imageAttempts: secondImageLoad.diagnostics.attempted, imagesLoaded: available.length }),
+              "findcheap/visualImageLoadDiagnostics": secondImageLoad.diagnostics },
             structuredContent: {
               ...response.structuredContent,
               message,
               visualReview: {
-                stage: "RELAXED_REVIEW" as const,
+                stage,
                 terminal: false as const,
                 finalAnswerAllowed: false as const,
                 requiredNextTool: "finalize_visual_search" as const,
@@ -2758,15 +2788,15 @@ export function createShoppingServer(
             }
           };
         }
-        if (relaxedImageLoad.diagnostics.attempted > 0) {
-          const failure = visualSearchFailure(relaxedExecution, "NO_LOADABLE_IMAGES", snapshot.input.responseLocale ?? "en-US");
+        if (secondImageLoad.diagnostics.attempted > 0) {
+          const failure = visualSearchFailure(secondExecution, "NO_LOADABLE_IMAGES", snapshot.input.responseLocale ?? "en-US");
           const message = `${failure.message} ${snapshot.input.responseLocale === "zh-CN" ? "未生成视觉推荐。" : "No visual recommendation was produced."}`;
-          const emptyExecution = { ...relaxedExecution, candidates: [] };
+          const emptyExecution = { ...secondExecution, candidates: [] };
           const { response } = await buildUnifiedResponse(snapshot.input, emptyExecution, "NO_LOADABLE_IMAGES");
           return {
             ...response,
             content: [{ type: "text" as const, text: message }],
-            _meta: { ...response._meta, "findcheap/visualImageLoadDiagnostics": relaxedImageLoad.diagnostics },
+            _meta: { ...response._meta, "findcheap/visualImageLoadDiagnostics": secondImageLoad.diagnostics },
             structuredContent: {
               ...response.structuredContent,
               message,

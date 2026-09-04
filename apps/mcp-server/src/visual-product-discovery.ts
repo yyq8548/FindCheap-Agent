@@ -94,16 +94,34 @@ function hasVisualOcclusion(visual: VisualProductInput, key: string, region?: st
 }
 
 export function relaxVisualProductInput(visual: VisualProductInput): VisualProductInput {
-  const structuralDetails = visibleVisualEvidence(visual)
-    .filter((entry) => !entry.inferred && STRUCTURAL_ATTRIBUTES.includes(entry.attribute))
-    .sort((left, right) => STRUCTURAL_ATTRIBUTES.indexOf(left.attribute) - STRUCTURAL_ATTRIBUTES.indexOf(right.attribute))
+  const evidence = normalizeVisualEvidence(visual);
+  const observed = evidence.filter((entry) => entry.visibility === "VISIBLE" && !entry.inferred);
+  const length = observed.find((entry) => entry.attribute === "LENGTH")?.value;
+  const colors = unique(observed.filter((entry) => entry.attribute === "COLOR").map((entry) => entry.value)).slice(0, 4);
+  const longAnchors = [
+    ...colors.map((value) => ({ attribute: "COLOR", value })),
+    ...(length === undefined ? [] : [{ attribute: "LENGTH", value: length }])
+  ].filter((entry) => entry.value.length > 100);
+  const structuralPriority = ["DETAIL", "NECKLINE", "SLEEVE", "CLOSURE", "COLLAR", "WAIST", "HEM", "SILHOUETTE"];
+  const structuralDetails = observed
+    .filter((entry) => structuralPriority.includes(entry.attribute))
+    .sort((left, right) => structuralPriority.indexOf(left.attribute) - structuralPriority.indexOf(right.attribute))
     .filter((entry, index, entries) => entries.findIndex((candidate) => evidenceGroup(candidate) === evidenceGroup(entry)) === index)
     .slice(0, 2).map((entry) => entry.value);
   return VisualProductInputSchema.parse({
     ...(visual.brand === undefined ? {} : { brand: visual.brand }),
     ...(visual.logoText === undefined ? {} : { logoText: visual.logoText }),
     ...(visual.modelOrStyleNumber === undefined ? {} : { modelOrStyleNumber: visual.modelOrStyleNumber }),
-    ...(visual.productType === undefined ? {} : { productType: relaxedProductType(visual.productType) }),
+    ...(visual.productType === undefined ? {} : {
+      productType: length === undefined && evidence.some((entry) => entry.attribute === "LENGTH")
+        ? coreProductType(visual.productType) : relaxedProductType(visual.productType)
+    }),
+    colors: colors.filter((value) => value.length <= 100),
+    ...(length === undefined || length.length > 100 ? {} : { length }),
+    // Observation values permit longer evidence than the compact legacy fields.
+    ...(longAnchors.length === 0 ? {} : {
+      observations: longAnchors.map((entry) => ({ ...entry, confidence: 0.8, visibility: "VISIBLE" as const }))
+    }),
     ...(structuralDetails.length === 0 ? {} : { distinctiveDetails: structuralDetails })
   });
 }
@@ -260,9 +278,12 @@ export function normalizeVisualEvidence(visual: VisualProductInput): NormalizedV
   for (const entry of evidence) {
     const key = `${entry.attribute}:${evidenceFingerprint(entry.value)}`;
     const existing = uniqueEvidence.get(key);
-    // An explicit uncertainty about the same observation cannot be erased by a duplicate legacy field.
+    // Explicit visibility or confidence uncertainty wins over duplicate legacy support.
+    const existingLowConfidence = existing?.source === "OBSERVATION" && existing.inferred;
+    const observedLowConfidence = entry.source === "OBSERVATION" && entry.inferred;
     if (existing === undefined || entry.visibility !== "VISIBLE" ||
-      (existing.visibility === "VISIBLE" && existing.inferred && !entry.inferred)) {
+      (existing.visibility === "VISIBLE" && !existingLowConfidence &&
+        (observedLowConfidence || (existing.inferred && !entry.inferred)))) {
       uniqueEvidence.set(key, entry);
     }
   }
@@ -399,15 +420,22 @@ export function visualBroadSearchTerms(visual: VisualProductInput): string[] {
 export function visualOfficialStoreSearchQueries(visual: VisualProductInput): VisualOfficialStoreQuery[] {
   const normalizedType = searchTerm(visual.productType);
   const category = officialSearchProductType(visual, normalizedType);
+  const fullProductType = officialFullProductType(normalizedType, category);
   const normalizedEvidence = visibleVisualEvidence(visual);
   const evidence = unique(normalizedEvidence.map((entry) => searchTerm(entry.value)));
-  const color = searchTerm(normalizedEvidence.find((entry) => entry.attribute === "COLOR")?.value);
+  const color = searchTerm(normalizedEvidence.find((entry) => entry.attribute === "COLOR" && !entry.inferred)?.value);
+  const lengthEvidence = normalizeVisualEvidence(visual).filter((entry) => entry.attribute === "LENGTH");
+  const length = officialVisualDescriptors(unique([searchTerm(lengthEvidence.length === 0
+    ? visual.productType
+    : lengthEvidence.find((entry) => entry.visibility === "VISIBLE" && !entry.inferred)?.value)]))
+    .find((detail) => ["mini", "midi", "maxi"].includes(detail));
+  const anchors = unique([color, length]);
   const descriptors = officialVisualDescriptors(evidence);
   const primaryDetails = unique([
-    color,
+    ...anchors,
     ...descriptors
   ]).slice(0, 6);
-  const coreDetails = unique([...descriptors, color]).slice(0, 3);
+  const coreDetails = unique([...anchors, ...descriptors.filter((detail) => !anchors.includes(detail)).slice(0, 2)]);
   const synonymDetails = officialVisualSynonymDetails(unique([
     ...descriptors,
     color
@@ -415,7 +443,10 @@ export function visualOfficialStoreSearchQueries(visual: VisualProductInput): Vi
   const queries: VisualOfficialStoreQuery[] = [
     {
       stage: "FULL",
-      query: unique([officialFullProductType(normalizedType, category), ...primaryDetails]).join(" ")
+      query: unique([
+        fullProductType,
+        ...primaryDetails.filter((detail) => detail !== length || !matches(fullProductType ?? "", detail))
+      ]).join(" ")
     },
     {
       stage: "CORE",
@@ -423,11 +454,11 @@ export function visualOfficialStoreSearchQueries(visual: VisualProductInput): Vi
     },
     ...(synonymDetails.length === 0 ? [] : [{
       stage: "SYNONYM" as const,
-      query: unique([category, ...synonymDetails]).join(" ")
+      query: unique([category, ...anchors, ...synonymDetails]).join(" ")
     }]),
     {
       stage: "CATEGORY",
-      query: category ?? normalizedType ?? ""
+      query: unique([category ?? normalizedType, ...anchors]).join(" ")
     }
   ];
   const seen = new Set<string>();

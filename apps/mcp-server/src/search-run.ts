@@ -66,9 +66,10 @@ export class SearchRun {
       clearTimeout(timer);
       if (--this.#active === 0) this.#elapsed += Math.max(0, Date.now() - this.#activeSince);
     });
-    // Do not retain image bytes between model turns. Provider clients still own
-    // transport cancellation and SSRF/CDN policy; this boundary only bounds wait/dispatch.
-    if (kind !== "IMAGE") this.#reads.set(cacheKey, result);
+    // Share in-flight images and failed reads across variants, but release successful
+    // image bytes before the next model turn. Transport safety remains provider-owned.
+    this.#reads.set(cacheKey, result);
+    if (kind === "IMAGE") void result.then(() => { this.#reads.delete(cacheKey); }, () => {});
     return result;
   }
 

@@ -4632,7 +4632,7 @@
   },
   "outputs": {
     "../../plugins/findcheap-agent/dist/mcp-server.js": {
-      "bytes": 784993,
+      "bytes": 787010,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
@@ -5146,13 +5146,13 @@
           "bytesInOutput": 54
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/external.js": {
-          "bytesInOutput": 1772
+          "bytesInOutput": 1773
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/helpers/errorUtil.js": {
           "bytesInOutput": 129
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/helpers/parseUtil.js": {
-          "bytesInOutput": 1465
+          "bytesInOutput": 1468
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/helpers/util.js": {
           "bytesInOutput": 1705
@@ -5161,7 +5161,7 @@
           "bytesInOutput": 3029
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/types.js": {
-          "bytesInOutput": 49992
+          "bytesInOutput": 50038
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v4/classic/checks.js": {
           "bytesInOutput": 0
@@ -5299,7 +5299,7 @@
           "bytesInOutput": 1326
         },
         "src/product-candidate-ranking.ts": {
-          "bytesInOutput": 4886
+          "bytesInOutput": 5128
         },
         "src/product-card-telemetry.ts": {
           "bytesInOutput": 814
@@ -5329,13 +5329,13 @@
           "bytesInOutput": 1059
         },
         "src/search-products.ts": {
-          "bytesInOutput": 27867
+          "bytesInOutput": 27886
         },
         "src/search-run.ts": {
-          "bytesInOutput": 1453
+          "bytesInOutput": 1492
         },
         "src/server.ts": {
-          "bytesInOutput": 123133
+          "bytesInOutput": 123829
         },
         "src/shopify-cart-quote.ts": {
           "bytesInOutput": 10343
@@ -5365,7 +5365,7 @@
           "bytesInOutput": 1958
         },
         "src/visual-product-discovery.ts": {
-          "bytesInOutput": 16318
+          "bytesInOutput": 17289
         },
         "src/watch-service.ts": {
           "bytesInOutput": 6032
