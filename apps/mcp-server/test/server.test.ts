@@ -2248,6 +2248,11 @@ describe("Coupon and Watch tools", () => {
         purchaseLink: { kind: "APPROVED_AFFILIATE", providerName: "Awin" },
         recommendationTier: "TRUSTED_OR_AFFILIATE",
         presentationGroup: "TRUSTED_MATCH",
+        merchantTrust: {
+          level: "ESTABLISHED_RETAILER",
+          verification: "INDEPENDENT",
+          evidence: ["approved Awin merchant manually verified by FindCheap"]
+        },
         card: { priceLabel: "Verified item price", merchantTrustBadge: "TRUSTED_MERCHANT" },
         pricing: { scope: "ITEM_PRICE_ONLY", deliveredPrice: { status: "UNAVAILABLE" } },
         quoteReference: { renderId: expect.any(String), variantId: "sku-1" }
@@ -2459,8 +2464,8 @@ describe("Coupon and Watch tools", () => {
     expect(awinProduct).toMatchObject({
       sourceKind: "AWIN_PRODUCT_FEED",
       merchantTrust: {
-        level: "UNKNOWN",
-        verification: "UNVERIFIED"
+        level: "ESTABLISHED_RETAILER",
+        verification: "INDEPENDENT"
       },
       quoteCapability: "ZIP_ESTIMATE_ONLY",
       card: {

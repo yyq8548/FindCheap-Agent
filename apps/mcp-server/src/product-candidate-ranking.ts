@@ -70,17 +70,23 @@ export function selectPresentationCandidates(
       candidate.recommendationTier === "TRUSTED_OR_AFFILIATE" ||
       candidate.recommendationTier === "HIGH_RATED_UNVERIFIED"
     );
-  const trusted = (selectionMode === "LOWEST_PRICE" ? trustedPool.sort(compareLowestPrice) : trustedPool)
-    .slice(0, TRUSTED_PRODUCT_CARD_LIMIT)
+  const rankedTrusted = trustedPool.sort(
+    selectionMode === "LOWEST_PRICE" ? compareLowestPrice : compareRankedCandidates
+  );
+  const trusted = (selectionMode === "MERCHANT_DIVERSE"
+    ? selectMerchantDiverse(rankedTrusted, TRUSTED_PRODUCT_CARD_LIMIT)
+    : rankedTrusted.slice(0, TRUSTED_PRODUCT_CARD_LIMIT))
     .map((candidate) => ({ ...candidate, presentationGroup: "TRUSTED_MATCH" as const }));
   const selectedKeys = new Set([...official, ...trusted].map(candidateKey));
-  const bestValue = candidates
+  const rankedBestValue = candidates
     .filter((candidate) => !selectedKeys.has(candidateKey(candidate)))
     .filter((candidate) => !isOfficialCandidate(candidate))
     .filter((candidate) => passesVisualDisplayGate(candidate, allowAlternatives))
-    .filter((candidate) => candidate.recommendationTier === "GENERAL_UNVERIFIED")
-    .sort(selectionMode === "LOWEST_PRICE" ? compareLowestPrice : compareRankedCandidates)
-    .slice(0, BEST_VALUE_PRODUCT_CARD_LIMIT)
+    .sort(selectionMode === "LOWEST_PRICE" ? compareLowestPrice : compareRankedCandidates);
+  const usedMerchantKeys = new Set([...official, ...trusted].map(candidateMerchantKey));
+  const bestValue = (selectionMode === "MERCHANT_DIVERSE"
+    ? selectMerchantDiverse(rankedBestValue, BEST_VALUE_PRODUCT_CARD_LIMIT, usedMerchantKeys)
+    : rankedBestValue.slice(0, BEST_VALUE_PRODUCT_CARD_LIMIT))
     .map((candidate) => ({ ...candidate, presentationGroup: "BEST_VALUE" as const }));
   const grouped = [...official, ...trusted, ...bestValue];
   if (grouped.length > 0) return grouped.slice(0, MAX_PRODUCT_CARDS);
@@ -162,6 +168,39 @@ export function candidateKey(candidate: UnifiedCandidate): string {
   }
   if (candidate.source === "EBAY_BROWSE") return `${candidate.source}:${candidate.ebayProduct.itemId}`;
   return `${candidate.source}:${candidate.shopifyProduct.sourceHost}:${candidate.shopifyProduct.handle}`;
+}
+
+function candidateMerchantKey(candidate: UnifiedCandidate): string {
+  return candidateMerchant(candidate)
+    .normalize("NFKC")
+    .trim()
+    .toLocaleLowerCase("en-US")
+    .replace(/\s+/gu, " ");
+}
+
+function selectMerchantDiverse(
+  candidates: UnifiedCandidate[],
+  limit: number,
+  initialMerchantKeys: Set<string> = new Set()
+): UnifiedCandidate[] {
+  const selected: UnifiedCandidate[] = [];
+  const selectedCandidateKeys = new Set<string>();
+  const merchantKeys = new Set(initialMerchantKeys);
+  for (const candidate of candidates) {
+    const merchantKey = candidateMerchantKey(candidate);
+    if (merchantKeys.has(merchantKey)) continue;
+    selected.push(candidate);
+    selectedCandidateKeys.add(candidateKey(candidate));
+    merchantKeys.add(merchantKey);
+    if (selected.length === limit) return selected;
+  }
+  for (const candidate of candidates) {
+    const key = candidateKey(candidate);
+    if (selectedCandidateKeys.has(key)) continue;
+    selected.push(candidate);
+    if (selected.length === limit) break;
+  }
+  return selected;
 }
 
 function resultGroupRank(group: UnifiedCandidate["resultGroup"]): number {

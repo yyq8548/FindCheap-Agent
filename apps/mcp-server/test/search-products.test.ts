@@ -267,7 +267,7 @@ describe("unified product search", () => {
     expect(input.brand).toBe("DÔEN");
   });
 
-  it("queries Shopify in parallel even when Awin fills the result", async () => {
+  it("queries Shopify in parallel and preserves merchant diversity when Awin fills the trusted pool", async () => {
     const awinPort = awin([
       awinProduct("1", 1800),
       awinProduct("2", 1900),
@@ -281,9 +281,12 @@ describe("unified product search", () => {
     }), { awin: awinPort, shopify: shopifyPort });
 
     expect(result.candidates).toHaveLength(3);
+    expect(result.candidates.map((candidate) => candidate.source)).toEqual([
+      "AWIN_PRODUCT_FEED",
+      "SHOPIFY_GLOBAL_CATALOG",
+      "AWIN_PRODUCT_FEED"
+    ]);
     expect(result.candidates.every((candidate) =>
-      candidate.source === "AWIN_PRODUCT_FEED" &&
-      candidate.recommendationTier === "TRUSTED_OR_AFFILIATE" &&
       candidate.presentationGroup === "TRUSTED_MATCH"
     )).toBe(true);
     expect(shopifyPort.search).toHaveBeenCalledTimes(1);
@@ -443,9 +446,11 @@ describe("unified product search", () => {
     expect(result.candidates.map((candidate) => candidate.shopifyProduct?.handle)).toEqual([
       "expercom",
       "sva",
-      "tigertech"
+      "tigertech",
+      "sixteen-cheap"
     ]);
     expect(result.candidates[0]?.preferenceEvidence).toContain("14英寸 屏幕");
+    expect(result.candidates[3]?.presentationGroup).toBe("BEST_VALUE");
   });
 
   it("keeps compound ChatGPT/API use out of identity and enforces an explicitly selected size", async () => {
@@ -857,6 +862,55 @@ describe("unified product search", () => {
       "BEST_VALUE",
       "BEST_VALUE"
     ]);
+  });
+
+  it("fills best-value with remaining high-rated candidates and keeps trusted merchants diverse", async () => {
+    const highRated = (handle: string, amountCents: number) => shopifyProduct(handle, amountCents, "NEW", {
+      merchantTrust: {
+        level: "UNKNOWN",
+        verification: "UNVERIFIED",
+        evidence: ["no independent merchant trust evidence"]
+      },
+      productRating: { value: 4.9, count: 100, scaleMax: 5 }
+    });
+    const result = await searchProducts(SearchProductsInputSchema.parse({
+      query: "keratin hair mask",
+      limit: 8,
+      selectionMode: "MERCHANT_DIVERSE"
+    }), {
+      awin: awin([
+        awinProduct("awin-1", 1_800),
+        awinProduct("awin-2", 1_900),
+        awinProduct("awin-3", 2_000)
+      ]),
+      shopify: shopify([
+        highRated("rated-1", 2_100),
+        highRated("rated-2", 2_200),
+        highRated("rated-3", 2_300),
+        highRated("rated-4", 2_400),
+        highRated("rated-5", 2_500)
+      ])
+    });
+
+    expect(result.candidates).toHaveLength(6);
+    expect(result.candidates.map((candidate) => candidate.presentationGroup)).toEqual([
+      "TRUSTED_MATCH",
+      "TRUSTED_MATCH",
+      "TRUSTED_MATCH",
+      "BEST_VALUE",
+      "BEST_VALUE",
+      "BEST_VALUE"
+    ]);
+    expect(result.candidates.slice(0, 3).map((candidate) =>
+      candidate.source === "AWIN_PRODUCT_FEED"
+        ? candidate.awinProduct.merchant
+        : candidate.source === "SHOPIFY_GLOBAL_CATALOG"
+          ? candidate.shopifyProduct.merchant
+          : "eBay"
+    )).toEqual(["Amazonliss (US)", "Merchant rated-1", "Merchant rated-2"]);
+    expect(result.candidates.slice(3).every((candidate) =>
+      candidate.recommendationTier === "HIGH_RATED_UNVERIFIED"
+    )).toBe(true);
   });
 
   it("keeps trusted fully matched configurations without claiming exact identity", async () => {

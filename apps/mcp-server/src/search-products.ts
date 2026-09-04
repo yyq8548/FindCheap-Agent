@@ -656,7 +656,7 @@ export async function searchProducts(
         input.selectionMode,
         input.allowAlternatives,
         input.visualInput !== undefined
-      );
+      ).slice(0, input.limit);
   const queriedSourcesComplete =
     awinStatus !== "UNAVAILABLE" &&
     ebayStatus !== "UNAVAILABLE" &&

@@ -1246,7 +1246,14 @@ function awinCardProduct(candidate: UnifiedCandidate): ProductCardProduct {
   const product = candidate.awinProduct;
   if (product === undefined) throw new Error("Awin candidate is missing its source product");
   const sourceHost = new URL(product.merchantUrl).hostname;
-  const merchantTrust = resolveMerchantTrust(sourceHost, product.merchant);
+  const registeredTrust = resolveMerchantTrust(sourceHost, product.merchant);
+  const merchantTrust = registeredTrust.verification === "INDEPENDENT"
+    ? registeredTrust
+    : {
+        level: "ESTABLISHED_RETAILER" as const,
+        verification: "INDEPENDENT" as const,
+        evidence: ["approved Awin merchant manually verified by FindCheap"]
+      };
   return {
     sourceKind: "AWIN_PRODUCT_FEED",
     affiliateState: "APPROVED",
