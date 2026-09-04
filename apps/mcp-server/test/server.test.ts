@@ -3,6 +3,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   MAX_PRODUCT_SELECTION_SNAPSHOTS,
+  MAX_RELAXED_VISUAL_CANDIDATES,
   MAX_VISUAL_CANDIDATES,
   MAX_VISUAL_SEARCH_SNAPSHOTS,
   PRODUCT_SELECTION_SNAPSHOT_TTL_MS,
@@ -112,6 +113,7 @@ describe("shopping MCP server", () => {
   it("bounds interactive visual sessions", () => {
     expect(VISUAL_SEARCH_SNAPSHOT_TTL_MS).toBe(10 * 60_000);
     expect(MAX_VISUAL_CANDIDATES).toBe(6);
+    expect(MAX_RELAXED_VISUAL_CANDIDATES).toBe(3);
     expect(MAX_VISUAL_SEARCH_SNAPSHOTS).toBe(32);
   });
   it("binds product cards directly to Shopify search and hides legacy rendering from the model", async () => {
@@ -124,12 +126,12 @@ describe("shopping MCP server", () => {
     const renderTool = tools.tools.find((candidate) => candidate.name === "render_product_cards");
     const metricsTool = tools.tools.find((candidate) => candidate.name === "report_product_card_metrics");
     expect(searchTool?._meta).toMatchObject({
-      ui: { resourceUri: "ui://findcheap/product-cards/v30.html" },
-      "openai/outputTemplate": "ui://findcheap/product-cards/v30.html"
+      ui: { resourceUri: "ui://findcheap/product-cards/v32.html" },
+      "openai/outputTemplate": "ui://findcheap/product-cards/v32.html"
     });
     expect(renderTool?._meta).toMatchObject({
       ui: {
-        resourceUri: "ui://findcheap/product-cards/v30.html",
+        resourceUri: "ui://findcheap/product-cards/v32.html",
         visibility: ["app"]
       }
     });
@@ -144,13 +146,18 @@ describe("shopping MCP server", () => {
     });
 
     const resources = await client.listResources();
-    expect(resources.resources).toEqual([expect.objectContaining({
+    expect(resources.resources).toHaveLength(2);
+    expect(resources.resources).toEqual(expect.arrayContaining([expect.objectContaining({
       name: "findcheap-product-cards",
-      uri: "ui://findcheap/product-cards/v30.html",
+      uri: "ui://findcheap/product-cards/v32.html",
       mimeType: "text/html;profile=mcp-app"
-    })]);
+    }), expect.objectContaining({
+      name: "findcheap-product-comparison",
+      uri: "ui://findcheap/product-comparison/v3.html",
+      mimeType: "text/html;profile=mcp-app"
+    })]));
 
-    const resource = await client.readResource({ uri: "ui://findcheap/product-cards/v30.html" });
+    const resource = await client.readResource({ uri: "ui://findcheap/product-cards/v32.html" });
     const content = resource.contents[0];
     const html = content !== undefined && "text" in content ? content.text : "";
     expect(html).toContain("ui/notifications/tool-result");
@@ -178,21 +185,18 @@ describe("shopping MCP server", () => {
     expect(html).not.toContain("innerHTML");
   });
 
-  it("discovers the read-only shopping and merchant Beta tools", async () => {
+  it("exposes only tools backed by configured capabilities", async () => {
     const client = await connect();
 
     const tools = await client.listTools();
 
     expect(tools.tools.map((tool) => tool.name)).toEqual([
       "search_products",
-      "search_visual_candidates",
-      "finalize_visual_search",
       "search_shopify_products",
       "search_awin_products",
-      "inspect_selected_shopify_product",
-      "quote_selected_shopify_product",
       "research_selected_product_deal",
-      "find_coupons",
+      "compare_selected_products",
+      "render_product_comparison",
       "create_watch",
       "bind_watch_automation",
       "check_watch",
@@ -222,6 +226,7 @@ describe("shopping MCP server", () => {
       "productType",
       "query",
       "requiredFeatures",
+      "requiredSize",
       "responseLocale",
       "selectionMode",
       "visualInput",
@@ -241,8 +246,8 @@ describe("shopping MCP server", () => {
     expect(unifiedTool?.description).toContain("brandMode=REQUIRED");
     expect(unifiedTool?.description).toContain("Never put a brand in productType or requiredFeatures");
     expect(unifiedTool?.description).toContain("Text-only product-search entrypoint");
-    expect(unifiedTool?.description).toContain("English progress must be exactly");
-    expect(unifiedTool?.description).toContain("Chinese progress exactly");
+    expect(unifiedTool?.description).toContain("For an initial text search");
+    expect(unifiedTool?.description).toContain("Selected-product follow-ups do not use that generic sentence");
     expect(unifiedTool?.description).toContain("Searching for suitable products.");
     expect(unifiedTool?.description).toContain("正在搜索合适商品。");
     expect(unifiedTool?.description).toContain("Never output a plan or read Memory, Skill files, repository files");
@@ -255,26 +260,8 @@ describe("shopping MCP server", () => {
       description: expect.stringContaining("CONTINUE for added budget")
     });
     expect(unifiedTool?.description).not.toContain("call render_product_cards");
-    const visualCandidateTool = tools.tools.find((tool) => tool.name === "search_visual_candidates");
-    expect(visualCandidateTool?.description).toContain("at most six labeled candidate images");
-    expect(visualCandidateTool?.description).toContain("Do not use this tool for text-only, Watch, or batch searches");
-    const visualFinalizeTool = tools.tools.find((tool) => tool.name === "finalize_visual_search");
-      expect(visualFinalizeTool?.description).toContain("cannot create EXACT identity");
-      expect(visualFinalizeTool?.description).toContain("single-use");
-      expect(visualFinalizeTool?.description).toContain("never retry more than once");
-      expect(visualFinalizeTool?.description).toContain("Color or pattern difference alone");
     const awinTool = tools.tools.find((tool) => tool.name === "search_awin_products");
     expect(awinTool?._meta).toMatchObject({ ui: { visibility: ["app"] } });
-    const inspectTool = tools.tools.find((tool) => tool.name === "inspect_selected_shopify_product");
-    expect(Object.keys(inspectTool?.inputSchema.properties ?? {}).sort()).toEqual([
-      "renderId",
-      "selectionId",
-      "variantDimensions",
-      "variantId"
-    ]);
-    expect(inspectTool?.description).toContain("never scan task history");
-    const quoteTool = tools.tools.find((tool) => tool.name === "quote_selected_shopify_product");
-    expect(quoteTool?.description).toContain("For MERCHANT_CHECKOUT_ONLY, do not ask for ZIP");
     expect(unifiedTool?.inputSchema.properties?.selectionMode).toMatchObject({
       default: "MERCHANT_DIVERSE"
     });
@@ -408,10 +395,10 @@ describe("shopping MCP server", () => {
       renderId,
       products: [{ card: { title: "Valhalla Java Single-Serve Pods — 10 count" } }]
     });
-    expect(rendered.content).toEqual([{
+    expect(rendered.content).toEqual([expect.objectContaining({
       type: "text",
-      text: "Rendered 1 product card with explicit identity labels."
-    }]);
+      text: expect.stringContaining("Rendered 1 product card with explicit identity labels.")
+    })]);
   });
 
   it("accepts bounded app-only card metrics only for a live render snapshot", async () => {
@@ -432,7 +419,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.16.6",
+        version: "0.17.6",
         terminalStage: "DOM_RENDERED",
         stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
       }
@@ -441,7 +428,7 @@ describe("shopping MCP server", () => {
     expect(result.structuredContent).toEqual({ status: "RECORDED" });
     expect(record).toHaveBeenCalledWith(expect.objectContaining({
       renderId,
-      version: "0.16.6",
+      version: "0.17.6",
       terminalStage: "DOM_RENDERED",
       stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
     }));
@@ -449,7 +436,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.16.6",
+        version: "0.17.6",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 14 }
       }
@@ -459,18 +446,18 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.16.6",
+        version: "0.17.6",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 300_001 }
       }
     });
     expect(oversized.isError).toBe(true);
-    expect(JSON.stringify(oversized.content)).toContain("less than or equal to 300000");
+    expect(oversized._meta).toMatchObject({ "findcheap/errorCode": "INVALID_ARGUMENTS" });
     expect((await client.callTool({
       name: "report_product_card_metrics",
       arguments: {
         renderId: "22222222-2222-4222-8222-222222222222",
-        version: "0.16.6",
+        version: "0.17.6",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 1 }
       }
@@ -1103,10 +1090,10 @@ describe("shopping MCP server", () => {
     });
 
     expect(result.isError).toBe(true);
-    expect(result.content).toEqual([{
+    expect(result.content).toEqual([expect.objectContaining({
       type: "text",
-      text: "Product-card snapshot is unavailable. Run search_products once."
-    }]);
+      text: expect.stringContaining("Product-card snapshot is unavailable. Run search_products once.")
+    })]);
     expect(result.structuredContent).toBeUndefined();
   });
 
@@ -1135,6 +1122,8 @@ describe("shopping MCP server", () => {
     const result = await client.callTool({ name: "search_shopify_products", arguments: args });
 
     expect(result.isError).toBe(true);
+    expect(result._meta).toMatchObject({ "findcheap/errorCode": "INVALID_ARGUMENTS" });
+    expect(JSON.stringify(result)).not.toContain("Input validation error");
     expect(search).not.toHaveBeenCalled();
   });
 
@@ -1245,6 +1234,13 @@ describe("Coupon and Watch tools", () => {
       candidates: Array<{ candidateId: string }>;
     };
     expect(structured.candidates).toHaveLength(1);
+    expect(first.structuredContent).toMatchObject({
+      workflow: {
+        state: "REVIEW_REQUIRED",
+        finalAnswerAllowed: false,
+        requiredNextTool: "finalize_visual_search"
+      }
+    });
     expect(load).toHaveBeenCalledTimes(1);
 
     const invalid = await client.callTool({
@@ -1293,6 +1289,52 @@ describe("Coupon and Watch tools", () => {
       }
     });
     expect(reused.isError).toBe(true);
+  });
+
+  it("keeps real-sized candidate images within the shared tool-output budget", async () => {
+    const base = await shopifyPort.search({
+      query: "coffee pods",
+      limit: 3,
+      comparisonMode: "DISCOVERY",
+      selectionMode: "MERCHANT_DIVERSE",
+      membershipIds: []
+    });
+    const visualShopify: ShopifyPort = {
+      search: async () => ({
+        ...base,
+        products: [0, 1, 2].map((index) => ({
+          ...base.products[0]!,
+          merchantId: `merchant-${index}`,
+          merchant: `Merchant ${index}`,
+          handle: `candidate-${index}`,
+          title: `Coffee Pods Candidate ${index}`,
+          productType: "coffee pods",
+          description: "single serve coffee pods",
+          imageUrl: `https://cdn.shopify.com/candidate-${index}.jpg`,
+          merchantUrl: `https://merchant-${index}.example/products/candidate-${index}`
+        }))
+      })
+    };
+    const client = await connect(visualShopify, undefined, {
+      visualCandidateImages: {
+        load: async () => ({ data: "a".repeat(170_000), mimeType: "image/jpeg" as const })
+      }
+    });
+
+    const result = await client.callTool({
+      name: "search_visual_candidates",
+      arguments: {
+        query: "coffee pods",
+        productType: "coffee pods",
+        visualInput: { productType: "coffee pods", colors: ["black"] }
+      }
+    });
+
+    expect(result.isError).not.toBe(true);
+    const content = result.content as Array<{ type: string }>;
+    expect(content.filter((item) => item.type === "image")).toHaveLength(2);
+    expect((result.structuredContent as { candidates: unknown[] }).candidates).toHaveLength(2);
+    expect(JSON.stringify(result).length).toBeLessThan(512_000);
   });
 
   it("preserves a suspected product name for exact official-store visual retrieval", async () => {
@@ -1408,8 +1450,134 @@ describe("Coupon and Watch tools", () => {
       candidates: [],
       visualSearchFailure: {
         code: "NO_LOADABLE_IMAGES",
-        message: expect.stringContaining("no candidate image")
+        message: expect.stringContaining("Candidate image loading failed")
       }
+    });
+    expect(result._meta).toMatchObject({
+      "findcheap/visualImageLoadDiagnostics": {
+        attempted: 1,
+        loaded: 0,
+        failures: [{ code: "REQUEST_FAILED", sourceHost: "cdn.shopify.com", count: 1 }]
+      }
+    });
+    const localized = await client.callTool({
+      name: "search_visual_candidates",
+      arguments: {
+        query: "碎花连衣裙",
+        productType: "连衣裙",
+        responseLocale: "zh-CN",
+        visualInput: { productType: "连衣裙", patterns: ["碎花"] }
+      }
+    });
+    expect(localized.structuredContent).toMatchObject({
+      visualSearchFailure: { message: expect.stringContaining("候选商品图片加载失败") }
+    });
+  });
+
+  it("retries an initial zero-candidate visual search with the same brand and product family", async () => {
+    const baseline = await shopifyPort.search({
+      query: "placeholder",
+      limit: 1,
+      comparisonMode: "DISCOVERY",
+      selectionMode: "MERCHANT_DIVERSE",
+      membershipIds: []
+    });
+    let sourceCall = 0;
+    const search = vi.fn<ShopifyPort["search"]>(async () => {
+      sourceCall += 1;
+      return {
+        ...baseline,
+        products: sourceCall <= 2 ? [] : [{
+          ...baseline.products[0]!,
+          handle: "reformation-marella-dress",
+          title: "Reformation Marella Midi Dress",
+          brand: "Reformation",
+          productType: "dress",
+          description: "midi dress with a high front-left slit and fitted bodice",
+          imageUrl: "https://cdn.shopify.com/reformation-marella.jpg",
+          merchantUrl: "https://example.com/products/reformation-marella-dress"
+        }]
+      };
+    });
+    const client = await connect(
+      { search },
+      undefined,
+      {
+        visualCandidateImages: {
+          load: async () => ({
+            data: Buffer.from("candidate-image").toString("base64"),
+            mimeType: "image/jpeg" as const
+          })
+        }
+      }
+    );
+
+    const result = await client.callTool({
+      name: "search_visual_candidates",
+      arguments: {
+        query: "Reformation green midi dress high slit fitted bodice",
+        productType: "midi dress",
+        brand: "Reformation",
+        brandMode: "REQUIRED",
+        visualInput: {
+          brand: "Reformation",
+          productType: "midi dress",
+          colors: ["green"],
+          distinctiveDetails: ["high front-left slit", "fitted bodice"]
+        }
+      }
+    });
+
+    expect(search.mock.calls[0]?.[0].query).toBe("Reformation midi dress");
+    expect(search.mock.calls[2]?.[0].query).toContain("Reformation midi dress high front-left slit fitted bodice");
+    expect(result.structuredContent).toMatchObject({
+      status: "OK",
+      candidates: [{ title: "Reformation Marella Midi Dress" }]
+    });
+  });
+
+  it("distinguishes zero catalog candidates from candidate image-load failure", async () => {
+    const baseline = await shopifyPort.search({
+      query: "placeholder",
+      limit: 1,
+      comparisonMode: "DISCOVERY",
+      selectionMode: "MERCHANT_DIVERSE",
+      membershipIds: []
+    });
+    const search = vi.fn<ShopifyPort["search"]>(async () => ({ ...baseline, products: [] }));
+    const client = await connect(
+      { search },
+      undefined,
+      {
+        visualCandidateImages: {
+          load: async () => ({
+            data: Buffer.from("unused").toString("base64"),
+            mimeType: "image/jpeg" as const
+          })
+        }
+      }
+    );
+
+    const result = await client.callTool({
+      name: "search_visual_candidates",
+      arguments: {
+        query: "Reformation green midi dress",
+        productType: "midi dress",
+        brand: "Reformation",
+        brandMode: "REQUIRED",
+        visualInput: { brand: "Reformation", productType: "midi dress", colors: ["green"] }
+      }
+    });
+
+    expect(result.structuredContent).toMatchObject({
+      status: "NO_IMAGE_CANDIDATES",
+      visualSearchFailure: {
+        code: "NO_CATALOG_CANDIDATES",
+        message: expect.stringContaining("No eligible product candidates")
+      }
+    });
+    expect(result._meta).toMatchObject({
+      "findcheap/visualImageLoadDiagnostics": { attempted: 0, loaded: 0, failures: [] }
     });
   });
 
@@ -1474,8 +1642,7 @@ describe("Coupon and Watch tools", () => {
       candidates: Array<{ candidateId: string }>;
     };
     expect(firstStructured.candidates).toHaveLength(1);
-    expect(search.mock.calls[0]?.[0].query).toContain("ivory");
-    expect(search.mock.calls[0]?.[0].query).not.toContain("square neckline");
+    expect(search.mock.calls[0]?.[0].query).toBe("dress");
 
     const retry = await client.callTool({
       name: "finalize_visual_search",
@@ -1510,9 +1677,14 @@ describe("Coupon and Watch tools", () => {
     expect(retryStructured.products).toEqual([]);
     expect(retryStructured.visualReview).toMatchObject({
       stage: "RELAXED_REVIEW",
+      terminal: false,
+      finalAnswerAllowed: false,
+      requiredNextTool: "finalize_visual_search",
       candidates: [{ title: "Broader Ivory Mini Dress" }]
     });
-    expect(search.mock.calls[2]?.[0].query).toBe("dress");
+    const retryContent = retry.content as Array<{ type: string; text?: string }>;
+    expect(retryContent[0]?.text).toContain("Final answer is forbidden");
+    expect(search.mock.calls[2]?.[0].query).toContain("dress square neckline with lace inset short puff sleeves");
     expect(retry.content).toEqual(expect.arrayContaining([
       expect.objectContaining({ type: "image", mimeType: "image/jpeg" })
     ]));
@@ -1630,10 +1802,27 @@ describe("Coupon and Watch tools", () => {
     expect(result.structuredContent).toMatchObject({ status: "NO_VERIFIED_DEALS", deals: [] });
   });
 
-  it("fails closed when no verified Deals API exists", async () => {
+  it("localizes the no-deal result and keeps affiliate membership distinct from an active offer", async () => {
+    const client = await connect(shopifyPort, undefined, {
+      now: () => current,
+      deals: { search: async () => [] }
+    });
+    const result = await client.callTool({
+      name: "find_coupons",
+      arguments: { merchant: "EVDANCE", productQuery: "Home Level 2 EV Charger", responseLocale: "zh-CN" }
+    });
+
+    expect(result.structuredContent).toMatchObject({
+      status: "NO_VERIFIED_DEALS",
+      message: "当前没有找到该商家的已验证有效优惠。商家已加入联盟计划，不代表当前一定有 Coupon 或促销。",
+      deals: []
+    });
+  });
+
+  it("hides find_coupons when no verified Deals API exists", async () => {
     const client = await connect( shopifyPort, undefined, { now: () => current });
-    const result = await client.callTool({ name: "find_coupons", arguments: { merchant: "Aritzia" } });
-    expect(result.structuredContent).toMatchObject({ status: "DATA_SOURCE_UNAVAILABLE", deals: [] });
+    const tools = await client.listTools();
+    expect(tools.tools.map((tool) => tool.name)).not.toContain("find_coupons");
   });
 
   it("does not persist a Deals-backed Watch when no Deals provider is configured", async () => {
@@ -2066,7 +2255,8 @@ describe("Coupon and Watch tools", () => {
     expect(modelText).toContain("来自 2 家商家");
     expect(modelText).toContain("不得称商家为授权零售商");
     expect(modelText).toContain("MERCHANT_CHECKOUT_ONLY 需在结账页确认，不询问 ZIP");
-    expect(modelText).toContain("Reuse selectionId; never search titles");
+    expect(modelText).toContain("Use structured selection references for follow-ups; never print them or search titles");
+    expect(modelText).not.toMatch(/[0-9a-f]{8}-[0-9a-f-]{27,}/iu);
     expect(modelText).not.toMatch(/coverage|diagnostic|feedRows|registry/iu);
   });
 

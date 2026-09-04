@@ -48,6 +48,12 @@ describe("Awin Offers controller", () => {
         expect.objectContaining({ dealId: "awin:2", kind: "BRAND_PROMOTION" })
       ]
     });
+    expect(controller.search({
+      merchant: "Example Shop",
+      productQuery: "A product name absent from every merchant-wide promotion",
+      membershipIds: [],
+      channel: "ONLINE"
+    })?.deals).toHaveLength(2);
     expect(controller.search({ merchant: "Example Shop", membershipIds: [], channel: "IN_STORE" })).toEqual({ deals: [] });
     expect(JSON.parse(await readFile(dataPath, "utf8"))).toMatchObject({
       snapshotAt: "2026-08-26T20:00:00.000Z",

@@ -27,6 +27,7 @@ import { evaluateFeature } from "./product-constraint-matcher.js";
 import {
   VisualProductInputSchema,
   classifyVisualProduct,
+  hasVisualProductFamilyConflict,
   isVisualAttributeOccluded,
   visualBroadSearchTerms,
   visualOfficialStoreSearchQueries,
@@ -85,6 +86,9 @@ export const SearchProductsInputSchema = z.object({
     .optional(),
   preferredSize: z.string().trim().min(1).max(80)
     .describe("User-stated preferred physical or screen size; never infer it")
+    .optional(),
+  requiredSize: z.string().trim().min(1).max(80)
+    .describe("User-stated mandatory physical or screen size; use only when the user explicitly requires or selects that size")
     .optional(),
   zipCode: z.string().regex(/^\d{5}(?:-\d{4})?$/u).optional(),
   membershipIds: z.array(z.string().trim().min(1).max(80)).max(20)
@@ -185,7 +189,23 @@ export const CodexVisualVerdictSchema = z.object({
   classification: z.enum(["POSSIBLE_SAME_ITEM", "HIGHLY_SIMILAR", "SAME_STYLE", "CONFLICT"]),
   matches: z.array(VisualEvidencePairSchema).max(16).default([]),
   conflicts: z.array(VisualEvidencePairSchema).max(16).default([])
-}).strict();
+}).strict().superRefine((verdict, context) => {
+  const matched = new Set(verdict.matches.map((entry) => entry.attribute));
+  if (matched.size !== verdict.matches.length) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["matches"], message: "match attributes must be unique" });
+  }
+  const conflicted = new Set(verdict.conflicts.map((entry) => entry.attribute));
+  if (conflicted.size !== verdict.conflicts.length) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["conflicts"], message: "conflict attributes must be unique" });
+  }
+  if (verdict.conflicts.some((entry) => matched.has(entry.attribute))) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["conflicts"],
+      message: "an attribute cannot both match and conflict"
+    });
+  }
+});
 
 export type CodexVisualVerdict = z.infer<typeof CodexVisualVerdictSchema>;
 
@@ -325,6 +345,7 @@ export async function searchProducts(
   ]);
   const rawRequiredFeatures = unique([
     ...rawInput.requiredFeatures,
+    ...(rawInput.requiredSize === undefined ? [] : [preferredSizePreference(rawInput.requiredSize)]),
     ...(rawInput.featureMode === "REQUIRED" ? rawInput.features : [])
   ]);
   const input = {
@@ -335,6 +356,9 @@ export async function searchProducts(
           ...rawInput.visualInput,
           ...(rawInput.visualInput.brand === undefined && rawInput.brand !== undefined
             ? { brand: rawInput.brand }
+            : {}),
+          ...(rawInput.visualInput.productType === undefined && rawInput.productType !== undefined
+            ? { productType: rawInput.productType }
             : {})
         },
     conditionPreference: explicitConditionPreference(rawInput.query, rawInput.conditionPreference),
@@ -354,7 +378,10 @@ export async function searchProducts(
     productOnlyQuery(input.query, input.maxItemPriceCents !== undefined),
     input.requiredFeatures
   );
-  const identityProductQuery = stripPreferredSizeFromIdentity(productQuery, input.preferredSize);
+  const identityProductQuery = stripPreferredSizeFromIdentity(
+    stripPrimaryUseFromIdentity(productQuery, input.primaryUse),
+    input.requiredSize ?? input.preferredSize
+  );
   const searchIntent = resolveSearchIntent({ ...input, query: identityProductQuery });
   const identityQuery = searchIntent === "EXACT_PRODUCT"
     ? unique([
@@ -366,8 +393,8 @@ export async function searchProducts(
       : buildSourceQuery({ ...input, query: productQuery });
   const sourceQuery = searchIntent === "EXACT_PRODUCT"
     ? unique([
-        input.brand !== undefined && !containsBrand(productQuery, input.brand) ? input.brand : "",
-        productQuery
+        input.brand !== undefined && !containsBrand(identityProductQuery, input.brand) ? input.brand : "",
+        identityProductQuery
       ]).join(" ").slice(0, 300).trim()
     : input.deferVisualFiltering === true
       ? productQuery
@@ -621,7 +648,7 @@ export async function searchProducts(
     input.membershipIds ?? []
   );
   const candidates = input.deferVisualFiltering === true
-    ? selectVisualReviewCandidates(enrichedCandidates, input.limit, input.allowAlternatives)
+    ? selectVisualReviewCandidates(enrichedCandidates, input.limit)
     : selectPresentationCandidates(
         [...enrichedCandidates].sort(
           input.selectionMode === "LOWEST_PRICE" ? compareLowestPrice : compareRankedCandidates
@@ -749,7 +776,7 @@ function awinCandidate(
   visualExcludedKeys: Set<string>
 ): UnifiedCandidate | undefined {
   const key = `AWIN:${product.merchantId}:${product.merchantProductId}`;
-  const brand = assessBrand(input, [product.title, product.merchant]);
+  const brand = assessBrand(input, [product.merchant], [product.title]);
   if (brand.excluded) {
     brandExcludedKeys.add(key);
     return undefined;
@@ -827,11 +854,9 @@ function shopifyCandidate(
   const key = `SHOPIFY:${product.merchantId}:${product.handle}`;
   if (product.merchantTrust.level === "RISKY") return undefined;
   const brand = assessBrand(input, [
-    product.title,
-    product.description,
     product.brand,
     ...(product.merchantTrust.level === "OFFICIAL" ? [product.merchant] : [])
-  ]);
+  ], [product.title]);
   if (brand.excluded) {
     brandExcludedKeys.add(key);
     return undefined;
@@ -1004,7 +1029,7 @@ function ebayCandidate(
   visualExcludedKeys: Set<string>
 ): UnifiedCandidate | undefined {
   const key = `EBAY:${product.itemId}`;
-  const brand = assessBrand(input, [product.title, ...product.attributes]);
+  const brand = assessBrand(input, product.attributes.filter(isExplicitBrandAttribute), [product.title]);
   if (brand.excluded) {
     brandExcludedKeys.add(key);
     return undefined;
@@ -1165,6 +1190,26 @@ function stripPreferredSizeFromIdentity(value: string, preferredSize: string | u
   return stripped || value;
 }
 
+function stripPrimaryUseFromIdentity(value: string, primaryUse: string | undefined): string {
+  if (primaryUse === undefined) return value;
+  const useTerms = new Set(searchTerms(primaryUse));
+  if (useTerms.size === 0) return value;
+  const markers = [...value.matchAll(/\s+(?:for|suitable\s+for)\s+|(?:适合|用于|用来)/giu)];
+  for (const marker of markers.reverse()) {
+    const suffix = value.slice((marker.index ?? 0) + marker[0].length);
+    if (searchTerms(suffix).some((term) => useTerms.has(term))) {
+      const stripped = value.slice(0, marker.index).replace(/\s+/gu, " ").trim();
+      return stripped || value;
+    }
+  }
+  return value;
+}
+
+function searchTerms(value: string): string[] {
+  return (value.normalize("NFKC").toLocaleLowerCase("en-US").match(/[\p{L}\p{N}]+/gu) ?? [])
+    .filter((term) => term.length > 1 && !["and", "based", "use"].includes(term));
+}
+
 function preferredSizePreference(value: string): string {
   if (/(?:display|screen|monitor|屏幕|显示器)/iu.test(value)) return value;
   return /\p{Script=Han}/u.test(value) ? `${value} 屏幕` : `${value} display`;
@@ -1270,7 +1315,8 @@ function lacksStrongMatch(candidates: UnifiedCandidate[], intent: ProductSearchI
 
 function assessBrand(
   input: Pick<SearchProductsInput, "brand" | "brandMode">,
-  evidenceValues: Array<string | undefined>
+  authoritativeValues: Array<string | undefined>,
+  productLineValues: Array<string | undefined> = []
 ): {
   excluded: boolean;
   requiredEvidence: string[];
@@ -1280,7 +1326,11 @@ function assessBrand(
   if (input.brand === undefined) {
     return { excluded: false, requiredEvidence: [], preferenceEvidence: [], matchEvidence: [] };
   }
-  const matched = evidenceValues.some((value) => value !== undefined && containsBrandEvidence(value, input.brand!));
+  const matched = authoritativeValues.some((value) =>
+    value !== undefined && containsBrand(value, input.brand!)
+  ) || productLineValues.some((value) =>
+    value !== undefined && containsOwnedProductLineEvidence(value, input.brand!)
+  );
   if (!matched && input.brandMode === "REQUIRED") {
     return { excluded: true, requiredEvidence: [], preferenceEvidence: [], matchEvidence: [] };
   }
@@ -1301,12 +1351,17 @@ function containsBrand(value: string, brand: string): boolean {
   return requestedTokens.every((token) => candidateTokens.includes(token));
 }
 
-function containsBrandEvidence(value: string, brand: string): boolean {
-  if (containsBrand(value, brand)) return true;
+function containsOwnedProductLineEvidence(value: string, brand: string): boolean {
   const candidateTokens = brandTokens(value);
   const requestedTokens = brandTokens(brand);
   const ownedProductLines = BRAND_OWNED_PRODUCT_LINES[requestedTokens.join(" ")];
   return ownedProductLines?.some((line) => candidateTokens.includes(line)) === true;
+}
+
+function isExplicitBrandAttribute(value: string): boolean {
+  const normalized = value.normalize("NFKC").trim().toLocaleLowerCase("en-US");
+  return /^(?:brand|manufacturer|make)\s*[:=]/u.test(normalized) &&
+    !/^(?:compatible\s+brand|compatible\s+with)\s*[:=]/u.test(normalized);
 }
 
 const BRAND_OWNED_PRODUCT_LINES: Readonly<Record<string, readonly string[]>> = {
@@ -1426,6 +1481,10 @@ function visualIdentity(
   excluded: Set<string>
 ): VisualMatch | undefined | null {
   if (input.visualInput === undefined) return undefined;
+  if (input.deferVisualFiltering === true && hasVisualProductFamilyConflict(input.visualInput, candidate)) {
+    excluded.add(key);
+    return null;
+  }
   const match = classifyVisualProduct(input.visualInput, candidate);
   // During interactive image retrieval, metadata may help rank candidates but
   // may never reject them before Codex has compared the actual images.

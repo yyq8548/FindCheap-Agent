@@ -3792,6 +3792,10 @@
         }
       ]
     },
+    "src/backend.ts": {
+      "format": "esm",
+      "imports": []
+    },
     "src/deal-client.ts": {
       "format": "esm",
       "imports": [
@@ -3819,6 +3823,64 @@
           "kind": "import-statement",
           "original": "zod",
           "path": "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/index.js"
+        }
+      ]
+    },
+    "src/execution/capabilities.ts": {
+      "format": "esm",
+      "imports": []
+    },
+    "src/execution/external-data-fence.ts": {
+      "format": "esm",
+      "imports": [
+        {
+          "kind": "import-statement",
+          "original": "./tool-outcome.js",
+          "path": "src/execution/tool-outcome.ts"
+        }
+      ]
+    },
+    "src/execution/tool-executor.ts": {
+      "format": "esm",
+      "imports": [
+        {
+          "kind": "import-statement",
+          "original": "zod",
+          "path": "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/index.js"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./external-data-fence.js",
+          "path": "src/execution/external-data-fence.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./tool-outcome.js",
+          "path": "src/execution/tool-outcome.ts"
+        }
+      ]
+    },
+    "src/execution/tool-outcome.ts": {
+      "format": "esm",
+      "imports": []
+    },
+    "src/execution/tool-registry.ts": {
+      "format": "esm",
+      "imports": [
+        {
+          "kind": "import-statement",
+          "original": "zod",
+          "path": "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/index.js"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./capabilities.js",
+          "path": "src/execution/capabilities.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./tool-executor.js",
+          "path": "src/execution/tool-executor.ts"
         }
       ]
     },
@@ -3932,6 +3994,31 @@
         }
       ]
     },
+    "src/product-comparison-ui.ts": {
+      "format": "esm",
+      "imports": [
+        {
+          "kind": "import-statement",
+          "original": "../../../config/version.js",
+          "path": "../../config/version.ts"
+        }
+      ]
+    },
+    "src/product-comparison.ts": {
+      "format": "esm",
+      "imports": [
+        {
+          "kind": "import-statement",
+          "original": "zod",
+          "path": "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/index.js"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./product-recommendation.js",
+          "path": "src/product-recommendation.ts"
+        }
+      ]
+    },
     "src/product-constraint-matcher.ts": {
       "format": "esm",
       "imports": []
@@ -4009,6 +4096,31 @@
         },
         {
           "kind": "import-statement",
+          "original": "./backend.js",
+          "path": "src/backend.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./execution/tool-executor.js",
+          "path": "src/execution/tool-executor.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./execution/tool-registry.js",
+          "path": "src/execution/tool-registry.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./product-comparison.js",
+          "path": "src/product-comparison.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./product-comparison-ui.js",
+          "path": "src/product-comparison-ui.ts"
+        },
+        {
+          "kind": "import-statement",
           "original": "../../../config/version.js",
           "path": "../../config/version.ts"
         },
@@ -4031,6 +4143,11 @@
           "kind": "import-statement",
           "original": "./shopify-cart-quote.js",
           "path": "src/shopify-cart-quote.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./visual-candidate-images.js",
+          "path": "src/visual-candidate-images.ts"
         },
         {
           "kind": "import-statement",
@@ -4315,6 +4432,16 @@
           "kind": "import-statement",
           "original": "./merchant-trust-registry-client.js",
           "path": "src/merchant-trust-registry-client.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./backend.js",
+          "path": "src/backend.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./affiliate-links.js",
+          "path": "src/affiliate-links.ts"
         }
       ]
     },
@@ -4386,7 +4513,7 @@
   },
   "outputs": {
     "../../plugins/findcheap-agent/dist/mcp-server.js": {
-      "bytes": 669246,
+      "bytes": 738714,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
@@ -4613,7 +4740,7 @@
           "bytesInOutput": 682
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/compile/validate/index.js": {
-          "bytesInOutput": 10183
+          "bytesInOutput": 10230
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/compile/validate/keyword.js": {
           "bytesInOutput": 2962
@@ -4787,13 +4914,13 @@
           "bytesInOutput": 0
         },
         "../../node_modules/.pnpm/zod-to-json-schema@3.25.2_zod@3.25.76/node_modules/zod-to-json-schema/dist/esm/parseDef.js": {
-          "bytesInOutput": 884
+          "bytesInOutput": 886
         },
         "../../node_modules/.pnpm/zod-to-json-schema@3.25.2_zod@3.25.76/node_modules/zod-to-json-schema/dist/esm/parsers/any.js": {
           "bytesInOutput": 218
         },
         "../../node_modules/.pnpm/zod-to-json-schema@3.25.2_zod@3.25.76/node_modules/zod-to-json-schema/dist/esm/parsers/array.js": {
-          "bytesInOutput": 446
+          "bytesInOutput": 447
         },
         "../../node_modules/.pnpm/zod-to-json-schema@3.25.2_zod@3.25.76/node_modules/zod-to-json-schema/dist/esm/parsers/bigint.js": {
           "bytesInOutput": 603
@@ -4802,31 +4929,31 @@
           "bytesInOutput": 37
         },
         "../../node_modules/.pnpm/zod-to-json-schema@3.25.2_zod@3.25.76/node_modules/zod-to-json-schema/dist/esm/parsers/branded.js": {
-          "bytesInOutput": 41
+          "bytesInOutput": 42
         },
         "../../node_modules/.pnpm/zod-to-json-schema@3.25.2_zod@3.25.76/node_modules/zod-to-json-schema/dist/esm/parsers/catch.js": {
-          "bytesInOutput": 36
+          "bytesInOutput": 37
         },
         "../../node_modules/.pnpm/zod-to-json-schema@3.25.2_zod@3.25.76/node_modules/zod-to-json-schema/dist/esm/parsers/date.js": {
           "bytesInOutput": 514
         },
         "../../node_modules/.pnpm/zod-to-json-schema@3.25.2_zod@3.25.76/node_modules/zod-to-json-schema/dist/esm/parsers/default.js": {
-          "bytesInOutput": 75
+          "bytesInOutput": 76
         },
         "../../node_modules/.pnpm/zod-to-json-schema@3.25.2_zod@3.25.76/node_modules/zod-to-json-schema/dist/esm/parsers/effects.js": {
-          "bytesInOutput": 76
+          "bytesInOutput": 77
         },
         "../../node_modules/.pnpm/zod-to-json-schema@3.25.2_zod@3.25.76/node_modules/zod-to-json-schema/dist/esm/parsers/enum.js": {
           "bytesInOutput": 63
         },
         "../../node_modules/.pnpm/zod-to-json-schema@3.25.2_zod@3.25.76/node_modules/zod-to-json-schema/dist/esm/parsers/intersection.js": {
-          "bytesInOutput": 562
+          "bytesInOutput": 564
         },
         "../../node_modules/.pnpm/zod-to-json-schema@3.25.2_zod@3.25.76/node_modules/zod-to-json-schema/dist/esm/parsers/literal.js": {
           "bytesInOutput": 263
         },
         "../../node_modules/.pnpm/zod-to-json-schema@3.25.2_zod@3.25.76/node_modules/zod-to-json-schema/dist/esm/parsers/map.js": {
-          "bytesInOutput": 325
+          "bytesInOutput": 327
         },
         "../../node_modules/.pnpm/zod-to-json-schema@3.25.2_zod@3.25.76/node_modules/zod-to-json-schema/dist/esm/parsers/nativeEnum.js": {
           "bytesInOutput": 232
@@ -4838,43 +4965,43 @@
           "bytesInOutput": 86
         },
         "../../node_modules/.pnpm/zod-to-json-schema@3.25.2_zod@3.25.76/node_modules/zod-to-json-schema/dist/esm/parsers/nullable.js": {
-          "bytesInOutput": 571
+          "bytesInOutput": 573
         },
         "../../node_modules/.pnpm/zod-to-json-schema@3.25.2_zod@3.25.76/node_modules/zod-to-json-schema/dist/esm/parsers/number.js": {
           "bytesInOutput": 645
         },
         "../../node_modules/.pnpm/zod-to-json-schema@3.25.2_zod@3.25.76/node_modules/zod-to-json-schema/dist/esm/parsers/object.js": {
-          "bytesInOutput": 968
+          "bytesInOutput": 970
         },
         "../../node_modules/.pnpm/zod-to-json-schema@3.25.2_zod@3.25.76/node_modules/zod-to-json-schema/dist/esm/parsers/optional.js": {
-          "bytesInOutput": 217
+          "bytesInOutput": 219
         },
         "../../node_modules/.pnpm/zod-to-json-schema@3.25.2_zod@3.25.76/node_modules/zod-to-json-schema/dist/esm/parsers/pipeline.js": {
-          "bytesInOutput": 301
+          "bytesInOutput": 305
         },
         "../../node_modules/.pnpm/zod-to-json-schema@3.25.2_zod@3.25.76/node_modules/zod-to-json-schema/dist/esm/parsers/promise.js": {
-          "bytesInOutput": 41
+          "bytesInOutput": 42
         },
         "../../node_modules/.pnpm/zod-to-json-schema@3.25.2_zod@3.25.76/node_modules/zod-to-json-schema/dist/esm/parsers/readonly.js": {
-          "bytesInOutput": 36
+          "bytesInOutput": 37
         },
         "../../node_modules/.pnpm/zod-to-json-schema@3.25.2_zod@3.25.76/node_modules/zod-to-json-schema/dist/esm/parsers/record.js": {
-          "bytesInOutput": 1101
+          "bytesInOutput": 1103
         },
         "../../node_modules/.pnpm/zod-to-json-schema@3.25.2_zod@3.25.76/node_modules/zod-to-json-schema/dist/esm/parsers/set.js": {
-          "bytesInOutput": 262
+          "bytesInOutput": 263
         },
         "../../node_modules/.pnpm/zod-to-json-schema@3.25.2_zod@3.25.76/node_modules/zod-to-json-schema/dist/esm/parsers/string.js": {
           "bytesInOutput": 6127
         },
         "../../node_modules/.pnpm/zod-to-json-schema@3.25.2_zod@3.25.76/node_modules/zod-to-json-schema/dist/esm/parsers/tuple.js": {
-          "bytesInOutput": 478
+          "bytesInOutput": 481
         },
         "../../node_modules/.pnpm/zod-to-json-schema@3.25.2_zod@3.25.76/node_modules/zod-to-json-schema/dist/esm/parsers/undefined.js": {
           "bytesInOutput": 33
         },
         "../../node_modules/.pnpm/zod-to-json-schema@3.25.2_zod@3.25.76/node_modules/zod-to-json-schema/dist/esm/parsers/union.js": {
-          "bytesInOutput": 1336
+          "bytesInOutput": 1337
         },
         "../../node_modules/.pnpm/zod-to-json-schema@3.25.2_zod@3.25.76/node_modules/zod-to-json-schema/dist/esm/parsers/unknown.js": {
           "bytesInOutput": 28
@@ -4883,7 +5010,7 @@
           "bytesInOutput": 1147
         },
         "../../node_modules/.pnpm/zod-to-json-schema@3.25.2_zod@3.25.76/node_modules/zod-to-json-schema/dist/esm/zodToJsonSchema.js": {
-          "bytesInOutput": 1311
+          "bytesInOutput": 1313
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/index.js": {
           "bytesInOutput": 0
@@ -5002,6 +5129,9 @@
         "src/awin-shopify-quote.ts": {
           "bytesInOutput": 4153
         },
+        "src/backend.ts": {
+          "bytesInOutput": 447
+        },
         "src/deal-client.ts": {
           "bytesInOutput": 3803
         },
@@ -5010,6 +5140,21 @@
         },
         "src/ebay-client.ts": {
           "bytesInOutput": 3766
+        },
+        "src/execution/capabilities.ts": {
+          "bytesInOutput": 801
+        },
+        "src/execution/external-data-fence.ts": {
+          "bytesInOutput": 1860
+        },
+        "src/execution/tool-executor.ts": {
+          "bytesInOutput": 1354
+        },
+        "src/execution/tool-outcome.ts": {
+          "bytesInOutput": 724
+        },
+        "src/execution/tool-registry.ts": {
+          "bytesInOutput": 837
         },
         "src/generic-official-store-search.ts": {
           "bytesInOutput": 8106
@@ -5024,28 +5169,34 @@
           "bytesInOutput": 1326
         },
         "src/product-candidate-ranking.ts": {
-          "bytesInOutput": 3921
+          "bytesInOutput": 3900
         },
         "src/product-card-telemetry.ts": {
           "bytesInOutput": 814
         },
         "src/product-card-ui.ts": {
-          "bytesInOutput": 40342
+          "bytesInOutput": 53751
+        },
+        "src/product-comparison-ui.ts": {
+          "bytesInOutput": 21521
+        },
+        "src/product-comparison.ts": {
+          "bytesInOutput": 8511
         },
         "src/product-constraint-matcher.ts": {
           "bytesInOutput": 10781
         },
         "src/product-recommendation.ts": {
-          "bytesInOutput": 3769
+          "bytesInOutput": 3923
         },
         "src/sales-tax-estimator.ts": {
           "bytesInOutput": 1784
         },
         "src/search-products.ts": {
-          "bytesInOutput": 25174
+          "bytesInOutput": 26823
         },
         "src/server.ts": {
-          "bytesInOutput": 98212
+          "bytesInOutput": 113556
         },
         "src/shopify-cart-quote.ts": {
           "bytesInOutput": 10340
@@ -5057,7 +5208,7 @@
           "bytesInOutput": 22058
         },
         "src/shopify-match.ts": {
-          "bytesInOutput": 6498
+          "bytesInOutput": 6933
         },
         "src/shopify-official-store-search.ts": {
           "bytesInOutput": 9961
@@ -5069,13 +5220,13 @@
           "bytesInOutput": 2946
         },
         "src/stdio.ts": {
-          "bytesInOutput": 853
+          "bytesInOutput": 907
         },
         "src/visual-candidate-images.ts": {
-          "bytesInOutput": 1116
+          "bytesInOutput": 1958
         },
         "src/visual-product-discovery.ts": {
-          "bytesInOutput": 13128
+          "bytesInOutput": 14596
         },
         "src/watch-service.ts": {
           "bytesInOutput": 6032

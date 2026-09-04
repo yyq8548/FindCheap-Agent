@@ -7,7 +7,7 @@ English | [简体中文](README.zh-CN.md)
 
 Product form: **Codex Plugin Agent**.
 
-FindCheap Agent is a read-only Codex plugin for product search, offer matching, price checks, product cards, verified deals, and shopping watches. It returns up to eight products in three tiers: 2 official-store matches, 3 trusted matches, and 3 best-value high-match options.
+FindCheap Agent is a read-only Codex plugin for product search, offer matching, price checks, product cards, evidence-backed comparison views, verified deals, and shopping watches. It returns up to eight products in three tiers: 2 official-store matches, 3 trusted matches, and 3 best-value high-match options.
 
 Codex calls one public `search_products` tool through a local stdio MCP server. The router searches eligible Awin, Shopify, eBay, and verified official-store sources, then ranks qualifying products by product relevance and merchant tier. It automatically runs one broader internal search when the first pass cannot fill the requested cards. It offers an authorized bounded Chrome search only after both API passes return no usable verified product.
 
@@ -25,6 +25,12 @@ Or ask in plain language after enabling the plugin:
 
 ```text
 Find me three trusted offers for AirPods Pro 2.
+```
+
+Compare 2–4 cards from one result:
+
+```text
+Compare the first three products side by side.
 ```
 
 Attach a product photo or screenshot and ask for visual discovery:
@@ -93,6 +99,8 @@ Affiliate commission never affects relevance scoring. `LOWEST_PRICE` compares qu
 
 The plugin compares offers only when the identity evidence shows that they refer to the same product and variant. Exact matches rank ahead of discovery results and similar alternatives.
 
+`compare_selected_products` builds a real 2–4 column view from stable `selectionId` values in one live search snapshot. The server determines whether the entries are verified same-product offers or different product choices. It also generates every comparison fact, unknown value, limitation, comparable price basis, price delta, and recommended selection. The model cannot submit product facts, pros, cons, prices, or a recommendation ID. Item prices and delivered totals are never mixed in one price comparison.
+
 Each result can include:
 
 - merchant and product name
@@ -120,7 +128,7 @@ The Coupon and promotion path fails closed. It returns a Coupon, promo code, mem
 
 Without that evidence, the plugin reports the deal source as unavailable. It does not invent codes, discounts, expiration dates, or Cashback rates.
 
-The default plugin exposes unified product search, product cards, current deal checks, and Watch tools. The archived Commerce comparison tool is no longer registered. The standalone verified Deals tool appears only when its complete provider URL and token are configured.
+The default plugin exposes unified product search, product cards, evidence-backed product comparison, current deal checks, and Watch tools. The retired Commerce-platform comparison is still excluded; the active comparison is generated directly from immutable FindCheap search snapshots. The standalone verified Deals tool appears only when its complete provider URL and token are configured.
 
 ## Current deal check
 

@@ -19,10 +19,10 @@ type StdioServerConfig = {
 };
 
 const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
-const pluginRoot = path.join(repoRoot, "plugins", "findcheap-agent");
+const pluginRoot = process.env.FINDCHEAP_PLUGIN_ROOT ?? path.join(repoRoot, "plugins", "findcheap-agent");
 
 describe("installed plugin stdio", () => {
-  it("uses .mcp.json to initialize the committed bundle with protocol-clean stdout", async () => {
+  it("uses .mcp.json to initialize the selected plugin bundle with protocol-clean stdout", async () => {
     const mcpFile = JSON.parse(
       await readFile(path.join(pluginRoot, ".mcp.json"), "utf8")
     ) as { mcpServers: { "findcheap-agent": StdioServerConfig } };
@@ -66,7 +66,10 @@ describe("installed plugin stdio", () => {
       const tools = await client.listTools();
       const resources = await client.listResources();
       const productCards = await client.readResource({
-        uri: "ui://findcheap/product-cards/v30.html"
+        uri: "ui://findcheap/product-cards/v32.html"
+      });
+      const productComparison = await client.readResource({
+        uri: "ui://findcheap/product-comparison/v3.html"
       });
       expect(tools.tools.map((tool) => tool.name)).toEqual([
         "search_products",
@@ -76,7 +79,10 @@ describe("installed plugin stdio", () => {
         "search_awin_products",
         "inspect_selected_shopify_product",
         "quote_selected_shopify_product",
+        "quote_and_compare_selected_products",
         "research_selected_product_deal",
+        "compare_selected_products",
+        "render_product_comparison",
         "find_coupons",
         "create_watch",
         "bind_watch_automation",
@@ -89,36 +95,74 @@ describe("installed plugin stdio", () => {
       ]);
       const shopifyTool = tools.tools.find((tool) => tool.name === "search_products");
       const quoteTool = tools.tools.find((tool) => tool.name === "quote_selected_shopify_product");
+      const quotedComparisonTool = tools.tools.find((tool) => tool.name === "quote_and_compare_selected_products");
       const visualFinalizeTool = tools.tools.find((tool) => tool.name === "finalize_visual_search");
       const renderTool = tools.tools.find((tool) => tool.name === "render_product_cards");
+      const compareTool = tools.tools.find((tool) => tool.name === "compare_selected_products");
+      const renderComparisonTool = tools.tools.find((tool) => tool.name === "render_product_comparison");
       expect(shopifyTool?._meta).toMatchObject({
-        ui: { resourceUri: "ui://findcheap/product-cards/v30.html" },
-        "openai/outputTemplate": "ui://findcheap/product-cards/v30.html"
+        ui: { resourceUri: "ui://findcheap/product-cards/v32.html" },
+        "openai/outputTemplate": "ui://findcheap/product-cards/v32.html"
       });
       expect(renderTool?._meta).toMatchObject({
         ui: {
-          resourceUri: "ui://findcheap/product-cards/v30.html",
+          resourceUri: "ui://findcheap/product-cards/v32.html",
           visibility: ["app"]
         }
       });
       expect(quoteTool?._meta).toMatchObject({
-        ui: { resourceUri: "ui://findcheap/product-cards/v30.html" },
-        "openai/outputTemplate": "ui://findcheap/product-cards/v30.html"
+        ui: { resourceUri: "ui://findcheap/product-cards/v32.html" },
+        "openai/outputTemplate": "ui://findcheap/product-cards/v32.html"
       });
+      expect(quotedComparisonTool?._meta).toMatchObject({
+        ui: { resourceUri: "ui://findcheap/product-comparison/v3.html" },
+        "openai/outputTemplate": "ui://findcheap/product-comparison/v3.html"
+      });
+      expect(quotedComparisonTool?.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: false });
       expect(visualFinalizeTool?._meta).toMatchObject({
-        ui: { resourceUri: "ui://findcheap/product-cards/v30.html" },
-        "openai/outputTemplate": "ui://findcheap/product-cards/v30.html"
+        ui: { resourceUri: "ui://findcheap/product-cards/v32.html" },
+        "openai/outputTemplate": "ui://findcheap/product-cards/v32.html"
       });
-      expect(resources.resources).toEqual([expect.objectContaining({
-        name: "findcheap-product-cards",
-        uri: "ui://findcheap/product-cards/v30.html",
-        mimeType: "text/html;profile=mcp-app"
-      })]);
+      expect(compareTool?._meta).toMatchObject({
+        ui: { resourceUri: "ui://findcheap/product-comparison/v3.html" },
+        "openai/outputTemplate": "ui://findcheap/product-comparison/v3.html"
+      });
+      expect(compareTool?.annotations).toMatchObject({ readOnlyHint: true, destructiveHint: false });
+      expect(renderComparisonTool?._meta).toMatchObject({
+        ui: {
+          resourceUri: "ui://findcheap/product-comparison/v3.html",
+          visibility: ["app"]
+        }
+      });
+      expect(resources.resources).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          name: "findcheap-product-cards",
+          uri: "ui://findcheap/product-cards/v32.html",
+          mimeType: "text/html;profile=mcp-app"
+        }),
+        expect.objectContaining({
+          name: "findcheap-product-comparison",
+          uri: "ui://findcheap/product-comparison/v3.html",
+          mimeType: "text/html;profile=mcp-app"
+        })
+      ]));
+      expect(resources.resources).toHaveLength(2);
       expect(productCards.contents).toEqual([expect.objectContaining({
-        uri: "ui://findcheap/product-cards/v30.html",
+        uri: "ui://findcheap/product-cards/v32.html",
         mimeType: "text/html;profile=mcp-app",
         text: expect.stringContaining("ui/notifications/tool-result")
       })]);
+      expect(productComparison.contents).toEqual([expect.objectContaining({
+        uri: "ui://findcheap/product-comparison/v3.html",
+        mimeType: "text/html;profile=mcp-app",
+        text: expect.stringContaining('make("table")')
+      })]);
+      const comparisonHtml = productComparison.contents[0] !== undefined && "text" in productComparison.contents[0]
+        ? productComparison.contents[0].text
+        : "";
+      expect(comparisonHtml).toContain("暂无已验证优惠");
+      expect(comparisonHtml).toContain("价格更低");
+      expect(comparisonHtml).toContain("暂无已知限制");
       expect(Object.keys(shopifyTool?.inputSchema.properties ?? {}).sort()).toEqual([
         "allowAlternatives",
         "brand",
@@ -139,12 +183,23 @@ describe("installed plugin stdio", () => {
         "productType",
         "query",
         "requiredFeatures",
+        "requiredSize",
         "responseLocale",
         "selectionMode",
         "visualInput",
         "zipCode"
       ]);
       expect(shopifyTool?.inputSchema.required).toEqual(["query"]);
+      const invalid = await client.callTool({ name: "search_products", arguments: {} });
+      expect(invalid._meta).toMatchObject({ "findcheap/errorCode": "INVALID_ARGUMENTS" });
+      expect(JSON.stringify(invalid)).not.toContain("Input validation error");
+      const unavailableComparison = await client.callTool({
+        name: "render_product_comparison",
+        arguments: { comparisonId: "11111111-1111-4111-8111-111111111111" }
+      });
+      expect(unavailableComparison._meta).toMatchObject({
+        "findcheap/errorCode": "TOOL_REQUEST_REJECTED"
+      });
       expect(Object.keys(quoteTool?.inputSchema.properties ?? {}).sort()).toEqual([
         "renderId",
         "selectionId",

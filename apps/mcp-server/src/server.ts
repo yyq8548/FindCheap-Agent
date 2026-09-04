@@ -1,6 +1,20 @@
 import { randomUUID } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { createFindCheapBackend, type FindCheapBackend } from "./backend.js";
+import { ToolExecutor } from "./execution/tool-executor.js";
+import { createExecutedToolRegistrar } from "./execution/tool-registry.js";
+import {
+  ProductComparisonInputSchema,
+  ProductComparisonOutputSchema,
+  buildProductComparison,
+  type ComparableProduct,
+  type ProductComparisonOutput
+} from "./product-comparison.js";
+import {
+  PRODUCT_COMPARISON_HTML,
+  PRODUCT_COMPARISON_UI_URI
+} from "./product-comparison-ui.js";
 import { FINDCHEAP_VERSION } from "../../../config/version.js";
 import {
   ProductCardTelemetryInputSchema,
@@ -24,7 +38,11 @@ import type { ShopifySelectedProductInspector } from "./shopify-selected-product
 import type { OfficialShopifySearchPort } from "./shopify-official-store-search.js";
 import type { OfficialStorefrontRegistryPort } from "./official-storefront-registry-client.js";
 import type { MerchantTrustRegistryPort } from "./merchant-trust-registry-client.js";
-import type { VisualCandidateImagePort } from "./visual-candidate-images.js";
+import {
+  VisualCandidateImageError,
+  type VisualCandidateImageFailureCode,
+  type VisualCandidateImagePort
+} from "./visual-candidate-images.js";
 import type { AwinShopifyQuoteResolver, AwinShopifyQuoteSeed } from "./awin-shopify-quote.js";
 import type { EbayBrowsePort } from "./ebay-client.js";
 import {
@@ -79,6 +97,7 @@ import {
 } from "./search-products.js";
 import {
   VisualProductInputSchema,
+  enforceVisualEvidenceAuthority,
   relaxVisualProductInput
 } from "./visual-product-discovery.js";
 import {
@@ -98,9 +117,12 @@ export type { ProductCardTelemetry, ProductCardTelemetrySink } from "./product-c
 
 export const PRODUCT_SELECTION_SNAPSHOT_TTL_MS = 2 * 60 * 60_000;
 export const MAX_PRODUCT_SELECTION_SNAPSHOTS = 128;
+export const MAX_PRODUCT_COMPARISON_SNAPSHOTS = 128;
 export const VISUAL_SEARCH_SNAPSHOT_TTL_MS = 10 * 60_000;
 export const MAX_VISUAL_SEARCH_SNAPSHOTS = 32;
 export const MAX_VISUAL_CANDIDATES = 6;
+export const MAX_RELAXED_VISUAL_CANDIDATES = 3;
+export const MAX_VISUAL_CANDIDATE_OUTPUT_DATA_CHARS = 400_000;
 
 function uniqueVisualTerms(values: Array<string | undefined>): string[] {
   return [...new Set(values
@@ -126,15 +148,14 @@ function visualRetrievalSearchInput(input: SearchProductsInput, relaxed: boolean
     brand,
     retrievalVisual.modelOrStyleNumber,
     retrievalVisual.productType ?? input.productType,
-    retrievalVisual.colors[0],
-    retrievalVisual.patterns[0]
+    ...(relaxed ? (retrievalVisual.distinctiveDetails ?? []).slice(0, 2) : [])
   ]).join(" ");
   const query = exactQuery || descriptiveQuery;
   return {
     ...input,
     query: query.length >= 2 ? query.slice(0, 300) : input.query,
     limit: MAX_VISUAL_CANDIDATES,
-    allowAlternatives: true,
+    allowAlternatives: input.allowAlternatives,
     requiredFeatures: [],
     preferences: uniqueVisualTerms([
       ...input.preferences,
@@ -177,40 +198,66 @@ const shopifyUnavailableMessage =
   "Shopify Global Catalog data is unavailable because the official Catalog request failed or the Agent Profile is not configured.";
 const dealUnavailableMessage =
   "Verified Coupon and Cashback data is unavailable because no approved Deals API is configured or the request failed.";
+const FindCouponsInputSchema = DealSearchInputSchema.extend({
+  responseLocale: z.enum(["en-US", "zh-CN"]).default("en-US")
+}).strict();
 
 type VisualSearchFailureCode =
   | "OFFICIAL_SOURCE_UNAVAILABLE"
   | "OFFICIAL_ZERO_RESULTS"
+  | "NO_CATALOG_CANDIDATES"
   | "NO_LOADABLE_IMAGES"
   | "CANDIDATES_CONFLICTED";
 
 function visualSearchFailure(
   execution: UnifiedSearchExecution,
-  fallbackCode: Extract<VisualSearchFailureCode, "NO_LOADABLE_IMAGES" | "CANDIDATES_CONFLICTED">
+  fallbackCode: Extract<VisualSearchFailureCode, "NO_CATALOG_CANDIDATES" | "NO_LOADABLE_IMAGES" | "CANDIDATES_CONFLICTED">,
+  locale: "en-US" | "zh-CN"
 ): { code: VisualSearchFailureCode; message: string; sourceHost?: string } {
+  const localized = (english: string, chinese: string) => locale === "zh-CN" ? chinese : english;
   const official = execution.officialStoreFallback;
   if (official.status === "UNAVAILABLE") {
     return {
       code: "OFFICIAL_SOURCE_UNAVAILABLE",
-      message: "Verified official-store search was unavailable. Candidate conflicts do not prove the product is absent.",
+      message: localized(
+        "Verified official-store search was unavailable. Candidate conflicts do not prove the product is absent.",
+        "已验证品牌官网搜索暂不可用；候选冲突不能证明商品不存在。"
+      ),
       ...(official.sourceHost === undefined ? {} : { sourceHost: official.sourceHost })
     };
   }
   if (official.diagnostic?.outcome === "OFFICIAL_ZERO_RESULTS") {
     return {
       code: "OFFICIAL_ZERO_RESULTS",
-      message: "Verified official-store search completed but returned no candidate for this visual description.",
+      message: localized(
+        "Verified official-store search completed but returned no candidate for this visual description.",
+        "已完成品牌官网搜索，但没有找到符合该视觉描述的候选商品。"
+      ),
       ...(official.sourceHost === undefined ? {} : { sourceHost: official.sourceHost })
     };
   }
-  return fallbackCode === "NO_LOADABLE_IMAGES"
+  return fallbackCode === "NO_CATALOG_CANDIDATES"
     ? {
         code: fallbackCode,
-        message: "Product candidates existed, but no candidate image could be loaded safely for visual review."
+        message: localized(
+          "No eligible product candidates were returned for this brand and product family.",
+          "当前品牌和商品大类没有返回可用候选商品。"
+        )
+      }
+    : fallbackCode === "NO_LOADABLE_IMAGES"
+    ? {
+        code: fallbackCode,
+        message: localized(
+          "Candidate image loading failed under the secure policy; the uploaded reference image was accepted.",
+          "候选商品图片加载失败（安全策略）；上传的参考图片已接受。"
+        )
       }
     : {
         code: fallbackCode,
-        message: "Candidates were found, but every reviewed image had a visible non-occluded conflict."
+        message: localized(
+          "Candidates were found, but every reviewed image had a visible non-occluded conflict.",
+          "已找到候选商品，但所有已检查图片都存在清晰且未被遮挡的冲突。"
+        )
       };
 }
 
@@ -253,6 +300,10 @@ const ShopifySelectedQuoteInputSchema = z.object({
   zipCode: z.string().regex(/^\d{5}(?:-\d{4})?$/u),
 }).strict();
 
+const QuotedProductComparisonInputSchema = ProductComparisonInputSchema.extend({
+  zipCode: z.string().regex(/^\d{5}(?:-\d{4})?$/u)
+});
+
 export const VisualCandidateSearchInputSchema = SearchProductsInputSchema
   .omit({ limit: true })
   .extend({ visualInput: VisualProductInputSchema });
@@ -271,8 +322,13 @@ const VisualCandidateOutputShape = {
   visualSessionId: VisualSessionIdSchema.optional(),
   expiresAt: z.string().optional(),
   candidates: z.array(VisualCandidateDescriptorShape).max(MAX_VISUAL_CANDIDATES),
+  workflow: z.object({
+    state: z.literal("REVIEW_REQUIRED"),
+    finalAnswerAllowed: z.literal(false),
+    requiredNextTool: z.literal("finalize_visual_search")
+  }).strict().optional(),
   visualSearchFailure: z.object({
-    code: z.enum(["OFFICIAL_SOURCE_UNAVAILABLE", "OFFICIAL_ZERO_RESULTS", "NO_LOADABLE_IMAGES", "CANDIDATES_CONFLICTED"]),
+    code: z.enum(["OFFICIAL_SOURCE_UNAVAILABLE", "OFFICIAL_ZERO_RESULTS", "NO_CATALOG_CANDIDATES", "NO_LOADABLE_IMAGES", "CANDIDATES_CONFLICTED"]),
     message: z.string(),
     sourceHost: z.string().optional()
   }).strict().optional()
@@ -633,12 +689,15 @@ const ShopifyProductsOutputShape = {
   products: z.array(ShopifyProductOutputSchema).max(MAX_PRODUCT_CARDS),
   visualReview: z.object({
     stage: z.literal("RELAXED_REVIEW"),
+    terminal: z.literal(false),
+    finalAnswerAllowed: z.literal(false),
+    requiredNextTool: z.literal("finalize_visual_search"),
     visualSessionId: VisualSessionIdSchema,
     expiresAt: z.string(),
     candidates: z.array(VisualCandidateDescriptorShape).min(1).max(MAX_VISUAL_CANDIDATES)
   }).strict().optional(),
   visualSearchFailure: z.object({
-    code: z.enum(["OFFICIAL_SOURCE_UNAVAILABLE", "OFFICIAL_ZERO_RESULTS", "NO_LOADABLE_IMAGES", "CANDIDATES_CONFLICTED"]),
+    code: z.enum(["OFFICIAL_SOURCE_UNAVAILABLE", "OFFICIAL_ZERO_RESULTS", "NO_CATALOG_CANDIDATES", "NO_LOADABLE_IMAGES", "CANDIDATES_CONFLICTED"]),
     message: z.string(),
     sourceHost: z.string().optional()
   }).strict().optional()
@@ -912,15 +971,15 @@ function shopifyResult(
   };
 }
 
-type ProductCardProduct = z.infer<typeof ShopifyProductOutputSchema>;
-type ProductCardContent = z.infer<typeof _ShopifyProductsOutputSchemaObject>;
+export type ProductCardProduct = z.infer<typeof ShopifyProductOutputSchema>;
+export type ProductCardContent = z.infer<typeof _ShopifyProductsOutputSchemaObject>;
 
 function recommendationInstruction(content: ProductCardContent): string {
   const chinese = content.locale === "zh-CN";
   if (content.recommendation?.state === "READY" && content.recommendation.primarySelectionId !== undefined) {
     return chinese
-      ? `唯一首选 selectionId=${content.recommendation.primarySelectionId}；只能把这张已返回卡片作为首选。`
-      : `The only primary recommendation is selectionId=${content.recommendation.primarySelectionId}; recommend only that returned card as the first choice.`;
+      ? "服务器已在结构化结果中标出唯一首选；只能推荐该已返回卡片，且不要显示内部 ID。"
+      : "The server marked one returned card as the only primary recommendation in structured data; recommend only that card and do not print internal IDs.";
   }
   return chinese
     ? "没有可安全推荐的首选商品；卡片仅供调研。"
@@ -1572,6 +1631,7 @@ function awinUnavailableResult() {
 }
 
 export type ShoppingServerDependencies = {
+  backend?: FindCheapBackend;
   awin?: AwinProductPort;
   ebay?: EbayBrowsePort;
   awinShopifyQuotes?: AwinShopifyQuoteResolver;
@@ -1787,20 +1847,47 @@ export function createShoppingServer(
   dependencies: ShoppingServerDependencies = {}
 ): McpServer {
   const server = new McpServer({ name: "findcheap-agent", version: FINDCHEAP_VERSION });
-  const dealPort = dependencies.deals ?? createUnavailableDealPort();
-  const awinPort = dependencies.awin ?? createUnavailableAwinPort();
-  const ebayPort = dependencies.ebay;
-  const toolAvailability = dependencies.toolAvailability ?? {
-    verifiedDeals: true
+  const requestedToolAvailability = dependencies.toolAvailability ?? {
+    verifiedDeals: dependencies.deals !== undefined
   };
-  const watchStore = dependencies.watches ?? createMemoryWatchStore();
-  const cartQuotes = dependencies.cartQuotes;
-  const awinShopifyQuotes = dependencies.awinShopifyQuotes;
-  const selectedProducts = dependencies.selectedProducts;
-  const officialShopify = dependencies.officialShopify;
-  const officialStorefrontRegistry = dependencies.officialStorefrontRegistry;
-  const merchantTrustRegistry = dependencies.merchantTrustRegistry;
-  const visualCandidateImages = dependencies.visualCandidateImages;
+  const backend = dependencies.backend ?? createFindCheapBackend({
+    catalog: {
+      shopify: shopifyPort,
+      awin: dependencies.awin ?? createUnavailableAwinPort(),
+      ...(dependencies.ebay === undefined ? {} : { ebay: dependencies.ebay }),
+      ...(dependencies.officialShopify === undefined ? {} : { officialShopify: dependencies.officialShopify }),
+      ...(dependencies.officialStorefrontRegistry === undefined ? {} : { officialStorefrontRegistry: dependencies.officialStorefrontRegistry }),
+      ...(dependencies.merchantTrustRegistry === undefined ? {} : { merchantTrustRegistry: dependencies.merchantTrustRegistry })
+    },
+    product: {
+      affiliateLinks,
+      ...(dependencies.awinShopifyQuotes === undefined ? {} : { awinShopifyQuotes: dependencies.awinShopifyQuotes }),
+      ...(dependencies.cartQuotes === undefined ? {} : { cartQuotes: dependencies.cartQuotes }),
+      ...(dependencies.selectedProducts === undefined ? {} : { selectedProducts: dependencies.selectedProducts })
+    },
+    deals: dependencies.deals ?? createUnavailableDealPort(),
+    watches: dependencies.watches ?? createMemoryWatchStore(),
+    ...(dependencies.visualCandidateImages === undefined ? {} : { visualCandidateImages: dependencies.visualCandidateImages }),
+    verifiedDeals: requestedToolAvailability.verifiedDeals
+  });
+  const toolAvailability = {
+    verifiedDeals: backend.capabilities.has("VERIFIED_DEALS")
+  };
+  const dealPort = backend.deals;
+  const awinPort = backend.catalog.awin;
+  const ebayPort = backend.catalog.ebay;
+  const watchStore = backend.watches;
+  const cartQuotes = backend.product.cartQuotes;
+  const awinShopifyQuotes = backend.product.awinShopifyQuotes;
+  const selectedProducts = backend.product.selectedProducts;
+  const officialShopify = backend.catalog.officialShopify;
+  const officialStorefrontRegistry = backend.catalog.officialStorefrontRegistry;
+  const merchantTrustRegistry = backend.catalog.merchantTrustRegistry;
+  const visualCandidateImages = backend.visualCandidateImages;
+  shopifyPort = backend.catalog.shopify;
+  affiliateLinks = backend.product.affiliateLinks;
+  const executor = new ToolExecutor({ capabilities: backend.capabilities });
+  const toolRegistrar = createExecutedToolRegistrar(server, executor);
   const now = dependencies.now ?? (() => new Date());
   const cardTelemetry = dependencies.cardTelemetry ?? {
     record: (event: ProductCardTelemetry) => {
@@ -1822,6 +1909,10 @@ export function createShoppingServer(
     candidates: Map<string, UnifiedCandidate>;
     attempt: 1 | 2;
     reviewedCandidateKeys: Set<string>;
+  }>();
+  const comparisonSnapshots = new Map<string, {
+    expiresAt: number;
+    content: ProductComparisonOutput;
   }>();
   const recordedCardTelemetry = new Set<string>();
   const deleteSnapshot = (renderId: string) => {
@@ -1998,6 +2089,17 @@ export function createShoppingServer(
     });
     return { response, enriched };
   };
+  const pruneComparisonSnapshots = () => {
+    const currentTime = now().getTime();
+    for (const [id, snapshot] of comparisonSnapshots) {
+      if (snapshot.expiresAt <= currentTime) comparisonSnapshots.delete(id);
+    }
+    while (comparisonSnapshots.size > MAX_PRODUCT_COMPARISON_SNAPSHOTS) {
+      const oldest = comparisonSnapshots.keys().next().value as string | undefined;
+      if (oldest === undefined) break;
+      comparisonSnapshots.delete(oldest);
+    }
+  };
   const pruneVisualSearchSnapshots = () => {
     const currentTime = now().getTime();
     for (const [id, snapshot] of visualSearchSnapshots) {
@@ -2011,25 +2113,88 @@ export function createShoppingServer(
   };
   const loadVisualCandidates = async (
     execution: UnifiedSearchExecution,
-    excludedKeys: ReadonlySet<string> = new Set()
+    excludedKeys: ReadonlySet<string> = new Set(),
+    limit = MAX_VISUAL_CANDIDATES
   ) => {
-    if (visualCandidateImages === undefined) return [];
+    const emptyDiagnostics = {
+      attempted: 0,
+      loaded: 0,
+      failures: [] as Array<{ code: VisualCandidateImageFailureCode; sourceHost?: string; count: number }>
+    };
+    if (visualCandidateImages === undefined) return { entries: [], diagnostics: emptyDiagnostics };
     const seen = new Set(excludedKeys);
     const attempted = execution.candidates.flatMap((candidate) => {
       const key = visualCandidateKey(candidate);
       if (seen.has(key) || candidateImageUrl(candidate) === undefined) return [];
       seen.add(key);
       return [candidate];
-    }).slice(0, MAX_VISUAL_CANDIDATES);
+    }).slice(0, limit);
     const loaded = await Promise.all(attempted.map(async (candidate) => {
       const imageUrl = candidateImageUrl(candidate)!;
       try {
-        return { candidate, image: await visualCandidateImages.load(imageUrl) };
-      } catch {
-        return undefined;
+        return { candidate, image: await visualCandidateImages.load(imageUrl), failure: undefined };
+      } catch (error) {
+        let sourceHost: string | undefined;
+        try {
+          sourceHost = new URL(imageUrl).hostname.toLocaleLowerCase("en-US");
+        } catch {
+          // Invalid external URLs are represented by a stable reason code only.
+        }
+        const failure = error instanceof VisualCandidateImageError
+          ? { code: error.code, ...(error.sourceHost === undefined ? {} : { sourceHost: error.sourceHost }) }
+          : { code: "REQUEST_FAILED" as const, ...(sourceHost === undefined ? {} : { sourceHost }) };
+        return { candidate, image: undefined, failure };
       }
     }));
-    return loaded.filter((entry) => entry !== undefined);
+    const available = loaded.flatMap((entry) => entry.image === undefined
+      ? []
+      : [{ candidate: entry.candidate, image: entry.image }]
+    );
+    const selected: typeof available = [];
+    let encodedChars = 0;
+    for (const entry of available) {
+      if (encodedChars + entry.image.data.length > MAX_VISUAL_CANDIDATE_OUTPUT_DATA_CHARS) continue;
+      selected.push(entry);
+      encodedChars += entry.image.data.length;
+    }
+    const failureCounts = new Map<string, { code: VisualCandidateImageFailureCode; sourceHost?: string; count: number }>();
+    for (const entry of loaded) {
+      if (entry.failure === undefined) continue;
+      const key = `${entry.failure.code}:${entry.failure.sourceHost ?? ""}`;
+      const existing = failureCounts.get(key);
+      if (existing === undefined) failureCounts.set(key, { ...entry.failure, count: 1 });
+      else existing.count += 1;
+    }
+    return {
+      entries: selected.map(({ candidate, image }) => ({ candidate, image })),
+      diagnostics: {
+        attempted: attempted.length,
+        loaded: selected.length,
+        failures: [...failureCounts.values()]
+      }
+    };
+  };
+  const mergeVisualImageLoadDiagnostics = (
+    ...items: Array<{
+      attempted: number;
+      loaded: number;
+      failures: Array<{ code: VisualCandidateImageFailureCode; sourceHost?: string; count: number }>;
+    }>
+  ) => {
+    const failureCounts = new Map<string, { code: VisualCandidateImageFailureCode; sourceHost?: string; count: number }>();
+    for (const item of items) {
+      for (const failure of item.failures) {
+        const key = `${failure.code}:${failure.sourceHost ?? ""}`;
+        const existing = failureCounts.get(key);
+        if (existing === undefined) failureCounts.set(key, { ...failure });
+        else existing.count += failure.count;
+      }
+    }
+    return {
+      attempted: items.reduce((total, item) => total + item.attempted, 0),
+      loaded: items.reduce((total, item) => total + item.loaded, 0),
+      failures: [...failureCounts.values()]
+    };
   };
   const visualCandidateContent = (
     message: string,
@@ -2086,11 +2251,11 @@ export function createShoppingServer(
     })
   );
 
-  server.registerTool(
+  toolRegistrar.registerTool(
     "search_products",
     {
       title: "FindCheap",
-      description: "Match current user-message language before any prose or tool call. English progress must be exactly 'Searching for suitable products.'; Chinese progress exactly '正在搜索合适商品。'. Never output a plan or read Memory, Skill files, repository files, logs, task files, or plugin caches. Text-only product-search entrypoint; call once. For a newly attached image use search_visual_candidates and then finalize_visual_search instead. Always pass responseLocale from the user's current message, even when query is translated into English for catalog retrieval. Pass family in productType, explicit brand in brand with brandMode=REQUIRED, objective must-have attributes in requiredFeatures, explicit disqualifiers in excludedFeatures, and preferences in preferences. Pass primaryUse, preferredSize, maxItemPriceCents, or budgetFlexible only when the user states them; never infer them. Broad high-variance products return one clarification before source search when decision constraints are missing. Full-size or large-package requests exclude sample, trial-size, and tester products. Never put a brand in productType or requiredFeatures. Use CONTINUE_PREVIOUS_PRODUCT when the user adds budget, use, size, or constraints; CORRECT_PREVIOUS_PRODUCT only for changed identity; NEW_PRODUCT for a different shopping goal. Missing soft evidence remains a limitation-labeled DISCOVERY_MATCH; hard conflicts exclude. Return at most 8 cards in three display tiers: 2 verified official-store matches, 3 trusted high matches, and 3 best-value high matches. Display tier never determines the primary choice. When recommendation.state is READY, recommend only recommendation.primarySelectionId; otherwise recommend none. Equivalent fit and trust prefer lower item price. Use selectionMode=LOWEST_PRICE only when requested; it never collapses the three display tiers. maxItemPriceCents is a ceiling, never a spending target. If every merchant is unverified, show research leads but recommend none for purchase. Never recommend a product absent from returned cards. Commercial relationships never affect relevance or ranking. Reuse selectionId for follow-ups; never search a selected title again.",
+      description: "For an initial text search, after the required Skill is loaded, match current user-message language and use exactly one progress sentence before this tool: English 'Searching for suitable products.'; Chinese '正在搜索合适商品。'. Selected-product follow-ups do not use that generic sentence. Never output a plan or read Memory, Skill files, repository files, logs, task files, or plugin caches. Text-only product-search entrypoint; call once. For a newly attached image use search_visual_candidates and then finalize_visual_search instead. Always pass responseLocale from the user's current message, even when query is translated into English for catalog retrieval. Keep query focused on product identity; pass use, budget, and size only in their typed fields. Pass family in productType, explicit brand in brand with brandMode=REQUIRED, objective must-have attributes in requiredFeatures, explicit disqualifiers in excludedFeatures, and preferences in preferences. Pass primaryUse, preferredSize, requiredSize, maxItemPriceCents, or budgetFlexible only when the user states them; never infer them. A size explicitly required or selected from the clarification belongs in requiredSize; use preferredSize only when the user says it is flexible or merely preferred. Broad high-variance products return one clarification before source search when decision constraints are missing. Full-size or large-package requests exclude sample, trial-size, and tester products. Never put a brand in productType or requiredFeatures. Use CONTINUE_PREVIOUS_PRODUCT when the user adds budget, use, size, or constraints; CORRECT_PREVIOUS_PRODUCT only for changed identity; NEW_PRODUCT for a different shopping goal. Missing soft evidence remains a limitation-labeled DISCOVERY_MATCH; hard conflicts exclude. Return at most 8 cards in three display tiers: 2 verified official-store matches, 3 trusted high matches, and 3 best-value high matches. Display tier never determines the primary choice. When recommendation.state is READY, recommend only recommendation.primarySelectionId; otherwise recommend none. Equivalent fit and trust prefer lower item price. Use selectionMode=LOWEST_PRICE only when requested; it never collapses the three display tiers. maxItemPriceCents is a ceiling, never a spending target. If every merchant is unverified, show research leads but recommend none for purchase. Never recommend a product absent from returned cards. Commercial relationships never affect relevance or ranking. Reuse selectionId for follow-ups, never print it, and never search a selected title again.",
       inputSchema: SearchProductsInputSchema,
       outputSchema: ShopifyProductsOutputShape,
       annotations: {
@@ -2107,7 +2272,10 @@ export function createShoppingServer(
       }
     },
     async (rawInput) => {
-      const input = SearchProductsInputSchema.parse(rawInput);
+      const parsedInput = SearchProductsInputSchema.parse(rawInput);
+      const input = parsedInput.visualInput === undefined
+        ? parsedInput
+        : { ...parsedInput, visualInput: enforceVisualEvidenceAuthority(parsedInput.visualInput) };
       if (input.contextMode === "AMBIGUOUS") {
         return shopifyClarificationResult(input.selectionMode, input, {
           question: "Is this a new product, or a follow-up about the previous product?",
@@ -2170,25 +2338,48 @@ export function createShoppingServer(
           reasonCodes: recommendation.reasonCodes
         }
       }, enriched.result, preflight.resolvedAwinProducts, recommendation.primaryProductIndex);
-      const selectionReferences = content.products
-        .map((product, index) => `${index + 1}=${product.selectionId}`)
-        .join(", ");
       return {
         ...response,
         content: [{
           type: "text" as const,
-          text: `${response.content[0]!.text}\n${recommendationInstruction(content)}\nSelections: ${selectionReferences}. Reuse selectionId; never search titles.`
+          text: `${response.content[0]!.text}\n${recommendationInstruction(content)}\nUse structured selection references for follow-ups; never print them or search titles.`
         }],
         structuredContent: content
       };
     }
   );
 
-  server.registerTool(
+  server.registerResource(
+    "findcheap-product-comparison",
+    PRODUCT_COMPARISON_UI_URI,
+    {
+      title: "FindCheap Agent evidence-backed product comparison",
+      description: "A 2-4 column comparison whose facts and recommendation are generated from one immutable server snapshot.",
+      mimeType: "text/html;profile=mcp-app"
+    },
+    async () => ({
+      contents: [{
+        uri: PRODUCT_COMPARISON_UI_URI,
+        mimeType: "text/html;profile=mcp-app",
+        text: PRODUCT_COMPARISON_HTML,
+        _meta: {
+          ui: {
+            prefersBorder: false,
+            csp: {
+              connectDomains: [],
+              resourceDomains: dependencies.productCardResourceDomains ?? PRODUCT_CARD_RESOURCE_DOMAINS
+            }
+          }
+        }
+      }]
+    })
+  );
+
+  if (backend.capabilities.has("VISUAL_SEARCH")) toolRegistrar.registerTool(
     "search_visual_candidates",
     {
       title: "Search visual candidates",
-      description: "First stage for a newly attached product image. Use only the current request; do not read Memory, Skill, repository, task, log, or plugin-cache files. Inspect the user's image, pass structured visualInput, and call once. If the user states or image analysis strongly identifies a specific product name, preserve it in visualInput.suspectedProductName for exact official-store retrieval; never manufacture a name from generic attributes and never treat it as identity proof. Product family and explicit brand/model are hard; pixel-inferred details are observations or soft clues, not requiredFeatures unless the user explicitly requires them. Record occlusions; an obscured attribute cannot be a hard clue or conflict. The tool returns at most six labeled candidate images. Compare every image, then call finalize_visual_search. Do not present candidates as recommendations. Do not use this tool for text-only, Watch, or batch searches.",
+      description: "First stage for a newly attached product image. Use only the current request; do not read Memory, Skill, repository, task, log, or plugin-cache files. Inspect the user's image, pass structured visualInput, and call once. Never pass a local file path as visualInput.imageUrl; that field accepts only a credential-free public HTTPS URL and is normally omitted for an attached image. If the user states or image analysis strongly identifies a specific product name, preserve it in visualInput.suspectedProductName for exact official-store retrieval; never manufacture a name from generic attributes and never treat it as identity proof. Never send hardClues or negativeClues. User-stated hard constraints belong in requiredFeatures or excludedFeatures; pixel-inferred details belong in observations or softClues. The execution layer downgrades or removes model-authored hard constraints. Record occlusions; an obscured attribute cannot be a conflict. The tool returns at most six labeled candidate images with finalAnswerAllowed=false. Compare every image, then call requiredNextTool. Do not present candidates as recommendations. Do not use this tool for text-only, Watch, or batch searches.",
       inputSchema: VisualCandidateSearchInputSchema,
       outputSchema: VisualCandidateOutputShape,
       annotations: {
@@ -2203,7 +2394,11 @@ export function createShoppingServer(
       }
     },
     async (rawInput) => {
-      const parsed = VisualCandidateSearchInputSchema.parse(rawInput);
+      const parsedInput = VisualCandidateSearchInputSchema.parse(rawInput);
+      const parsed = {
+        ...parsedInput,
+        visualInput: enforceVisualEvidenceAuthority(parsedInput.visualInput)
+      };
       if (parsed.contextMode === "AMBIGUOUS") {
         throw new Error("VISUAL_CONTEXT_AMBIGUOUS");
       }
@@ -2211,7 +2406,9 @@ export function createShoppingServer(
         throw new Error("VISUAL_PRODUCT_TYPE_REQUIRED");
       }
       if (visualCandidateImages === undefined) {
-        const message = "Candidate-image loading is unavailable. Use text search or try again after the plugin restarts.";
+        const message = parsed.responseLocale === "zh-CN"
+          ? "远程候选商品图片加载服务暂不可用。可改用文字搜索，或重启插件后重试；上传的参考图片未被判定为不安全。"
+          : "Remote candidate-image loading is unavailable. Use text search or retry after the plugin restarts; the uploaded reference image was not rejected as unsafe.";
         return {
           content: [{ type: "text" as const, text: message }],
           structuredContent: { status: "DATA_SOURCE_UNAVAILABLE" as const, message, candidates: [] }
@@ -2223,20 +2420,39 @@ export function createShoppingServer(
         allowAlternatives: parsed.allowAlternatives
       };
       const searchInput = visualRetrievalSearchInput(finalInput, false);
-      const execution = await runUnifiedSearch(searchInput);
-      const available = await loadVisualCandidates(execution);
+      let execution = await runUnifiedSearch(searchInput);
+      let imageLoad = await loadVisualCandidates(execution);
+      let available = imageLoad.entries;
+      let attempt: 1 | 2 = 1;
+      const reviewedCandidateKeys = new Set(execution.candidates.map(visualCandidateKey));
       if (available.length === 0) {
-        const failure = visualSearchFailure(execution, "NO_LOADABLE_IMAGES");
-        const message = `${failure.message} No visual recommendation was produced.`;
-        return {
-          content: [{ type: "text" as const, text: message }],
-          structuredContent: {
-            status: "NO_IMAGE_CANDIDATES" as const,
-            message,
-            candidates: [],
-            visualSearchFailure: failure
-          }
-        };
+        const relaxedExecution = await runUnifiedSearch(visualRetrievalSearchInput(finalInput, true));
+        const relaxedImageLoad = await loadVisualCandidates(
+          relaxedExecution,
+          reviewedCandidateKeys,
+          MAX_RELAXED_VISUAL_CANDIDATES
+        );
+        for (const candidate of relaxedExecution.candidates) reviewedCandidateKeys.add(visualCandidateKey(candidate));
+        const diagnostics = mergeVisualImageLoadDiagnostics(imageLoad.diagnostics, relaxedImageLoad.diagnostics);
+        if (relaxedImageLoad.entries.length === 0) {
+          const fallbackCode = diagnostics.attempted === 0 ? "NO_CATALOG_CANDIDATES" : "NO_LOADABLE_IMAGES";
+          const failure = visualSearchFailure(relaxedExecution, fallbackCode, parsed.responseLocale ?? "en-US");
+          const message = `${failure.message} ${parsed.responseLocale === "zh-CN" ? "未生成视觉推荐。" : "No visual recommendation was produced."}`;
+          return {
+            content: [{ type: "text" as const, text: message }],
+            _meta: { "findcheap/visualImageLoadDiagnostics": diagnostics },
+            structuredContent: {
+              status: "NO_IMAGE_CANDIDATES" as const,
+              message,
+              candidates: [],
+              visualSearchFailure: failure
+            }
+          };
+        }
+        execution = relaxedExecution;
+        imageLoad = { entries: relaxedImageLoad.entries, diagnostics };
+        available = relaxedImageLoad.entries;
+        attempt = 2;
       }
       pruneVisualSearchSnapshots();
       const visualSessionId = randomUUID();
@@ -2252,29 +2468,35 @@ export function createShoppingServer(
         input: finalInput,
         execution: { ...execution, candidates: candidateEntries.map((entry) => entry.candidate) },
         candidates: candidateMap,
-        attempt: 1,
-        reviewedCandidateKeys: new Set(candidateEntries.map((entry) => visualCandidateKey(entry.candidate)))
+        attempt,
+        reviewedCandidateKeys
       });
       pruneVisualSearchSnapshots();
       const message = `Review all ${candidateEntries.length} labeled candidate images against the user's reference image. Then call finalize_visual_search once with visualSessionId ${visualSessionId}.`;
       return {
         content: visualCandidateContent(message, candidateEntries),
+        _meta: { "findcheap/visualImageLoadDiagnostics": imageLoad.diagnostics },
         structuredContent: {
           status: "OK" as const,
           message,
           visualSessionId,
           expiresAt: new Date(expiresAtMs).toISOString(),
-          candidates: visualCandidateDescriptors(candidateEntries)
+          candidates: visualCandidateDescriptors(candidateEntries),
+          workflow: {
+            state: "REVIEW_REQUIRED" as const,
+            finalAnswerAllowed: false as const,
+            requiredNextTool: "finalize_visual_search" as const
+          }
         }
       };
     }
   );
 
-  server.registerTool(
+  if (backend.capabilities.has("VISUAL_SEARCH")) toolRegistrar.registerTool(
     "finalize_visual_search",
     {
       title: "Finalize visual search",
-      description: "Visual-review stage for interactive image search. Use only candidate IDs and images returned by the latest tool result. Report directly visible matching and conflicting attributes. Obscured or low-confidence attributes cannot match or conflict. Clearly visible family, sleeve, neckline, length, and negative-clue conflicts exclude. Color or pattern difference alone may remain HIGHLY_SIMILAR only when at least three independent structural attributes match; disclose the difference. A visual verdict can exclude or rerank candidates, but cannot create EXACT identity. Each visual session is immutable and single-use. If every first-pass candidate conflicts, the tool may return one relaxed candidate set and a new visualSessionId for one final review; never retry more than once.",
+      description: "Visual-review stage for interactive image search. Use only candidate IDs and images returned by the latest tool result. Report directly visible matching and conflicting attributes. Obscured or low-confidence attributes cannot match or conflict. Clearly visible family, sleeve, neckline, and length conflicts exclude. Color or pattern difference alone may remain HIGHLY_SIMILAR only when at least three independent structural attributes match; disclose the difference. A visual verdict can exclude or rerank candidates, but cannot create EXACT identity. Each visual session is immutable and single-use. If the result has visualReview.finalAnswerAllowed=false, a final answer is forbidden: review every returned relaxed candidate and immediately call visualReview.requiredNextTool with its new visualSessionId. Never retry more than once.",
       inputSchema: FinalizeVisualSearchInputSchema,
       outputSchema: ShopifyProductsOutputShape,
       annotations: {
@@ -2314,7 +2536,12 @@ export function createShoppingServer(
       if (finalCandidates.length === 0 && snapshot.attempt === 1) {
         const relaxedInput = visualRetrievalSearchInput(snapshot.input, true);
         const relaxedExecution = await runUnifiedSearch(relaxedInput);
-        const available = await loadVisualCandidates(relaxedExecution, snapshot.reviewedCandidateKeys);
+        const relaxedImageLoad = await loadVisualCandidates(
+          relaxedExecution,
+          snapshot.reviewedCandidateKeys,
+          MAX_RELAXED_VISUAL_CANDIDATES
+        );
+        const available = relaxedImageLoad.entries;
         if (available.length > 0) {
           pruneVisualSearchSnapshots();
           const visualSessionId = randomUUID();
@@ -2339,17 +2566,21 @@ export function createShoppingServer(
             ])
           });
           pruneVisualSearchSnapshots();
-          const message = `Every first-pass candidate conflicted with the reference image. Review all ${candidateEntries.length} relaxed candidates, then call finalize_visual_search once with visualSessionId ${visualSessionId}. Do not relax product family or accept visible conflicts.`;
+          const message = `REVIEW REQUIRED. Final answer is forbidden. Every first-pass candidate conflicted with the reference image. Review all ${candidateEntries.length} relaxed candidates, then call finalize_visual_search once with visualSessionId ${visualSessionId}. Do not relax product family or accept visible conflicts.`;
           const emptyExecution = { ...relaxedExecution, candidates: [] };
           const { response } = await buildUnifiedResponse(snapshot.input, emptyExecution);
           return {
             ...response,
             content: visualCandidateContent(message, candidateEntries),
+            _meta: { "findcheap/visualImageLoadDiagnostics": relaxedImageLoad.diagnostics },
             structuredContent: {
               ...response.structuredContent,
               message,
               visualReview: {
                 stage: "RELAXED_REVIEW" as const,
+                terminal: false as const,
+                finalAnswerAllowed: false as const,
+                requiredNextTool: "finalize_visual_search" as const,
                 visualSessionId,
                 expiresAt: new Date(expiresAtMs).toISOString(),
                 candidates: visualCandidateDescriptors(candidateEntries)
@@ -2357,11 +2588,31 @@ export function createShoppingServer(
             }
           };
         }
+        if (relaxedImageLoad.diagnostics.attempted > 0) {
+          const failure = visualSearchFailure(relaxedExecution, "NO_LOADABLE_IMAGES", snapshot.input.responseLocale ?? "en-US");
+          const message = `${failure.message} ${snapshot.input.responseLocale === "zh-CN" ? "未生成视觉推荐。" : "No visual recommendation was produced."}`;
+          const emptyExecution = { ...relaxedExecution, candidates: [] };
+          const { response } = await buildUnifiedResponse(snapshot.input, emptyExecution);
+          return {
+            ...response,
+            content: [{ type: "text" as const, text: message }],
+            _meta: { "findcheap/visualImageLoadDiagnostics": relaxedImageLoad.diagnostics },
+            structuredContent: {
+              ...response.structuredContent,
+              message,
+              visualSearchFailure: failure
+            }
+          };
+        }
       }
       const execution: UnifiedSearchExecution = { ...snapshot.execution, candidates: finalCandidates };
       const { response, enriched } = await buildUnifiedResponse(snapshot.input, execution);
       if (response.structuredContent.products.length === 0) {
-        const failure = visualSearchFailure(snapshot.execution, "CANDIDATES_CONFLICTED");
+        const failure = visualSearchFailure(
+          snapshot.execution,
+          "CANDIDATES_CONFLICTED",
+          snapshot.input.responseLocale ?? "en-US"
+        );
         return {
           ...response,
           content: [{ type: "text" as const, text: failure.message }],
@@ -2381,21 +2632,18 @@ export function createShoppingServer(
           reasonCodes: recommendation.reasonCodes
         }
       }, enriched.result, preflight.resolvedAwinProducts, recommendation.primaryProductIndex);
-      const selectionReferences = content.products
-        .map((product, index) => `${index + 1}=${product.selectionId}`)
-        .join(", ");
       return {
         ...response,
         content: [{
           type: "text" as const,
-          text: `${response.content[0]!.text}\n${recommendationInstruction(content)}\nSelections: ${selectionReferences}. Reuse selectionId; never search titles.`
+          text: `${response.content[0]!.text}\n${recommendationInstruction(content)}\nUse structured selection references for follow-ups; never print them or search titles.`
         }],
         structuredContent: content
       };
     }
   );
 
-  server.registerTool(
+  toolRegistrar.registerTool(
     "search_shopify_products",
     {
       title: "Legacy Shopify search",
@@ -2443,7 +2691,7 @@ export function createShoppingServer(
     }
   );
 
-  server.registerTool(
+  toolRegistrar.registerTool(
     "search_awin_products",
     {
       title: "Legacy Awin search",
@@ -2468,7 +2716,7 @@ export function createShoppingServer(
     }
   );
 
-  server.registerTool(
+  if (backend.capabilities.has("PRODUCT_INSPECTION")) toolRegistrar.registerTool(
     "inspect_selected_shopify_product",
     {
       title: "Inspect a selected Shopify product",
@@ -2608,7 +2856,7 @@ export function createShoppingServer(
     }
   );
 
-  server.registerTool(
+  if (backend.capabilities.has("PRODUCT_QUOTE")) toolRegistrar.registerTool(
     "quote_selected_shopify_product",
     {
       title: "Quote a selected product",
@@ -2664,7 +2912,7 @@ export function createShoppingServer(
         return recoverableQuoteResult(
           snapshot,
           variantId,
-          "[MERCHANT_CHECKOUT_ONLY] This product cannot provide a ZIP delivered-total estimate. Continue at merchant checkout or choose another existing card; no new search is required."
+          "[MERCHANT_CHECKOUT_ONLY] Quote unsupported: this product cannot provide a ZIP delivered-total estimate. Continue at merchant checkout or choose another existing card; no new search is required."
         );
       }
       if (cartQuotes === undefined) {
@@ -2722,7 +2970,121 @@ export function createShoppingServer(
     }
   );
 
-  server.registerTool(
+  if (backend.capabilities.has("PRODUCT_QUOTE")) toolRegistrar.registerTool(
+    "quote_and_compare_selected_products",
+    {
+      title: "Quote and compare selected products",
+      description: "Quote 2-4 prior selectionIds from one immutable search snapshot for a supplied ZIP, then let the server compare delivered totals, calculate the delta, and choose the recommendation. Use this instead of multiple single-product quote calls and never calculate totals or differences in prose.",
+      inputSchema: QuotedProductComparisonInputSchema,
+      outputSchema: ProductComparisonOutputSchema,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true
+      },
+      _meta: {
+        ui: { resourceUri: PRODUCT_COMPARISON_UI_URI },
+        "openai/outputTemplate": PRODUCT_COMPARISON_UI_URI,
+        "openai/toolInvocation/invoking": "Quoting and comparing delivered totals…",
+        "openai/toolInvocation/invoked": "Delivered-total comparison ready."
+      }
+    },
+    async (rawInput) => {
+      const input = QuotedProductComparisonInputSchema.parse(rawInput);
+      const localizedError = (english: string, chinese: string) => ({
+        isError: true,
+        content: [{
+          type: "text" as const,
+          text: input.responseLocale === "zh-CN" ? chinese : english
+        }]
+      });
+      const references = input.selectionIds.map((selectionId) => selections.get(selectionId));
+      if (references.some((reference) => reference === undefined)) {
+        return localizedError(
+          "One or more product selections are unavailable. Run one new search and select 2-4 cards from it.",
+          "一个或多个商品选择已不可用。请重新搜索，并从同一结果中选择 2–4 张卡片。"
+        );
+      }
+      const renderIds = new Set(references.map((reference) => reference!.renderId));
+      if (renderIds.size !== 1) {
+        return localizedError(
+          "Selections from different search snapshots cannot be mixed. Run one search containing all finalists.",
+          "不能混合不同搜索快照中的商品。请重新搜索，让所有候选商品出现在同一结果中。"
+        );
+      }
+      const renderId = references[0]!.renderId;
+      const snapshot = renderSnapshots.get(renderId);
+      const comparisonAt = now();
+      if (snapshot === undefined || snapshot.expiresAt <= comparisonAt.getTime()) {
+        deleteSnapshot(renderId);
+        return localizedError(
+          "The product selection snapshot expired. Run one new search before comparing.",
+          "商品选择快照已过期。请重新搜索后再对比。"
+        );
+      }
+      const selectedCards = input.selectionIds.map((selectionId) =>
+        snapshot.content.products.find((product) => product.selectionId === selectionId)
+      );
+      if (selectedCards.some((product) => product === undefined)) {
+        return localizedError(
+          "A selected product does not belong to the immutable search snapshot.",
+          "某个所选商品不属于该不可变搜索快照。"
+        );
+      }
+      if (selectedCards.some((product) => product!.quoteCapability === "MERCHANT_CHECKOUT_ONLY")) {
+        return localizedError(
+          "Quote unsupported for at least one selected product: merchant checkout is required, so ZIP delivered totals cannot be compared.",
+          "至少一个所选商品不支持报价：只能在商家结账页计算总价，无法按 ZIP 比较到手价。"
+        );
+      }
+      try {
+        const quotedProducts = await Promise.all(selectedCards.map(async (selectedCard, index) => {
+          const selected = selectedCard!.sourceKind === "AWIN_PRODUCT_FEED"
+            ? snapshot.resolvedAwinProducts.get(selectedCard!.handle)
+            : snapshot.sourceResult.products.find((product) => product.handle === selectedCard!.handle);
+          if (selected === undefined) throw new ShopifyCartQuoteError("MERCHANT_CART_UNAVAILABLE");
+          return {
+            ...withCartQuote(selectedCard!, await cartQuotes!.quote(selected, input.zipCode)),
+            selectionId: input.selectionIds[index]!
+          };
+        }));
+        const quoteExpiries = quotedProducts.map((product) =>
+          Date.parse(product.pricing.deliveredPrice.expiresAt!)
+        );
+        const comparisonExpiresAt = Math.min(snapshot.expiresAt, ...quoteExpiries);
+        const comparisonId = randomUUID();
+        const comparisonInput = ProductComparisonInputSchema.parse({
+          selectionIds: input.selectionIds,
+          mode: input.mode,
+          focus: [...new Set(["DELIVERED_TOTAL" as const, ...input.focus])].slice(0, 3),
+          responseLocale: input.responseLocale
+        });
+        const content = buildProductComparison(comparisonInput, quotedProducts as ComparableProduct[], {
+          comparisonId,
+          renderId,
+          expiresAt: new Date(comparisonExpiresAt).toISOString(),
+          evaluatedAt: comparisonAt.toISOString()
+        });
+        if (content.status === "OK") {
+          pruneComparisonSnapshots();
+          comparisonSnapshots.set(comparisonId, { expiresAt: comparisonExpiresAt, content });
+          pruneComparisonSnapshots();
+        }
+        return { content: [{ type: "text" as const, text: content.message }], structuredContent: content };
+      } catch (error) {
+        const failure = error instanceof ShopifyCartQuoteError
+          ? error
+          : new ShopifyCartQuoteError("MERCHANT_CART_UNAVAILABLE", { cause: error });
+        return localizedError(
+          quoteFailureMessage(failure.code),
+          quoteFailureMessage(failure.code)
+        );
+      }
+    }
+  );
+
+  toolRegistrar.registerTool(
     "research_selected_product_deal",
     {
       title: "Check current price and deals",
@@ -2831,12 +3193,147 @@ export function createShoppingServer(
     }
   );
 
-  if (toolAvailability.verifiedDeals) server.registerTool(
+  toolRegistrar.registerTool(
+    "compare_selected_products",
+    {
+      title: "Compare selected products",
+      description: "Build one evidence-backed 2-4 column comparison from selectionIds returned by the same live search snapshot. Never call with absent or empty IDs; the user must use the native Compare selected action when UI selections are not available to the model. Omit focus for an ordinary comparison; when the user explicitly names priorities, pass at most 3 unique focus values. Call once. The server determines identity mode, facts, comparable price basis, delivered-total status, price delta, limitations, and recommendation. Never write pros, cons, prices, or a recommended ID. SAME_PRODUCT_OFFERS fails closed unless stable identity, variants, and known condition match.",
+      inputSchema: ProductComparisonInputSchema,
+      outputSchema: ProductComparisonOutputSchema,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false
+      },
+      _meta: {
+        ui: { resourceUri: PRODUCT_COMPARISON_UI_URI },
+        "openai/outputTemplate": PRODUCT_COMPARISON_UI_URI,
+        "openai/toolInvocation/invoking": "Building evidence-backed comparison…",
+        "openai/toolInvocation/invoked": "Product comparison ready."
+      }
+    },
+    async (rawInput) => {
+      const input = ProductComparisonInputSchema.parse(rawInput);
+      const failure = (
+        status: "SELECTION_UNAVAILABLE" | "CROSS_SNAPSHOT_UNSUPPORTED",
+        english: string,
+        chinese: string
+      ): ProductComparisonOutput => ({
+        status,
+        message: input.responseLocale === "zh-CN" ? chinese : english,
+        locale: input.responseLocale,
+        focus: input.focus,
+        entries: []
+      });
+      const references = input.selectionIds.map((selectionId) => selections.get(selectionId));
+      if (references.some((reference) => reference === undefined)) {
+        const content = failure(
+          "SELECTION_UNAVAILABLE",
+          "One or more product selections are unavailable. Run one new search and select 2-4 cards from it.",
+          "一个或多个商品选择已不可用。请重新搜索，并从同一结果中选择 2–4 张卡片。"
+        );
+        return { content: [{ type: "text" as const, text: content.message }], structuredContent: content };
+      }
+      const renderIds = new Set(references.map((reference) => reference!.renderId));
+      if (renderIds.size !== 1) {
+        const content = failure(
+          "CROSS_SNAPSHOT_UNSUPPORTED",
+          "Selections from different search snapshots cannot be mixed. Run one search containing all finalists.",
+          "不能混合不同搜索快照中的商品。请重新搜索，让所有候选商品出现在同一结果中。"
+        );
+        return { content: [{ type: "text" as const, text: content.message }], structuredContent: content };
+      }
+      const renderId = references[0]!.renderId;
+      const snapshot = renderSnapshots.get(renderId);
+      const comparisonAt = now();
+      if (snapshot === undefined || snapshot.expiresAt <= comparisonAt.getTime()) {
+        deleteSnapshot(renderId);
+        const content = failure(
+          "SELECTION_UNAVAILABLE",
+          "The product selection snapshot expired. Run one new search before comparing.",
+          "商品选择快照已过期。请重新搜索后再对比。"
+        );
+        return { content: [{ type: "text" as const, text: content.message }], structuredContent: content };
+      }
+      const products = input.selectionIds.map((selectionId) =>
+        snapshot.content.products.find((product) => product.selectionId === selectionId)
+      );
+      if (products.some((product) => product === undefined)) {
+        const content = failure(
+          "SELECTION_UNAVAILABLE",
+          "A selected product does not belong to the immutable search snapshot.",
+          "某个所选商品不属于该不可变搜索快照。"
+        );
+        return { content: [{ type: "text" as const, text: content.message }], structuredContent: content };
+      }
+      const quoteExpiries = products.flatMap((product) => {
+        const expiresAt = product?.pricing.deliveredPrice.expiresAt;
+        if (expiresAt === undefined) return [];
+        const expiresAtMs = Date.parse(expiresAt);
+        return Number.isFinite(expiresAtMs) && expiresAtMs > comparisonAt.getTime() ? [expiresAtMs] : [];
+      });
+      const comparisonExpiresAt = Math.min(snapshot.expiresAt, ...quoteExpiries);
+      const comparisonId = randomUUID();
+      const content = buildProductComparison(
+        input,
+        products as ComparableProduct[],
+        {
+          comparisonId,
+          renderId,
+          expiresAt: new Date(comparisonExpiresAt).toISOString(),
+          evaluatedAt: comparisonAt.toISOString()
+        }
+      );
+      if (content.status === "OK") {
+        pruneComparisonSnapshots();
+        comparisonSnapshots.set(comparisonId, { expiresAt: comparisonExpiresAt, content });
+        pruneComparisonSnapshots();
+      }
+      return { content: [{ type: "text" as const, text: content.message }], structuredContent: content };
+    }
+  );
+
+  toolRegistrar.registerTool(
+    "render_product_comparison",
+    {
+      title: "Render a product comparison",
+      description: "Render one immutable comparison snapshot.",
+      inputSchema: z.object({ comparisonId: z.string().uuid() }).strict(),
+      outputSchema: ProductComparisonOutputSchema,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false
+      },
+      _meta: {
+        ui: { resourceUri: PRODUCT_COMPARISON_UI_URI, visibility: ["app"] },
+        "openai/outputTemplate": PRODUCT_COMPARISON_UI_URI
+      }
+    },
+    async ({ comparisonId }) => {
+      pruneComparisonSnapshots();
+      const snapshot = comparisonSnapshots.get(comparisonId);
+      if (snapshot === undefined) {
+        return {
+          isError: true,
+          content: [{ type: "text" as const, text: "Product comparison snapshot is unavailable." }]
+        };
+      }
+      return {
+        content: [{ type: "text" as const, text: snapshot.content.message }],
+        structuredContent: snapshot.content
+      };
+    }
+  );
+
+  if (toolAvailability.verifiedDeals) toolRegistrar.registerTool(
     "find_coupons",
     {
       title: "Find verified coupons and cashback",
-      description: "Find current verified Coupon, promo code, brand promotion, membership offer, Cashback, or offline barcode evidence. Never guesses codes.",
-      inputSchema: DealSearchInputSchema,
+      description: "Find current verified Coupon, promo code, brand promotion, membership offer, Cashback, or offline barcode evidence. productQuery ranks product-specific evidence but never discards verified merchant-wide offers. Never guesses codes.",
+      inputSchema: FindCouponsInputSchema,
       outputSchema: {
         status: z.enum(["OK", "NO_VERIFIED_DEALS", "DATA_SOURCE_UNAVAILABLE"]),
         message: z.string(),
@@ -2850,7 +3347,8 @@ export function createShoppingServer(
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true }
     },
     async (input) => {
-      const validated = DealSearchInputSchema.parse(input);
+      const { responseLocale, ...validated } = FindCouponsInputSchema.parse(input);
+      const localized = (english: string, chinese: string) => responseLocale === "zh-CN" ? chinese : english;
       try {
         const checkedAt = now().getTime();
         const requestedMerchant = validated.merchant.toLocaleLowerCase("en-US");
@@ -2861,21 +3359,33 @@ export function createShoppingServer(
             observedAt <= checkedAt + 120_000 && observedAt >= checkedAt - 86_400_000 &&
             Date.parse(deal.validFrom) <= checkedAt && Date.parse(deal.validTo) > checkedAt;
         });
-        const message = deals.length === 0 ? "No current verified deals were found." : `Found ${deals.length} current verified deal(s).`;
+        const message = deals.length === 0
+          ? localized(
+            "No current verified merchant deal was found. A joined affiliate merchant does not necessarily have an active Coupon or promotion.",
+            "当前没有找到该商家的已验证有效优惠。商家已加入联盟计划，不代表当前一定有 Coupon 或促销。"
+          )
+          : localized(
+            `Found ${deals.length} current verified merchant deal(s). Check each offer's eligibility for this product.`,
+            `找到 ${deals.length} 个当前有效的商家优惠；请核对每个优惠对该商品的适用条件。`
+          );
         return { content: [{ type: "text" as const, text: message }], structuredContent: {
           status: deals.length === 0 ? "NO_VERIFIED_DEALS" as const : "OK" as const,
           message,
           deals: deals.map(({ verificationStatus: _verificationStatus, validFrom: _validFrom, ...deal }) => deal)
         } };
       } catch {
-        return { content: [{ type: "text" as const, text: dealUnavailableMessage }], structuredContent: {
-          status: "DATA_SOURCE_UNAVAILABLE" as const, message: dealUnavailableMessage, deals: []
+        const message = localized(
+          dealUnavailableMessage,
+          "已验证 Coupon 和 Cashback 数据暂不可用：尚未配置获批的优惠接口，或本次请求失败。"
+        );
+        return { content: [{ type: "text" as const, text: message }], structuredContent: {
+          status: "DATA_SOURCE_UNAVAILABLE" as const, message, deals: []
         } };
       }
     }
   );
 
-  server.registerTool(
+  toolRegistrar.registerTool(
     "create_watch",
     {
       title: "Create a shopping watch",
@@ -3015,7 +3525,7 @@ export function createShoppingServer(
     }
   );
 
-  server.registerTool(
+  toolRegistrar.registerTool(
     "bind_watch_automation",
     {
       title: "Bind a Codex Automation to a shopping watch",
@@ -3068,7 +3578,7 @@ export function createShoppingServer(
     }
   );
 
-  server.registerTool(
+  toolRegistrar.registerTool(
     "check_watch",
     {
       title: "Check a shopping watch",
@@ -3116,7 +3626,7 @@ export function createShoppingServer(
     }
   );
 
-  server.registerTool(
+  toolRegistrar.registerTool(
     "list_watches",
     {
       title: "List shopping watches",
@@ -3149,7 +3659,7 @@ export function createShoppingServer(
     })) } })
   );
 
-  server.registerTool(
+  toolRegistrar.registerTool(
     "pause_watch",
     {
       title: "Pause or resume a shopping watch",
@@ -3181,7 +3691,7 @@ export function createShoppingServer(
     }
   );
 
-  server.registerTool(
+  toolRegistrar.registerTool(
     "delete_watch",
     {
       title: "Delete a shopping watch",
@@ -3222,7 +3732,7 @@ export function createShoppingServer(
     }
   );
 
-  server.registerTool(
+  toolRegistrar.registerTool(
     "render_product_cards",
     {
       title: "Render identity-labeled product cards",
@@ -3264,7 +3774,7 @@ export function createShoppingServer(
     }
   );
 
-  server.registerTool(
+  toolRegistrar.registerTool(
     "report_product_card_metrics",
     {
       title: "Report product-card performance metrics",

@@ -13,6 +13,13 @@ class FakeNode {
   textContent = "";
   loading = "";
   fetchPriority = "";
+  disabled = false;
+  type = "";
+  value = "";
+  inputMode = "";
+  maxLength = 0;
+  placeholder = "";
+  ariaPressed = "false";
   private readonly listeners = new Map<string, () => void>();
 
   append(...nodes: FakeNode[]) {
@@ -43,7 +50,7 @@ function nodes(node: FakeNode): FakeNode[] {
 
 describe("product-card MCP Apps UI", () => {
   it("uses an embedded Codex-native surface with responsive cards", () => {
-    expect(PRODUCT_CARD_UI_URI).toBe("ui://findcheap/product-cards/v30.html");
+    expect(PRODUCT_CARD_UI_URI).toBe("ui://findcheap/product-cards/v32.html");
     expect(PRODUCT_CARD_HTML).toContain("--fc-surface:");
     expect(PRODUCT_CARD_HTML).toContain("background: var(--fc-action);");
     expect(PRODUCT_CARD_HTML).toContain("@media (max-width: 640px)");
@@ -141,7 +148,7 @@ describe("product-card MCP Apps UI", () => {
       params: expect.objectContaining({
         name: "report_product_card_metrics",
         arguments: expect.objectContaining({
-          version: "0.16.6",
+          version: "0.17.6",
           terminalStage: "DOM_RENDERED",
           stages: expect.objectContaining({ DOM_RENDERED: expect.any(Number) })
         })
@@ -517,6 +524,102 @@ describe("product-card MCP Apps UI", () => {
     expect(output.indexOf("Trusted Product")).toBeLessThan(output.indexOf("Value Product"));
   });
 
+  it("selects 2-4 native cards and renders the server comparison without focus", async () => {
+    const script = PRODUCT_CARD_HTML.match(/<script>([\s\S]*)<\/script>/u)?.[1];
+    const app = new FakeNode();
+    type TestEvent = { source?: object; data?: unknown };
+    const listeners = new Map<string, (event: TestEvent) => void>();
+    const messages: Array<{ id?: number; method?: string; params?: { name?: string; arguments?: Record<string, unknown> } }> = [];
+    const parent = { postMessage: (message: (typeof messages)[number]) => messages.push(message) };
+    const product = (selectionId: string, title: string) => ({
+      selectionId,
+      merchant: "Merchant",
+      title,
+      matchStatus: "DISCOVERY_MATCH",
+      condition: "NEW",
+      availability: "IN_STOCK",
+      presentationGroup: "TRUSTED_MATCH",
+      recommendationTier: "TRUSTED_OR_AFFILIATE",
+      merchantUrl: "https://merchant.example/product",
+      card: {
+        merchant: "Merchant",
+        title,
+        primaryPrice: { amountCents: 100_000, currency: "USD" },
+        matchBadge: "DISCOVERY_MATCH",
+        conditionBadge: "NEW",
+        availability: "IN_STOCK"
+      }
+    });
+    const firstId = "11111111-1111-4111-8111-111111111111";
+    const secondId = "22222222-2222-4222-8222-222222222222";
+    const window = {
+      parent,
+      openai: { toolOutput: { locale: "en-US", products: [product(firstId, "Laptop A"), product(secondId, "Laptop B")] } },
+      addEventListener: (type: string, listener: (event: TestEvent) => void) => { listeners.set(type, listener); },
+      setTimeout: () => 1,
+      clearTimeout: () => undefined,
+      requestAnimationFrame: (callback: () => void) => { callback(); return 1; },
+      ResizeObserver: undefined
+    };
+    const document = {
+      getElementById: () => app,
+      createElement: () => new FakeNode(),
+      documentElement: { dataset: {}, scrollWidth: 700, scrollHeight: 320, lang: "en-US" },
+      body: { scrollWidth: 700, scrollHeight: 320 }
+    };
+
+    vm.runInNewContext(script!, { window, document, URL, Intl, Number, String, Array, Object, Promise, Map, Set, Math, Date, Error });
+    const toggles = nodes(app).filter((node) => node.textContent === "Select for comparison");
+    expect(toggles).toHaveLength(2);
+    toggles[0]!.dispatch("click");
+    toggles[1]!.dispatch("click");
+    nodes(app).find((node) => node.textContent === "Compare selected (2)")?.dispatch("click");
+
+    const call = messages.find((message) => message.params?.name === "compare_selected_products");
+    expect(call?.params?.arguments).toEqual({
+      selectionIds: [firstId, secondId],
+      mode: "AUTO",
+      responseLocale: "en-US"
+    });
+    expect(call?.params?.arguments).not.toHaveProperty("focus");
+    listeners.get("message")?.({
+      source: parent,
+      data: {
+        jsonrpc: "2.0",
+        id: call?.id,
+        result: {
+          structuredContent: {
+            status: "OK",
+            message: "Different product choices. Delivered totals have not been quoted.",
+            locale: "en-US",
+            entries: [
+              { selectionId: firstId, title: "Laptop A", merchant: "Merchant", purchaseUrl: "https://merchant.example/a", itemPrice: { amountCents: 100_000, currency: "USD" }, comparedPrice: { amountCents: 100_000, currency: "USD" }, deliveredTotalStatus: "NOT_QUOTED", condition: "NEW", availability: "IN_STOCK", merchantTrust: { level: "ESTABLISHED_RETAILER", verification: "INDEPENDENT" }, requirementEvidence: ["RTX 5070"], limitations: [], unknowns: ["DELIVERED_TOTAL"] },
+              { selectionId: secondId, title: "Laptop B", merchant: "Merchant", purchaseUrl: "https://merchant.example/b", itemPrice: { amountCents: 110_000, currency: "USD" }, comparedPrice: { amountCents: 110_000, currency: "USD" }, deliveredTotalStatus: "NOT_QUOTED", condition: "NEW", availability: "IN_STOCK", merchantTrust: { level: "ESTABLISHED_RETAILER", verification: "INDEPENDENT" }, requirementEvidence: ["RTX 5070"], limitations: [], unknowns: ["DELIVERED_TOTAL"] }
+            ]
+          }
+        }
+      }
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(text(app)).toContain("Laptop A");
+    expect(text(app)).toContain("Not quoted: provide ZIP");
+    expect(text(app)).toContain("Quote delivered totals");
+    expect(text(app)).toContain("Back to results");
+    const zipInput = nodes(app).find((node) => node.className === "quote-field")?.children[0];
+    expect(zipInput).toBeDefined();
+    zipInput!.value = "10001";
+    nodes(app).find((node) => node.textContent === "Quote delivered totals")?.dispatch("click");
+    const quoteCall = messages.find((message) => message.params?.name === "quote_and_compare_selected_products");
+    expect(quoteCall?.params?.arguments).toEqual({
+      selectionIds: [firstId, secondId],
+      zipCode: "10001",
+      mode: "AUTO",
+      focus: ["DELIVERED_TOTAL"],
+      responseLocale: "en-US"
+    });
+  });
+
   it("localizes Coupon labels and keeps unknown condition out of the badge row", () => {
     const script = PRODUCT_CARD_HTML.match(/<script>([\s\S]*)<\/script>/u)?.[1];
     const app = new FakeNode();
@@ -607,7 +710,7 @@ describe("product-card MCP Apps UI", () => {
       method: "ui/initialize",
       params: {
         protocolVersion: "2026-01-26",
-        appInfo: { name: "FindCheap Agent product cards", version: "0.16.6" },
+        appInfo: { name: "FindCheap Agent product cards", version: "0.17.6" },
         appCapabilities: { availableDisplayModes: ["inline"] }
       }
     });
@@ -681,7 +784,7 @@ describe("product-card MCP Apps UI", () => {
     expect(text(app)).toContain("$14.99");
     expect(text(app)).toContain("1 product card");
     expect(text(app)).toContain("We may earn a commission if you buy through this link. This does not raise your price or affect ranking.");
-    expect(text(app)).toContain("Shipping, tax, and final total are available at merchant checkout.");
+    expect(text(app)).toContain("Quote unsupported: shipping, tax, and final total require merchant checkout.");
 
     listeners.get("openai:set_globals")?.({
       detail: { globals: { toolInput: { renderId: "ignored" }, toolOutput: { products: [] } } }

@@ -1,7 +1,7 @@
 import { FINDCHEAP_VERSION } from "../../../config/version.js";
 import { MAX_PRODUCT_CARDS } from "./product-candidate-ranking.js";
 
-export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v30.html";
+export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v32.html";
 
 export const PRODUCT_CARD_RESOURCE_DOMAINS = [
   "https://cdn.shopify.com",
@@ -164,6 +164,48 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     .price-value { color: var(--fc-text); font-size: 11px; font-weight: 550; text-align: right; }
     .price-line.total .price-label, .price-line.total .price-value { color: var(--fc-text); font-weight: 650; }
     .notice { padding-top: 1px; }
+    .compare-panel {
+      position: sticky;
+      top: 8px;
+      z-index: 5;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 9px;
+      border: 1px solid var(--fc-border);
+      border-radius: 12px;
+      padding: 10px 12px;
+      background: var(--fc-surface-muted);
+    }
+    .compare-status { color: var(--fc-muted); font-size: 12px; }
+    .quote-action { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; border: 1px solid var(--fc-border); border-radius: 12px; padding: 10px 12px; background: var(--fc-surface-muted); }
+    .quote-field { display: grid; gap: 4px; color: var(--fc-muted); font-size: 11px; }
+    .quote-field input { width: 150px; border: 1px solid var(--fc-border-strong); border-radius: 9px; padding: 8px 9px; color: var(--fc-text); background: var(--fc-surface); font: inherit; }
+    .quote-field input:focus-visible { outline: 2px solid var(--fc-focus); outline-offset: 2px; }
+    button {
+      border: 1px solid var(--fc-action);
+      border-radius: 9px;
+      padding: 8px 11px;
+      color: var(--fc-action-text);
+      background: var(--fc-action);
+      font: inherit;
+      font-size: 12px;
+      font-weight: 650;
+      cursor: pointer;
+    }
+    button:disabled { cursor: not-allowed; opacity: .48; }
+    button:focus-visible { outline: 2px solid var(--fc-focus); outline-offset: 2px; }
+    .compare-toggle { justify-self: start; color: var(--fc-text); background: transparent; }
+    .compare-toggle.selected { color: var(--fc-action-text); background: var(--fc-action); }
+    .inline-comparison { overflow-x: auto; border: 1px solid var(--fc-border); border-radius: 14px; background: var(--fc-surface); }
+    .inline-comparison table { width: 100%; min-width: 660px; border-collapse: separate; border-spacing: 0; table-layout: fixed; }
+    .inline-comparison th, .inline-comparison td { min-width: 190px; border-left: 1px solid var(--fc-border); border-top: 1px solid var(--fc-border); padding: 11px; vertical-align: top; text-align: left; line-height: 1.4; }
+    .inline-comparison tr:first-child th { border-top: 0; }
+    .inline-comparison th:first-child, .inline-comparison td:first-child { position: sticky; left: 0; z-index: 1; min-width: 132px; width: 132px; border-left: 0; background: var(--fc-surface-muted); color: var(--fc-muted); font-weight: 650; }
+    .comparison-head { display: grid; gap: 7px; }
+    .comparison-head.recommended { color: var(--fc-positive); }
+    .comparison-title { color: var(--fc-text); font-size: 14px; font-weight: 680; }
     a {
       display: inline-flex;
       align-items: center;
@@ -242,6 +284,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     let latestToolInput;
     let hydrationRenderId;
     let currentRenderId;
+    let lastProductOutput;
     let currentLocale = document.documentElement.lang?.toLocaleLowerCase().startsWith("zh") ? "zh-CN" : "en-US";
     const text = (english, chinese) => currentLocale === "zh-CN" ? chinese : english;
     const badgeText = (value) => currentLocale !== "zh-CN" ? ({
@@ -381,7 +424,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     };
     const extractStructuredContent = (value, depth = 0) => {
       if (!value || typeof value !== "object" || depth > 4) return undefined;
-      if (Array.isArray(value.products)) return value;
+      if (Array.isArray(value.products) || Array.isArray(value.entries)) return value;
       for (const key of ["structuredContent", "toolOutput", "result", "output", "toolResult", "mcp_tool_result", "call_tool_result"]) {
         const nested = extractStructuredContent(value[key], depth + 1);
         if (nested) return nested;
@@ -466,6 +509,117 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
         ? "HIGH_RATED_UNVERIFIED"
         : "GENERAL_UNVERIFIED";
     };
+    const comparisonList = (values) => {
+      if (!Array.isArray(values) || values.length === 0) return make("span", "details", text("Not verified", "未验证"));
+      const list = make("ul", "details");
+      values.forEach((value) => list.append(make("li", "", value)));
+      return list;
+    };
+    const comparisonLabel = (value) => currentLocale !== "zh-CN" ? String(value || "") : ({
+      IN_STOCK: "有货", OUT_OF_STOCK: "缺货", UNKNOWN: "未知",
+      NEW: "全新", USED: "二手", REFURBISHED: "翻新", OPEN_BOX: "开箱品",
+      OFFICIAL: "官方", AUTHORIZED_RETAILER: "授权零售商", ESTABLISHED_RETAILER: "成熟零售商", RISKY: "风险商家",
+      INDEPENDENT: "独立验证", UNVERIFIED: "未验证"
+    })[value] || String(value || "");
+    const renderComparison = (output) => {
+      app.replaceChildren();
+      const back = make("button", "compare-toggle", text("Back to results", "返回商品卡"));
+      back.type = "button";
+      back.addEventListener("click", () => { if (lastProductOutput) render(lastProductOutput); });
+      app.append(back);
+      if (output.status !== "OK" || !Array.isArray(output.entries) || output.entries.length < 2) {
+        app.append(make("div", "empty error", output.message || text("Comparison unavailable.", "对比不可用。")));
+        requestSizeReport("COMPARISON_RENDERED");
+        return;
+      }
+      app.append(make("div", "summary", output.message));
+      const canQuote = output.entries.length <= 4 &&
+        output.entries.some((entry) => entry.deliveredTotalStatus === "NOT_QUOTED") &&
+        output.entries.every((entry) => entry.deliveredTotalStatus !== "MERCHANT_CHECKOUT_ONLY" && typeof entry.selectionId === "string");
+      if (canQuote) {
+        const quoteAction = make("section", "quote-action");
+        const field = make("label", "quote-field", text("US delivery ZIP", "美国配送 ZIP"));
+        const zipInput = make("input");
+        zipInput.type = "text";
+        zipInput.inputMode = "numeric";
+        zipInput.maxLength = 10;
+        zipInput.placeholder = "12345";
+        field.append(zipInput);
+        const quoteButton = make("button", "", text("Quote delivered totals", "查询到手价"));
+        quoteButton.type = "button";
+        const quoteStatus = make("span", "compare-status", text("Uses these same compared products.", "使用当前对比中的同一批商品。"));
+        quoteButton.addEventListener("click", () => {
+          const zipCode = String(zipInput.value || "").trim();
+          if (!/^\d{5}(?:-\d{4})?$/u.test(zipCode)) {
+            quoteStatus.textContent = text("Enter a valid US ZIP.", "请输入有效的美国 ZIP。");
+            return;
+          }
+          quoteButton.disabled = true;
+          quoteStatus.textContent = text("Quoting delivered totals…", "正在查询到手价…");
+          void request("tools/call", {
+            name: "quote_and_compare_selected_products",
+            arguments: {
+              selectionIds: output.entries.map((entry) => entry.selectionId),
+              zipCode,
+              mode: "AUTO",
+              focus: ["DELIVERED_TOTAL"],
+              responseLocale: currentLocale
+            }
+          }, 8000).then((result) => {
+            const comparison = extractStructuredContent(result);
+            if (!comparison || !Array.isArray(comparison.entries)) throw new Error("quote result unavailable");
+            renderComparison(comparison);
+          }).catch(() => {
+            quoteButton.disabled = false;
+            quoteStatus.textContent = text("Quote failed. Try once more.", "报价加载失败，请重试一次。");
+          });
+        });
+        quoteAction.append(field, quoteButton, quoteStatus);
+        app.append(quoteAction);
+      }
+      const scroller = make("section", "inline-comparison");
+      const table = make("table");
+      const header = make("tr");
+      header.append(make("th", "", text("Product", "商品")));
+      output.entries.forEach((entry) => {
+        const cell = make("th");
+        const head = make("div", "comparison-head" + (output.recommendation?.recommendedSelectionId === entry.selectionId ? " recommended" : ""));
+        if (output.recommendation?.recommendedSelectionId === entry.selectionId) head.append(make("span", "rank-label", text("Recommended", "推荐")));
+        head.append(make("div", "merchant", entry.sellerName ? entry.merchant + " · " + entry.sellerName : entry.merchant));
+        head.append(make("div", "comparison-title", entry.title));
+        const url = safeHttps(entry.purchaseUrl);
+        if (url) { const link = make("a", "", text("View at merchant", "前往商家页面")); link.href = url; link.target = "_blank"; link.rel = "noopener noreferrer"; head.append(link); }
+        cell.append(head);
+        header.append(cell);
+      });
+      table.append(header);
+      const delivered = (entry) => entry.deliveredTotal
+        ? make("span", "price", money(entry.deliveredTotal))
+        : make("span", "details", entry.deliveredTotalStatus === "MERCHANT_CHECKOUT_ONLY"
+          ? text("Quote unsupported: merchant checkout only", "不支持报价：仅商家结账页提供")
+          : text("Not quoted: provide ZIP", "未报价：请提供 ZIP"));
+      const rows = [
+        [text("Compared price", "对比价格"), (entry) => make("span", entry.comparedPrice ? "price" : "details", entry.comparedPrice ? money(entry.comparedPrice) : text("Unavailable", "不可用"))],
+        [text("Item price", "商品价"), (entry) => make("span", entry.itemPrice ? "" : "details", entry.itemPrice ? money(entry.itemPrice) : text("Unknown", "未知"))],
+        [text("Delivered total", "到手价"), delivered],
+        [text("Condition", "商品状态"), (entry) => make("span", "", comparisonLabel(entry.condition))],
+        [text("Availability", "库存"), (entry) => make("span", "", comparisonLabel(entry.availability))],
+        [text("Merchant trust", "商家信任"), (entry) => make("span", "", comparisonLabel(entry.merchantTrust?.level) + " · " + comparisonLabel(entry.merchantTrust?.verification))],
+        [text("Required features", "必需功能"), (entry) => comparisonList(entry.requirementEvidence)],
+        [text("Limitations", "限制"), (entry) => comparisonList(entry.limitations)],
+        [text("Unknowns", "未知项"), (entry) => comparisonList(entry.unknowns?.map(comparisonLabel))]
+      ];
+      rows.forEach(([label, value]) => {
+        const row = make("tr");
+        row.append(make("th", "", label));
+        output.entries.forEach((entry) => { const cell = make("td"); cell.append(value(entry)); row.append(cell); });
+        table.append(row);
+      });
+      scroller.append(table);
+      app.append(scroller);
+      markStage("COMPARISON_RENDERED");
+      requestSizeReport("COMPARISON_RENDERED");
+    };
     const resultGroup = (product) => {
       if (["POSSIBLE_SAME_ITEM", "HIGHLY_SIMILAR", "SAME_STYLE"].includes(product?.visualMatchGroup)) {
         return product.visualMatchGroup;
@@ -484,6 +638,11 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
           ? "en-US"
           : document.documentElement.lang?.toLocaleLowerCase().startsWith("zh") ? "zh-CN" : "en-US";
       document.documentElement.lang = currentLocale;
+      if (Array.isArray(output?.entries)) {
+        renderComparison(output);
+        return;
+      }
+      lastProductOutput = output;
       hasResult = true;
       if (typeof output?.renderId === "string") currentRenderId = output.renderId;
       markStage("RENDER_STARTED");
@@ -518,6 +677,60 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       app.append(make("div", "summary", currentLocale === "zh-CN"
         ? products.length + " 张商品卡 / 身份标签 / " + priceSummary
         : products.length + " product card" + (products.length === 1 ? "" : "s") + " / identity labels / " + priceSummary));
+      const comparable = products.filter((product) => typeof product?.selectionId === "string");
+      const selected = new Set();
+      const selectionButtons = new Map();
+      let compareButton;
+      let compareStatus;
+      const updateCompareControls = () => {
+        for (const [selectionId, button] of selectionButtons) {
+          const active = selected.has(selectionId);
+          button.className = "compare-toggle" + (active ? " selected" : "");
+          button.textContent = active ? text("Selected", "已选择") : text("Select for comparison", "选择对比");
+          button.disabled = !active && selected.size >= 4;
+          button.ariaPressed = String(active);
+        }
+        if (compareButton) {
+          compareButton.disabled = selected.size < 2 || selected.size > 4;
+          compareButton.textContent = text("Compare selected", "对比已选商品") + " (" + selected.size + ")";
+        }
+        if (compareStatus) compareStatus.textContent = selected.size === 0
+          ? text("Select 2-4 cards.", "请选择 2–4 张商品卡。")
+          : selected.size === 1
+            ? text("Select one more card.", "再选择一张商品卡。")
+            : text(selected.size + " selected. Compare now.", "已选 " + selected.size + " 张，现在可以对比。");
+      };
+      if (comparable.length >= 2) {
+        const panel = make("section", "compare-panel");
+        compareStatus = make("span", "compare-status", text("Select 2-4 cards.", "请选择 2–4 张商品卡。"));
+        compareButton = make("button", "", text("Compare selected", "对比已选商品") + " (0)");
+        compareButton.type = "button";
+        compareButton.disabled = true;
+        compareButton.addEventListener("click", () => {
+          if (selected.size < 2 || selected.size > 4) return;
+          compareButton.disabled = true;
+          compareButton.textContent = text("Comparing…", "正在对比…");
+          compareStatus.textContent = text("Building server-verified comparison.", "正在生成服务器验证的对比。" );
+          void request("tools/call", {
+            name: "compare_selected_products",
+            arguments: {
+              selectionIds: [...selected],
+              mode: "AUTO",
+              responseLocale: currentLocale
+            }
+          }, 8000).then((result) => {
+            const comparison = extractStructuredContent(result);
+            if (!comparison || !Array.isArray(comparison.entries)) throw new Error("comparison result unavailable");
+            renderComparison(comparison);
+          }).catch(() => {
+            compareButton.disabled = false;
+            compareButton.textContent = text("Compare selected", "对比已选商品") + " (" + selected.size + ")";
+            compareStatus.textContent = text("Comparison failed. Try once more or run a new search if cards expired.", "对比失败。请重试一次；若商品卡已过期，请重新搜索。" );
+          });
+        });
+        panel.append(compareStatus, compareButton);
+        app.append(panel);
+      }
       const quotedProducts = products.filter((product) => product?.pricing?.scope === "SHOPIFY_CART_ESTIMATE" && product?.card?.estimatedTotal);
       if (quotedProducts.length > 0) {
         const quoteSummary = make("section", "quote-summary");
@@ -638,7 +851,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
             ? text("ZIP delivered-total estimate available.", "可按 ZIP 查询预估到手价。")
             : quoteCapability === "ZIP_ESTIMATE_ONLY"
               ? text("ZIP estimate available; some merchants may require checkout for the final total.", "可按 ZIP 估价；部分商家仍需在结账页确认最终总价。")
-              : text("Shipping, tax, and final total are available at merchant checkout.", "运费、税费和最终总价需在商家结账页确认。")));
+              : text("Quote unsupported: shipping, tax, and final total require merchant checkout.", "不支持报价：运费、税费和最终总价需在商家结账页确认。")));
           const more = make("details", "more");
           more.append(make("summary", "", text("Why this matches", "为什么匹配")));
           const moreContent = make("div", "more-content");
@@ -678,6 +891,18 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
             const disclosure = product.purchaseLink.disclosure.trim();
             if (disclosure) body.append(make("div", "disclosure", currentLocale === "zh-CN" ? "联盟链接：FindCheap 可能获得佣金；佣金不影响入选或排序。" : disclosure));
           }
+          if (typeof product?.selectionId === "string" && comparable.length >= 2) {
+            const toggle = make("button", "compare-toggle", text("Select for comparison", "选择对比"));
+            toggle.type = "button";
+            toggle.ariaPressed = "false";
+            toggle.addEventListener("click", () => {
+              if (selected.has(product.selectionId)) selected.delete(product.selectionId);
+              else if (selected.size < 4) selected.add(product.selectionId);
+              updateCompareControls();
+            });
+            selectionButtons.set(product.selectionId, toggle);
+            body.append(toggle);
+          }
           const purchaseUrl = safeHttps(product?.purchaseLink?.url || product?.merchantUrl);
           if (purchaseUrl) {
             const link = make("a", "", text("View at merchant", "前往商家页面"));
@@ -692,6 +917,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
         group.append(cards);
         app.append(group);
       }
+      updateCompareControls();
       markStage("DOM_RENDERED");
       requestSizeReport("DOM_RENDERED");
       reportMetrics("DOM_RENDERED");

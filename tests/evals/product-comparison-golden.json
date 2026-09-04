@@ -1,0 +1,91 @@
+{
+  "cases": [
+    {
+      "id": "four-same-product-delivered-total",
+      "mode": "SAME_PRODUCT_OFFERS",
+      "products": [
+        { "selectionId": "11111111-1111-4111-8111-111111111111", "merchant": "Official", "sku": "MODEL-1", "gtin": "100000000001", "itemPriceCents": 1500, "deliveredTotalCents": 1700 },
+        { "selectionId": "22222222-2222-4222-8222-222222222222", "merchant": "Retailer B", "sku": "MODEL-1", "gtin": "100000000001", "itemPriceCents": 1450, "deliveredTotalCents": 1600 },
+        { "selectionId": "33333333-3333-4333-8333-333333333333", "merchant": "Retailer C", "sku": "MODEL-1", "gtin": "100000000001", "itemPriceCents": 1550, "deliveredTotalCents": 1800 },
+        { "selectionId": "44444444-4444-4444-8444-444444444444", "merchant": "Retailer D", "sku": "MODEL-1", "gtin": "100000000001", "itemPriceCents": 1490, "deliveredTotalCents": 1650 }
+      ],
+      "expected": {
+        "status": "OK",
+        "mode": "SAME_PRODUCT_OFFERS",
+        "priceBasis": "DELIVERED_TOTAL",
+        "entryCount": 4,
+        "lowestSelectionId": "22222222-2222-4222-8222-222222222222",
+        "highestSelectionId": "33333333-3333-4333-8333-333333333333",
+        "deltaCents": 200
+      }
+    },
+    {
+      "id": "different-products-no-common-price",
+      "mode": "AUTO",
+      "products": [
+        { "selectionId": "11111111-1111-4111-8111-111111111111", "merchant": "Retailer A", "sku": "MODEL-A", "gtin": "100000000001", "itemPriceCents": 1500 },
+        { "selectionId": "22222222-2222-4222-8222-222222222222", "merchant": "Retailer B", "sku": "MODEL-B", "gtin": "200000000002", "deliveredTotalCents": 1900 }
+      ],
+      "expected": {
+        "status": "OK",
+        "mode": "PRODUCT_CHOICES",
+        "priceBasis": "UNAVAILABLE",
+        "entryCount": 2,
+        "forbiddenReasonCodes": ["LOWER_PRICE"]
+      }
+    },
+    {
+      "id": "three-same-product-item-price",
+      "mode": "SAME_PRODUCT_OFFERS",
+      "products": [
+        { "selectionId": "11111111-1111-4111-8111-111111111111", "merchant": "Official", "sku": "MODEL-1", "gtin": "100000000001", "itemPriceCents": 1500 },
+        { "selectionId": "22222222-2222-4222-8222-222222222222", "merchant": "Retailer B", "sku": "MODEL-1", "gtin": "100000000001", "itemPriceCents": 1400 },
+        { "selectionId": "33333333-3333-4333-8333-333333333333", "merchant": "Retailer C", "sku": "MODEL-1", "gtin": "100000000001", "itemPriceCents": 1600 }
+      ],
+      "expected": {
+        "status": "OK",
+        "mode": "SAME_PRODUCT_OFFERS",
+        "priceBasis": "ITEM_PRICE",
+        "entryCount": 3,
+        "lowestSelectionId": "22222222-2222-4222-8222-222222222222",
+        "highestSelectionId": "33333333-3333-4333-8333-333333333333",
+        "deltaCents": 200
+      }
+    },
+    {
+      "id": "expired-delivered-total-falls-back-to-item-price",
+      "mode": "AUTO",
+      "products": [
+        { "selectionId": "11111111-1111-4111-8111-111111111111", "merchant": "Retailer A", "sku": "MODEL-A", "gtin": "100000000001", "itemPriceCents": 1500, "deliveredTotalCents": 1000, "deliveredTotalExpiresAt": "2026-09-03T05:59:59.000Z" },
+        { "selectionId": "22222222-2222-4222-8222-222222222222", "merchant": "Retailer B", "sku": "MODEL-B", "gtin": "200000000002", "itemPriceCents": 1700, "deliveredTotalCents": 1900, "deliveredTotalExpiresAt": "2026-09-03T07:00:00.000Z" }
+      ],
+      "expected": {
+        "status": "OK",
+        "mode": "PRODUCT_CHOICES",
+        "priceBasis": "ITEM_PRICE",
+        "entryCount": 2,
+        "lowestSelectionId": "11111111-1111-4111-8111-111111111111",
+        "highestSelectionId": "22222222-2222-4222-8222-222222222222",
+        "deltaCents": 200
+      }
+    },
+    {
+      "id": "equal-prices-have-no-lower-price-reason",
+      "mode": "SAME_PRODUCT_OFFERS",
+      "products": [
+        { "selectionId": "11111111-1111-4111-8111-111111111111", "merchant": "Retailer A", "sku": "MODEL-1", "gtin": "100000000001", "itemPriceCents": 1500 },
+        { "selectionId": "22222222-2222-4222-8222-222222222222", "merchant": "Retailer B", "sku": "MODEL-1", "gtin": "100000000001", "itemPriceCents": 1500 }
+      ],
+      "expected": {
+        "status": "OK",
+        "mode": "SAME_PRODUCT_OFFERS",
+        "priceBasis": "ITEM_PRICE",
+        "entryCount": 2,
+        "lowestSelectionId": "11111111-1111-4111-8111-111111111111",
+        "highestSelectionId": "22222222-2222-4222-8222-222222222222",
+        "deltaCents": 0,
+        "forbiddenReasonCodes": ["LOWER_PRICE"]
+      }
+    }
+  ]
+}

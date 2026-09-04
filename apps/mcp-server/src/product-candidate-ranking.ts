@@ -84,10 +84,11 @@ export function selectPresentationCandidates(
 
 export function selectVisualReviewCandidates(
   candidates: UnifiedCandidate[],
-  limit: number,
-  allowAlternatives: boolean
+  limit: number
 ): UnifiedCandidate[] {
-  const eligible = candidates.filter((candidate) => passesVisualDisplayGate(candidate, allowAlternatives));
+  // Metadata-only SAME_STYLE is not a final verdict. Product-family conflicts
+  // were already removed before candidate images reached this review queue.
+  const eligible = candidates;
   const official = eligible.filter(isOfficialCandidate);
   const trusted = eligible.filter((candidate) =>
     !isOfficialCandidate(candidate) &&

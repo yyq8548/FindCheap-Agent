@@ -38,6 +38,7 @@ const CATEGORY_GROUPS = [
     ]
   },
   { terms: ["headphone", "headphones", "headset", "headsets", "earbud", "earbuds"] },
+  { terms: ["charger", "chargers"], candidateEvidenceTerms: ["connector", "connectors"] },
   { terms: ["sofa", "sofas", "couch", "couches"] },
   { terms: ["tv", "television", "televisions"] },
   { terms: ["fridge", "fridges", "refrigerator", "refrigerators"] },
@@ -72,6 +73,7 @@ const ACCESSORY_TERMS = new Set([
   "keychains", "keyring", "mount", "protector", "replacement", "screenprotector", "skin", "sleeve",
   "strap"
 ]);
+const EXPLICIT_ACCESSORY_TERMS = new Set(["adapter"]);
 const CONDITION_TERMS = new Set(["box", "open", "preowned", "reconditioned", "refurbished", "renewed", "resale", "used"]);
 const GENERIC_IDENTITY_TERMS = new Set([
   ...IGNORED_QUERY_TERMS,
@@ -122,6 +124,9 @@ export function classifyShopifyCandidate(
   const productTypeTokens = new Set(tokenize(candidate.productType ?? ""));
   const searchableCandidateText = candidateText(candidate);
   const candidateTokens = new Set(tokenize(searchableCandidateText));
+  if (hasPetFoodSpeciesConflict(queryTokens, candidateTokens)) {
+    return irrelevant("requested pet-food species does not match");
+  }
   const candidateIdentifiers = [candidate.sku, candidate.handle]
     .filter((value): value is string => value !== undefined)
     .map(compact)
@@ -142,6 +147,12 @@ export function classifyShopifyCandidate(
     candidate.sku,
     candidate.handle
   ].filter((value): value is string => value !== undefined).join(" ")));
+  if (
+    [...EXPLICIT_ACCESSORY_TERMS].some((term) => primaryIdentityTokens.has(term)) &&
+    !queryTokens.some((term) => EXPLICIT_ACCESSORY_TERMS.has(term))
+  ) {
+    return irrelevant("explicit accessory does not match requested product");
+  }
   if (
     [...ACCESSORY_TERMS].some((term) => primaryIdentityTokens.has(term)) &&
     !queryTokens.some((term) => ACCESSORY_TERMS.has(term))
@@ -283,6 +294,19 @@ function tokenize(value: string): string[] {
     .map((token) => /^\d+(?:st|nd|rd|th)$/u.test(token) ? token.replace(/(?:st|nd|rd|th)$/u, "") : token)
     .map((token) => token === "generation" ? "gen" : token)
     .map((token) => token === "gray" ? "grey" : token === "onyx" ? "black" : token);
+}
+
+function hasPetFoodSpeciesConflict(
+  queryTokens: readonly string[],
+  candidateTokens: ReadonlySet<string>
+): boolean {
+  if (queryTokens.includes("catfood")) {
+    return candidateTokens.has("dogfood") && !candidateTokens.has("catfood");
+  }
+  if (queryTokens.includes("dogfood")) {
+    return candidateTokens.has("catfood") && !candidateTokens.has("dogfood");
+  }
+  return false;
 }
 
 function compact(value: string): string {

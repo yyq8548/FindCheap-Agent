@@ -15,6 +15,8 @@ import { createVisualCandidateImagePort } from "./visual-candidate-images.js";
 import { productCardResourceDomains } from "./product-card-ui.js";
 import { createOfficialStorefrontRegistryPortFromEnvironment } from "./official-storefront-registry-client.js";
 import { createMerchantTrustRegistryPortFromEnvironment } from "./merchant-trust-registry-client.js";
+import { createFindCheapBackend } from "./backend.js";
+import { createAffiliateLinkResolver } from "./affiliate-links.js";
 
 const shopifyPort = createShopifyPortFromEnvironment(process.env);
 const dealPort = createDealPortFromEnvironment(process.env);
@@ -23,25 +25,33 @@ const awinPort = createAwinFeedPort(process.env);
 const ebayPort = createEbayPortFromEnvironment(process.env);
 const officialStorefrontRegistry = createOfficialStorefrontRegistryPortFromEnvironment(process.env);
 const merchantTrustRegistry = createMerchantTrustRegistryPortFromEnvironment(process.env);
+const affiliateLinks = createAffiliateLinkResolver();
 const stateDirectory = process.env.FINDCHEAP_STATE_DIR ?? join(homedir(), ".findcheap-agent", "watches-v1");
-const server = createShoppingServer(shopifyPort, undefined, {
-  awin: awinPort,
-  ...(ebayPort === undefined ? {} : { ebay: ebayPort }),
-  awinShopifyQuotes: createAwinShopifyQuoteResolver(),
+const backend = createFindCheapBackend({
+  catalog: {
+    shopify: shopifyPort,
+    awin: awinPort,
+    ...(ebayPort === undefined ? {} : { ebay: ebayPort }),
+    officialShopify: createOfficialShopifySearchPort({
+      ...(officialStorefrontRegistry === undefined ? {} : { imageProxyOrigin: officialStorefrontRegistry.imageProxyOrigin })
+    }),
+    ...(officialStorefrontRegistry === undefined ? {} : { officialStorefrontRegistry }),
+    ...(merchantTrustRegistry === undefined ? {} : { merchantTrustRegistry })
+  },
+  product: {
+    affiliateLinks,
+    awinShopifyQuotes: createAwinShopifyQuoteResolver(),
+    cartQuotes: cartQuotePort,
+    selectedProducts: createShopifySelectedProductInspector()
+  },
   deals: dealPort,
-  cartQuotes: cartQuotePort,
-  selectedProducts: createShopifySelectedProductInspector(),
-  officialShopify: createOfficialShopifySearchPort({
-    ...(officialStorefrontRegistry === undefined ? {} : { imageProxyOrigin: officialStorefrontRegistry.imageProxyOrigin })
-  }),
-  ...(officialStorefrontRegistry === undefined ? {} : { officialStorefrontRegistry }),
-  ...(merchantTrustRegistry === undefined ? {} : { merchantTrustRegistry }),
-  visualCandidateImages: createVisualCandidateImagePort(),
   watches: createJsonWatchStore(stateDirectory),
+  visualCandidateImages: createVisualCandidateImagePort(),
+  verifiedDeals: hasDealProviderConfiguration(process.env)
+});
+const server = createShoppingServer(shopifyPort, affiliateLinks, {
+  backend,
   productCardResourceDomains: productCardResourceDomains(process.env.AWIN_PRODUCT_SEARCH_URL),
-  toolAvailability: {
-    verifiedDeals: hasDealProviderConfiguration(process.env)
-  }
 });
 
 try {

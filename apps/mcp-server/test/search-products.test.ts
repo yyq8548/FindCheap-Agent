@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { AwinProductPort } from "../../../packages/awin-feed/src/index.js";
 import {
+  CodexVisualVerdictSchema,
   SearchProductsInputSchema,
   finalizeCodexVisualCandidates,
   resolveSearchIntent,
@@ -50,6 +51,20 @@ function ebay(products = [ebayProduct("1", 2100)]): EbayBrowsePort {
 }
 
 describe("unified product search", () => {
+  it("rejects a visual attribute reported as both a match and a conflict", () => {
+    const evidence = {
+      attribute: "DISTINCTIVE_DETAIL" as const,
+      referenceEvidence: "center-front tie",
+      candidateEvidence: "center-front tie"
+    };
+
+    expect(() => CodexVisualVerdictSchema.parse({
+      classification: "CONFLICT",
+      matches: [evidence],
+      conflicts: [evidence]
+    })).toThrow("an attribute cannot both match and conflict");
+  });
+
   it.each(DOEN_VISUAL_GOLDEN_CASES)(
     "recalls the verified official URL for $sourceImage before Codex image reranking",
     async ({ visualInput, expectedTitle, expectedHandle, expectedOfficialUrl, requiredQueryTerms }) => {
@@ -204,6 +219,42 @@ describe("unified product search", () => {
         merchantUrl: "https://www.shopdoen.com/products/aloise-dress-salt"
       }
     });
+  });
+
+  it("rejects a conflicting product family before visual candidate review", async () => {
+    const blouse = shopifyProduct("lace-blouse", 15_000, "UNKNOWN", {
+      title: "DÔEN ivory lace blouse",
+      brand: "DÔEN",
+      productType: "women's tops",
+      description: "ruffled tie-front blouse",
+      imageUrl: "https://cdn.shopify.com/lace-blouse.jpg"
+    });
+    const shoe = shopifyProduct("slide-shoe", 12_000, "UNKNOWN", {
+      title: "DÔEN flat slide shoe",
+      brand: "DÔEN",
+      productType: "women's shoes",
+      imageUrl: "https://cdn.shopify.com/slide-shoe.jpg"
+    });
+    const result = await searchProducts({
+      ...SearchProductsInputSchema.parse({
+        query: "DÔEN ivory lace blouse",
+        brand: "DÔEN",
+        brandMode: "REQUIRED",
+        productType: "women's blouse",
+        comparisonMode: "DISCOVERY",
+        visualInput: { brand: "DÔEN", colors: ["ivory"] }
+      }),
+      deferVisualFiltering: true
+    }, {
+      awin: awin([]),
+      shopify: shopify([shoe, blouse])
+    });
+
+    expect(result.candidates.flatMap((candidate) => candidate.shopifyProduct === undefined
+      ? []
+      : [candidate.shopifyProduct.handle]
+    )).toEqual(["lace-blouse"]);
+    expect(result.visualProductsExcluded).toBe(1);
   });
 
   it("normalizes natural punctuation instead of rejecting a valid product query", () => {
@@ -368,7 +419,7 @@ describe("unified product search", () => {
     }), { awin: awin([]), shopify: { search } });
 
     expect(search.mock.calls[0]?.[0]).toMatchObject({
-      query: "Apple MacBook Pro 14-inch",
+      query: "Apple MacBook Pro",
       maxItemPriceCents: 300_000
     });
     expect(result.searchIntent).toBe("EXACT_PRODUCT");
@@ -380,6 +431,41 @@ describe("unified product search", () => {
       "tigertech"
     ]);
     expect(result.candidates[0]?.preferenceEvidence).toContain("14英寸 屏幕");
+  });
+
+  it("keeps compound ChatGPT/API use out of identity and enforces an explicitly selected size", async () => {
+    const search = vi.fn<ShopifyPort["search"]>(async () => shopifyResult([
+      shopifyProduct("fourteen", 238_900, "NEW", {
+        title: "14-inch MacBook Pro (M5 Pro or Max)", brand: "Apple", productType: "Computers"
+      }),
+      shopifyProduct("sixteen", 249_900, "NEW", {
+        title: "16-inch MacBook Pro (M5 Pro)", brand: "Apple", productType: "Computers"
+      })
+    ]));
+
+    const result = await searchProducts(SearchProductsInputSchema.parse({
+      query: "Apple MacBook Pro 14-inch for ChatGPT and API-based AI programming under $3000",
+      productType: "MacBook Pro",
+      brand: "Apple",
+      brandMode: "REQUIRED",
+      primaryUse: "ChatGPT/API AI programming",
+      requiredSize: "14-inch",
+      maxItemPriceCents: 300_000,
+      comparisonMode: "DISCOVERY",
+      contextMode: "CONTINUE_PREVIOUS_PRODUCT",
+      allowAlternatives: false,
+      limit: 8
+    }), { awin: awin([]), shopify: { search } });
+
+    expect(search.mock.calls[0]?.[0]).toMatchObject({
+      query: "Apple MacBook Pro",
+      maxItemPriceCents: 300_000
+    });
+    expect(result.searchIntent).toBe("EXACT_PRODUCT");
+    expect(result.identityProductsExcluded).toBe(0);
+    expect(result.featureProductsExcluded).toBe(1);
+    expect(result.candidates.map((candidate) => candidate.shopifyProduct?.handle)).toEqual(["fourteen"]);
+    expect(result.candidates[0]?.featureEvidence).toContain("14-inch display");
   });
 
   it("keeps added required specifications out of product identity", async () => {
@@ -431,6 +517,34 @@ describe("unified product search", () => {
     expect(search.mock.calls[0]?.[0].query).toBe("Nike Dunk");
     expect(search.mock.calls[1]?.[0].query).toContain("Nike Dunk");
     expect(result.candidates).toHaveLength(1);
+  });
+
+  it("does not treat compatibility text as required-brand evidence", async () => {
+    const compatible = shopifyProduct("nacs-compatible", 39_999, "UNKNOWN", {
+      title: "EVIQO EV Charger compatible with Tesla and NACS",
+      brand: "EVIQO",
+      productType: "EV Chargers",
+      description: "Third-party home charger for Tesla vehicles"
+    });
+    const official = shopifyProduct("tesla-wall-connector", 47_500, "UNKNOWN", {
+      title: "Tesla Universal Wall Connector",
+      brand: "Tesla",
+      productType: "EV Chargers"
+    });
+
+    const result = await searchProducts(SearchProductsInputSchema.parse({
+      query: "Tesla charger",
+      productType: "EV charger",
+      brand: "Tesla",
+      brandMode: "REQUIRED",
+      comparisonMode: "DISCOVERY"
+    }), { awin: awin([]), shopify: shopify([compatible, official]) });
+
+    expect(result.candidates).toHaveLength(1);
+    expect(result.candidates[0]).toMatchObject({
+      source: "SHOPIFY_GLOBAL_CATALOG",
+      shopifyProduct: { handle: "tesla-wall-connector", brand: "Tesla" }
+    });
   });
 
   it("rejects UNKNOWN affiliate condition when NEW is explicitly required", async () => {
@@ -1485,6 +1599,7 @@ describe("unified product search", () => {
   it("does not exclude a structural match using a conflict from an occluded strap area", async () => {
     const candidate = shopifyProduct("occluded-strap-match", 36_800, "UNKNOWN", {
       title: "DÔEN Floral Smocked Dress",
+      brand: "DÔEN",
       productType: "Dresses",
       description: "Square neckline, smocked waist and gathered full skirt",
       imageUrl: "https://cdn.example/occluded-strap-match.jpg"

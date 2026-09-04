@@ -3,13 +3,13 @@ name: deals-and-watch
 description: Find verified Coupon, promotion, membership, Cashback, and offline-barcode evidence, or create and manage shopping watches with Codex Automation.
 ---
 
-# FindCheap Agent v0.16.6 Deals and Watch
+# FindCheap Agent v0.17.6 Deals and Watch
 
 A live Coupon or Watch request is self-contained. MCP tools are loaded. Do not read Memory, repository files, logs, task files, or plugin cache. Do not reopen this Skill. Send at most one short progress sentence before the first tool call; do not narrate the tool sequence between calls.
 
 ## Coupon
 
-Call `find_coupons` once. It includes active Awin Promotions without Product Feeds. Pass `productQuery` only when current user explicitly names that product or refers to stable selected card; never narrow merchant-wide request using Agent suggestions or an earlier category. Return verified source, eligibility, expiry, checked time. Keep Coupon, Promo Code, membership, Cashback, barcode distinct. Never invent code, stacking, discount, Cashback. `DATA_SOURCE_UNAVAILABLE` is not “no Coupon.” Chrome needs explicit one-use authorization; inspect public HTTPS promotion pages only. Never apply codes, sign in, or enter checkout.
+Call `find_coupons` once with current-message `responseLocale`. It includes active Awin Promotions without Product Feeds. Pass `productQuery` only when the user names that product or refers to a stable selected card; it ranks product-specific evidence but cannot discard merchant-wide offers. Joined Awin merchant does not imply an active offer. Return verified source, eligibility, expiry, checked time. Keep Coupon, Promo Code, membership, Cashback, barcode distinct. Never invent code, stacking, discount, Cashback. `DATA_SOURCE_UNAVAILABLE` is not “no Coupon.” Chrome needs explicit one-use authorization; inspect public HTTPS promotion pages only. Never apply codes, sign in, or enter checkout.
 
 ## Current deal check
 

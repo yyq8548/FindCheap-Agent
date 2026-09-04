@@ -6,6 +6,8 @@ import { z } from "zod";
 import {
   VisualProductInputSchema,
   classifyVisualProduct,
+  enforceVisualEvidenceAuthority,
+  hasVisualProductFamilyConflict,
   relaxVisualProductInput,
   visualOfficialStoreSearchQueries
 } from "../src/visual-product-discovery.js";
@@ -26,7 +28,27 @@ const GoldenTaskSchema = z.object({
 });
 
 describe("visual product discovery", () => {
-  it("removes uncertain visual details from the one allowed relaxed official search", () => {
+  it("locks the visible product family before candidate-image review", () => {
+    const visual = VisualProductInputSchema.parse({ productType: "women's blouse" });
+    expect(hasVisualProductFamilyConflict(visual, { title: "DÔEN Adair Slide" })).toBe(true);
+    expect(hasVisualProductFamilyConflict(visual, { title: "DÔEN leather pump" })).toBe(true);
+    expect(hasVisualProductFamilyConflict(visual, { title: "DÔEN lace top", productType: "women's tops" })).toBe(false);
+  });
+
+  it("downgrades model-authored hard clues and removes inferred negative constraints", () => {
+    const governed = enforceVisualEvidenceAuthority(VisualProductInputSchema.parse({
+      productType: "women's dress",
+      hardClues: ["square neckline", "maxi length"],
+      softClues: ["heather gray"],
+      negativeClues: ["long sleeves"]
+    }));
+
+    expect(governed.hardClues).toBeUndefined();
+    expect(governed.negativeClues).toBeUndefined();
+    expect(governed.softClues).toEqual(["heather gray", "square neckline", "maxi length"]);
+  });
+
+  it("keeps product family and two structural details in the one relaxed visual search", () => {
     const relaxed = relaxVisualProductInput({
       brand: "DÔEN",
       productType: "women's mini dress",
@@ -34,7 +56,10 @@ describe("visual product discovery", () => {
       materials: ["lace"],
       patterns: ["horizontal lace bands"],
       styleClues: ["romantic vintage"],
-      hardClues: ["boat neck", "cap sleeves"]
+      neckline: "boat neck",
+      sleeveType: "cap sleeves",
+      distinctiveDetails: ["horizontal shirred tiers", "scalloped lace hem", "decorative buttons"],
+      hardClues: ["black lace"]
     });
 
     expect(relaxed).toMatchObject({
@@ -43,11 +68,14 @@ describe("visual product discovery", () => {
       colors: [],
       materials: [],
       patterns: [],
-      styleClues: []
+      styleClues: [],
+      distinctiveDetails: ["horizontal shirred tiers", "scalloped lace hem"]
     });
     expect(visualOfficialStoreSearchQueries(relaxed)).toEqual([
-      { stage: "FULL", query: "mini dress" },
-      { stage: "CORE", query: "dress" }
+      { stage: "FULL", query: "mini dress smocked lace" },
+      { stage: "CORE", query: "dress smocked lace" },
+      { stage: "SYNONYM", query: "dress shirred lace" },
+      { stage: "CATEGORY", query: "dress" }
     ]);
   });
 
@@ -85,6 +113,19 @@ describe("visual product discovery", () => {
         "wide ruffled mini hem"
       ]
     }).styleClues).toHaveLength(7);
+  });
+
+  it("accepts concise observation evidence above 100 characters but still rejects local image paths", () => {
+    const evidence = "A broad layered ruffle crosses the chest and is finished with lace; a bow tie is visible at center front.";
+    expect(evidence).toHaveLength(105);
+    expect(VisualProductInputSchema.parse({
+      productType: "blouse",
+      observations: [{ attribute: "detail", value: "ruffle and bow", confidence: 0.97, evidence }]
+    }).observations?.[0]?.evidence).toBe(evidence);
+    expect(() => VisualProductInputSchema.parse({
+      imageUrl: "C:\\Users\\chris\\AppData\\Local\\Temp\\reference.png",
+      productType: "blouse"
+    })).toThrow();
   });
 
   it("keeps direct observations separate from lower-confidence inferences", () => {
@@ -307,6 +348,44 @@ describe("visual product discovery", () => {
     expect(queries).toContainEqual({ stage: "CORE", query: "dress floral smocked cream" });
     expect(queries).toContainEqual({ stage: "SYNONYM", query: "dress floral shirred cream" });
     expect(queries.filter((attempt) => attempt.stage === "SYNONYM")).toHaveLength(1);
+  });
+
+  it("adds the official long-slip vocabulary for a fitted square-neck maxi dress", () => {
+    const queries = visualOfficialStoreSearchQueries({
+      brand: "SKIMS",
+      productType: "women's dress",
+      colors: ["heather gray"],
+      materials: [],
+      patterns: ["solid"],
+      styleClues: [],
+      silhouette: "fitted column bodycon",
+      length: "maxi",
+      neckline: "square neck",
+      sleeveType: "sleeveless"
+    });
+
+    expect(queries).toContainEqual({ stage: "SYNONYM", query: "dress long slip lounge" });
+  });
+
+  it("keeps distinctive neckline, sleeve, tie, ruffle, and slit structure in official queries", () => {
+    const queries = visualOfficialStoreSearchQueries({
+      productType: "women's dress",
+      colors: ["ivory"],
+      materials: [],
+      patterns: [],
+      styleClues: [],
+      neckline: "off-shoulder sweetheart neckline",
+      sleeveType: "flutter sleeves",
+      distinctiveDetails: ["ruffled center-front tie", "side slit"]
+    });
+    const combined = queries.map((attempt) => attempt.query).join(" ");
+
+    expect(combined).toContain("sweetheart neck");
+    expect(combined).toContain("off shoulder");
+    expect(combined).toContain("flutter sleeve");
+    expect(combined).toContain("ruffle");
+    expect(combined).toContain("tie front");
+    expect(combined).toContain("slit");
   });
 
   it("does not use an obscured strap or sleeve as official-search evidence", () => {

@@ -5,7 +5,7 @@ const VisualObservationSchema = z.object({
   attribute: VisualTextSchema,
   value: VisualTextSchema,
   confidence: z.number().min(0).max(1),
-  evidence: VisualTextSchema.optional()
+  evidence: z.string().trim().min(1).max(240).optional()
 }).strict();
 const HttpsEvidenceUrlSchema = z.string().url().max(4_096).refine((value) => {
   const url = new URL(value);
@@ -80,11 +80,36 @@ export function isVisualAttributeOccluded(visual: VisualProductInput, attribute:
 }
 
 export function relaxVisualProductInput(visual: VisualProductInput): VisualProductInput {
+  const structuralDetails = unique([
+    ...(visual.distinctiveDetails ?? []).filter((detail) => !isVisualAttributeOccluded(visual, detail)),
+    isVisualAttributeOccluded(visual, "NECKLINE") ? undefined : visual.neckline,
+    isVisualAttributeOccluded(visual, "SLEEVE") ? undefined : visual.sleeveType,
+    visual.closure,
+    visual.collar,
+    isVisualAttributeOccluded(visual, "SILHOUETTE") ? undefined : visual.silhouette,
+    isVisualAttributeOccluded(visual, "WAIST") ? undefined : visual.waist,
+    visual.hem,
+    isVisualAttributeOccluded(visual, "LENGTH") ? undefined : visual.length
+  ]).slice(0, 2);
   return VisualProductInputSchema.parse({
     ...(visual.brand === undefined ? {} : { brand: visual.brand }),
     ...(visual.logoText === undefined ? {} : { logoText: visual.logoText }),
     ...(visual.modelOrStyleNumber === undefined ? {} : { modelOrStyleNumber: visual.modelOrStyleNumber }),
-    ...(visual.productType === undefined ? {} : { productType: relaxedProductType(visual.productType) })
+    ...(visual.productType === undefined ? {} : { productType: relaxedProductType(visual.productType) }),
+    ...(structuralDetails.length === 0 ? {} : { distinctiveDetails: structuralDetails })
+  });
+}
+
+export function enforceVisualEvidenceAuthority(visual: VisualProductInput): VisualProductInput {
+  const {
+    hardClues = [],
+    negativeClues: _negativeClues,
+    softClues = [],
+    ...observed
+  } = visual;
+  return VisualProductInputSchema.parse({
+    ...observed,
+    softClues: unique([...softClues, ...hardClues]).slice(0, 12)
   });
 }
 
@@ -106,11 +131,14 @@ const ALIAS_GROUPS = [
   ["shorts", "boy short", "boy shorts", "短裤"],
   ["jeans", "denim pants", "牛仔裤"],
   ["t shirt", "tshirt", "tee", "tees", "short sleeve top", "short sleeve shirt", "短袖", "t恤"],
-  ["shirt", "shirts", "衬衫"],
+  ["shirt", "shirts", "blouse", "blouses", "衬衫"],
   ["top", "tops", "上衣"],
   ["jacket", "jackets", "夹克", "外套"],
   ["coat", "coats", "大衣", "风衣"],
-  ["shoe", "shoes", "footwear", "鞋", "鞋子"],
+  [
+    "shoe", "shoes", "footwear", "slide", "slides", "sandal", "sandals", "pump", "pumps",
+    "heel", "heels", "loafer", "loafers", "mule", "mules", "鞋", "鞋子"
+  ],
   ["ballet flat", "ballet flats", "flat", "flats", "芭蕾舞鞋", "平底鞋"],
   ["sneaker", "sneakers", "trainer", "trainers", "运动鞋", "球鞋"],
   ["boot", "boots", "靴", "靴子"],
@@ -233,6 +261,14 @@ export function classifyVisualProduct(
   return undefined;
 }
 
+export function hasVisualProductFamilyConflict(
+  visual: VisualProductInput,
+  candidate: CandidateEvidence
+): boolean {
+  return visual.productType !== undefined &&
+    productTypeStatus(visual.productType, candidateText(candidate, false)) === "CONTRADICTED";
+}
+
 export function visualSearchTerms(visual: VisualProductInput): string[] {
   const details = unique([
     ...(visual.hardClues ?? []).filter((clue) => !isVisualAttributeOccluded(visual, clue)),
@@ -287,7 +323,10 @@ export function visualOfficialStoreSearchQueries(visual: VisualProductInput): Vi
     ...descriptors
   ]).slice(0, 6);
   const coreDetails = unique([...descriptors, searchTerm((visual.colors ?? [])[0])]).slice(0, 3);
-  const synonymDetails = officialVisualSynonymDetails(coreDetails);
+  const synonymDetails = officialVisualSynonymDetails(unique([
+    ...descriptors,
+    searchTerm((visual.colors ?? [])[0])
+  ]));
   const queries: VisualOfficialStoreQuery[] = [
     {
       stage: "FULL",
@@ -330,11 +369,19 @@ function officialVisualDescriptors(evidence: string[]): string[] {
     [/\bcap[\s-]*sleeve/u, "cap sleeve"],
     [/\b(?:boat|bateau)[\s-]*(?:neck|neckline)?\b/u, "boat neck"],
     [/\bsquare[\s-]*(?:neck|neckline)\b/u, "square neck"],
+    [/\bsweetheart[\s-]*(?:neck|neckline)?\b/u, "sweetheart neck"],
     [/\bv[\s-]*(?:neck|neckline)\b/u, "v neck"],
     [/\bscoop[\s-]*(?:neck|neckline)\b/u, "scoop neck"],
+    [/\boff[\s-]*(?:the[\s-]*)?shoulder\b/u, "off shoulder"],
     [/\blong[\s-]*sleeve/u, "long sleeve"],
     [/\bshort[\s-]*sleeve/u, "short sleeve"],
+    [/\bflutter[\s-]*sleeve/u, "flutter sleeve"],
     [/\bsleeveless\b/u, "sleeveless"],
+    [/\bruffl(?:e|ed|es|ing)\b/u, "ruffle"],
+    [/\b(?:tie[\s-]*front|front[\s-]*tie|center[\s-]*front[\s-]*tie)\b/u, "tie front"],
+    [/\b(?:side|front|thigh|leg)?[\s-]*slit\b/u, "slit"],
+    [/\bgathered[\s-]*bust\b/u, "gathered bust"],
+    [/\bempire[\s-]*(?:seam|waist)\b/u, "empire waist"],
     [/\bbodycon\b/u, "bodycon"],
     [/\bcolumn\b/u, "column"],
     [/\ba[\s-]*line\b/u, "a line"],
@@ -347,8 +394,21 @@ function officialVisualDescriptors(evidence: string[]): string[] {
 }
 
 function officialVisualSynonymDetails(details: string[]): string[] {
-  if (!details.includes("smocked")) return [];
-  return details.map((detail) => detail === "smocked" ? "shirred" : detail);
+  if (details.includes("smocked")) {
+    return details.slice(0, 3).map((detail) => detail === "smocked" ? "shirred" : detail);
+  }
+  if (
+    details.includes("maxi") &&
+    (details.includes("square neck") || details.includes("scoop neck")) &&
+    details.some((detail) => ["slip", "spaghetti strap", "sleeveless", "bodycon", "column"].includes(detail))
+  ) {
+    return ["long slip", "lounge"];
+  }
+  if (details.includes("tie front")) {
+    return ["lace up", "ruffle", ...(details.includes("slit") ? ["slit"] : [])];
+  }
+  if (details.includes("off shoulder")) return ["bardot", "sweetheart"];
+  return [];
 }
 
 function officialSearchProductType(

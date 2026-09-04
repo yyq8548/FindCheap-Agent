@@ -99,6 +99,29 @@ describe("FindCheap v0.5.4 Shopify product matching gate", () => {
     });
   });
 
+  it("rejects dog food from a cat-food request", () => {
+    expect(classifyShopifyCandidate("cat food", {
+      title: "All-Natural Chicken Recipe dog food sample",
+      productType: "Animals & Pet Supplies"
+    })).toMatchObject({
+      status: "IRRELEVANT",
+      evidence: ["requested pet-food species does not match"]
+    });
+  });
+
+  it("rejects a charging adapter unless the request explicitly asks for an adapter", () => {
+    const candidate = {
+      title: "NACS to CCS1 Adapter compatible with Tesla",
+      productType: "EV Charging Accessories"
+    };
+
+    expect(classifyShopifyCandidate("NACS EV charger", candidate)).toMatchObject({
+      status: "IRRELEVANT",
+      evidence: ["explicit accessory does not match requested product"]
+    });
+    expect(classifyShopifyCandidate("NACS adapter", candidate).status).not.toBe("IRRELEVANT");
+  });
+
   it("still rejects a non-laptop Apple product from a MacBook laptop query", () => {
     expect(classifyShopifyCandidate("Apple MacBook Pro laptop", {
       title: "Apple iPad Pro 14-inch",

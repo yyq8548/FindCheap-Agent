@@ -86,6 +86,15 @@ describe("product recommendation", () => {
     });
   });
 
+  it("does not claim a lower price when equal-fit products have the same price", () => {
+    const decision = choosePrimaryRecommendation([
+      product({ title: "Same price A", presentationGroup: "OFFICIAL_STORE", price: 190_000 }),
+      product({ title: "Same price B", presentationGroup: "TRUSTED_MATCH", price: 190_000 })
+    ]);
+
+    expect(decision.reasonCodes).not.toContain("LOWER_PRICE");
+  });
+
   it("never recommends an independently unverified merchant", () => {
     const decision = choosePrimaryRecommendation([
       product({

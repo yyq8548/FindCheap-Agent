@@ -57,7 +57,14 @@ export function highVarianceClarification(input: SearchProductsInput): {
   evidence: string;
 } | undefined {
   if (input.comparisonMode !== "DISCOVERY" || input.visualInput !== undefined) return undefined;
-  const searchable = [input.query, input.productType, ...input.requiredFeatures, ...input.preferences]
+  const searchable = [
+    input.query,
+    input.productType,
+    input.requiredSize,
+    input.preferredSize,
+    ...input.requiredFeatures,
+    ...input.preferences
+  ]
     .filter((value): value is string => value !== undefined)
     .join(" ");
   const rule = HIGH_VARIANCE_RULES.find((candidate) => candidate.terms.test(searchable));
@@ -66,7 +73,12 @@ export function highVarianceClarification(input: SearchProductsInput): {
   const missing: Array<"budget" | "use" | "size"> = [];
   if (input.maxItemPriceCents === undefined && !input.budgetFlexible) missing.push("budget");
   if (input.primaryUse === undefined) missing.push("use");
-  if (rule.requiresSize && input.preferredSize === undefined && !SIZE_PATTERN.test(searchable)) missing.push("size");
+  if (
+    rule.requiresSize &&
+    input.requiredSize === undefined &&
+    input.preferredSize === undefined &&
+    !SIZE_PATTERN.test(searchable)
+  ) missing.push("size");
   if (missing.length === 0) return undefined;
 
   const chinese = input.responseLocale === "zh-CN" ||
@@ -102,7 +114,15 @@ export function choosePrimaryRecommendation(products: RecommendationProduct[]): 
   ];
   if (selected.product.merchantTrust.verification === "INDEPENDENT") reasonCodes.push("TRUSTED_MERCHANT");
   const peers = eligible.filter(({ product }) => sameFit(product, selected.product));
-  if (peers.length > 1 && price(selected.product) === Math.min(...peers.map(({ product }) => price(product)))) {
+  const peerPrices = peers.map(({ product }) => product.itemPrice?.amountCents);
+  const selectedPrice = selected.product.itemPrice?.amountCents;
+  if (
+    peers.length > 1 &&
+    peerPrices.every((value): value is number => value !== undefined) &&
+    selectedPrice !== undefined &&
+    selectedPrice === Math.min(...peerPrices) &&
+    peerPrices.some((value) => value > selectedPrice)
+  ) {
     reasonCodes.push("LOWER_PRICE");
   } else if (selected.product.coupons.verified.length > 0) {
     reasonCodes.push("VERIFIED_COUPON");

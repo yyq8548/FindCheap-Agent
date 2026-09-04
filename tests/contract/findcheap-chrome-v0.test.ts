@@ -56,7 +56,14 @@ describe("FindCheap Agent plugin contract", () => {
     expect(skill).toContain("Call `search_products` exactly once");
     expect(skill).toContain("`quote_selected_shopify_product`");
     expect(skill).toContain("`inspect_selected_shopify_product`");
-    expect(skill).toContain("`search_products` is forbidden for that follow-up");
+    expect(skill).toContain("`search_products` is forbidden; never title-search");
+    expect(skill).toContain("using same-snapshot IDs");
+    expect(skill).toContain("never call with `[]`");
+    expect(skill).toContain("`compare_selected_products`");
+    expect(skill).toContain("`quote_and_compare_selected_products`");
+    expect(skill).toContain("`AUTO`");
+    expect(skill).toContain("Server owns facts/prices/recommendation");
+    expect(skill).toContain("never create a manual table or call `render_product_comparison`");
     expect(skill).toContain("Never describe `UNKNOWN` condition as new");
     expect(skill).toContain("`status: OK`, `coverage: COMPLETE`, and `products.length === 0`");
     expect(skill).toContain("partial coverage, unavailable data, malformed response, timeout");
@@ -67,7 +74,7 @@ describe("FindCheap Agent plugin contract", () => {
     expect(skill).toContain("`variantDimensions`");
     expect(skill).toContain("Text: `limit: 8`");
     expect(skill).toContain("call `search_visual_candidates` once");
-    expect(skill).toContain("`visualReview.stage: RELAXED_REVIEW`");
+    expect(skill).toContain("`visualReview.finalAnswerAllowed=false`");
     expect(skill).toContain("Never third review");
     expect(skill).toContain("Price ceilings use integer cents");
     expect(skill).toContain("must-haves in `requiredFeatures`");
@@ -84,9 +91,9 @@ describe("FindCheap Agent plugin contract", () => {
     expect(skill).toContain("MERCHANT_DIVERSE");
     expect(skill).toContain("Preserve returned order");
     expect(skill).toContain("[chrome-fallback.md](references/chrome-fallback.md)");
-    expect(skill).toContain("Do not duplicate every card field");
+    expect(skill).toContain("repeat every card field");
     expect(skill).toContain("Every live shopping request is self-contained");
-    expect(skill).toContain("Added budget, use, size, or constraints");
+    expect(skill).toContain("Added budget/use/size/constraints");
     expect(skill).toContain("Different goal or explicit “no”: `NEW_PRODUCT`");
     expect(skill).toContain("New image: `NEW_PRODUCT`");
     expect(skill).toContain("selected-product tools forbidden that turn");
@@ -98,15 +105,15 @@ describe("FindCheap Agent plugin contract", () => {
     expect(skill).toContain("cards are research leads; recommend none for purchase");
     expect(skill).toContain("Never recommend products absent from cards");
     expect(skill).toContain("`Searching for suitable products.`");
-    expect(skill).toContain("Match current-message language before any prose/tool");
-    expect(skill).toContain("keep product names, brands, models unchanged");
+    expect(skill).toContain("Match current-message language via `responseLocale`");
+    expect(skill).toContain("preserve product names/brands/models");
     expect(skill).toContain("`正在搜索合适商品。`");
-    expect(skill).toContain("description: Live shopping. Before any prose/tool, use current user-message language");
+    expect(skill).toContain("description: Live shopping. Initial search:");
     expect(skill).toContain("After load, no further Skill/reference file except eligible Chrome fallback");
     expect(skill).toContain("“Skill requires” wording");
     expect(skill).toContain("trust does not prove brand authorization");
     expect(skill).toContain("For `MERCHANT_CHECKOUT_ONLY`, do not ask for ZIP");
-    expect(skill).toContain("never describe multiple products from one merchant as merchant-diverse");
+    expect(skill).toContain("never call one merchant diverse");
     expect(skill).toContain("capable shopping friend, not sales copy");
     expect(skill).toContain("max two reasons, one next step/limit");
     expect(skill).toContain("No greeting/emoji/invented savings or fit");
@@ -138,8 +145,9 @@ describe("FindCheap Agent plugin contract", () => {
   it("keeps merchant-wide Coupon requests broader than Agent-suggested products", async () => {
     const skill = await readFile(watchSkillPath, "utf8");
 
-    expect(skill).toContain("Pass `productQuery` only when current user explicitly names that product");
-    expect(skill).toContain("never narrow merchant-wide request using Agent suggestions or an earlier category");
+    expect(skill).toContain("Pass `productQuery` only when the user names that product");
+    expect(skill).toContain("cannot discard merchant-wide offers");
+    expect(skill).toContain("Joined Awin merchant does not imply an active offer");
   });
 
   it("keeps selected-product Coupon answers concise and scope-aware", async () => {
@@ -205,12 +213,12 @@ describe("FindCheap Agent plugin contract", () => {
     };
 
     expect(manifest.name).toBe("findcheap-agent");
-    expect(manifest.version).toMatch(/^0\.16\.6(?:\+codex\.)?/u);
+    expect(manifest.version).toMatch(/^0\.17\.6(?:\+codex\.)?/u);
     expect(manifest.interface.displayName).toBe("FindCheap Agent");
     expect(manifest.interface.longDescription).toMatch(/Codex Plugin Agent/u);
     expect(manifest.interface.longDescription).toMatch(/[Aa]uthorized.*Chrome/u);
     expect(manifest.interface.defaultPrompt).toEqual([
-      "User language only. EN: \"Searching for suitable products.\" ZH: \"正在搜索合适商品。\" Then tool. No plan/Memory/repo."
+      "Initial only after Skill: EN \"Searching for suitable products.\"; ZH \"正在搜索合适商品。\". No selected search line."
     ]);
     expect(new TextEncoder().encode(manifest.interface.defaultPrompt[0]).length).toBeLessThanOrEqual(128);
   });

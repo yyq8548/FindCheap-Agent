@@ -182,11 +182,13 @@ export function createAwinOffersController(
       if (parsed.channel === "IN_STORE") return { deals: [] };
       const merchant = canonicalText(parsed.merchant);
       const productQuery = parsed.productQuery === undefined ? undefined : canonicalText(parsed.productQuery);
+      const merchantDeals = state.deals.filter((deal) => canonicalText(deal.merchant) === merchant);
+      if (productQuery !== undefined) merchantDeals.sort((left, right) =>
+        Number(canonicalText(`${right.title} ${right.description}`).includes(productQuery)) -
+        Number(canonicalText(`${left.title} ${left.description}`).includes(productQuery))
+      );
       return {
-        deals: state.deals.filter((deal) =>
-          canonicalText(deal.merchant) === merchant &&
-          (productQuery === undefined || canonicalText(`${deal.title} ${deal.description}`).includes(productQuery))
-        ).slice(0, 200)
+        deals: merchantDeals.slice(0, 200)
       };
     }
   };
