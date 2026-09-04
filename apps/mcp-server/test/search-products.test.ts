@@ -1058,7 +1058,10 @@ describe("unified product search", () => {
       limit: 3,
       selectionMode: "LOWEST_PRICE"
     }), {
-      awin: awin([awinProduct("1", 3000)]),
+      awin: awin([awinProduct("1", 3000, {
+        title: "Awin headphones 1",
+        category: "Headphones"
+      })]),
       ebay: ebay([ebayProduct("1", 900)]),
       shopify: shopify([shopifyProduct("101", 1200)])
     });
@@ -1120,6 +1123,42 @@ describe("unified product search", () => {
       brand: "Nextrition Pet",
       brandMode: "REQUIRED"
     }))).toBe("EXACT_PRODUCT");
+  });
+
+  it("keeps whole wigs while excluding wig accessories and wiggle substring matches", async () => {
+    const result = await searchProducts(SearchProductsInputSchema.parse({
+      query: "wig",
+      productType: "wig",
+      comparisonMode: "DISCOVERY",
+      selectionMode: "MERCHANT_DIVERSE",
+      limit: 8
+    }), {
+      awin: awin([
+        awinProduct("tape", 1290, {
+          merchant: "Ishow Hair",
+          title: "Invisible Hair Wig Tape Double Adhesive Extension Tape",
+          category: "Hair Accessories > Wigs"
+        }),
+        awinProduct("wig", 3641, {
+          merchant: "Ishow Hair",
+          title: "Ishow Short Human Hair Wigs Finger Wave Virgin Remy Hair Wig",
+          category: "Wigs"
+        }),
+        awinProduct("adult", 3999, {
+          merchant: "Shenzhen Zhuole E-commerce Co., Ltd",
+          title: "Realistic Dildo Sex Machine with Wiggle-Vibration",
+          category: "Uncategorized"
+        })
+      ]),
+      shopify: shopify([])
+    });
+
+    expect(result.candidates).toHaveLength(1);
+    expect(result.candidates[0]).toMatchObject({
+      source: "AWIN_PRODUCT_FEED",
+      awinProduct: { merchantProductId: "wig" }
+    });
+    expect(result.identityProductsExcluded).toBeGreaterThanOrEqual(2);
   });
 
   it("keeps a verified Awin brand when the product title omits it", async () => {

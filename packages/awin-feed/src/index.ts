@@ -149,15 +149,16 @@ export function createAwinFeedIndex(compressed: Uint8Array, snapshotAt: string):
 export function searchAwinFeedIndex(index: AwinFeedIndex, rawInput: unknown): AwinSearchResult {
   const input = parseAwinSearchInput(rawInput);
   const queryTokens = tokenizeQuery(input.query);
+  const queryMatchers = queryTokens.map(searchTokenMatcher);
   const matched = index.products.filter((product) =>
-    queryTokens.every((token) => product.searchText.includes(token))
+    queryMatchers.every((matcher) => matcher.test(product.searchText))
   );
   const priceEligible = input.maxItemPriceCents === undefined
     ? matched
     : matched.filter((product) => product.itemPrice.amountCents <= input.maxItemPriceCents!);
   const products = [...priceEligible]
     .sort((left, right) =>
-      titleMatchScore(right, queryTokens) - titleMatchScore(left, queryTokens) ||
+      titleMatchScore(right, queryMatchers) - titleMatchScore(left, queryMatchers) ||
       left.itemPrice.amountCents - right.itemPrice.amountCents ||
       left.merchantProductId.localeCompare(right.merchantProductId)
     )
@@ -1179,9 +1180,27 @@ function normalizeSearchText(value: string): string {
   return value.normalize("NFKC").toLocaleLowerCase("en-US").replace(/\s+/gu, " ");
 }
 
-function titleMatchScore(product: IndexedProduct, tokens: string[]): number {
+function titleMatchScore(product: IndexedProduct, matchers: RegExp[]): number {
   const normalizedTitle = normalizeSearchText(product.title);
-  return tokens.filter((token) => normalizedTitle.includes(token)).length;
+  return matchers.filter((matcher) => matcher.test(normalizedTitle)).length;
+}
+
+function searchTokenMatcher(token: string): RegExp {
+  const variants = englishTokenVariants(token).map(escapeRegExp).join("|");
+  return new RegExp(`(?:^|[^\\p{L}\\p{N}])(?:${variants})(?=$|[^\\p{L}\\p{N}])`, "u");
+}
+
+function englishTokenVariants(token: string): string[] {
+  if (!/^[a-z]{3,}$/u.test(token)) return [token];
+  if (token.endsWith("ies") && token.length > 4) return [token, `${token.slice(0, -3)}y`];
+  if (/(?:sses|ches|shes|xes|zes)$/u.test(token)) return [token, token.slice(0, -2)];
+  if (token.endsWith("s") && !token.endsWith("ss")) return [token, token.slice(0, -1)];
+  if (/(?:s|x|z|ch|sh)$/u.test(token)) return [token, `${token}es`];
+  return [token, `${token}s`];
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

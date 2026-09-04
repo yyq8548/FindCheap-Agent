@@ -783,6 +783,18 @@ function awinCandidate(
   }
   if (!conditionMatches(product.condition, input.conditionPreference)) return undefined;
   const verifiedBrand = brand.matchEvidence.length === 0 ? undefined : input.brand;
+  const categoryRelevance = searchIntent === "CATEGORY_DISCOVERY"
+    ? classifyShopifyCandidate(identityQuery, {
+        title: product.title,
+        productType: product.category,
+        ...(verifiedBrand === undefined ? {} : { brand: verifiedBrand })
+      })
+    : undefined;
+  if (categoryRelevance?.status === "IRRELEVANT") {
+    identityExcludedKeys.add(key);
+    return undefined;
+  }
+  const categoryEvidence = categoryRelevance?.evidence ?? [];
   const identity = candidateIdentity(
     searchIntent,
     input.allowAlternatives,
@@ -817,7 +829,7 @@ function awinCandidate(
     requiredFeatureLimitations: evidence.unknown,
     verifiedCoupons: [],
     identityStatus: visualIdentityStatus(identity.status, visual),
-    identityEvidence: unique([...identity.evidence, ...brand.matchEvidence, ...(visual?.evidence ?? [])]),
+    identityEvidence: unique([...categoryEvidence, ...identity.evidence, ...brand.matchEvidence, ...(visual?.evidence ?? [])]),
     resultGroup: candidateResultGroup(searchIntent, identity.status, visual),
     ...(visual === undefined ? {} : {
       visualMatchGroup: visual.group,
@@ -826,12 +838,13 @@ function awinCandidate(
     }),
     awinProduct: evidence.unknown.length === 0 ? {
       ...product,
-      matchEvidence: unique([...product.matchEvidence, ...identity.evidence, ...brand.matchEvidence, ...(visual?.evidence ?? [])])
+      matchEvidence: unique([...product.matchEvidence, ...categoryEvidence, ...identity.evidence, ...brand.matchEvidence, ...(visual?.evidence ?? [])])
     } : {
       ...product,
       matchStatus: "DISCOVERY_MATCH",
       matchEvidence: unique([
         ...product.matchEvidence,
+        ...categoryEvidence,
         ...identity.evidence,
         ...brand.matchEvidence,
         ...(visual?.evidence ?? []),

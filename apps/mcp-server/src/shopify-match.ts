@@ -52,6 +52,7 @@ const CATEGORY_GROUPS = [
   { terms: ["water", "waters"], productTypeOnly: true },
   { terms: ["bracelet", "bracelets", "bangle", "bangles"] },
   { terms: ["sheet", "sheets", "bedding"] },
+  { terms: ["wig", "wigs", "hairpiece", "hairpieces", "toupee", "toupees"] },
   {
     terms: ["dogfood", "catfood", "petfood", "kibble"],
     candidateEvidenceTerms: ["animal", "animals", "dog", "dogs", "cat", "cats", "canine", "feline", "pet", "pets"]
@@ -74,6 +75,12 @@ const ACCESSORY_TERMS = new Set([
   "strap"
 ]);
 const EXPLICIT_ACCESSORY_TERMS = new Set(["adapter"]);
+const WIG_CATEGORY_TERMS = new Set(["wig", "wigs", "hairpiece", "hairpieces", "toupee", "toupees"]);
+const WIG_ACCESSORY_TERMS = new Set(["tape", "adhesive", "band", "bands", "cap", "caps", "grip", "glue", "remover", "stand", "stands"]);
+const WIG_ACCESSORY_PATTERNS = [
+  /\b(?:wigs?|hairpieces?|toupees?)\s+(?:tape|adhesive|bands?|caps?|grip|glue|remover|stands?)\b/u,
+  /\b(?:tape|adhesive|bands?|caps?|grip|glue|remover|stands?)\s+(?:for\s+)?(?:lace\s+)?(?:wigs?|hairpieces?|toupees?)\b/u
+];
 const CONDITION_TERMS = new Set(["box", "open", "preowned", "reconditioned", "refurbished", "renewed", "resale", "used"]);
 const GENERIC_IDENTITY_TERMS = new Set([
   ...IGNORED_QUERY_TERMS,
@@ -147,6 +154,9 @@ export function classifyShopifyCandidate(
     candidate.sku,
     candidate.handle
   ].filter((value): value is string => value !== undefined).join(" ")));
+  if (isUnrequestedWigAccessory(queryTokens, candidate.title)) {
+    return irrelevant("wig accessory does not match requested wig");
+  }
   if (
     [...EXPLICIT_ACCESSORY_TERMS].some((term) => primaryIdentityTokens.has(term)) &&
     !queryTokens.some((term) => EXPLICIT_ACCESSORY_TERMS.has(term))
@@ -286,7 +296,15 @@ function containsContiguousIdentity(tokens: readonly string[], identity: string)
 }
 
 function tokenize(value: string): string[] {
-  return (value.normalize("NFKD").replace(/\p{M}+/gu, "").toLocaleLowerCase("en-US")
+  const translated = value.normalize("NFKD").replace(/\p{M}+/gu, "").toLocaleLowerCase("en-US")
+    .replaceAll("假发", " wig ")
+    .replaceAll("护发", " hair care ")
+    .replaceAll("角蛋白", " keratin ")
+    .replaceAll("洗发水", " shampoo ")
+    .replaceAll("护发素", " conditioner ")
+    .replaceAll("发膜", " hair mask ")
+    .replaceAll("拉直", " straightening ");
+  return (translated
     .replace(/\b(?:dog|canine)\s+food\b/gu, " dogfood ")
     .replace(/\b(?:cat|feline)\s+food\b/gu, " catfood ")
     .replace(/\bpet\s+food\b/gu, " petfood ")
@@ -294,6 +312,13 @@ function tokenize(value: string): string[] {
     .map((token) => /^\d+(?:st|nd|rd|th)$/u.test(token) ? token.replace(/(?:st|nd|rd|th)$/u, "") : token)
     .map((token) => token === "generation" ? "gen" : token)
     .map((token) => token === "gray" ? "grey" : token === "onyx" ? "black" : token);
+}
+
+function isUnrequestedWigAccessory(queryTokens: readonly string[], title: string): boolean {
+  if (!queryTokens.some((token) => WIG_CATEGORY_TERMS.has(token))) return false;
+  if (queryTokens.some((token) => WIG_ACCESSORY_TERMS.has(token))) return false;
+  const normalizedTitle = tokenize(title).join(" ");
+  return WIG_ACCESSORY_PATTERNS.some((pattern) => pattern.test(normalizedTitle));
 }
 
 function hasPetFoodSpeciesConflict(
