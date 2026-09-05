@@ -29,6 +29,7 @@ import {
 } from "./merchant-trust.js";
 import type { MerchantRecommendationTier } from "./merchant-trust.js";
 import { evaluateProductRequirements, normalizedSizeRequirement, type RequirementAssessment, type RequirementProduct } from "./product-requirements.js";
+import { functionalQueryFeatures } from "./functional-requirements.js";
 import { isColorRequirement } from "./product-constraint-matcher.js";
 import type { ShopifySelectedProductInspector } from "./shopify-selected-product.js";
 import {
@@ -231,6 +232,7 @@ export const CodexVisualVerdictSchema = z.object({
 export type CodexVisualVerdict = z.infer<typeof CodexVisualVerdictSchema>;
 
 export type UnifiedSearchExecution = {
+  webRecovery?: { submitted: number; verified: number; rejected: number; unavailable: number };
   searchRun?: SearchRun;
   reviewPool?: UnifiedCandidate[];
   candidates: UnifiedCandidate[];
@@ -241,6 +243,7 @@ export type UnifiedSearchExecution = {
     awin: "SKIPPED" | "COMPLETE" | "UNAVAILABLE";
     shopify: "SKIPPED" | "COMPLETE" | "PARTIAL" | "UNAVAILABLE";
     ebay: "SKIPPED" | "COMPLETE" | "UNAVAILABLE";
+    web?: "COMPLETE" | "PARTIAL";
   };
   sourceErrors?: {
     awin?: "DATA_SOURCE_UNAVAILABLE";
@@ -760,7 +763,7 @@ export async function searchProducts(
     shopifyStatus !== "PARTIAL" &&
     officialStoreFallback.status !== "PARTIAL" && officialStoreFallback.status !== "UNAVAILABLE";
   const chromeFallbackEligible =
-    candidates.length === 0 &&
+    (input.visualInput === undefined ? countDisplayEligibleCandidates(candidates, input.allowAlternatives) === 0 : candidates.length === 0) &&
     !searchRun.diagnostics().budgetExhausted &&
     queriedSourcesComplete &&
     searchPasses === 2;
@@ -792,6 +795,40 @@ export async function searchProducts(
     searchIntent,
     chromeFallbackEligible
   };
+}
+
+/** URL intake shares the normal requirement, identity, trust and ranking gates.
+ * It never invokes another catalog pass or promotes browser assertions. */
+export function evaluateRecoveredProducts(request: SearchProductsInput, products: ShopifyProduct[], partial: boolean): UnifiedSearchExecution {
+  const input = { ...request,
+    // Recovery inherits the typed condition even when the compact identity
+    // query omits it. Never broaden an already snapshot-bound constraint.
+    conditionPreference: request.conditionPreference,
+    requiredFeatures: unique([...request.requiredFeatures, ...(request.featureMode === "REQUIRED" ? request.features : [])])
+      .filter(feature => !isPackagingOnlyConstraint(feature)),
+    excludedFeatures: unique([...request.excludedFeatures, ...inferredPackagingExclusions(request)]) };
+  const query = stripPreferredSizeFromIdentity(stripPrimaryUseFromIdentity(
+    stripRequiredFeaturesFromQuery(productOnlyQuery(input.query, input.maxItemPriceCents !== undefined), input.requiredFeatures),
+    input.primaryUse), input.requiredSize ?? input.preferredSize);
+  const searchIntent = resolveSearchIntent({ ...input, query });
+  const identityQuery = input.brand !== undefined && !containsBrand(query, input.brand) ? `${input.brand} ${query}` : query;
+  const features = new Set<string>(), brands = new Set<string>(), identities = new Set<string>(), visuals = new Set<string>();
+  const candidates = products.flatMap(product => {
+    if (product.availability === "OUT_OF_STOCK" || product.sourceKind !== "WEB_PRODUCT_PAGE") return [];
+    const identity = classifyShopifyCandidate(searchIntent === "EXACT_PRODUCT" ? identityQuery : input.productType ?? query, product);
+    if (identity.status === "IRRELEVANT" || (identity.status === "SIMILAR" && !input.allowAlternatives)) {
+      identities.add(productReferenceKey(product)); return [];
+    }
+    const candidate = shopifyCandidate({ ...product, matchStatus: identity.status }, input, searchIntent, identityQuery,
+      features, brands, identities, visuals);
+    return candidate === undefined ? [] : [candidate];
+  }).sort(compareRankedCandidates);
+  return { candidates: selectPresentationCandidates(candidates, input.selectionMode, input.allowAlternatives, false,
+    input.brand !== undefined).slice(0, Math.min(input.limit, 3)),
+    sourceStatus: { awin: "SKIPPED", shopify: "SKIPPED", ebay: "SKIPPED", web: partial ? "PARTIAL" : "COMPLETE" },
+    searchPasses: 1, sourcePassDiagnostics: [], featureProductsExcluded: features.size, brandProductsExcluded: brands.size,
+    identityProductsExcluded: identities.size, visualProductsExcluded: 0,
+    officialStoreFallback: { status: "NOT_USED", productsReturned: 0 }, searchIntent, chromeFallbackEligible: false };
 }
 
 function visualResultGroup(group: VisualMatchGroup): CandidateBase["resultGroup"] {
@@ -1241,7 +1278,7 @@ function buildExpandedQuery(
     ...input.preferences,
     ...(input.featureMode === "PREFERRED" ? input.features : [])
   ]);
-  const parts = [buildSourceQuery(input), ...requiredFeatures, ...preferences]
+  const parts = [buildSourceQuery(input), ...functionalQueryFeatures(requiredFeatures), ...preferences]
     .map((part) => part.normalize("NFKC").trim())
     .filter((part, index, values) => part !== "" && values.indexOf(part) === index);
   return parts.join(" ").slice(0, 300).trim();

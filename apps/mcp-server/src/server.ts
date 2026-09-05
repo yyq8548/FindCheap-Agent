@@ -12,6 +12,9 @@ import { buildVisualRetrievalQuery } from "./visual-retrieval-query.js";
 import { assessVisualVerdict, hasAdmissibleVisualConflict } from "./visual-review-policy.js";
 import { researchRecommendationMessage } from "./recommendation-message.js";
 import { searchDiagnostics, type SearchOutcome } from "./search-diagnostics.js";
+import { textSearchRecovery, TextSearchRecoverySchema } from "./text-search-recovery.js";
+import { WebRecoverySessions, WebProductUrlSchema, WEB_SEARCH_LIMITS, webSearchQueries, readWebCandidates, type WebProductPagePort } from "./web-product-recovery.js";
+import { evaluateRecoveredProducts } from "./search-products.js";
 import { createExecutedToolRegistrar } from "./execution/tool-registry.js";
 import {
   ProductComparisonInputSchema,
@@ -554,7 +557,7 @@ const ShopifySelectedProductOutputShape = {
 };
 
 const ShopifyProductOutputSchema = z.object({
-  sourceKind: z.enum(["AWIN_PRODUCT_FEED", "SHOPIFY_GLOBAL_CATALOG", "EBAY_BROWSE"]).optional(),
+  sourceKind: z.enum(["AWIN_PRODUCT_FEED", "SHOPIFY_GLOBAL_CATALOG", "EBAY_BROWSE", "WEB_PRODUCT_PAGE"]).optional(),
   sourceEnvironment: z.enum(["PRODUCTION", "SANDBOX"]).optional(),
   affiliateState: z.enum(["APPROVED", "NONE"]).optional(),
   featureEvidence: z.array(z.string()).optional(),
@@ -727,6 +730,7 @@ const ShopifyProductOutputSchema = z.object({
 });
 
 const ShopifyProductsOutputShape = {
+  recovery: TextSearchRecoverySchema.optional(),
   renderId: z.string().uuid().optional(),
   requirementsVersion: z.number().int().positive().optional(),
   retrieval: z.object({
@@ -746,7 +750,8 @@ const ShopifyProductsOutputShape = {
   sources: z.object({
     awin: z.enum(["SKIPPED", "COMPLETE", "UNAVAILABLE"]),
     shopify: z.enum(["SKIPPED", "COMPLETE", "PARTIAL", "UNAVAILABLE"]),
-    ebay: z.enum(["SKIPPED", "COMPLETE", "UNAVAILABLE"])
+    ebay: z.enum(["SKIPPED", "COMPLETE", "UNAVAILABLE"]),
+    web: z.enum(["COMPLETE", "PARTIAL"]).optional()
   }).optional(),
   searchIntent: z.enum(["EXACT_PRODUCT", "CATEGORY_DISCOVERY", "VISUAL_DISCOVERY"]).optional(),
   sourceErrors: z.object({
@@ -1005,7 +1010,7 @@ function shopifyResult(
       diagnostics: result.diagnostics,
       questions: result.questions,
       products: linkedProducts.map(({ product, purchaseLink }) => ({
-        sourceKind: "SHOPIFY_GLOBAL_CATALOG" as const,
+        sourceKind: product.sourceKind ?? "SHOPIFY_GLOBAL_CATALOG" as const,
         affiliateState: purchaseLink.kind === "APPROVED_AFFILIATE" ? "APPROVED" as const : "NONE" as const,
         featureEvidence: [],
         ...product,
@@ -1142,7 +1147,7 @@ function unifiedResult(
     const card = shopifyCards.get(productReferenceKey(candidate.shopifyProduct));
     return card === undefined ? [] : [withVerifiedCoupons({
       ...card,
-      sourceKind: "SHOPIFY_GLOBAL_CATALOG" as const,
+      sourceKind: candidate.shopifyProduct.sourceKind ?? "SHOPIFY_GLOBAL_CATALOG" as const,
       affiliateState: card.purchaseLink.kind === "APPROVED_AFFILIATE"
         ? "APPROVED" as const
         : "NONE" as const,
@@ -1165,7 +1170,7 @@ function unifiedResult(
   const couponCount = products.reduce((count, product) => count + product.coupons.verified.length, 0);
   const unavailableSource = Object.values(execution.sourceStatus).includes("UNAVAILABLE");
   const budgetExhausted = execution.searchRun?.diagnostics().budgetExhausted === true;
-  const partialSource = execution.sourceStatus.shopify === "PARTIAL" || budgetExhausted;
+  const partialSource = Object.values(execution.sourceStatus).includes("PARTIAL") || budgetExhausted;
   const highRatedUnverifiedCount = products.filter((product) =>
     product.recommendationTier === "HIGH_RATED_UNVERIFIED"
   ).length;
@@ -1193,7 +1198,7 @@ function unifiedResult(
         )
       : localized(
           "No configured source returned a qualifying product. The user may authorize one bounded Chrome whole-web fallback.",
-          "现有来源没有返回符合要求的商品。用户可以授权一次受限的 Chrome 全网搜索。"
+          "现有来源没有返回已核实符合要求的商品。可以授权一次受限的 Chrome 全网补搜，扩大搜索范围。"
         )
     : "";
   const sourceFailureMessage = execution.sourceErrors?.shopify === "CATALOG_SCHEMA_CHANGED"
@@ -1201,6 +1206,8 @@ function unifiedResult(
         "Shopify Catalog response schema changed and could not be safely parsed. No zero-result conclusion was made; retry after the connector is updated.",
         "Shopify Catalog 返回结构发生变化，当前无法安全解析，因此不能据此判断没有商品。连接器更新后可重试。"
       )
+    : budgetExhausted || partialSource
+      ? localized("Search coverage is incomplete. This does not establish product absence.", "检索尚不完整，不能据此判断商品不存在。")
     : unavailableSource
       ? localized(
           "A configured product source is unavailable. No zero-result conclusion was made.",
@@ -1227,6 +1234,8 @@ function unifiedResult(
             )
           : researchRecommendationMessage({ productCount: products.length, merchantCount,
               reasonCodes: recommendation.reasonCodes }, locale),
+        ...(chromeAdvice === "" ? [] : [chromeAdvice]),
+        ...(sourceFailureMessage === "" ? [] : [sourceFailureMessage]),
         ...(execution.searchIntent === "VISUAL_DISCOVERY"
           ? [localized(
               "Visual results are separated into possible same item, highly similar, and same style; none is an exact identity claim without a stable product identifier.",
@@ -1820,6 +1829,7 @@ function awinUnavailableResult() {
 }
 
 export type ShoppingServerDependencies = {
+  webProducts?: WebProductPagePort;
   backend?: FindCheapBackend;
   awin?: AwinProductPort;
   ebay?: EbayBrowsePort;
@@ -1848,7 +1858,7 @@ async function enrichShopifyCartQuotes(
   if (zipCode === undefined || cartQuotes === undefined || result.products.length === 0) {
     return { result, attempted: 0, succeeded: 0 };
   }
-  const attempts = result.products.map(async (product) => ({
+  const attempts = result.products.map(async (product) => product.sourceKind === "WEB_PRODUCT_PAGE" ? product : ({
     ...product,
     cartQuote: await cartQuotes.quote(product, zipCode)
   }));
@@ -1856,7 +1866,7 @@ async function enrichShopifyCartQuotes(
   const products = settled.map((outcome, index) =>
     outcome.status === "fulfilled" ? outcome.value : result.products[index]!
   );
-  const succeeded = settled.filter((outcome) => outcome.status === "fulfilled").length;
+  const succeeded = settled.filter((outcome, index) => outcome.status === "fulfilled" && result.products[index]?.sourceKind !== "WEB_PRODUCT_PAGE").length;
   if (
     succeeded === products.length &&
     result.diagnostics.selectionPolicy === "EXACT_THEN_DISCOVERY_THEN_SIMILAR_THEN_PRICE"
@@ -1866,7 +1876,7 @@ async function enrichShopifyCartQuotes(
       (left.merchantUrl < right.merchantUrl ? -1 : left.merchantUrl > right.merchantUrl ? 1 : 0)
     );
   }
-  return { result: { ...result, products }, attempted: attempts.length, succeeded };
+  return { result: { ...result, products }, attempted: result.products.filter(product => product.sourceKind !== "WEB_PRODUCT_PAGE").length, succeeded };
 }
 
 function emptyShopifyQuality() {
@@ -2049,6 +2059,7 @@ export function createShoppingServer(
       ...(dependencies.merchantTrustRegistry === undefined ? {} : { merchantTrustRegistry: dependencies.merchantTrustRegistry })
     },
     product: {
+      ...(dependencies.webProducts === undefined ? {} : { webProducts: dependencies.webProducts }),
       affiliateLinks,
       ...(dependencies.awinShopifyQuotes === undefined ? {} : { awinShopifyQuotes: dependencies.awinShopifyQuotes }),
       ...(dependencies.cartQuotes === undefined ? {} : { cartQuotes: dependencies.cartQuotes }),
@@ -2078,6 +2089,7 @@ export function createShoppingServer(
   const executor = new ToolExecutor({ capabilities: backend.capabilities });
   const toolRegistrar = createExecutedToolRegistrar(server, executor);
   const now = dependencies.now ?? (() => new Date());
+  const webSessions = new WebRecoverySessions(() => now().getTime());
   const cardTelemetry = dependencies.cardTelemetry ?? {
     record: (event: ProductCardTelemetry) => {
       process.stderr.write(`[findcheap-product-card-metrics] ${JSON.stringify(event)}\n`);
@@ -2114,6 +2126,7 @@ export function createShoppingServer(
   }>();
   const recordedCardTelemetry = new Set<string>();
   const deleteSnapshot = (renderId: string) => {
+    webSessions.forget(renderId);
     const snapshot = renderSnapshots.get(renderId);
     if (snapshot !== undefined) {
       for (const product of snapshot.content.products) {
@@ -2320,13 +2333,16 @@ export function createShoppingServer(
       succeeded: enriched.succeeded
     });
     const returned = response.structuredContent.products.length;
-    const terminalOutcome = outcome ?? (returned > 0 ? "MATCH_FOUND"
+    const recovery = textSearchRecovery(execution, input.allowAlternatives);
+    const terminalOutcome = outcome ?? (input.visualInput === undefined && recovery.qualified === 0 && recovery.awaitingVerification > 0
+      ? "REQUIREMENTS_UNVERIFIED" : returned > 0 ? "MATCH_FOUND"
       : Object.values(execution.sourceStatus).includes("UNAVAILABLE") ? "SOURCE_UNAVAILABLE" : "NO_CANDIDATES");
     const diagnostics = searchDiagnostics(execution, terminalOutcome);
     return { response: {
       ...response,
       _meta: searchTraceMeta(execution, terminalOutcome, { returned }),
       structuredContent: { ...response.structuredContent, traceId: execution.searchRun?.traceId,
+        ...(input.visualInput === undefined ? { recovery } : {}),
         retrieval: { extent: "BOUNDED" as const, satisfied: diagnostics.requirementFunnel.satisfiedReturned,
           awaitingVerification: diagnostics.requirementFunnel.awaitingVerification, termination: diagnostics.termination } }
     }, enriched };
@@ -2637,6 +2653,75 @@ export function createShoppingServer(
       };
     }
   );
+
+  if (backend.product.webProducts !== undefined) {
+    toolRegistrar.registerTool("begin_web_search", {
+      title: "Authorize bounded web recovery",
+      description: "Only after search_products returns recovery.action=REQUEST_WEB_SEARCH. Pass that immutable renderId. The host asks the user for permission; no model boolean can grant it. Do not open Chrome until READY. Follow returned queries and limits; never reset the budget with another search_products call. Images keep the visual workflow.",
+      inputSchema: z.object({ renderId: z.string().uuid() }).strict(),
+      outputSchema: z.object({ status: z.enum(["READY", "NOT_AUTHORIZED", "PERMISSION_UNAVAILABLE"]), message: z.string(),
+        webSessionId: z.string().uuid().optional(), expiresAt: z.string().datetime().optional(), queries: z.array(z.string()).max(2).optional(),
+        limits: z.object({ durationMs: z.literal(60000), merchantPages: z.literal(5), results: z.literal(3), discoveryQueries: z.literal(2) }).optional() }).strict(),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }
+    }, async ({ renderId }) => {
+      const parent = renderSnapshots.get(renderId);
+      if (parent?.request === undefined || parent.expiresAt <= now().getTime()) return toolError("MISSING_REFERENCE_CONTEXT");
+      if (parent.request.visualInput !== undefined || parent.content.recovery?.action !== "REQUEST_WEB_SEARCH") return toolError("TOOL_REQUEST_REJECTED");
+      const zh = parent.content.locale === "zh-CN";
+      const reply = (status: "NOT_AUTHORIZED" | "PERMISSION_UNAVAILABLE", message: string) => ({
+        content: [{ type: "text" as const, text: message }], structuredContent: { status, message } });
+      const elicitation = server.server.getClientCapabilities()?.elicitation;
+      if (elicitation === undefined || (Object.keys(elicitation).length > 0 && elicitation.form === undefined)) {
+        return reply("PERMISSION_UNAVAILABLE", zh ? "当前宿主未提供用户授权接口，未启动全网补搜。现有结果不代表商品不存在。"
+          : "Host user-consent interface unavailable. Web recovery was not started; existing results do not prove absence.");
+      }
+      const queries = webSearchQueries(parent.request);
+      const lease = await webSessions.begin(renderId, async () => {
+        const answer = await server.server.elicitInput({ mode: "form",
+          message: zh ? `现有来源未找到已核实符合要求的商品。允许一次 Chrome 全网补搜吗？授权后最多 60 秒、2 次检索、5 个商家商品页；只读、不购买。检索：${queries.join(" / ")}`
+            : `Allow one Chrome web recovery? Up to 60 seconds after approval, 2 discovery queries and 5 merchant product pages. Read-only; no purchases. Queries: ${queries.join(" / ")}`,
+          requestedSchema: { type: "object", properties: { approved: { type: "boolean", title: zh ? "允许本次补搜" : "Allow this recovery", default: false } }, required: ["approved"] }
+        }, { timeout: 25_000 });
+        return answer.action === "accept" && answer.content?.approved === true;
+      });
+      if (lease === undefined) return reply("NOT_AUTHORIZED", zh ? "未获授权，或本次补搜已使用。没有启动新的检索。"
+        : "Not authorized, or this recovery was already used. No new search was started.");
+      if (renderSnapshots.get(renderId) !== parent || parent.expiresAt <= now().getTime()) {
+        webSessions.forget(renderId); return toolError("MISSING_REFERENCE_CONTEXT");
+      }
+      const message = zh ? "已获授权。用 Chrome 搜索所给查询；提交最多 5 个不同商家的直接商品链接给 complete_web_search。不得把摘要当作价格或功效证据；到期即停。"
+        : "Authorized. Discover with Chrome using the supplied queries; submit up to 5 direct product URLs from distinct merchants to complete_web_search. Snippets are not price or efficacy evidence. Stop at expiry.";
+      return { content: [{ type: "text" as const, text: message }], structuredContent: { status: "READY" as const, message,
+        webSessionId: lease.token, expiresAt: new Date(lease.deadline).toISOString(), queries, limits: WEB_SEARCH_LIMITS } };
+    });
+    toolRegistrar.registerTool("complete_web_search", {
+      title: "Verify recovered products",
+      description: "Complete one authorized begin_web_search lease before expiry. Submit only direct HTTPS merchant product URLs, at most 5 distinct merchants; pass [] when discovery found none. No prices, descriptions, trust claims or rewritten requirements. Server reads each exact page and applies original requirements, trust and ranking, creating a new immutable native-card snapshot. Do not repeat recovery or erase the original snapshot.",
+      inputSchema: z.object({ renderId: z.string().uuid(), webSessionId: z.string().uuid(), urls: z.array(WebProductUrlSchema).max(5) }).strict(),
+      outputSchema: ShopifyProductsOutputShape,
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+      _meta: { ui: { resourceUri: PRODUCT_CARD_UI_URI }, "openai/outputTemplate": PRODUCT_CARD_UI_URI }
+    }, async ({ renderId, webSessionId, urls }) => {
+      const parent = renderSnapshots.get(renderId);
+      if (parent?.request === undefined || parent.expiresAt <= now().getTime()) return toolError("MISSING_REFERENCE_CONTEXT");
+      const remaining = webSessions.consume(renderId, webSessionId);
+      if (remaining === undefined) return toolError("TOOL_REQUEST_REJECTED");
+      const request = SearchProductsInputSchema.parse({ ...parent.request, contextMode: "CONTINUE_PREVIOUS_PRODUCT", parentRenderId: renderId });
+      const found = await readWebCandidates(urls, request, backend.product.webProducts!, remaining);
+      const execution = evaluateRecoveredProducts(request, found.products, found.unavailable > 0);
+      execution.webRecovery = { submitted: urls.length, verified: found.products.length, rejected: found.rejected, unavailable: found.unavailable };
+      const { response, enriched } = await buildUnifiedResponse(request, execution);
+      const zh = parent.content.locale === "zh-CN";
+      const message = (zh ? `本次补搜提交 ${urls.length} 个商品链接，核验读取成功 ${found.products.length} 个，未能核验 ${found.unavailable} 个。仅代表本次有限搜索，不代表全网无货。`
+        : `This recovery submitted ${urls.length} product URLs; ${found.products.length} pages verified, ${found.unavailable} unavailable. This bounded search does not establish web-wide absence.`)
+        + " " + response.structuredContent.message;
+      const recommendation = choosePrimaryRecommendation(response.structuredContent.products);
+      const content = rememberSnapshot({ ...response.structuredContent, message }, enriched.result, undefined,
+        recommendation.primaryProductIndex, request);
+      return { ...response, structuredContent: content, content: [{ type: "text" as const,
+        text: `${message}\n${recommendationInstruction(content)}\nRecovery finished. Preserve previous renderId and selectionIds; do not start another recovery automatically.` }] };
+    });
+  }
 
   server.registerResource(
     "findcheap-product-comparison",

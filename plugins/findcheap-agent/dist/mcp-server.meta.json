@@ -3938,6 +3938,10 @@
         }
       ]
     },
+    "src/functional-requirements.ts": {
+      "format": "esm",
+      "imports": []
+    },
     "src/generic-official-store-search.ts": {
       "format": "esm",
       "imports": [
@@ -4120,6 +4124,11 @@
           "kind": "import-statement",
           "original": "../../../packages/contracts/src/hair-requirements.js",
           "path": "../../packages/contracts/src/hair-requirements.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./functional-requirements.js",
+          "path": "src/functional-requirements.ts"
         }
       ]
     },
@@ -4222,6 +4231,11 @@
           "kind": "import-statement",
           "original": "./product-requirements.js",
           "path": "src/product-requirements.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./functional-requirements.js",
+          "path": "src/functional-requirements.ts"
         },
         {
           "kind": "import-statement",
@@ -4352,6 +4366,21 @@
           "kind": "import-statement",
           "original": "./search-diagnostics.js",
           "path": "src/search-diagnostics.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./text-search-recovery.js",
+          "path": "src/text-search-recovery.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./web-product-recovery.js",
+          "path": "src/web-product-recovery.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./search-products.js",
+          "path": "src/search-products.ts"
         },
         {
           "kind": "import-statement",
@@ -4711,6 +4740,26 @@
           "kind": "import-statement",
           "original": "./affiliate-links.js",
           "path": "src/affiliate-links.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./web-product-recovery.js",
+          "path": "src/web-product-recovery.ts"
+        }
+      ]
+    },
+    "src/text-search-recovery.ts": {
+      "format": "esm",
+      "imports": [
+        {
+          "kind": "import-statement",
+          "original": "zod",
+          "path": "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/index.js"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./product-candidate-ranking.js",
+          "path": "src/product-candidate-ranking.ts"
         }
       ]
     },
@@ -4828,11 +4877,46 @@
           "path": "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/index.js"
         }
       ]
+    },
+    "src/web-product-recovery.ts": {
+      "format": "esm",
+      "imports": [
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:crypto"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:net"
+        },
+        {
+          "kind": "import-statement",
+          "original": "zod",
+          "path": "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/index.js"
+        },
+        {
+          "kind": "import-statement",
+          "original": "../../../packages/network-safety/src/safe-fetch.js",
+          "path": "../../packages/network-safety/src/safe-fetch.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./generic-official-store-search.js",
+          "path": "src/generic-official-store-search.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./functional-requirements.js",
+          "path": "src/functional-requirements.ts"
+        }
+      ]
     }
   },
   "outputs": {
     "../../plugins/findcheap-agent/dist/mcp-server.js": {
-      "bytes": 856468,
+      "bytes": 872550,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
@@ -4874,22 +4958,12 @@
         {
           "external": true,
           "kind": "import-statement",
-          "path": "node:dns/promises"
-        },
-        {
-          "external": true,
-          "kind": "import-statement",
-          "path": "node:https"
+          "path": "node:crypto"
         },
         {
           "external": true,
           "kind": "import-statement",
           "path": "node:net"
-        },
-        {
-          "external": true,
-          "kind": "import-statement",
-          "path": "node:url"
         },
         {
           "external": true,
@@ -4910,6 +4984,31 @@
           "external": true,
           "kind": "import-statement",
           "path": "node:stream"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:url"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:crypto"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:dns/promises"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:https"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:net"
         },
         {
           "external": true,
@@ -4970,11 +5069,6 @@
           "external": true,
           "kind": "import-statement",
           "path": "node:zlib"
-        },
-        {
-          "external": true,
-          "kind": "import-statement",
-          "path": "node:crypto"
         }
       ],
       "inputs": {
@@ -5024,7 +5118,7 @@
           "bytesInOutput": 1536
         },
         "../../node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/types.js": {
-          "bytesInOutput": 12482
+          "bytesInOutput": 12539
         },
         "../../node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/validation/ajv-provider.js": {
           "bytesInOutput": 450
@@ -5093,7 +5187,7 @@
           "bytesInOutput": 1980
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/core.js": {
-          "bytesInOutput": 12305
+          "bytesInOutput": 12303
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/refs/data.json": {
           "bytesInOutput": 358
@@ -5399,7 +5493,7 @@
           "bytesInOutput": 44
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v4/classic/schemas.js": {
-          "bytesInOutput": 10400
+          "bytesInOutput": 10401
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v4/core/api.js": {
           "bytesInOutput": 4774
@@ -5477,7 +5571,7 @@
           "bytesInOutput": 4153
         },
         "src/backend.ts": {
-          "bytesInOutput": 447
+          "bytesInOutput": 501
         },
         "src/deal-assessment.ts": {
           "bytesInOutput": 4579
@@ -5492,7 +5586,7 @@
           "bytesInOutput": 3881
         },
         "src/execution/capabilities.ts": {
-          "bytesInOutput": 839
+          "bytesInOutput": 906
         },
         "src/execution/external-data-fence.ts": {
           "bytesInOutput": 1860
@@ -5501,7 +5595,7 @@
           "bytesInOutput": 2051
         },
         "src/execution/tool-executor.ts": {
-          "bytesInOutput": 2240
+          "bytesInOutput": 2303
         },
         "src/execution/tool-outcome.ts": {
           "bytesInOutput": 1561
@@ -5509,8 +5603,11 @@
         "src/execution/tool-registry.ts": {
           "bytesInOutput": 942
         },
+        "src/functional-requirements.ts": {
+          "bytesInOutput": 1457
+        },
         "src/generic-official-store-search.ts": {
-          "bytesInOutput": 14223
+          "bytesInOutput": 15817
         },
         "src/merchant-trust-registry-client.ts": {
           "bytesInOutput": 1283
@@ -5537,7 +5634,7 @@
           "bytesInOutput": 10937
         },
         "src/product-constraint-matcher.ts": {
-          "bytesInOutput": 11619
+          "bytesInOutput": 11676
         },
         "src/product-recommendation.ts": {
           "bytesInOutput": 3301
@@ -5558,10 +5655,10 @@
           "bytesInOutput": 1784
         },
         "src/search-diagnostics.ts": {
-          "bytesInOutput": 1948
+          "bytesInOutput": 2052
         },
         "src/search-products.ts": {
-          "bytesInOutput": 33125
+          "bytesInOutput": 34431
         },
         "src/search-requirements-context.ts": {
           "bytesInOutput": 1309
@@ -5570,7 +5667,7 @@
           "bytesInOutput": 3966
         },
         "src/server.ts": {
-          "bytesInOutput": 135107
+          "bytesInOutput": 141891
         },
         "src/shopify-cart-quote.ts": {
           "bytesInOutput": 10343
@@ -5591,10 +5688,13 @@
           "bytesInOutput": 1432
         },
         "src/shopify-selected-product.ts": {
-          "bytesInOutput": 4689
+          "bytesInOutput": 4659
         },
         "src/stdio.ts": {
-          "bytesInOutput": 913
+          "bytesInOutput": 930
+        },
+        "src/text-search-recovery.ts": {
+          "bytesInOutput": 1224
         },
         "src/visual-candidate-images.ts": {
           "bytesInOutput": 6366
@@ -5616,6 +5716,9 @@
         },
         "src/watch-store.ts": {
           "bytesInOutput": 6942
+        },
+        "src/web-product-recovery.ts": {
+          "bytesInOutput": 3329
         }
       }
     }

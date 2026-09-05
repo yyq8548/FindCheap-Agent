@@ -1,5 +1,5 @@
 type ProductReference = {
-  sourceKind?: "AWIN_PRODUCT_FEED" | "SHOPIFY_GLOBAL_CATALOG" | "EBAY_BROWSE" | undefined;
+  sourceKind?: "AWIN_PRODUCT_FEED" | "SHOPIFY_GLOBAL_CATALOG" | "EBAY_BROWSE" | "WEB_PRODUCT_PAGE" | undefined;
   merchantId: string;
   sourceHost: string;
   handle: string;

@@ -1,4 +1,5 @@
 import { hairFeatureStatus } from "../../../packages/contracts/src/hair-requirements.js";
+import { functionalFeatureStatus } from "./functional-requirements.js";
 
 type Comparator = "EXACT" | "MIN" | "MAX" | "APPROX";
 type QuantityKind = "LENGTH" | "MEMORY" | "STORAGE" | "DATA" | "VOLUME" | "MASS" | "COUNT" | "FREQUENCY" | "POWER";
@@ -27,6 +28,8 @@ const RESOLUTIONS: ReadonlyArray<{ name: string; patterns: RegExp[] }> = [
 export function evaluateFeature(searchable: string, feature: string): FeatureMatchStatus {
   const normalizedSearchable = normalize(searchable);
   const normalizedFeature = normalize(feature);
+  const functional = functionalFeatureStatus(normalizedSearchable, normalizedFeature);
+  if (functional !== undefined) return functional;
 
   const alternatives = disjunctiveAlternatives(normalizedFeature);
   if (alternatives.length > 1) {
@@ -272,7 +275,8 @@ function resolution(value: string): string | undefined {
 /** Only a standalone color requirement, not a phrase such as "red leather shoes". */
 export function isColorRequirement(value: string): boolean {
   const normalized = normalize(value).replace(/^(?:colou?r\s*[:=]?\s*)/u, "").trim();
-  return disjunctiveAlternatives(normalized).every(part =>
+  const alternatives = disjunctiveAlternatives(normalized);
+  return (alternatives.length > 0 ? alternatives : [normalized]).every(part =>
     [...COMPOUND_COLORS, ...SIMPLE_COLORS].some(color => part === color));
 }
 

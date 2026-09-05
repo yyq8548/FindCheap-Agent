@@ -1,6 +1,6 @@
 import type { UnifiedSearchExecution } from "./search-products.js";
 
-export type SearchOutcome = "REVIEW_REQUIRED" | "MATCH_FOUND" | "NO_CANDIDATES" |
+export type SearchOutcome = "REVIEW_REQUIRED" | "REQUIREMENTS_UNVERIFIED" | "MATCH_FOUND" | "NO_CANDIDATES" |
   "SOURCE_UNAVAILABLE" | "NO_LOADABLE_IMAGES" | "CANDIDATES_CONFLICTED" |
   "VISUAL_EVIDENCE_INSUFFICIENT" | "BUDGET_EXHAUSTED";
 
@@ -19,6 +19,7 @@ export function searchDiagnostics(execution: UnifiedSearchExecution, outcome: Se
     outcome: run?.budgetExhausted === true && outcome !== "MATCH_FOUND" && outcome !== "REVIEW_REQUIRED"
       ? "BUDGET_EXHAUSTED" as const : outcome,
     sources: execution.sourceStatus,
+    ...(execution.webRecovery === undefined ? {} : { webRecovery: execution.webRecovery }),
     officialStore: {
       status: execution.officialStoreFallback.status,
       productsReturned: execution.officialStoreFallback.productsReturned,
@@ -30,14 +31,15 @@ export function searchDiagnostics(execution: UnifiedSearchExecution, outcome: Se
     sourcePasses: execution.searchPasses,
     retrievalExtent: "BOUNDED" as const,
     requirementFunnel: {
-      sourceResults: execution.sourcePassDiagnostics.reduce((total, pass) => total + pass.rawProducts.awin + pass.rawProducts.shopify + pass.rawProducts.ebay, 0),
+      sourceResults: execution.sourcePassDiagnostics.reduce((total, pass) => total + pass.rawProducts.awin + pass.rawProducts.shopify + pass.rawProducts.ebay, 0)
+        + (execution.webRecovery?.verified ?? 0),
       conflictingProducts: execution.featureProductsExcluded,
       satisfiedReturned: execution.candidates.filter(candidate => candidate.requiredFeatureLimitations.length === 0).length,
       awaitingVerification: execution.candidates.filter(candidate => candidate.requiredFeatureLimitations.length > 0).length,
       trustedReturned: execution.candidates.filter(candidate => candidate.recommendationTier === "TRUSTED_OR_AFFILIATE").length
     },
     termination: run?.budgetExhausted ? "BUDGET_EXHAUSTED"
-      : Object.values(execution.sourceStatus).includes("UNAVAILABLE") ? "SOURCE_UNAVAILABLE"
+      : Object.values(execution.sourceStatus).some(value => value === "UNAVAILABLE" || value === "PARTIAL") ? "SOURCE_UNAVAILABLE"
         : execution.candidates.length > 0 && execution.candidates.every(candidate => candidate.requiredFeatureLimitations.length > 0)
           ? "REQUIREMENTS_UNVERIFIED" : "BOUNDED_SEARCH_COMPLETE",
     ...(snapshotAt === undefined ? {} : { awinSnapshotAt: snapshotAt }),

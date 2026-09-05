@@ -13,6 +13,8 @@ type OutputSchema = { safeParseAsync(value: unknown): Promise<OutputParseResult>
 export const INVALID_TOOL_INPUT = Symbol("findcheap-invalid-tool-input");
 
 const REFERENCE_CONTEXT_FIELDS: Readonly<Record<string, readonly string[]>> = {
+  begin_web_search: ["renderId"],
+  complete_web_search: ["renderId"],
   compare_selected_products: ["renderId"],
   quote_and_compare_selected_products: ["renderId"],
   inspect_selected_shopify_product: ["renderId"],

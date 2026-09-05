@@ -12,6 +12,7 @@ import type { VisualCandidateImagePort } from "./visual-candidate-images.js";
 import type { WatchStore } from "./watch-store.js";
 import type { AwinProductPort } from "../../../packages/awin-feed/src/index.js";
 import type { BackendCapability } from "./execution/capabilities.js";
+import type { WebProductPagePort } from "./web-product-recovery.js";
 
 export type CatalogBackend = {
   shopify: ShopifyPort;
@@ -23,6 +24,7 @@ export type CatalogBackend = {
 };
 
 export type ProductBackend = {
+  webProducts?: WebProductPagePort;
   affiliateLinks: AffiliateLinkResolver;
   awinShopifyQuotes?: AwinShopifyQuoteResolver;
   cartQuotes?: ShopifyCartQuotePort;
@@ -46,6 +48,7 @@ export function createFindCheapBackend(input: FindCheapBackendInput): FindCheapB
   const capabilities = new Set<BackendCapability>([
     "CATALOG",
     "WATCHES",
+    ...(input.product.webProducts === undefined ? [] : ["WEB_RECOVERY" as const]),
     ...(input.product.selectedProducts === undefined ? [] : ["PRODUCT_INSPECTION" as const]),
     ...(input.product.cartQuotes === undefined ? [] : ["PRODUCT_QUOTE" as const]),
     ...(input.visualCandidateImages === undefined ? [] : ["VISUAL_SEARCH" as const]),

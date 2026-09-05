@@ -24,6 +24,7 @@ export type ShopifySelectionMode = "LOWEST_PRICE" | "MERCHANT_DIVERSE";
 export type ShopifyCondition = "NEW" | "USED" | "REFURBISHED" | "OPEN_BOX" | "UNKNOWN";
 
 export type ShopifyProduct = {
+  sourceKind?: "WEB_PRODUCT_PAGE";
   merchantId: string;
   merchant: string;
   sourceHost: string;

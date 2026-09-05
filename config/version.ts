@@ -1,1 +1,1 @@
-export const FINDCHEAP_VERSION = "0.17.18" as const;
+export const FINDCHEAP_VERSION = "0.17.19" as const;

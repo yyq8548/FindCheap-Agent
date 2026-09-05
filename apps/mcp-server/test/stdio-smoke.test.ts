@@ -118,6 +118,8 @@ describe("installed plugin stdio", () => {
       });
       expect(tools.tools.map((tool) => tool.name)).toEqual([
         "search_products",
+        "begin_web_search",
+        "complete_web_search",
         "search_visual_candidates",
         "finalize_visual_search",
         "search_shopify_products",

@@ -1,5 +1,6 @@
 export const BACKEND_CAPABILITIES = [
   "CATALOG",
+  "WEB_RECOVERY",
   "PRODUCT_INSPECTION",
   "PRODUCT_QUOTE",
   "VERIFIED_DEALS",
@@ -11,6 +12,8 @@ export type BackendCapability = (typeof BACKEND_CAPABILITIES)[number];
 
 const TOOL_CAPABILITIES: Readonly<Record<string, BackendCapability>> = {
   search_products: "CATALOG",
+  begin_web_search: "WEB_RECOVERY",
+  complete_web_search: "WEB_RECOVERY",
   search_visual_candidates: "VISUAL_SEARCH",
   finalize_visual_search: "VISUAL_SEARCH",
   search_shopify_products: "CATALOG",

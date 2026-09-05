@@ -3,7 +3,7 @@ name: compare-products
 description: Live shopping. Initial search: load, localized line, tool. No plan/files.
 ---
 
-# FindCheap Agent v0.17.18
+# FindCheap Agent v0.17.19
 
 Search/Chrome: R0; ZIP quote: R1. Never checkout/reserve/buy/pay/persist/request address.
 
@@ -27,7 +27,7 @@ Never call `search_products` or title-search. Always pass the prior `renderId`; 
 
 ## Chrome fallback
 
-After broader pass returns `status: OK`, `coverage: COMPLETE`, and `products.length === 0`, with Chrome authorization read [chrome-fallback.md](references/chrome-fallback.md). Never for partial coverage, unavailable data, malformed response, timeout, or explicit no-Chrome.
+`recovery.action=REQUEST_WEB_SEARCH`: read [chrome-fallback.md](references/chrome-fallback.md); `begin_web_search` with `renderId`. Only READY authorizes Chrome. Research cards do not block recovery. Never for incomplete/error results or no-Chrome; never reset limits.
 
 ## Output
 

@@ -278,7 +278,46 @@ async function hydrateProduct(
   requiredColor?: string
 ): Promise<ShopifyProduct> {
   const html = await fetchText(fetchDocument, productUrl, host, MAX_PRODUCT_BYTES, "official product page", true);
-  const product = productFromHtml(html);
+  return productFromDocument(html, seed, host, productUrl, checkedAt, imageProxyOrigin, requiredSize, requiredColor);
+}
+
+/** Shared parser only. Browser discoveries never obtain official trust by using
+ * this entrypoint. The caller owns bounded, SSRF-safe, exact-URL HTTP reads. */
+export function parseWebProductDocument(html: string, productUrl: string, checkedAt: Date,
+  requiredSize?: string, requiredColor?: string): ShopifyProduct {
+  const url = new URL(productUrl);
+  const product = productFromHtml(html, true);
+  const declared = typeof product.url === "string" ? new URL(product.url, url).href : undefined;
+  const canonical = [...html.matchAll(/<link\b([^>]{1,8192})>/giu)].flatMap(match => {
+    if (!/\brel=["']canonical["']/iu.test(match[1]!)) return [];
+    const href = match[1]!.match(/\bhref=["']([^"']{1,4096})["']/iu)?.[1];
+    return href === undefined ? [] : [new URL(decodeXml(href), url).href];
+  });
+  const samePage = (value: string) => {
+    const candidate = new URL(value);
+    return !candidate.username && !candidate.password && !candidate.hash && candidate.origin === url.origin &&
+      candidate.pathname === url.pathname && (candidate.search === "" || candidate.href === url.href);
+  };
+  // A selected variant may canonically point to its base PDP. That is not
+  // variant evidence: below, the offer must still bind the exact selected URL.
+  if ((declared === undefined ? canonical.length !== 1 : !samePage(declared)) || canonical.some(value => !samePage(value))) {
+    throw new Error("web product identity unavailable");
+  }
+  const offers = Array.isArray(product.offers) ? product.offers : [product.offers];
+  const selected = offers.filter(entry => entry.url === undefined ? offers.length === 1 && url.search === ""
+    : new URL(entry.url, url).href === url.href);
+  if (selected.length !== 1) {
+    throw new Error("web product offer ambiguous");
+  }
+  return productFromDocument(html, { merchantId: `web-${url.hostname}`, merchant: url.hostname,
+    sourceHost: url.hostname, merchantUrl: url.href, productPathPrefixes: [url.pathname] }, url.hostname,
+  url.href, checkedAt, undefined, requiredSize, requiredColor, true, { ...product, offers: selected[0]! });
+}
+
+function productFromDocument(html: string, seed: OfficialShopifyStoreSeed, host: string, productUrl: string,
+  checkedAt: Date, imageProxyOrigin: string | undefined, requiredSize?: string, requiredColor?: string,
+  webDiscovery = false, verifiedProduct?: z.infer<typeof JsonLdProductSchema>): ShopifyProduct {
+  const product = verifiedProduct ?? productFromHtml(html);
   const offers = Array.isArray(product.offers) ? product.offers : [product.offers];
   const source = new URL(productUrl);
   const explicitSize = requiredSize ?? source.searchParams.get("size") ?? undefined;
@@ -343,7 +382,7 @@ async function hydrateProduct(
     : approvedProductUrl(offer.url ?? productUrl, host, seed.productPathPrefixes ?? ["/products/"]);
   if (canonicalUrl === undefined) throw new Error("official product URL was invalid");
   const trust = resolveMerchantTrust(host, seed.merchant);
-  if (trust.level !== "OFFICIAL" || trust.verification !== "INDEPENDENT") {
+  if (!webDiscovery && (trust.level !== "OFFICIAL" || trust.verification !== "INDEPENDENT")) {
     throw new Error("official storefront was not independently verified");
   }
   const brand = typeof product.brand === "string" ? product.brand : product.brand?.name;
@@ -355,7 +394,8 @@ async function hydrateProduct(
   const sku = product.sku ?? product.mpn;
   const selectedColor = offerColor(offer) ?? product.color;
   return {
-    merchantId: `official-${seed.officialHost ?? host}`,
+    merchantId: webDiscovery ? `web-${host}` : `official-${seed.officialHost ?? host}`,
+    ...(webDiscovery ? { sourceKind: "WEB_PRODUCT_PAGE" as const } : {}),
     merchant: seed.merchant,
     sourceHost: host,
     merchantTrust: trust,
@@ -370,7 +410,8 @@ async function hydrateProduct(
     ...(knownColor ? { availableSizes: [...new Set(sameColor.filter((entry) => isInStock(entry.availability)).flatMap((entry) => entry.size === undefined ? [] : [entry.size]))] } : {}),
     availabilityScope: selectedVariant || !knownColor ? "SELECTED_VARIANT" : "PRODUCT_COLOR",
     matchStatus: "DISCOVERY_MATCH",
-    matchEvidence: ["matched independently verified official Product JSON-LD"],
+    matchEvidence: [webDiscovery ? "merchant-owned Product JSON-LD; browser discovery alone is not identity proof"
+      : "matched independently verified official Product JSON-LD"],
     condition: "UNKNOWN",
     ...(imageUrl === undefined ? {} : { imageUrl }),
     itemPrice: { amountCents, currency: "USD" },
@@ -381,15 +422,36 @@ async function hydrateProduct(
   };
 }
 
-function productFromHtml(html: string): z.infer<typeof JsonLdProductSchema> {
+function productFromHtml(html: string, requireSingle = false): z.infer<typeof JsonLdProductSchema> {
+  const products: unknown[] = [];
+  let incomplete = false;
   for (const match of html.matchAll(/<script\b[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/giu)) {
     try {
-      const found = findProduct(JSON.parse(match[1] ?? ""));
-      if (found !== undefined) return JsonLdProductSchema.parse(found);
+      const value: unknown = JSON.parse(match[1] ?? "");
+      if (requireSingle) {
+        const queue = [value];
+        for (let visits = 0; queue.length > 0 && visits < 2000; visits++) {
+          const entry = queue.shift();
+          if (Array.isArray(entry)) {
+            if (entry.length > 1000) { incomplete = true; break; }
+            queue.push(...entry); continue;
+          }
+          if (typeof entry !== "object" || entry === null) continue;
+          const record = entry as Record<string, unknown>;
+          if (record["@type"] === "Product" || (Array.isArray(record["@type"]) && record["@type"].includes("Product"))) {
+            products.push(entry);
+          } else if (record["@graph"] !== undefined) queue.push(record["@graph"]);
+        }
+        if (queue.length > 0) incomplete = true;
+      } else {
+        const found = findProduct(value);
+        if (found !== undefined) return JsonLdProductSchema.parse(found);
+      }
     } catch {
       // Ignore malformed and unrelated JSON-LD blocks.
     }
   }
+  if (requireSingle && !incomplete && products.length === 1) return JsonLdProductSchema.parse(products[0]);
   throw new Error("official Product JSON-LD was unavailable");
 }
 
