@@ -254,6 +254,23 @@ describe("official Shopify storefront search", () => {
     });
   });
 
+  it("does not spend the canonical product sitemap budget on locale duplicates", async () => {
+    const fetchDocument = vi.fn<OfficialShopifyFetch>(async url => {
+      const body = url.includes("search/suggest") ? JSON.stringify({ resources: { results: { products: [] } } })
+        : url === "https://www.shopdoen.com/sitemap.xml"
+          ? `<sitemapindex>${["/en-ca/", "/en-cr/", "/en-co/", "/en-gb/", "/"].map(prefix =>
+            `<sitemap><loc>https://www.shopdoen.com${prefix}sitemap_products_1.xml</loc></sitemap>`).join("")}</sitemapindex>`
+          : url === "https://www.shopdoen.com/sitemap_products_1.xml"
+            ? "<urlset><url><loc>https://www.shopdoen.com/products/cornella-dress-black</loc><image:title>Black lace mini dress</image:title></url></urlset>"
+            : JSON.stringify(productJson);
+      return { finalUrl: url, response: new Response(body) };
+    });
+    const products = await createOfficialShopifySearchPort({ fetchDocument }).search({ seed, query: "black lace mini dress", limit: 6 });
+    expect(products.some(product => product.title === productJson.title)).toBe(true);
+    expect(fetchDocument.mock.calls.some(([url]) => /\/en-[a-z]{2}\//u.test(url))).toBe(false);
+    expect(fetchDocument.mock.calls.filter(([url]) => url.includes("sitemap_products"))).toHaveLength(1);
+  });
+
   it("falls back to an official sitemap and ProductGroup JSON-LD for a headless Shopify store", async () => {
     const skimsSeed: ShopifyProduct = {
       ...seed,

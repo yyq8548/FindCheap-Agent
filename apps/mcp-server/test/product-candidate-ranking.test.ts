@@ -48,7 +48,7 @@ describe("visual review pool", () => {
     target.shopifyProduct.description = "A luxurious satin maxi dress with a strapless design, crisscross back, and fitted bodice. Maxi dress. Semi-lined. Strapless. Satin. Neck scarf. Crisscross back. Fitted bodice. Flowy skirt. Zipper, hook eye closure.";
     target.shopifyProduct.merchant = "Hello Molly US";
     target.shopifyProduct.variantDimensions = { Color: "Chocolate", Size: "XS" };
-    expect(classifyVisualProduct(reference, target.shopifyProduct)).toBeUndefined();
+    expect(classifyVisualProduct(reference, target.shopifyProduct)?.group).toBe("HIGHLY_SIMILAR");
     const official = Array.from({ length: 9 }, (_, index) => officialCandidate(`official-${index}`, `Plain ${index} White Dress`));
     const result = selectVisualReviewCandidates([...official, target], 9, reference);
     expect(result.some(item => item.shopifyProduct?.handle === target.shopifyProduct.handle)).toBe(true);

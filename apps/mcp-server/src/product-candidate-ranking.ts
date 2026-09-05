@@ -120,7 +120,8 @@ export function selectVisualReviewCandidates(
       .filter((entry): entry is string => typeof entry === "string").join(" ").normalize("NFKC")
       .toLocaleLowerCase("en-US").replace(/\bgrey\b/gu, "gray");
     const contains = (term: string): boolean => new RegExp(`\\b${term}\\b`, "u").test(text);
-    return colorway.colors.filter(contains).length * 2 + colorway.patterns.filter(contains).length * 3;
+    return colorway.colors.filter(contains).length * 2 + colorway.patterns.filter(contains)
+      .reduce((score, pattern) => score + (pattern === "bouquet" ? 6 : 3), 0);
   };
   const reviewScore = (candidate: UnifiedCandidate): number => {
     const structure = visualReviewStructureScore(candidate);

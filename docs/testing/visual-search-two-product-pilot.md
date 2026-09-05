@@ -8,6 +8,11 @@ pilot as 0.17.14. Only version metadata and version-specific test assertions wer
 changed for packaging. The hashes and unpublished-state statements below describe
 the original pilot checkpoint, not the subsequent deployment state.
 
+Current follow-up: see [remaining-remediation status](visual-search-remaining-remediation.md)
+for the verified 0.17.14 publication and subsequent local fixes. This historical
+report's unresolved Julia/color statements are superseded there, not silently
+rewritten as if the earlier run had passed.
+
 ## Scope and outcome
 
 The approved experiment was to locate where two known failures disappear, make

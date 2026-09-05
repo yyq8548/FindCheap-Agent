@@ -278,7 +278,8 @@ async function sitemapProducts(
   const rootUrl = `https://${host}/sitemap.xml`;
   const root = await fetchText(fetchDocument, rootUrl, host, "official sitemap");
   const productMaps = xmlLocations(root)
-    .filter((url) => validSameHostUrl(url, host) && /sitemap[^/]*product/iu.test(new URL(url).pathname))
+    // Localized maps repeat the same catalog and cannot produce canonical /products/ URLs.
+    .filter((url) => validSameHostUrl(url, host) && /^\/sitemap[^/]*product/iu.test(new URL(url).pathname))
     .slice(0, 4);
   const mapUrls = productMaps.length > 0 ? productMaps : [`https://${host}/sitemap-products.xml`];
   const maps = await Promise.all(mapUrls.map(async (url) => {

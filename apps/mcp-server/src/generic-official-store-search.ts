@@ -117,8 +117,18 @@ async function discoverProducts(
     const html = await fetchText(fetchDocument, searchUrl.href, host, MAX_DISCOVERY_BYTES, "official search page");
     // A site's ranked result list is stronger discovery evidence than tokens in
     // style names or swatch links. It is not identity or visual-match evidence.
-    const ranked = structuredSearchLinks(html, host, seed.productPathPrefixes ?? ["/products/"]);
-    if (ranked.length > 0) return ranked.slice(0, Math.min(limit, MAX_PRODUCT_PAGES));
+    const prefixes = seed.productPathPrefixes ?? ["/products/"];
+    const ranked = structuredSearchLinks(html, host, prefixes);
+    const next = nextSearchPage(html, searchUrl);
+    if (next !== undefined && ranked.length < Math.min(limit, MAX_PRODUCT_PAGES)) {
+      try {
+        const nextHtml = await fetchText(fetchDocument, next, host, MAX_DISCOVERY_BYTES, "official next search page");
+        ranked.push(...structuredSearchLinks(nextHtml, host, prefixes));
+        discovered.push(...htmlProductLinks(nextHtml, host, prefixes, query));
+      } catch { /* Keep page-one results when the one bounded continuation fails. */ }
+    }
+    if (ranked.length > 0) return [...new Map(ranked.map(entry => [entry.url, entry])).values()]
+      .slice(0, Math.min(limit, MAX_PRODUCT_PAGES));
     discovered.push(...htmlProductLinks(html, host, seed.productPathPrefixes ?? ["/products/"], query));
   } catch {
     // Some official sites expose only Sitemap discovery.
@@ -185,24 +195,61 @@ function htmlProductLinks(
 }
 
 function structuredSearchLinks(html: string, host: string, prefixes: readonly string[]): CandidateReference[] {
-  const schema = z.object({ "@type": z.literal("ItemList"), itemListElement: z.array(z.object({
-    "@type": z.literal("ListItem"), position: z.number().int().min(1).max(100_000),
-    url: z.string().min(1).max(4_096)
-  })).max(100) });
-  for (const match of html.matchAll(/<script\b[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/giu)) {
-    try {
-      const parsed = schema.safeParse(JSON.parse(match[1] ?? ""));
-      if (!parsed.success) continue;
-      const seen = new Set<string>();
-      return [...parsed.data.itemListElement].sort((a, b) => a.position - b.position).flatMap(entry => {
-        const url = approvedProductUrl(entry.url, host, prefixes);
-        if (url === undefined || seen.has(url)) return [];
-        seen.add(url);
-        return [{ url, title: "", score: 0 }];
+  const ranked: Array<{ url: string; position: number }> = [];
+  let visited = 0;
+  const visit = (value: unknown, depth: number): void => {
+    if (++visited > 200 || depth > 4 || ranked.length >= 100) return;
+    if (Array.isArray(value)) { value.slice(0, 100).forEach(entry => visit(entry, depth + 1)); return; }
+    if (typeof value !== "object" || value === null) return;
+    const node = value as Record<string, unknown>;
+    const types = Array.isArray(node["@type"]) ? node["@type"] : [node["@type"]];
+    if (types.includes("ItemList") && Array.isArray(node.itemListElement)) {
+      node.itemListElement.slice(0, 100).forEach((entry: unknown, index: number) => {
+        if (ranked.length >= 100) return;
+        const record = typeof entry === "object" && entry !== null ? entry as Record<string, unknown> : undefined;
+        const item = record?.item;
+        const nested = typeof item === "object" && item !== null ? item as Record<string, unknown> : undefined;
+        const raw = typeof entry === "string" ? entry : record?.url ?? nested?.url ?? nested?.["@id"] ?? item;
+        const position = record?.position ?? index + 1;
+        if (typeof raw !== "string" || raw.length > 4_096 || typeof position !== "number" ||
+          !Number.isInteger(position) || position < 1 || position > 100_000) return;
+        const url = approvedProductUrl(raw, host, prefixes);
+        if (url !== undefined) ranked.push({ url, position });
       });
+    }
+    visit(node["@graph"], depth + 1);
+    visit(node.mainEntity, depth + 1);
+  };
+  let scripts = 0;
+  for (const match of html.matchAll(/<script\b[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/giu)) {
+    if (++scripts > 32 || visited > 200 || ranked.length >= 100) break;
+    try {
+      visit(JSON.parse(match[1] ?? ""), 0);
     } catch { /* Malformed structured data may use the bounded HTML fallback. */ }
   }
-  return [];
+  return [...new Map(ranked.sort((a, b) => a.position - b.position).map(entry => [entry.url,
+    { url: entry.url, title: "", score: 0 }])).values()];
+}
+
+function nextSearchPage(html: string, current: URL): string | undefined {
+  for (const match of html.matchAll(/<(?:a|link)\b([^>]*)>/giu)) {
+    const attributes = match[1] ?? "";
+    if (!/\brel\s*=\s*["'][^"']*\bnext\b[^"']*["']/iu.test(attributes)) continue;
+    const href = attributes.match(/\bhref\s*=\s*["']([^"']+)["']/iu)?.[1];
+    if (href === undefined || href.length > 4_096) continue;
+    try {
+      const next = new URL(decodeXml(href), current);
+      if (!validSameHostUrl(next.href, current.hostname) || next.pathname !== current.pathname || next.href === current.href) continue;
+      const cursorKeys = new Set(["page", "start", "cursor"]);
+      if ([...current.searchParams.keys()].some(key => !cursorKeys.has(key) &&
+        JSON.stringify(current.searchParams.getAll(key)) !== JSON.stringify(next.searchParams.getAll(key)))) continue;
+      if ([...next.searchParams.keys()].some(key => !current.searchParams.has(key) && !cursorKeys.has(key))) continue;
+      if (![...cursorKeys].some(key => next.searchParams.has(key) && next.searchParams.get(key) !== current.searchParams.get(key))) continue;
+      next.hash = "";
+      return next.href;
+    } catch { /* Untrusted continuation links never expand host or query scope. */ }
+  }
+  return undefined;
 }
 
 function xmlProductLinks(

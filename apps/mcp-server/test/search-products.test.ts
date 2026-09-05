@@ -1863,7 +1863,7 @@ describe("unified product search", () => {
       title: "DÔEN Floral Smocked Dress",
       brand: "DÔEN",
       productType: "Dresses",
-      description: "Square neckline, smocked waist and gathered full skirt",
+      description: "Red floral print, square neckline, smocked waist and gathered full skirt",
       imageUrl: "https://cdn.example/occluded-strap-match.jpg"
     });
     const result = await searchProducts(SearchProductsInputSchema.parse({

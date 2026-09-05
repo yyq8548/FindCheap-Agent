@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createGenericOfficialStoreSearchPort } from "../src/generic-official-store-search.js";
-import { VisualProductInputSchema, visualOfficialStoreDiscoveryQuery } from "../src/visual-product-discovery.js";
+import { VisualProductInputSchema, classifyVisualProduct, visualOfficialStoreSearchQueries, visualOfficialStoreDiscoveryQuery } from "../src/visual-product-discovery.js";
 import type { OfficialShopifyFetch, OfficialShopifyStoreSeed } from "../src/shopify-official-store-search.js";
 
 const seed: OfficialShopifyStoreSeed = { merchantId: "official-freepeople.com", merchant: "Free People",
@@ -13,6 +13,58 @@ const product = { "@type": "Product", name: "Example Top", sku: "STYLEBLU", offe
 ] };
 
 describe("bounded official discovery pilot", () => {
+  it("records only the verified core structure from a longer visible observation", () => {
+    const visual = VisualProductInputSchema.parse({ brand: "Example", productType: "dress", observations: [
+      { attribute: "NECKLINE", value: "broad low rounded scoop neckline", confidence: 0.98, visibility: "VISIBLE" }
+    ] });
+    const result = classifyVisualProduct(visual, { title: "Example Dress", description: "Scoop neckline" });
+    expect(result?.evidence).toContain("visual attribute matched: neckline: scoop neck");
+    expect(result?.evidence.join(" ")).not.toContain("broad low rounded");
+    const hidden = VisualProductInputSchema.parse({ ...visual, observations: visual.observations?.map(entry => ({ ...entry, visibility: "OCCLUDED" })) });
+    expect(classifyVisualProduct(hidden, { title: "Example Dress", description: "Scoop neckline" })?.evidence.join(" "))
+      .not.toContain("visual attribute matched: neckline");
+  });
+  it.each([["red", "inspired"], ["tan", "important"], ["blue", "blueprint"]])("does not match %s inside %s", (color, word) => {
+    const visual = VisualProductInputSchema.parse({ brand: "Example", productType: "dress", colors: [color] });
+    const found = classifyVisualProduct(visual, { title: "Example Dress", description: word });
+    expect(found?.evidence).not.toContain(`visual attribute matched: color: ${color}`);
+    expect(classifyVisualProduct(visual, { title: `Example ${color}-floral Dress` })?.evidence)
+      .toContain(`visual attribute matched: color: ${color}`);
+  });
+  it("retains visible bouquet and mini pattern information without answer hints", () => {
+    const visual = VisualProductInputSchema.parse({ productType: "dress", colors: ["ivory"], patterns: ["floral bouquets"], length: "mini" });
+    expect(visualOfficialStoreSearchQueries(visual)[0]?.query).toContain("bouquet");
+    expect(visualOfficialStoreDiscoveryQuery(visual)).toBe("ivory floral mini dress");
+  });
+  it.each(["graph", "array", "mainEntity", "string"])("reads bounded %s ItemList variants and skips malformed entries", async shape => {
+    const url = "https://www.freepeople.com/shop/example/STYLEBLU.html";
+    const list = { "@type": ["ItemList"], itemListElement: [null, { position: -1, url },
+      shape === "string" ? url : { position: 2, item: { "@id": url } }] };
+    const data = shape === "graph" ? { "@graph": [{ "@type": "WebSite" }, list] } :
+      shape === "array" ? [list] : shape === "mainEntity" ? { "@type": "WebPage", mainEntity: list } : list;
+    const fetchDocument = vi.fn<OfficialShopifyFetch>(async url => ({ finalUrl: url,
+      response: new Response(page(url.includes("/search/") ? data : product), { headers: { "content-type": "text/html" } }) }));
+    expect(await createGenericOfficialStoreSearchPort({ fetchDocument }).search({ seed, query: "blue cami", limit: 1 })).toHaveLength(1);
+    expect(fetchDocument).toHaveBeenCalledTimes(2);
+  });
+  it.each(["valid", "foreign", "changed-query", "timeout"])("handles %s next-page links with one bounded continuation", async mode => {
+    const next = mode === "foreign" ? "https://evil.example/search/?q=blue&page=2" :
+      `/search/?q=${mode === "changed-query" ? "unrelated" : "blue"}&amp;page=2`;
+    const fetchDocument = vi.fn<OfficialShopifyFetch>(async url => {
+      if (mode === "timeout" && url.includes("page=2")) throw new Error("timeout");
+      const isSearch = url.includes("/search/");
+      const index = url.includes("page=2") ? 2 : 1;
+      const body = isSearch ? page({ "@type": "ItemList", itemListElement: [
+        `https://www.freepeople.com/shop/item-${index}/STYLEBLU.html`
+      ] }) + `<link rel="next" href="${next}">` : page({ ...product,
+        offers: product.offers.map(offer => ({ ...offer, url: new URL(url).pathname.replace("STYLEBLU.html", `${offer.sku}.html`) })) });
+      return { finalUrl: url, response: new Response(body, { headers: { "content-type": "text/html" } }) };
+    });
+    const found = await createGenericOfficialStoreSearchPort({ fetchDocument }).search({ seed, query: "blue", limit: 2 });
+    expect(found).toHaveLength(mode === "valid" ? 2 : 1);
+    expect(fetchDocument.mock.calls.filter(([url]) => url.includes("page=2"))).toHaveLength(["valid", "timeout"].includes(mode) ? 1 : 0);
+    expect(fetchDocument.mock.calls.every(([url]) => new URL(url).hostname === "www.freepeople.com")).toBe(true);
+  });
   it("uses a visible primary color and camisole synonym without mutating observations", () => {
     const input = VisualProductInputSchema.parse({ productType: "top", observations: [
       { attribute: "COLOR", value: "pale blue gray and white", visibility: "VISIBLE", confidence: 0.95 },

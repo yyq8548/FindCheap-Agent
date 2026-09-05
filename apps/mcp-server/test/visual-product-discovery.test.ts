@@ -538,8 +538,8 @@ describe("visual product discovery", () => {
       silhouette: "gathered full skirt"
     });
 
-    expect(queries).toContainEqual({ stage: "FULL", query: "dress cream red floral smocked" });
-    expect(queries).toContainEqual({ stage: "SYNONYM", query: "dress cream red floral shirred" });
+    expect(queries).toContainEqual({ stage: "FULL", query: "dress cream red floral bouquet smocked" });
+    expect(queries).toContainEqual({ stage: "SYNONYM", query: "dress cream red floral bouquet shirred" });
     expect(queries.filter((attempt) => attempt.stage === "SYNONYM")).toHaveLength(1);
   });
 

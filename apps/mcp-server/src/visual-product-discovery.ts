@@ -462,6 +462,11 @@ export function visualOfficialStoreDiscoveryQuery(visual: VisualProductInput): s
   const structure = ["strapless", "spaghetti strap", "scoop neck", "boat neck", "square neck", "long sleeve", "short sleeve", "sleeveless"]
     .find(detail => details.includes(detail));
   if (category === "top" && structure === "spaghetti strap") return unique([primaryColor, "cami"]).join(" ");
+  const pattern = details.find(detail => ["plaid", "pinstripe", "stripe", "floral"].includes(detail));
+  const length = details.find(detail => ["mini", "midi", "maxi"].includes(detail));
+  if (category === "dress" && pattern !== undefined && length !== undefined && structure !== "strapless") {
+    return unique([primaryColor, pattern, length, category]).join(" ");
+  }
   return unique([primaryColor, structure ?? details[0], category]).join(" ");
 }
 
@@ -485,7 +490,8 @@ export function visualOfficialStoreSearchQueries(visual: VisualProductInput): Vi
     ...anchors,
     ...descriptors
   ]).slice(0, 6);
-  const coreDetails = unique([...anchors, ...descriptors.filter((detail) => !anchors.includes(detail)).slice(0, 2)]);
+  const coreDetails = unique([...anchors, ...descriptors.filter((detail) => detail !== "bouquet" && !anchors.includes(detail)).slice(0, 2),
+    ...(descriptors.includes("bouquet") ? ["bouquet"] : [])]);
   const synonymDetails = officialVisualSynonymDetails(unique([
     ...descriptors,
     color
@@ -528,6 +534,7 @@ function officialVisualDescriptors(evidence: string[]): string[] {
     [/\bpinstripes?\b/u, "pinstripe"],
     [/\bstrip(?:e[ds]?|ed)\b/u, "stripe"],
     [/\b(?:floral|flowers?)\b/u, "floral"],
+    [/\bbouquets?\b/u, "bouquet"],
     [/\b(?:smock(?:ed|ing)?|shirred|elasticated waist)\b/u, "smocked"],
     [/\blace\b/u, "lace"],
     [/\brib(?:bed|bing)\b/u, "ribbed"],
@@ -576,7 +583,7 @@ export function visualColorwayTerms(visual: VisualProductInput): { colors: strin
     return raw.match(COLOR_TERMS) ?? normalize(entry.value).match(COLOR_TERMS) ?? [];
   })).slice(0, 4);
   const patterns = officialVisualDescriptors(evidence.filter((entry) => entry.attribute === "PATTERN" || entry.attribute === "PRINT")
-    .map((entry) => normalize(entry.value))).filter((entry) => ["plaid", "tartan", "pinstripe", "stripe", "floral", "ribbed", "lace"].includes(entry));
+    .map((entry) => normalize(entry.value))).filter((entry) => ["plaid", "tartan", "pinstripe", "stripe", "floral", "bouquet", "ribbed", "lace"].includes(entry));
   return { colors, patterns };
 }
 
@@ -719,6 +726,13 @@ function groupedVisualAttributes(evidence: NormalizedVisualEvidence[]): Array<re
     const key = evidenceGroup(entry);
     const group = groups.get(key) ?? [entry.attribute.toLowerCase().replaceAll("_", " "), []];
     group[1].push(entry.value);
+    // Source copy may verify only the core structure, not all visual adjectives.
+    // Keep the emitted match narrowed to that explicit, independently matched term.
+    const structures = officialVisualDescriptors([normalize(entry.value)]).filter(detail =>
+      (entry.attribute === "NECKLINE" && /neck$|^strapless$/u.test(detail)) ||
+      (entry.attribute === "SLEEVE" && /sleeve|^strapless$|spaghetti strap/u.test(detail)) ||
+      (entry.attribute === "LENGTH" && ["mini", "midi", "maxi"].includes(detail)));
+    group[1].push(...structures);
     groups.set(key, group);
   }
   return [...groups.values()];
@@ -740,7 +754,11 @@ function candidateText(candidate: CandidateEvidence, includeDetails: boolean): s
 function matches(candidateTextValue: string, clue: string): boolean {
   const text = normalize(candidateTextValue);
   const normalizedClue = canonical(clue);
-  return text.includes(normalizedClue) || tokens(normalizedClue).every((token) => text.includes(token));
+  const clueTokens = tokens(normalizedClue);
+  const term = (token: string): string => token.replace(/^neckline$/u, "neck").replace(/^sleeves$/u, "sleeve");
+  const textTokens = new Set(tokens(text).map(term));
+  return clueTokens.length > 0 && clueTokens.every(token =>
+    containsCjk(token) ? text.includes(token) : textTokens.has(term(token)));
 }
 
 function normalize(value: string): string {
