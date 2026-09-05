@@ -1,0 +1,361 @@
+{
+  "approvals": [
+    {
+      "kind": "OFFICIAL_STOREFRONT",
+      "record": {
+        "brand": "Reformation",
+        "aliases": [
+          "The Reformation"
+        ],
+        "officialHost": "thereformation.com",
+        "storefrontHost": "www.thereformation.com",
+        "platform": "GENERIC_JSON_LD",
+        "productPathPrefixes": [
+          "/products/"
+        ],
+        "searchPathTemplate": "/search?q={query}",
+        "imageHosts": [
+          "media.thereformation.com"
+        ],
+        "evidenceUrl": "https://www.thereformation.com/terms-and-conditions.html",
+        "reviewedAt": "2026-09-05",
+        "status": "APPROVED"
+      },
+      "evidenceKind": "BRAND_DOMAIN",
+      "evidenceUrl": "https://www.thereformation.com/terms-and-conditions.html",
+      "note": "LYMI Inc. d/b/a Reformation identifies www.thereformation.com in its terms; canonical www search and Product JSON-LD verified. Apex technical probe failed; canonical requests succeeded. Not Shopify."
+    },
+    {
+      "kind": "MERCHANT_TRUST",
+      "record": {
+        "host": "thereformation.com",
+        "level": "OFFICIAL",
+        "evidenceUrl": "https://www.thereformation.com/terms-and-conditions.html",
+        "reviewedAt": "2026-09-05",
+        "status": "APPROVED"
+      },
+      "evidenceKind": "BRAND_DOMAIN",
+      "evidenceUrl": "https://www.thereformation.com/terms-and-conditions.html",
+      "note": "LYMI Inc. d/b/a Reformation identifies www.thereformation.com in its terms; canonical www search and Product JSON-LD verified. Apex technical probe failed; canonical requests succeeded. Not Shopify."
+    },
+    {
+      "kind": "OFFICIAL_STOREFRONT",
+      "record": {
+        "brand": "Christy Dawn",
+        "aliases": [],
+        "officialHost": "christydawn.com",
+        "storefrontHost": "christydawn.com",
+        "platform": "SHOPIFY",
+        "productPathPrefixes": [
+          "/products/"
+        ],
+        "imageHosts": [
+          "cdn.shopify.com"
+        ],
+        "evidenceUrl": "https://christydawn.com/blogs/our-story/a-note-from-christy",
+        "reviewedAt": "2026-09-05",
+        "status": "APPROVED"
+      },
+      "evidenceKind": "BRAND_DOMAIN",
+      "evidenceUrl": "https://christydawn.com/blogs/our-story/a-note-from-christy",
+      "note": "Brand founder describes Christy Dawn garments and Los Angeles production on brand-owned story page. Shopify product/search responses verified; vendor field U26C is not brand identity."
+    },
+    {
+      "kind": "MERCHANT_TRUST",
+      "record": {
+        "host": "christydawn.com",
+        "level": "OFFICIAL",
+        "evidenceUrl": "https://christydawn.com/blogs/our-story/a-note-from-christy",
+        "reviewedAt": "2026-09-05",
+        "status": "APPROVED"
+      },
+      "evidenceKind": "BRAND_DOMAIN",
+      "evidenceUrl": "https://christydawn.com/blogs/our-story/a-note-from-christy",
+      "note": "Brand founder describes Christy Dawn garments and Los Angeles production on brand-owned story page. Shopify product/search responses verified; vendor field U26C is not brand identity."
+    },
+    {
+      "kind": "OFFICIAL_STOREFRONT",
+      "record": {
+        "brand": "LoveShackFancy",
+        "aliases": [],
+        "officialHost": "loveshackfancy.com",
+        "storefrontHost": "www.loveshackfancy.com",
+        "platform": "SHOPIFY",
+        "productPathPrefixes": [
+          "/products/"
+        ],
+        "imageHosts": [
+          "cdn.shopify.com"
+        ],
+        "evidenceUrl": "https://www.loveshackfancy.com/pages/about",
+        "reviewedAt": "2026-09-05",
+        "status": "APPROVED"
+      },
+      "evidenceKind": "BRAND_DOMAIN",
+      "evidenceUrl": "https://www.loveshackfancy.com/pages/about",
+      "note": "Brand history names founder Rebecca Hessel Cohen and links brand retail stores, customer care and return policy. Canonical www Shopify search/product verified."
+    },
+    {
+      "kind": "MERCHANT_TRUST",
+      "record": {
+        "host": "loveshackfancy.com",
+        "level": "OFFICIAL",
+        "evidenceUrl": "https://www.loveshackfancy.com/pages/about",
+        "reviewedAt": "2026-09-05",
+        "status": "APPROVED"
+      },
+      "evidenceKind": "BRAND_DOMAIN",
+      "evidenceUrl": "https://www.loveshackfancy.com/pages/about",
+      "note": "Brand history names founder Rebecca Hessel Cohen and links brand retail stores, customer care and return policy. Canonical www Shopify search/product verified."
+    },
+    {
+      "kind": "OFFICIAL_STOREFRONT",
+      "record": {
+        "brand": "RIXO",
+        "aliases": [
+          "Rixo London"
+        ],
+        "officialHost": "rixolondon.com",
+        "storefrontHost": "rixolondon.com",
+        "platform": "SHOPIFY",
+        "productPathPrefixes": [
+          "/products/"
+        ],
+        "imageHosts": [
+          "cdn.shopify.com"
+        ],
+        "evidenceUrl": "https://rixolondon.com/pages/world-of-rixo",
+        "reviewedAt": "2026-09-05",
+        "status": "APPROVED"
+      },
+      "evidenceKind": "BRAND_DOMAIN",
+      "evidenceUrl": "https://rixolondon.com/pages/world-of-rixo",
+      "note": "Brand founders describe RIXO history and own stores on the official About page. Shopify search/product verified."
+    },
+    {
+      "kind": "MERCHANT_TRUST",
+      "record": {
+        "host": "rixolondon.com",
+        "level": "OFFICIAL",
+        "evidenceUrl": "https://rixolondon.com/pages/world-of-rixo",
+        "reviewedAt": "2026-09-05",
+        "status": "APPROVED"
+      },
+      "evidenceKind": "BRAND_DOMAIN",
+      "evidenceUrl": "https://rixolondon.com/pages/world-of-rixo",
+      "note": "Brand founders describe RIXO history and own stores on the official About page. Shopify search/product verified."
+    },
+    {
+      "kind": "OFFICIAL_STOREFRONT",
+      "record": {
+        "brand": "FAITHFULL",
+        "aliases": [
+          "Faithfull the Brand"
+        ],
+        "officialHost": "faithfullthebrand.com",
+        "storefrontHost": "faithfullthebrand.com",
+        "platform": "SHOPIFY",
+        "productPathPrefixes": [
+          "/products/"
+        ],
+        "imageHosts": [
+          "cdn.shopify.com"
+        ],
+        "evidenceUrl": "https://faithfullthebrand.com/pages/about-1",
+        "reviewedAt": "2026-09-05",
+        "status": "APPROVED"
+      },
+      "evidenceKind": "BRAND_DOMAIN",
+      "evidenceUrl": "https://faithfullthebrand.com/pages/about-1",
+      "note": "Official brand story identifies founders Sarah-Jane Abrahams and Helle Them-Enger with Bali operations; contact/returns links present. Shopify search/product verified. Vendor Cadaques is a collection label, not brand identity."
+    },
+    {
+      "kind": "MERCHANT_TRUST",
+      "record": {
+        "host": "faithfullthebrand.com",
+        "level": "OFFICIAL",
+        "evidenceUrl": "https://faithfullthebrand.com/pages/about-1",
+        "reviewedAt": "2026-09-05",
+        "status": "APPROVED"
+      },
+      "evidenceKind": "BRAND_DOMAIN",
+      "evidenceUrl": "https://faithfullthebrand.com/pages/about-1",
+      "note": "Official brand story identifies founders Sarah-Jane Abrahams and Helle Them-Enger with Bali operations; contact/returns links present. Shopify search/product verified. Vendor Cadaques is a collection label, not brand identity."
+    },
+    {
+      "kind": "OFFICIAL_STOREFRONT",
+      "record": {
+        "brand": "DISSH",
+        "aliases": [],
+        "officialHost": "dissh.com",
+        "storefrontHost": "dissh.com",
+        "platform": "SHOPIFY",
+        "productPathPrefixes": [
+          "/products/"
+        ],
+        "imageHosts": [
+          "cdn.shopify.com"
+        ],
+        "evidenceUrl": "https://dissh.com/blogs/dissh/our-story",
+        "reviewedAt": "2026-09-05",
+        "status": "APPROVED"
+      },
+      "evidenceKind": "BRAND_DOMAIN",
+      "evidenceUrl": "https://dissh.com/blogs/dissh/our-story",
+      "note": "Official brand story identifies Australian origin and Lucy Henry-Hicks; contact, stores and returns links present. Shopify search/product verified."
+    },
+    {
+      "kind": "MERCHANT_TRUST",
+      "record": {
+        "host": "dissh.com",
+        "level": "OFFICIAL",
+        "evidenceUrl": "https://dissh.com/blogs/dissh/our-story",
+        "reviewedAt": "2026-09-05",
+        "status": "APPROVED"
+      },
+      "evidenceKind": "BRAND_DOMAIN",
+      "evidenceUrl": "https://dissh.com/blogs/dissh/our-story",
+      "note": "Official brand story identifies Australian origin and Lucy Henry-Hicks; contact, stores and returns links present. Shopify search/product verified."
+    },
+    {
+      "kind": "OFFICIAL_STOREFRONT",
+      "record": {
+        "brand": "STAUD",
+        "aliases": [],
+        "officialHost": "staud.clothing",
+        "storefrontHost": "staud.clothing",
+        "platform": "SHOPIFY",
+        "productPathPrefixes": [
+          "/products/"
+        ],
+        "imageHosts": [
+          "cdn.shopify.com"
+        ],
+        "evidenceUrl": "https://staud.clothing/pages/terms-conditions",
+        "reviewedAt": "2026-09-05",
+        "status": "APPROVED"
+      },
+      "evidenceKind": "BRAND_DOMAIN",
+      "evidenceUrl": "https://staud.clothing/pages/terms-conditions",
+      "note": "Official terms identify the site as controlled and operated by STAUD and name STAUD Inc.; brand-domain customer support and returns present. Shopify search/product verified. Vendor includes collection suffix."
+    },
+    {
+      "kind": "MERCHANT_TRUST",
+      "record": {
+        "host": "staud.clothing",
+        "level": "OFFICIAL",
+        "evidenceUrl": "https://staud.clothing/pages/terms-conditions",
+        "reviewedAt": "2026-09-05",
+        "status": "APPROVED"
+      },
+      "evidenceKind": "BRAND_DOMAIN",
+      "evidenceUrl": "https://staud.clothing/pages/terms-conditions",
+      "note": "Official terms identify the site as controlled and operated by STAUD and name STAUD Inc.; brand-domain customer support and returns present. Shopify search/product verified. Vendor includes collection suffix."
+    },
+    {
+      "kind": "OFFICIAL_STOREFRONT",
+      "record": {
+        "brand": "With Jéan",
+        "aliases": [],
+        "officialHost": "withjean.com",
+        "storefrontHost": "withjean.com",
+        "platform": "SHOPIFY",
+        "productPathPrefixes": [
+          "/products/"
+        ],
+        "imageHosts": [
+          "cdn.shopify.com"
+        ],
+        "evidenceUrl": "https://withjean.com/pages/about-us",
+        "reviewedAt": "2026-09-05",
+        "status": "APPROVED"
+      },
+      "evidenceKind": "BRAND_DOMAIN",
+      "evidenceUrl": "https://withjean.com/pages/about-us",
+      "note": "Official brand history names founders Sami Lorking-Tanner and Evangeline Titilas; brand contact, stores and returns present. Shopify search/product verified."
+    },
+    {
+      "kind": "MERCHANT_TRUST",
+      "record": {
+        "host": "withjean.com",
+        "level": "OFFICIAL",
+        "evidenceUrl": "https://withjean.com/pages/about-us",
+        "reviewedAt": "2026-09-05",
+        "status": "APPROVED"
+      },
+      "evidenceKind": "BRAND_DOMAIN",
+      "evidenceUrl": "https://withjean.com/pages/about-us",
+      "note": "Official brand history names founders Sami Lorking-Tanner and Evangeline Titilas; brand contact, stores and returns present. Shopify search/product verified."
+    },
+    {
+      "kind": "OFFICIAL_STOREFRONT",
+      "record": {
+        "brand": "Paloma Wool",
+        "aliases": [],
+        "officialHost": "palomawool.com",
+        "storefrontHost": "palomawool.com",
+        "platform": "SHOPIFY",
+        "productPathPrefixes": [
+          "/products/"
+        ],
+        "imageHosts": [
+          "cdn.shopify.com"
+        ],
+        "evidenceUrl": "https://palomawool.com/pages/privacy-policy",
+        "reviewedAt": "2026-09-05",
+        "status": "APPROVED"
+      },
+      "evidenceKind": "BRAND_DOMAIN",
+      "evidenceUrl": "https://palomawool.com/pages/privacy-policy",
+      "note": "Official About identifies the Paloma Wool project; privacy policy identifies controller PURO PASEO SL and matching brand-domain support. Shopify search/product verified. Vendor Woman is not brand identity."
+    },
+    {
+      "kind": "MERCHANT_TRUST",
+      "record": {
+        "host": "palomawool.com",
+        "level": "OFFICIAL",
+        "evidenceUrl": "https://palomawool.com/pages/privacy-policy",
+        "reviewedAt": "2026-09-05",
+        "status": "APPROVED"
+      },
+      "evidenceKind": "BRAND_DOMAIN",
+      "evidenceUrl": "https://palomawool.com/pages/privacy-policy",
+      "note": "Official About identifies the Paloma Wool project; privacy policy identifies controller PURO PASEO SL and matching brand-domain support. Shopify search/product verified. Vendor Woman is not brand identity."
+    },
+    {
+      "kind": "OFFICIAL_STOREFRONT",
+      "record": {
+        "brand": "Damson Madder",
+        "aliases": [],
+        "officialHost": "damsonmadder.com",
+        "storefrontHost": "damsonmadder.com",
+        "platform": "SHOPIFY",
+        "productPathPrefixes": [
+          "/products/"
+        ],
+        "imageHosts": [
+          "cdn.shopify.com"
+        ],
+        "evidenceUrl": "https://damsonmadder.com/pages/terms-and-conditions",
+        "reviewedAt": "2026-09-05",
+        "status": "APPROVED"
+      },
+      "evidenceKind": "BRAND_DOMAIN",
+      "evidenceUrl": "https://damsonmadder.com/pages/terms-and-conditions",
+      "note": "Official terms identify DAMSON MADDER LTD, company number 14017609, as site operator; brand-domain contact and return policy present. Shopify search/product verified."
+    },
+    {
+      "kind": "MERCHANT_TRUST",
+      "record": {
+        "host": "damsonmadder.com",
+        "level": "OFFICIAL",
+        "evidenceUrl": "https://damsonmadder.com/pages/terms-and-conditions",
+        "reviewedAt": "2026-09-05",
+        "status": "APPROVED"
+      },
+      "evidenceKind": "BRAND_DOMAIN",
+      "evidenceUrl": "https://damsonmadder.com/pages/terms-and-conditions",
+      "note": "Official terms identify DAMSON MADDER LTD, company number 14017609, as site operator; brand-domain contact and return policy present. Shopify search/product verified."
+    }
+  ]
+}
