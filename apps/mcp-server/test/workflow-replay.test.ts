@@ -100,6 +100,58 @@ async function rejectAll(client: Client, session: VisualSession) {
 }
 
 describe("sanitized conversational workflow replay", () => {
+  it("tries original candidate ten after nine image failures before any relaxed retrieval", async () => {
+    const pool = Array.from({ length: 12 }, (_, index) => visualProduct(`original-${String(index).padStart(2, "0")}`));
+    const search = vi.fn<ShopifyPort["search"]>(async () => result(pool));
+    const load = vi.fn(async (url: string) => {
+      if (/original-0[0-8]\.jpg/u.test(url)) throw new Error("IMAGE_UNAVAILABLE");
+      return { data: "aW1hZ2U=", mimeType: "image/jpeg" as const };
+    });
+    const client = await connect(search, { visualCandidateImages: { load } });
+    const first = await client.callTool({ name: "search_visual_candidates", arguments: blackDressRequest });
+    expect(first.isError).not.toBe(true);
+    expect((first.structuredContent as VisualSession).candidates.map(({ title }) => title)).toEqual(pool.slice(9).map(({ title }) => title));
+    expect(load).toHaveBeenCalledTimes(12);
+    // No second retrieval once the retained original tail supplied reviewable images.
+    expect(new Set(search.mock.calls.map(([input]) => input.query)).size).toBe(1);
+  });
+
+  it.each([false, true])("retains a reviewed similar result through a second round (image failure: %s)", async (imageFailure) => {
+    const pool = Array.from({ length: 9 }, (_, index) => visualProduct(`retain-${String(index).padStart(2, "0")}`));
+    const search = vi.fn<ShopifyPort["search"]>(async () => result(pool));
+    const client = await connect(search, { visualCandidateImages: { load: async (url) => {
+      if (imageFailure && /retain-0[6-8]\.jpg/u.test(url)) throw new Error("IMAGE_UNAVAILABLE");
+      return { data: "aW1hZ2U=", mimeType: "image/jpeg" };
+    } } });
+    const first = await client.callTool({ name: "search_visual_candidates", arguments: blackDressRequest });
+    const session = first.structuredContent as VisualSession;
+    const follow = await client.callTool({ name: "finalize_visual_search", arguments: {
+      visualSessionId: session.visualSessionId,
+      verdicts: session.candidates.map(({ candidateId }, index) => ({ candidateId, verdict: index === 0 ? {
+        classification: "HIGHLY_SIMILAR", conflicts: [], matches: [
+          { attribute: "PRODUCT_TYPE", referenceEvidence: "dress", candidateEvidence: "dress" },
+          { attribute: "NECKLINE", referenceEvidence: "boat neckline", candidateEvidence: "boat neckline" }
+        ]
+      } : { classification: "CONFLICT", conflicts: [
+        { attribute: "NECKLINE", referenceEvidence: "boat neckline", candidateEvidence: "deep V" }
+      ] } }))
+    } });
+    expect(follow.isError).not.toBe(true);
+    const final = imageFailure ? follow : await rejectAll(client, (follow.structuredContent as { visualReview: VisualSession }).visualReview);
+    expect(final.isError).not.toBe(true);
+    expect(final.structuredContent).toMatchObject({ products: [{ title: pool[0]!.title, visualMatchGroup: "HIGHLY_SIMILAR" }] });
+    expect(final.structuredContent).not.toHaveProperty("visualSearchFailure");
+    expect(final.structuredContent).not.toHaveProperty("visualReview");
+  });
+
+  it("reports output capacity separately from candidate-network failures", async () => {
+    const client = await connect(async () => result([visualProduct("oversized")] ), {
+      visualCandidateImages: { load: async () => ({ data: "a".repeat(400_001), mimeType: "image/jpeg" }) }
+    });
+    const response = await client.callTool({ name: "search_visual_candidates", arguments: blackDressRequest });
+    expect(response.structuredContent).toMatchObject({ visualSearchFailure: { code: "IMAGE_PROCESSING_LIMIT" } });
+  });
+
   it("replays search, UI selection, unavailable coupons, comparison and a new image without losing the old render", async () => {
     const search = vi.fn<ShopifyPort["search"]>(async (input) => result((input.query ?? "").normalize("NFD").replace(/\p{M}/gu, "").includes("DOEN")
       ? [visualProduct("black-lace-mini")]
@@ -178,15 +230,15 @@ describe("sanitized conversational workflow replay", () => {
     expect(JSON.stringify(invalid)).not.toContain("x".repeat(241));
   });
 
-  it("retains the brand, blouse family and two visible details in the required second review", async () => {
-    const search = vi.fn<ShopifyPort["search"]>(async (input) => result([
-      visualProduct((input.query ?? "").includes("layered ruffles") ? "second-plain-blouse" : "first-plain-blouse", "blouse")
-    ]));
+  it("retains brand, blouse family and structural evidence while relaxing an unconfirmed name hint", async () => {
+    const search = vi.fn<ShopifyPort["search"]>(async (input) => result((input.query ?? "").includes("initialhint")
+      ? Array.from({ length: 6 }, (_, index) => visualProduct(`first-plain-blouse-${index}`, "blouse"))
+      : [visualProduct("second-plain-blouse", "blouse")]));
     const client = await connect(search);
     const first = await client.callTool({ name: "search_visual_candidates", arguments: {
       query: "DOEN blouse", brand: "DOEN", brandMode: "REQUIRED", productType: "blouse", contextMode: "NEW_PRODUCT", responseLocale: "zh-CN",
       visualInput: {
-        brand: "DOEN", productType: "blouse",
+        brand: "DOEN", productType: "blouse", suspectedProductName: "initialhint",
         observations: [
           { attribute: "DISTINCTIVE_DETAIL", value: "layered ruffles across the upper chest and shoulders", confidence: 0.98 },
           { attribute: "DISTINCTIVE_DETAIL", value: "front tie bow with scalloped lace trim", confidence: 0.97 }
@@ -199,7 +251,7 @@ describe("sanitized conversational workflow replay", () => {
     const second = (retry.structuredContent as { visualReview: VisualSession }).visualReview;
     expect(second).toMatchObject({ stage: "RELAXED_REVIEW", finalAnswerAllowed: false, candidates: [{ title: "DÔEN second-plain-blouse blouse" }] });
     expect(search.mock.calls.map(([input]) => input.query)).toEqual(expect.arrayContaining([
-      expect.stringMatching(/D[OÔ]EN (?:blouse|shirt).*layered ruffles.*front tie bow/u)
+      expect.stringMatching(/D[OÔ]EN .*shirt.*ruffle/u)
     ]));
     const callsBeforeFinal = search.mock.calls.length;
     const final = await rejectAll(client, second);
@@ -229,18 +281,27 @@ describe("sanitized conversational workflow replay", () => {
       merchantUrl: "https://shopdoen.com/products/variant-family?variant=222",
       variantDimensions: { Color: "Black" }, imageUrl: "https://cdn.shopify.com/variant-family-black.jpg"
     };
-    const search = vi.fn<ShopifyPort["search"]>(async (input) => result((input.query ?? "").includes("horizontal") && newVariant
-      ? [gray, black, { ...gray }] : [gray, { ...gray }]));
-    const load = vi.fn(async () => ({ data: Buffer.from("synthetic-variant").toString("base64"), mimeType: "image/jpeg" as const }));
+    const companions = Array.from({ length: 5 }, (_, index) => visualProduct(`variant-companion-${index}`));
+    const search = vi.fn<ShopifyPort["search"]>(async (input) => result(!(input.query ?? "").includes("initialhint") && newVariant
+      ? [gray, black, { ...gray }] : [gray, { ...gray }, ...companions]));
+    const load = vi.fn(async (_url: string) => ({ data: Buffer.from("synthetic-variant").toString("base64"), mimeType: "image/jpeg" as const }));
     const client = await connect(search, { visualCandidateImages: { load } });
-    const initial = await client.callTool({ name: "search_visual_candidates", arguments: blackDressRequest });
+    const initial = await client.callTool({ name: "search_visual_candidates", arguments: {
+      ...blackDressRequest, visualInput: { ...blackDressRequest.visualInput, suspectedProductName: "initialhint" }
+    } });
     expect(initial.isError).not.toBe(true);
     const session = initial.structuredContent as VisualSession;
-    expect(session.candidates).toHaveLength(1);
-    expect(load).toHaveBeenCalledOnce();
+    expect(session.candidates).toHaveLength(6);
+    expect(load).toHaveBeenCalledTimes(6);
     const retry = await client.callTool({ name: "finalize_visual_search", arguments: {
       visualSessionId: session.visualSessionId,
-      verdicts: session.candidates.map(({ candidateId }) => ({ candidateId, verdict: {
+      verdicts: session.candidates.map(({ candidateId, title }) => ({ candidateId, verdict: title === black.title ? {
+        classification: "POSSIBLE_SAME_ITEM", conflicts: [], matches: [
+          { attribute: "PRODUCT_TYPE", referenceEvidence: "dress", candidateEvidence: "dress" },
+          { attribute: "NECKLINE", referenceEvidence: "boat neckline", candidateEvidence: "boat neckline" },
+          { attribute: "DISTINCTIVE_DETAIL", referenceEvidence: blackDetail, candidateEvidence: "horizontal lace insertion bands" }
+        ]
+      } : {
         classification: "CONFLICT", matches: [{ attribute: "PRODUCT_TYPE", referenceEvidence: "dress", candidateEvidence: "dress" }],
         conflicts: [{ attribute: "COLOR", referenceEvidence: "black", candidateEvidence: "grey" }]
       } }))
@@ -249,13 +310,18 @@ describe("sanitized conversational workflow replay", () => {
     if (!newVariant) {
       expect(retry.structuredContent).toMatchObject({ products: [], visualSearchFailure: { code: "CANDIDATES_CONFLICTED" } });
       expect(retry.structuredContent).not.toHaveProperty("visualReview");
-      expect(load).toHaveBeenCalledOnce();
+      expect(load).toHaveBeenCalledTimes(6);
+      return;
+    }
+    if (session.candidates.some(({ title }) => title === black.title)) {
+      expect(retry.structuredContent).toMatchObject({ products: [{ title: black.title, merchantUrl: black.merchantUrl }] });
+      expect(load.mock.calls.map(([url]) => url).filter((url) => url === black.imageUrl)).toHaveLength(1);
       return;
     }
     const review = (retry.structuredContent as { visualReview: VisualSession }).visualReview;
     expect(review).toMatchObject({ finalAnswerAllowed: false, candidates: [{ title: black.title }] });
-    expect(load).toHaveBeenCalledTimes(2);
-    expect(load.mock.calls).toEqual([[gray.imageUrl], [black.imageUrl]]);
+    expect(load).toHaveBeenCalledTimes(7);
+    expect(load.mock.calls.map((args) => args[0])).toEqual(expect.arrayContaining([gray.imageUrl, black.imageUrl]));
     const final = await client.callTool({ name: "finalize_visual_search", arguments: {
       visualSessionId: review.visualSessionId,
       verdicts: review.candidates.map(({ candidateId }) => ({ candidateId, verdict: {
@@ -312,10 +378,11 @@ describe("sanitized conversational workflow replay", () => {
     const finalized = await client.callTool({ name: "finalize_visual_search", arguments: {
       visualSessionId: session.visualSessionId,
       verdicts: session.candidates.map(({ candidateId }) => ({ candidateId, verdict: {
-        classification: "HIGHLY_SIMILAR", conflicts: [],
+        classification: "POSSIBLE_SAME_ITEM", conflicts: [],
         matches: [
           { attribute: "PRODUCT_TYPE", referenceEvidence: "dress", candidateEvidence: "dress" },
-          { attribute: "DISTINCTIVE_DETAIL", referenceEvidence: blackDetail, candidateEvidence: "horizontal lace insertion bands" }
+          { attribute: "DISTINCTIVE_DETAIL", referenceEvidence: blackDetail, candidateEvidence: "horizontal lace insertion bands" },
+          { attribute: "NECKLINE", referenceEvidence: "boat neckline", candidateEvidence: "boat neckline" }
         ]
       } }))
     } });
@@ -439,17 +506,22 @@ describe("sanitized conversational workflow replay", () => {
   it.each([false, true])("fills only second-round vacancies without duplicating the retained candidate or exceeding image output (large images: %s)", async (largeImages) => {
     const pool = Array.from({ length: 7 }, (_, index) => visualProduct(`pending-${index}`));
     const additional = [visualProduct("supplement-one"), visualProduct("supplement-two")];
-    const search = vi.fn<ShopifyPort["search"]>(async (input) => result((input.query ?? "").includes("horizontal")
-      ? [pool[6]!, ...additional] : pool));
+    const search = vi.fn<ShopifyPort["search"]>(async (input) => result((input.query ?? "").includes("initialhint")
+      ? pool : [pool[6]!, ...additional]));
     const load = vi.fn(async (url: string) => ({
       data: largeImages && /pending-6|supplement/u.test(url) ? "a".repeat(240_000) : Buffer.from("synthetic-image").toString("base64"),
       mimeType: "image/jpeg" as const
     }));
     const client = await connect(search, { visualCandidateImages: { load } });
-    const first = await client.callTool({ name: "search_visual_candidates", arguments: blackDressRequest });
+    const first = await client.callTool({ name: "search_visual_candidates", arguments: {
+      ...blackDressRequest, visualInput: { ...blackDressRequest.visualInput, suspectedProductName: "initialhint" }
+    } });
     const retry = await rejectAll(client, first.structuredContent as VisualSession);
     const second = (retry.structuredContent as { visualReview: VisualSession }).visualReview;
-    expect(second).toMatchObject({ stage: "RELAXED_REVIEW", finalAnswerAllowed: false });
+    // All-source retrieval may already have recalled the supplemental products;
+    // reuse them before another source read. Large mock images still exercise output caps.
+    expect(second).toMatchObject({ finalAnswerAllowed: false });
+    expect(["POOL_REVIEW", "RELAXED_REVIEW"]).toContain((second as VisualSession & { stage: string }).stage);
     expect(second.candidates.map(({ title }) => title)).toEqual(largeImages
       ? [pool[6]!.title] : [pool[6]!.title, ...additional.map(({ title }) => title)]);
     expect(load.mock.calls.filter(([url]) => url === pool[6]!.imageUrl)).toHaveLength(1);

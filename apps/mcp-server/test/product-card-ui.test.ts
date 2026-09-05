@@ -80,6 +80,57 @@ function couponFixture(coupons: Record<string, unknown>) {
 }
 
 describe("product-card MCP Apps UI", () => {
+  it.each([
+    ["zh-CN", "同色尺码库存尚未确认。", "同色可售尺码："],
+    ["en-US", "Size availability for this color has not been confirmed.", "Available sizes in this color:"]
+  ])("does not promote stale size metadata when availability is unknown in %s", (locale, expected, forbidden) => {
+    const output = couponFixture({ verified: [] });
+    Object.assign(output.products[0]!, { availabilityScope: "PRODUCT_COLOR", availability: "UNKNOWN", availableSizes: ["S", "M"] });
+    const app = renderFixture({ ...output, locale });
+    expect(text(app)).toContain(expected);
+    expect(text(app)).not.toContain(forbidden);
+  });
+  it.each([
+    ["zh-CN", "同色可售尺码：S、M", "报价对应规格：Size: S"],
+    ["en-US", "Available sizes in this color: S, M", "Price shown for variant: Size: S"]
+  ])("shows colorway size availability in %s without creating size controls", (locale, expected, variantLabel) => {
+    const output = couponFixture({ verified: [] });
+    Object.assign(output.products[0]!, { availabilityScope: "PRODUCT_COLOR", availableSizes: ["S", "M"], variantDimensions: { Size: "S" } });
+    const app = renderFixture({ ...output, locale });
+    expect(text(app)).toContain(expected);
+    expect(text(app)).toContain(variantLabel);
+    expect(nodes(app).some((node) => node.tagName === "SELECT")).toBe(false);
+    expect(nodes(app).filter((node) => node.tagName === "BUTTON").some((node) => ["S", "M"].includes(node.textContent))).toBe(false);
+  });
+
+  it.each([
+    ["zh-CN", "当前选规格库存：缺货", "不代表其他尺码或颜色的库存。"],
+    ["en-US", "Selected variant stock: Out of stock", "This does not describe other sizes or colors."]
+  ])("scopes an out-of-stock badge to the selected variant in %s", (locale, expected, limitation) => {
+    const output = couponFixture({ verified: [] });
+    Object.assign(output.products[0]!, { availabilityScope: "SELECTED_VARIANT", availability: "OUT_OF_STOCK", availableSizes: ["M"], variantDimensions: { Size: "XXS" } });
+    const app = renderFixture({ ...output, locale });
+    expect(text(app)).toContain(expected);
+    expect(text(app)).toContain(limitation);
+    expect(nodes(app).some((node) => node.className === "badge" && ["缺货", "Out of stock"].includes(node.textContent))).toBe(false);
+  });
+
+  it.each([
+    ["zh-CN", "当前同色暂无已确认可售尺码。"],
+    ["en-US", "No saleable sizes are currently confirmed for this color."]
+  ])("keeps an empty confirmed size list explicit in %s", (locale, expected) => {
+    const output = couponFixture({ verified: [] });
+    Object.assign(output.products[0]!, { availabilityScope: "PRODUCT_COLOR", availableSizes: [] });
+    expect(text(renderFixture({ ...output, locale }))).toContain(expected);
+  });
+
+  it("renders untrusted available-size values as text, not markup", () => {
+    const output = couponFixture({ verified: [] });
+    Object.assign(output.products[0]!, { availabilityScope: "PRODUCT_COLOR", availableSizes: ["<img src=x onerror=alert(1)>", "M"] });
+    const app = renderFixture(output);
+    expect(text(app)).toContain("<img src=x onerror=alert(1)>");
+    expect(nodes(app).some((node) => node.tagName === "IMG")).toBe(false);
+  });
   it("uses the server Coupon summary and folds other merchant offers without confirming product eligibility", () => {
     const app = renderFixture(couponFixture({
       lookupStatus: "COMPLETE", summary: { status: "MERCHANT_CANDIDATE", recommendedDealId: "recommended", reasonCodes: [] },
@@ -272,7 +323,7 @@ describe("product-card MCP Apps UI", () => {
       params: expect.objectContaining({
         name: "report_product_card_metrics",
         arguments: expect.objectContaining({
-          version: "0.17.12",
+          version: "0.17.13",
           terminalStage: "DOM_RENDERED",
           stages: expect.objectContaining({ DOM_RENDERED: expect.any(Number) })
         })
@@ -890,7 +941,7 @@ describe("product-card MCP Apps UI", () => {
       method: "ui/initialize",
       params: {
         protocolVersion: "2026-01-26",
-        appInfo: { name: "FindCheap Agent product cards", version: "0.17.12" },
+        appInfo: { name: "FindCheap Agent product cards", version: "0.17.13" },
         appCapabilities: { availableDisplayModes: ["inline"] }
       }
     });

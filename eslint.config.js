@@ -2,7 +2,8 @@ import eslint from "@eslint/js";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: [".superpowers/**", "archive/**", "node_modules/**", "**/dist/**", "plugins/findcheap-agent/dist/**", "coverage/**"] },
+  // Local captures and baseline bundles are generated, gitignored evaluation artifacts.
+  { ignores: [".superpowers/**", "archive/**", "artifacts/**", "node_modules/**", "**/dist/**", "plugins/findcheap-agent/dist/**", "coverage/**"] },
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
   {

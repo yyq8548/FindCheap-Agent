@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { readLimitedBody } from "../../../packages/awin-feed/src/index.js";
 
 const MAX_RESPONSE_BYTES = 256 * 1024;
 
@@ -46,6 +47,7 @@ export interface EbayBrowsePort {
     limit: number;
     maxItemPriceCents?: number;
     zipCode?: string;
+    signal?: AbortSignal;
   }): Promise<EbaySearchResult>;
 }
 
@@ -131,12 +133,16 @@ export function createEbayPortFromEnvironment(
   const fetchRequest = dependencies.fetch ?? fetch;
   return {
     async search(input) {
+      input.signal?.throwIfAborted();
+      const { signal: parentSignal, ...request } = input;
+      const timeout = AbortSignal.timeout(timeoutMs);
+      const signal = parentSignal === undefined ? timeout : AbortSignal.any([parentSignal, timeout]);
       const response = await fetchRequest(url.href, {
         method: "POST",
         redirect: "error",
         headers: { accept: "application/json", "content-type": "application/json" },
-        body: JSON.stringify(input),
-        signal: AbortSignal.timeout(timeoutMs)
+        body: JSON.stringify(request),
+        signal
       });
       if (response.status === 404) throw new Error("SOURCE_NOT_CONFIGURED");
       if (!response.ok) throw new Error(`eBay Search service returned HTTP ${response.status}`);
@@ -146,7 +152,8 @@ export function createEbayPortFromEnvironment(
       if (declared !== null && (!/^\d+$/u.test(declared) || Number(declared) > MAX_RESPONSE_BYTES)) {
         throw new Error("eBay Search service response is too large");
       }
-      const bytes = new Uint8Array(await response.arrayBuffer());
+      const bytes = await readLimitedBody(response, MAX_RESPONSE_BYTES, "eBay Search service", { signal });
+      signal.throwIfAborted();
       if (bytes.byteLength > MAX_RESPONSE_BYTES) throw new Error("eBay Search service response is too large");
       try {
         return ResultSchema.parse(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)));

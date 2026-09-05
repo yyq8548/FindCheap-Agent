@@ -1,5 +1,7 @@
 plugins/findcheap-agent/dist/mcp-server.js text eol=lf
 plugins/findcheap-agent/dist/mcp-server.meta.json text eol=lf
+plugins/findcheap-agent/dist/visual-image-worker.cjs text eol=lf
+plugins/findcheap-agent/dist/visual-image-worker.meta.json text eol=lf
 plugins/findcheap-agent/THIRD_PARTY_NOTICES.md text eol=lf
 plugins/findcheap-agent/skills/compare-products/SKILL.md text eol=lf
 plugins/findcheap-agent/skills/deals-and-watch/SKILL.md text eol=lf

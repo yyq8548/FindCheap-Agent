@@ -9,6 +9,8 @@ const repoRoot = path.resolve(packageRoot, "../..");
 const pluginRoot = path.join(repoRoot, "plugins", "findcheap-agent");
 const bundlePath = path.join(pluginRoot, "dist", "mcp-server.js");
 const metafilePath = path.join(pluginRoot, "dist", "mcp-server.meta.json");
+const workerBundlePath = path.join(pluginRoot, "dist", "visual-image-worker.cjs");
+const workerMetafilePath = path.join(pluginRoot, "dist", "visual-image-worker.meta.json");
 
 function packageFromInput(input) {
   const parts = input.replaceAll("\\", "/").split("/");
@@ -62,7 +64,8 @@ async function packageNotice(name, root) {
     version: manifest.version,
     licenseIdentifier,
     licenseFile,
-    licenseText: (await readFile(path.join(root, licenseFile), "utf8")).trim(),
+    licenseText: (await readFile(path.join(root, licenseFile), "utf8"))
+      .replaceAll("\r\n", "\n").split("\n").map((line) => line.trimEnd()).join("\n").trim(),
     source,
     homepage: homepage ?? "Not declared",
     repository: repository ?? "Not declared"
@@ -86,8 +89,9 @@ function formatNotice(component) {
 }
 
 export async function renderNotices(metafile) {
+  const workerMetafile = JSON.parse(await readFile(workerMetafilePath, "utf8"));
   const runtimeRoots = new Map();
-  for (const input of Object.keys(metafile.inputs)) {
+  for (const input of Object.keys({ ...metafile.inputs, ...workerMetafile.inputs })) {
     const inputPackage = packageFromInput(input);
     if (inputPackage) runtimeRoots.set(inputPackage.root, inputPackage.name);
   }
@@ -111,6 +115,7 @@ export async function renderNotices(metafile) {
 
   const bundle = await readFile(bundlePath);
   const bundleHash = createHash("sha256").update(bundle).digest("hex");
+  const workerHash = createHash("sha256").update(await readFile(workerBundlePath)).digest("hex");
   return [
     "# Third-Party Notices and Bundle Provenance",
     "",
@@ -121,6 +126,12 @@ export async function renderNotices(metafile) {
     "Metafile: `plugins/findcheap-agent/dist/mcp-server.meta.json`",
     "",
     `Bundle SHA-256: \`${bundleHash}\``,
+    "",
+    "Image worker: `plugins/findcheap-agent/dist/visual-image-worker.cjs`",
+    "",
+    "Image worker metafile: `plugins/findcheap-agent/dist/visual-image-worker.meta.json`",
+    "",
+    `Image worker SHA-256: \`${workerHash}\``,
     "",
     "Build command: `pnpm build:mcp`",
     "",

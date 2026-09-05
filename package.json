@@ -15,7 +15,8 @@
     "test:mcp-stdio": "vitest run apps/mcp-server/test/stdio-smoke.test.ts",
     "test:integration": "vitest run --config vitest.integration.ts",
     "db:migrate": "tsx packages/db/src/migrate.ts",
-    "registry:build": "tsx scripts/registry-builder.ts"
+    "registry:build": "tsx scripts/registry-builder.ts",
+    "eval:visual": "tsx scripts/evaluate-visual-search.ts"
   },
   "dependencies": {
     "pg": "^8.16.3",

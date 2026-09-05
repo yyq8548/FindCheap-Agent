@@ -20,6 +20,89 @@ function candidate(handle: string, title: string): UnifiedCandidate {
 }
 
 describe("visual review pool", () => {
+  it("reviews reliable color and pattern before unrelated official cache entries without asserting identity", () => {
+    const reference = VisualProductInputSchema.parse({ productType: "dress", observations: [
+      { attribute: "COLOR", value: "ivory", confidence: 0.98, visibility: "VISIBLE" },
+      { attribute: "PATTERN", value: "burgundy floral bouquets", confidence: 0.98, visibility: "VISIBLE" }
+    ] });
+    const official = Array.from({ length: 9 }, (_, index) => officialCandidate(`official-${index}`, `Plain ${index} Blue Dress`));
+    const target = candidate("target", "Ivory Burgundy Floral Dress");
+    target.recommendationTier = "TRUSTED_OR_AFFILIATE";
+    const result = selectVisualReviewCandidates([...official, target], 9, reference);
+    expect(result[0]?.shopifyProduct?.handle).toBe("target");
+    expect(result[0]).toMatchObject({ identityStatus: "DISCOVERY_MATCH", recommendationTier: "TRUSTED_OR_AFFILIATE" });
+    expect(result[0]?.visualReviewAssessment).toBeUndefined();
+  });
+
+  it("does not let official zero-structure cache crowd the observed Satin Tempt catalog candidate out of nine slots", () => {
+    const reference = VisualProductInputSchema.parse({ productType: "dress", observations: [
+      { attribute: "COLOR", value: "dark chocolate brown", confidence: 0.96, visibility: "VISIBLE" },
+      { attribute: "NECKLINE", value: "straight strapless neckline", confidence: 0.99, visibility: "VISIBLE" },
+      { attribute: "SLEEVE", value: "strapless with bare shoulders", confidence: 0.99, visibility: "VISIBLE" },
+      { attribute: "LENGTH", value: "floor length maxi", confidence: 0.99, visibility: "VISIBLE" },
+      { attribute: "SILHOUETTE", value: "fitted bodice and hips with a long slightly flared skirt", confidence: 0.95, visibility: "VISIBLE" }
+    ] });
+    // Public metadata observed in pdf04; neither the title nor supplier creates an identity verdict.
+    const target = candidate("44242283593814", "Satin Tempt Strapless Maxi Dress Chocolate");
+    if (target.source !== "SHOPIFY_GLOBAL_CATALOG") throw new Error("invalid fixture");
+    target.shopifyProduct.description = "A luxurious satin maxi dress with a strapless design, crisscross back, and fitted bodice. Maxi dress. Semi-lined. Strapless. Satin. Neck scarf. Crisscross back. Fitted bodice. Flowy skirt. Zipper, hook eye closure.";
+    target.shopifyProduct.merchant = "Hello Molly US";
+    target.shopifyProduct.variantDimensions = { Color: "Chocolate", Size: "XS" };
+    expect(classifyVisualProduct(reference, target.shopifyProduct)).toBeUndefined();
+    const official = Array.from({ length: 9 }, (_, index) => officialCandidate(`official-${index}`, `Plain ${index} White Dress`));
+    const result = selectVisualReviewCandidates([...official, target], 9, reference);
+    expect(result.some(item => item.shopifyProduct?.handle === target.shopifyProduct.handle)).toBe(true);
+    expect(result.find(item => item.shopifyProduct?.handle === target.shopifyProduct.handle)?.identityStatus).toBe("DISCOVERY_MATCH");
+    expect(result.every(item => item.visualReviewAssessment === undefined)).toBe(true);
+  });
+
+  it("keeps any reliable structural layer above weak color and pattern evidence", () => {
+    const reference = VisualProductInputSchema.parse({ productType: "dress", colors: ["ivory blue red green"], patterns: ["floral plaid stripe"] });
+    const weak = candidate("weak", "Ivory Blue Red Green Floral Plaid Stripe Dress");
+    const structured = { ...candidate("structured", "Cream Dress"), visualMatchScore: 1,
+      visualMatchEvidence: ["visual attribute matched: neckline: scoop neck"] };
+    expect(selectVisualReviewCandidates([weak, structured], 2, reference)[0]?.shopifyProduct?.handle).toBe("structured");
+  });
+
+  it("does not rank candidates from uncertain or inferred color observations", () => {
+    const reference = VisualProductInputSchema.parse({ productType: "dress", observations: [
+      { attribute: "COLOR", value: "ivory", confidence: 0.4, visibility: "VISIBLE" },
+      { attribute: "PATTERN", value: "burgundy floral", confidence: 0.9, visibility: "PARTIAL" }
+    ] });
+    const official = officialCandidate("official", "Plain Blue Dress");
+    const guessed = candidate("guessed", "Ivory Burgundy Floral Dress");
+    expect(selectVisualReviewCandidates([guessed, official], 2, reference)[0]?.shopifyProduct?.handle).toBe("official");
+  });
+
+  it("selects target print colors within a style using catalog detail, not opaque colorway names", () => {
+    const reference = VisualProductInputSchema.parse({ productType: "dress", colors: ["ivory base"], patterns: ["burgundy floral bouquets"],
+      neckline: "scoop neck", sleeveType: "short puff sleeves" });
+    const make = (handle: string, title: string, description: string) => {
+      const value = candidate(handle, title);
+      if (value.source !== "SHOPIFY_GLOBAL_CATALOG") throw new Error("invalid fixture");
+      value.shopifyProduct.description = description;
+      return { ...value, visualMatchScore: 73, visualMatchEvidence: ["visual attribute matched: neckline: scoop neck"] };
+    };
+    const wrong = make("wrong", "Meadow Dress -- Morning", "ivory blue floral bouquets with scoop neck short puff sleeves");
+    const target = make("target", "Meadow Dress -- Evening", "ivory burgundy floral bouquets with scoop neck short puff sleeves");
+    const other = Array.from({ length: 6 }, (_, index) => make(`other-${index}`, `Different ${index} Dress`, "ivory blue floral dress with scoop neck short puff sleeves"));
+    const result = selectVisualReviewCandidates([wrong, ...other, target], 6, reference);
+    expect(result[0]?.shopifyProduct?.handle).toBe("target");
+    expect(result.some(item => item.shopifyProduct?.handle === "wrong")).toBe(false);
+    expect(result[0]?.identityStatus).toBe("DISCOVERY_MATCH");
+  });
+
+  it("does not displace strongly matching colorways to satisfy a merchant diversity quota", () => {
+    const reference = VisualProductInputSchema.parse({ productType: "dress", colors: ["ivory"], patterns: ["red floral bouquets"], neckline: "scoop neck" });
+    const matches = Array.from({ length: 6 }, (_, index) => ({ ...candidate(`match-${index}`, `Style ${index} Ivory Red Floral Dress`),
+      visualMatchScore: 73, visualMatchEvidence: ["visual attribute matched: neckline: scoop neck"] }));
+    const wrongColor = { ...candidate("wrong", "Ivory Blue Floral Dress"), visualMatchScore: 73,
+      visualMatchEvidence: ["visual attribute matched: neckline: scoop neck"] };
+    if (wrongColor.source !== "SHOPIFY_GLOBAL_CATALOG") throw new Error("invalid fixture");
+    wrongColor.shopifyProduct.merchant = "Other merchant";
+    expect(selectVisualReviewCandidates([...matches, wrongColor], 6, reference).some(item => item.shopifyProduct?.handle === "wrong")).toBe(false);
+  });
+
   const visual = VisualProductInputSchema.parse({
     brand: "DOEN", productType: "dress", colors: ["black"],
     neckline: "boat neck", sleeveType: "cap sleeve", length: "mini"
@@ -38,7 +121,7 @@ describe("visual review pool", () => {
     expect(input[6]).toBe(target);
   });
 
-  it("keeps official and trusted candidates ahead of stronger unverified structural matches", () => {
+  it("reviews stronger structure before merchant presentation tiers without promoting merchant trust", () => {
     const official = visuallyAssessedCandidate("official", "Official Dress | Black", "black dress", visual);
     if (official.source !== "SHOPIFY_GLOBAL_CATALOG") throw new Error("invalid fixture");
     official.shopifyProduct = {
@@ -54,11 +137,26 @@ describe("visual review pool", () => {
 
     const result = selectVisualReviewCandidates([unverified, trusted, official], 3, visual);
 
-    expect(result.map(item => item.shopifyProduct?.handle)).toEqual(["official", "trusted", "unverified"]);
-    expect(result.map(item => item.presentationGroup)).toEqual(["OFFICIAL_STORE", "TRUSTED_MATCH", "BEST_VALUE"]);
+    expect(result.map(item => item.shopifyProduct?.handle)).toEqual(["unverified", "trusted", "official"]);
+    expect(result.map(item => item.presentationGroup)).toEqual(["BEST_VALUE", "TRUSTED_MATCH", "OFFICIAL_STORE"]);
+    expect(result[0]?.recommendationTier).toBe("GENERAL_UNVERIFIED");
   });
 
-  it("preserves source order when only brand, color, or material matches", () => {
+  it("reserves review opportunities across merchants with comparable structure, not unrelated fillers", () => {
+    const dominant = Array.from({ length: 6 }, (_, index) => visuallyAssessedCandidate(
+      `dominant-${index}`, `Style ${index} Dress | Black`, "black mini dress with boat neck and cap sleeve", visual
+    ));
+    const peer = visuallyAssessedCandidate("peer", "Peer Dress | Black", "black mini dress with boat neck and cap sleeve", visual);
+    const weak = visuallyAssessedCandidate("weak", "Weak Dress | Black", "black dress", visual);
+    if (peer.source !== "SHOPIFY_GLOBAL_CATALOG" || weak.source !== "SHOPIFY_GLOBAL_CATALOG") throw new Error("invalid fixture");
+    peer.shopifyProduct.merchant = "Other merchant";
+    weak.shopifyProduct.merchant = "Third merchant";
+    const result = selectVisualReviewCandidates([...dominant, peer, weak], 6, visual);
+    expect(result[3]?.shopifyProduct?.handle).toBe("peer");
+    expect(result.some((item) => item.shopifyProduct?.handle === "weak")).toBe(false);
+  });
+
+  it("uses reliable color as weak review evidence, without promoting brand or material alone", () => {
     const colorVisual = VisualProductInputSchema.parse({ brand: "DOEN", productType: "dress", colors: ["black"], materials: ["cotton"] });
     const input = [
       visuallyAssessedCandidate("brand", "First Dress", "dress", colorVisual),
@@ -68,7 +166,7 @@ describe("visual review pool", () => {
 
     expect(input[2]!.visualMatchScore).toBeGreaterThan(input[0]!.visualMatchScore!);
     expect(selectVisualReviewCandidates(input, 3, colorVisual).map(item => item.shopifyProduct?.handle))
-      .toEqual(["brand", "color", "material"]);
+      .toEqual(["color", "material", "brand"]);
   });
 
   it("keeps structural ties stable and the requested color representative ahead of sibling variants", () => {
@@ -102,6 +200,15 @@ describe("visual review pool", () => {
     expect(result.map(item => item.shopifyProduct?.handle)).toEqual(["grey", "mini", "pink"]);
   });
 });
+
+function officialCandidate(handle: string, title: string): UnifiedCandidate {
+  const value = candidate(handle, title);
+  if (value.source !== "SHOPIFY_GLOBAL_CATALOG") throw new Error("invalid fixture");
+  value.shopifyProduct = { ...value.shopifyProduct, merchant: "DOEN", sourceHost: "www.shopdoen.com",
+    merchantUrl: `https://www.shopdoen.com/products/${handle}`,
+    merchantTrust: { level: "OFFICIAL", verification: "INDEPENDENT", evidence: ["fixture"] } };
+  return value;
+}
 
 function visuallyAssessedCandidate(handle: string, title: string, description: string, visual: VisualProductInput): UnifiedCandidate {
   const result = candidate(handle, title);

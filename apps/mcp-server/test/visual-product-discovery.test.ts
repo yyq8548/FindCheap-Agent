@@ -260,7 +260,7 @@ describe("visual product discovery", () => {
       productType: "mini dress",
       colors: ["black"],
       materials: [],
-      patterns: [],
+      patterns: ["horizontal lace bands"],
       styleClues: [],
       distinctiveDetails: ["horizontal shirred tiers", "scalloped lace hem"]
     });
@@ -538,8 +538,8 @@ describe("visual product discovery", () => {
       silhouette: "gathered full skirt"
     });
 
-    expect(queries).toContainEqual({ stage: "FULL", query: "dress cream floral smocked" });
-    expect(queries).toContainEqual({ stage: "SYNONYM", query: "dress cream floral shirred" });
+    expect(queries).toContainEqual({ stage: "FULL", query: "dress cream red floral smocked" });
+    expect(queries).toContainEqual({ stage: "SYNONYM", query: "dress cream red floral shirred" });
     expect(queries.filter((attempt) => attempt.stage === "SYNONYM")).toHaveLength(1);
   });
 

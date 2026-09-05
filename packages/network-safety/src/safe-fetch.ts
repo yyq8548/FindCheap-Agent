@@ -90,6 +90,8 @@ export type SafeRequest = (
 
 export type FetchPolicy = {
   allowedHosts: readonly string[];
+  signal?: AbortSignal;
+  maxResponseBytes?: number;
   resolve?: ResolveHost;
   request?: SafeRequest;
 };
@@ -200,29 +202,37 @@ export async function safeFetchWithProvenance(
   input: SafeFetchInput,
   policy: FetchPolicy
 ): Promise<SafeFetchResponse> {
+  const maximum = Math.min(MAX_RESPONSE_BYTES, policy.maxResponseBytes ?? MAX_RESPONSE_BYTES);
+  if (!Number.isSafeInteger(maximum) || maximum < 1) throw new Error("blocked response byte limit");
+  const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+  const signal = policy.signal === undefined ? timeout : AbortSignal.any([policy.signal, timeout]);
+  signal.throwIfAborted();
   const allowedHosts = normalizeAllowedHosts(policy.allowedHosts);
   const resolve = policy.resolve ?? defaultResolve;
   const request = policy.request ?? defaultRequest;
   let current = parseTarget(input.url, false);
 
   for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
+    signal.throwIfAborted();
     const redirectContext = hop > 0;
     const hostname = validateTarget(current, allowedHosts, redirectContext);
-    const addresses = await resolveAndValidate(resolve, hostname, redirectContext);
+    const addresses = await resolveAndValidate(resolve, hostname, redirectContext, signal);
     let response: Response;
 
     try {
-      response = await request(
+      response = await abortable(() => request(
         current,
-        { redirect: "manual", signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) },
+        { redirect: "manual", signal },
         addresses
-      );
+      ), signal, (lateResponse) => { void lateResponse.body?.cancel().catch(() => undefined); });
     } catch (error) {
+      signal.throwIfAborted();
       throw new Error(`${redirectContext ? "redirect " : ""}request blocked`, { cause: error });
     }
 
     if (isRedirect(response.status)) {
-      await response.body?.cancel().catch(() => undefined);
+      void response.body?.cancel().catch(() => undefined);
+      signal.throwIfAborted();
       if (hop === MAX_REDIRECTS) throw new Error("redirect limit exceeded");
 
       let location: string | null;
@@ -237,12 +247,12 @@ export async function safeFetchWithProvenance(
     }
 
     try {
-      enforceContentLength(response.headers, MAX_RESPONSE_BYTES);
+      enforceContentLength(response.headers, maximum);
     } catch (error) {
-      await response.body?.cancel().catch(() => undefined);
+      void response.body?.cancel().catch(() => undefined);
       throw error;
     }
-    const buffered = await bufferResponse(response, MAX_RESPONSE_BYTES);
+    const buffered = await bufferResponse(response, maximum, signal);
     const finalUrl = new URL(current.href);
     finalUrl.hostname = normalizeHostname(current.hostname);
     finalUrl.hash = "";
@@ -300,12 +310,14 @@ function normalizeHostname(host: string): string {
 async function resolveAndValidate(
   resolve: ResolveHost,
   hostname: string,
-  redirect: boolean
+  redirect: boolean,
+  signal: AbortSignal
 ): Promise<ResolvedAddress[]> {
   let addresses: ResolvedAddress[];
   try {
-    addresses = await resolve(hostname);
+    addresses = await abortable(() => resolve(hostname), signal);
   } catch (error) {
+    signal.throwIfAborted();
     throw new Error(`${redirect ? "redirect " : ""}DNS blocked`, { cause: error });
   }
 
@@ -441,7 +453,8 @@ function enforceContentLength(headers: Headers, maximum: number): void {
   if (length > maximum) throw new Error("response too large");
 }
 
-async function bufferResponse(response: Response, maximum: number): Promise<Response> {
+async function bufferResponse(response: Response, maximum: number, signal: AbortSignal): Promise<Response> {
+  signal.throwIfAborted();
   if (response.body === null) {
     return new Response(null, responseInit(response));
   }
@@ -449,18 +462,22 @@ async function bufferResponse(response: Response, maximum: number): Promise<Resp
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let size = 0;
+  const cancel = () => { void reader.cancel().catch(() => undefined); };
+  signal.addEventListener("abort", cancel, { once: true });
   try {
     while (true) {
-      const { done, value } = await reader.read();
+      const { done, value } = await abortable(() => reader.read(), signal);
+      signal.throwIfAborted();
       if (done) break;
       size += value.byteLength;
       if (size > maximum) {
-        await reader.cancel().catch(() => undefined);
+        cancel();
         throw new Error("response too large");
       }
       chunks.push(value);
     }
   } finally {
+    signal.removeEventListener("abort", cancel);
     reader.releaseLock();
   }
 
@@ -471,6 +488,31 @@ async function bufferResponse(response: Response, maximum: number): Promise<Resp
     offset += chunk.byteLength;
   }
   return new Response(body, responseInit(response));
+}
+
+/** Bound waiting even when an injected resolver or transport ignores cancellation. */
+function abortable<T>(operation: () => Promise<T>, signal: AbortSignal, disposeLate?: (value: T) => void): Promise<T> {
+  signal.throwIfAborted();
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const abort = () => {
+      settled = true;
+      reject(signal.reason);
+    };
+    signal.addEventListener("abort", abort, { once: true });
+    Promise.resolve().then(() => {
+      signal.throwIfAborted();
+      return operation();
+    }).then((value) => {
+      if (settled) disposeLate?.(value);
+      else resolve(value);
+    }, (error: unknown) => {
+      if (!settled) reject(error);
+    }).finally(() => {
+      settled = true;
+      signal.removeEventListener("abort", abort);
+    });
+  });
 }
 
 function responseInit(response: Response): ResponseInit {

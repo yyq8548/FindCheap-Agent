@@ -8,6 +8,7 @@ import type {
 } from "./merchant-trust.js";
 
 export type ShopifySearchInput = {
+  signal?: AbortSignal;
   query?: string | undefined;
   handle?: string | undefined;
   limit: number;
@@ -36,6 +37,8 @@ export type ShopifyProduct = {
   sku?: string;
   gtins: string[];
   variantDimensions: Record<string, string>;
+  availableSizes?: string[];
+  availabilityScope?: "SELECTED_VARIANT" | "PRODUCT_COLOR";
   matchStatus: Exclude<ShopifyMatchStatus, "IRRELEVANT">;
   matchEvidence: string[];
   condition: ShopifyCondition;

@@ -60,6 +60,106 @@ const productJson = {
 };
 
 describe("official Shopify storefront search", () => {
+  it.each([true, false])("isolates ProductGroup size availability from other colors (color known: %s)", async (colorKnown) => {
+    const target = "https://www.shopdoen.com/products/cornella-dress-black";
+    const group = { "@type": "ProductGroup", name: "Example dress", hasVariant: [
+      { name: "Black XS", size: "XS", ...(colorKnown ? { color: "Black" } : {}),
+        offers: { availability: "https://schema.org/OutOfStock", price: 100, priceCurrency: "USD", url: `${target}?variant=1` } },
+      { name: "White M", size: "M", color: "White",
+        offers: { availability: "https://schema.org/InStock", price: 100, priceCurrency: "USD", url: `${target}?variant=2` } }
+    ] };
+    const fetchDocument = vi.fn<OfficialShopifyFetch>(async (url) => ({ response: new Response(url.endsWith(".js")
+      ? "not a Shopify JSON document" : `<script type="application/ld+json">${JSON.stringify(group)}</script>`), finalUrl: url }));
+    const port = createOfficialShopifySearchPort({ fetchDocument });
+    const [selected] = await port.search({ seed, query: "dress", limit: 1, sourcePageUrl: `${target}?variant=1` });
+    expect(selected).toMatchObject({ handle: "1", availability: "OUT_OF_STOCK", availabilityScope: "SELECTED_VARIANT", variantDimensions: { Size: "XS" } });
+    expect(selected?.availableSizes).toEqual(colorKnown ? [] : undefined);
+    if (colorKnown) {
+      const [sameColor] = await port.search({ seed, query: "dress", limit: 1, sourcePageUrl: target, requiredColor: "Black" });
+      expect(sameColor).toMatchObject({ handle: "1", availability: "OUT_OF_STOCK", availableSizes: [], availabilityScope: "PRODUCT_COLOR" });
+    }
+  });
+  it("reports same-color available sizes without treating the first unavailable XXS as the product", async () => {
+    const fetchDocument = vi.fn<OfficialShopifyFetch>(async (url) => ({ response: new Response(JSON.stringify(productJson)), finalUrl: url }));
+    const [product] = await createOfficialShopifySearchPort({ fetchDocument }).search({ seed, query: "dress", limit: 1,
+      sourcePageUrl: "https://www.shopdoen.com/products/cornella-dress-black" });
+    expect(product).toMatchObject({ availabilityScope: "PRODUCT_COLOR", availableSizes: ["S", "M"], availability: "IN_STOCK" });
+  });
+
+  it("selects an explicitly required size and never substitutes another size", async () => {
+    const fetchDocument = vi.fn<OfficialShopifyFetch>(async (url) => ({ response: new Response(JSON.stringify(productJson)), finalUrl: url }));
+    const port = createOfficialShopifySearchPort({ fetchDocument });
+    const [product] = await port.search({ seed, query: "dress", limit: 1, requiredSize: "XS",
+      sourcePageUrl: "https://www.shopdoen.com/products/cornella-dress-black" });
+    expect(product).toMatchObject({ handle: "472001", availabilityScope: "SELECTED_VARIANT", availability: "OUT_OF_STOCK" });
+    await expect(port.search({ seed, query: "dress", limit: 1, requiredSize: "XL",
+      sourcePageUrl: "https://www.shopdoen.com/products/cornella-dress-black" })).rejects.toThrow();
+  });
+  it("reads an exact official product URL before discovery and retains the selected variant", async () => {
+    const fetchDocument = vi.fn<OfficialShopifyFetch>(async (url) => ({
+      response: new Response(JSON.stringify(productJson)), finalUrl: url
+    }));
+    const port = createOfficialShopifySearchPort({ fetchDocument });
+    const result = await port.search({ seed, query: "dress", limit: 6,
+      sourcePageUrl: "https://www.shopdoen.com/products/cornella-dress-black?variant=472003" });
+    expect(fetchDocument).toHaveBeenCalledTimes(1);
+    expect(fetchDocument.mock.calls[0]?.[0]).toBe("https://www.shopdoen.com/products/cornella-dress-black.js");
+    expect(result[0]).toMatchObject({ handle: "472003", variantDimensions: { Size: "M" } });
+  });
+
+  it("never replaces a missing explicitly requested variant with the first available variant", async () => {
+    const fetchDocument = vi.fn<OfficialShopifyFetch>(async (url) => ({ response: new Response(JSON.stringify(productJson)), finalUrl: url }));
+    await expect(createOfficialShopifySearchPort({ fetchDocument }).search({ seed, query: "dress", limit: 6,
+      sourcePageUrl: "https://www.shopdoen.com/products/cornella-dress-black?variant=999999"
+    })).rejects.toThrow("official direct product unavailable");
+  });
+
+  it("does not start discovery when the parent search is already aborted", async () => {
+    const fetchDocument = vi.fn<OfficialShopifyFetch>();
+    const signal = AbortSignal.abort(new Error("caller cancelled"));
+    await expect(createOfficialShopifySearchPort({ fetchDocument }).search({ seed, query: "dress", limit: 6, signal })).rejects.toThrow();
+    expect(fetchDocument).not.toHaveBeenCalled();
+  });
+
+  it("bounds cached product documents instead of loading an oversized direct response", async () => {
+    const cancelled = vi.fn();
+    const fetchDocument = vi.fn<OfficialShopifyFetch>(async (url) => ({ response: new Response(new ReadableStream({
+      start(stream) { stream.enqueue(new Uint8Array(1024 * 1024 + 1)); }, cancel: cancelled
+    })), finalUrl: url }));
+    await expect(createOfficialShopifySearchPort({ fetchDocument }).search({ seed, query: "dress", limit: 6, cacheScope: {},
+      sourcePageUrl: "https://www.shopdoen.com/products/cornella-dress-black"
+    })).rejects.toThrow("official direct product unavailable");
+    expect(cancelled).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    "https://evil.example/products/cornella-dress-black",
+    "https://www.shopdoen.com:444/products/cornella-dress-black",
+    "https://www.shopdoen.com/account/login",
+    "https://www.shopdoen.com/products/cornella-dress-black?redirect=https://evil.example"
+  ])("rejects an unsafe direct product URL without fetching: %s", async (sourcePageUrl) => {
+    const fetchDocument = vi.fn<OfficialShopifyFetch>();
+    await expect(createOfficialShopifySearchPort({ fetchDocument }).search({
+      seed, query: "dress", limit: 6, sourcePageUrl
+    })).rejects.toThrow();
+    expect(fetchDocument).not.toHaveBeenCalled();
+  });
+
+  it("reuses bounded sitemap and product reads only inside the same search scope", async () => {
+    const fetchDocument = vi.fn<OfficialShopifyFetch>(async (url) => ({
+      response: new Response(url.endsWith("sitemap.xml") ? "<sitemapindex/>" : url.endsWith("sitemap-products.xml")
+        ? "<urlset/>" : JSON.stringify(url.includes("search/suggest") ? predictiveJson : productJson)), finalUrl: url
+    }));
+    const port = createOfficialShopifySearchPort({ fetchDocument });
+    const cacheScope = {};
+    await port.search({ seed, query: "dress black", limit: 6, cacheScope });
+    await port.search({ seed, query: "dress mini", limit: 6, cacheScope });
+    expect(fetchDocument.mock.calls.filter(([url]) => url.endsWith("sitemap.xml"))).toHaveLength(1);
+    expect(fetchDocument.mock.calls.filter(([url]) => url.endsWith("cornella-dress-black.js"))).toHaveLength(1);
+    await port.search({ seed, query: "dress mini", limit: 6, cacheScope: {} });
+    expect(fetchDocument.mock.calls.filter(([url]) => url.endsWith("cornella-dress-black.js"))).toHaveLength(2);
+  });
+
   it("hydrates a predictive result into one stable in-stock variant", async () => {
     const fetchDocument = vi.fn<OfficialShopifyFetch>(async (url) => ({
       response: new Response(JSON.stringify(url.includes("search/suggest") ? predictiveJson : productJson), {

@@ -2,6 +2,47 @@ import { describe, expect, it, vi } from "vitest";
 import { SearchRun, SearchBudgetError, SearchReadTimeoutError } from "../src/search-run.js";
 
 describe("bounded search run", () => {
+  it("aborts the underlying operation when its read deadline expires", async () => {
+    vi.useFakeTimers();
+    try {
+      const run = new SearchRun({ readTimeoutMs: 20 });
+      let signal: AbortSignal | undefined;
+      const pending = run.read("IMAGE", "abortable", (value) => {
+        signal = value;
+        return new Promise(() => {});
+      });
+      const rejected = expect(pending).rejects.toBeInstanceOf(SearchReadTimeoutError);
+      await vi.advanceTimersByTimeAsync(20);
+      await rejected;
+      expect(signal?.aborted).toBe(true);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("checks remaining capacity without falsely reporting an incomplete search", async () => {
+    const run = new SearchRun();
+    for (let index = 0; index < 12; index += 1) await run.read("IMAGE", String(index), async () => true);
+    expect(run.remainingImageRequests()).toBe(0);
+    expect(run.canRead("IMAGE")).toBe(false);
+    expect(run.diagnostics().budgetExhausted).toBe(false);
+    run.noteUnattemptedImages(0);
+    expect(run.diagnostics().budgetExhausted).toBe(false);
+    run.noteUnattemptedImages(2);
+    expect(run.diagnostics()).toMatchObject({ budgetExhausted: true,
+      imageReviewStop: { reason: "IMAGE_REQUEST_LIMIT", unattemptedCandidates: 2 } });
+  });
+
+  it("records active-time truncation only for remaining eligible work", () => {
+    const run = new SearchRun({ activeBudgetMs: 0 });
+    for (const count of [0, -1, NaN, 1.5]) run.noteUnattemptedImages(count);
+    expect(run.diagnostics().budgetExhausted).toBe(false);
+    run.noteUnattemptedImages(1);
+    expect(run.diagnostics()).toMatchObject({ budgetExhausted: true,
+      imageReviewStop: { reason: "ACTIVE_TIME_LIMIT", unattemptedCandidates: 1 } });
+    const available = new SearchRun();
+    available.noteUnattemptedImages(20);
+    expect(available.diagnostics().budgetExhausted).toBe(false);
+  });
+
   it("shares successful reads between retrieval passes without logging the query", async () => {
     const run = new SearchRun();
     const read = vi.fn(async () => ["candidate"]);

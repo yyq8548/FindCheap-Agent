@@ -1,12 +1,14 @@
 import type { SearchProductsInput } from "./search-products.js";
-import { assessRanking, compareRankingAssessments, hasEquivalentFitEvidence } from "./ranking-assessment.js";
+import { PRIMARY_BLOCK_REASON_CODES, assessRanking, compareRankingAssessments, hasEquivalentFitEvidence } from "./ranking-assessment.js";
+import type { VisualReviewAssessment } from "./visual-review-policy.js";
 
 export const RECOMMENDATION_REASON_CODES = [
   "EXACT_MATCH",
   "BEST_FIT",
   "TRUSTED_MERCHANT",
   "LOWER_PRICE",
-  "VERIFIED_COUPON"
+  "VERIFIED_COUPON",
+  ...PRIMARY_BLOCK_REASON_CODES
 ] as const;
 
 export type RecommendationReasonCode = typeof RECOMMENDATION_REASON_CODES[number];
@@ -22,6 +24,7 @@ export type RecommendationDecision = {
 type RecommendationProduct = {
   title: string;
   matchStatus: "EXACT" | "DISCOVERY_MATCH" | "SIMILAR";
+  visualReviewAssessment?: VisualReviewAssessment | undefined;
   presentationGroup?: "OFFICIAL_STORE" | "TRUSTED_MATCH" | "BEST_VALUE" | undefined;
   recommendationTier?: "TRUSTED_OR_AFFILIATE" | "HIGH_RATED_UNVERIFIED" | "GENERAL_UNVERIFIED" | undefined;
   merchantTrust: {
@@ -104,15 +107,18 @@ export function highVarianceClarification(input: SearchProductsInput): {
 
 export function choosePrimaryRecommendation(products: RecommendationProduct[]): RecommendationDecision {
   if (products.length === 0) return { state: "NO_MATCH", reasonCodes: [] };
-  const eligible = products
+  const assessed = products
     .map((product, index) => ({ product, index, assessment: assessRanking({
       ...product,
       itemPriceCents: product.itemPrice?.amountCents,
       confirmedCouponPriceCents: product.coupons.estimatedItemPriceAfterCoupon?.amountCents,
       couponRank: couponRank(product)
-    }) }))
-    .filter(({ assessment }) => assessment.primaryEligible);
-  if (eligible.length === 0) return { state: "RESEARCH_ONLY", reasonCodes: [] };
+    }) }));
+  const eligible = assessed.filter(({ assessment }) => assessment.primaryEligible);
+  if (eligible.length === 0) {
+    const blockers = new Set(assessed.flatMap(({ assessment }) => assessment.primaryBlockReasons));
+    return { state: "RESEARCH_ONLY", reasonCodes: PRIMARY_BLOCK_REASON_CODES.filter((code) => blockers.has(code)).slice(0, 3) };
+  }
 
   eligible.sort((left, right) => compareRankingAssessments(left.assessment, right.assessment));
   const selected = eligible[0]!;

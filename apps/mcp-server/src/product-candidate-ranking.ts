@@ -1,4 +1,5 @@
 import { resolveMerchantTrust } from "./merchant-trust.js";
+import { productReferenceKey } from "./product-reference.js";
 import { assessRanking, compareRankingAssessments } from "./ranking-assessment.js";
 import { assessSelectedProductDeal } from "./deal-assessment.js";
 import {
@@ -9,7 +10,7 @@ import type {
   SearchProductsInput,
   UnifiedCandidate
 } from "./search-products.js";
-import { normalizeVisualEvidence, type VisualProductInput } from "./visual-product-discovery.js";
+import { visualColorwayTerms, type VisualProductInput } from "./visual-product-discovery.js";
 
 export const OFFICIAL_PRODUCT_CARD_LIMIT = 2;
 export const TRUSTED_PRODUCT_CARD_LIMIT = 3;
@@ -24,6 +25,9 @@ export function candidateMerchant(candidate: UnifiedCandidate): string {
 }
 
 export function compareRankedCandidates(left: UnifiedCandidate, right: UnifiedCandidate): number {
+  if (left.visualReviewAssessment !== undefined || right.visualReviewAssessment !== undefined) {
+    return compareRankingAssessments(candidateRanking(left), candidateRanking(right));
+  }
   const visualDifference = (right.visualMatchScore ?? 0) - (left.visualMatchScore ?? 0);
   if (visualDifference !== 0) return visualDifference;
   const groupDifference = resultGroupRank(left.resultGroup) - resultGroupRank(right.resultGroup);
@@ -43,6 +47,7 @@ function candidateRanking(candidate: UnifiedCandidate) {
     recommendationTier: candidate.recommendationTier, merchantTrust: trust,
     availability: source.availability, requiredFeatureLimitations: candidate.requiredFeatureLimitations,
     featureEvidence: candidate.featureEvidence, preferenceEvidence: candidate.preferenceEvidence,
+    visualReviewAssessment: candidate.visualReviewAssessment,
     itemPriceCents: candidatePrice(candidate), confirmedCouponPriceCents: candidateEffectivePrice(candidate),
     couponRank: candidateCouponRank(candidate)
   });
@@ -107,13 +112,28 @@ export function selectVisualReviewCandidates(
   const general = eligible.filter((candidate) =>
     !isOfficialCandidate(candidate) && candidate.recommendationTier === "GENERAL_UNVERIFIED"
   );
-  const colors = visual === undefined ? [] : normalizeVisualEvidence(visual)
-    .filter((entry) => entry.attribute === "COLOR" && entry.visibility === "VISIBLE")
-    .map((entry) => entry.value.toLocaleLowerCase("en-US").replace(/gray/gu, "grey"));
+  const colorway = visual === undefined ? { colors: [], patterns: [] } : visualColorwayTerms(visual);
+  const colorwayScore = (candidate: UnifiedCandidate): number => {
+    const product = candidate.awinProduct ?? candidate.shopifyProduct ?? candidate.ebayProduct;
+    const text = [product.title, "description" in product ? product.description : undefined,
+      ...(candidate.shopifyProduct === undefined ? [] : Object.values(candidate.shopifyProduct.variantDimensions))]
+      .filter((entry): entry is string => typeof entry === "string").join(" ").normalize("NFKC")
+      .toLocaleLowerCase("en-US").replace(/\bgrey\b/gu, "gray");
+    const contains = (term: string): boolean => new RegExp(`\\b${term}\\b`, "u").test(text);
+    return colorway.colors.filter(contains).length * 2 + colorway.patterns.filter(contains).length * 3;
+  };
+  const reviewScore = (candidate: UnifiedCandidate): number => {
+    const structure = visualReviewStructureScore(candidate);
+    // Weak color/pattern evidence earns review, never a final similarity verdict.
+    // Keep it below the structural tier even when several color terms match.
+    return (structure > 0 ? 1_000 + structure : 0) + colorwayScore(candidate) * 3;
+  };
   const styles = new Map<string, UnifiedCandidate[]>();
-  const ranked = [official, trusted, general].flatMap((group) => group.sort((left, right) =>
-    visualReviewStructureScore(right) - visualReviewStructureScore(left)
-  ));
+  // Review relevance is separate from presentation groups and merchant eligibility.
+  // Preserve official/trusted priority only when review relevance is tied.
+  const ranked = [...official, ...trusted, ...general].sort((left, right) =>
+    reviewScore(right) - reviewScore(left)
+  );
   for (const candidate of ranked) {
     const style = `${candidateMerchantKey(candidate)}:${candidateTitle(candidate)
       .split(/\s+(?:\||--|—)\s+/u)[0]!.normalize("NFKC").toLocaleLowerCase("en-US")}`;
@@ -121,12 +141,10 @@ export function selectVisualReviewCandidates(
     entries.push(candidate);
     styles.set(style, entries);
   }
-  const groups = [...styles.values()].map((entries) => entries.sort((left, right) => {
-    const colorMatch = (candidate: UnifiedCandidate) => colors.some((color) =>
-      candidateTitle(candidate).toLocaleLowerCase("en-US").replace(/gray/gu, "grey").includes(color));
-    return Number(colorMatch(right)) - Number(colorMatch(left));
-  }));
-  const diverse = [...groups.map((entries) => entries[0]!), ...groups.flatMap((entries) => entries.slice(1))];
+  const groups = [...styles.values()].map((entries) => entries.sort((left, right) =>
+    colorwayScore(right) - colorwayScore(left) || reviewScore(right) - reviewScore(left)
+  )).sort((left, right) => reviewScore(right[0]!) - reviewScore(left[0]!));
+  const diverse = [...diversifyReviewStyles(groups.map((entries) => entries[0]!), reviewScore), ...groups.flatMap((entries) => entries.slice(1))];
   return diverse.slice(0, limit).map((candidate) => ({
     ...candidate,
     presentationGroup: isOfficialCandidate(candidate)
@@ -135,6 +153,23 @@ export function selectVisualReviewCandidates(
         ? "BEST_VALUE" as const
         : "TRUSTED_MATCH" as const
   }));
+}
+
+function diversifyReviewStyles(candidates: UnifiedCandidate[], score: (candidate: UnifiedCandidate) => number): UnifiedCandidate[] {
+  const remaining = [...candidates];
+  const selected: UnifiedCandidate[] = [];
+  // At most three same-merchant styles per six-item batch when near-equal peers
+  // exist. No unrelated merchant is promoted merely to fill a diversity quota.
+  while (remaining.length > 0) {
+    const batch = selected.slice(selected.length - selected.length % 6);
+    const topScore = score(remaining[0]!);
+    const peerIndex = topScore <= 0 ? -1 : remaining.findIndex((candidate) =>
+      score(candidate) >= topScore - 5 &&
+      batch.filter((entry) => candidateMerchantKey(entry) === candidateMerchantKey(candidate)).length < 3
+    );
+    selected.push(remaining.splice(peerIndex < 0 ? 0 : peerIndex, 1)[0]!);
+  }
+  return selected;
 }
 
 function visualReviewStructureScore(candidate: UnifiedCandidate): number {
@@ -153,6 +188,9 @@ export function countDisplayEligibleCandidates(
 }
 
 export function compareLowestPrice(left: UnifiedCandidate, right: UnifiedCandidate): number {
+  if (left.visualReviewAssessment !== undefined || right.visualReviewAssessment !== undefined) {
+    return compareRankingAssessments(candidateRanking(left), candidateRanking(right));
+  }
   return candidateEffectivePrice(left) - candidateEffectivePrice(right) ||
     candidatePrice(left) - candidatePrice(right) ||
     candidateCouponRank(right) - candidateCouponRank(left) ||
@@ -192,7 +230,7 @@ export function candidateKey(candidate: UnifiedCandidate): string {
     return `${candidate.source}:${candidate.awinProduct.merchantId}:${candidate.awinProduct.merchantProductId}`;
   }
   if (candidate.source === "EBAY_BROWSE") return `${candidate.source}:${candidate.ebayProduct.itemId}`;
-  return `${candidate.source}:${candidate.shopifyProduct.sourceHost}:${candidate.shopifyProduct.handle}`;
+  return productReferenceKey(candidate.shopifyProduct);
 }
 
 function candidateMerchantKey(candidate: UnifiedCandidate): string {

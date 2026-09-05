@@ -3,6 +3,9 @@ dist/
 !plugins/findcheap-agent/dist/
 !plugins/findcheap-agent/dist/mcp-server.js
 !plugins/findcheap-agent/dist/mcp-server.meta.json
+!plugins/findcheap-agent/dist/visual-image-worker.cjs
+!plugins/findcheap-agent/dist/visual-image-worker.meta.json
+.firecrawl/
 coverage/
 .env
 .env.*

@@ -17,6 +17,7 @@ import { createOfficialStorefrontRegistryPortFromEnvironment } from "./official-
 import { createMerchantTrustRegistryPortFromEnvironment } from "./merchant-trust-registry-client.js";
 import { createFindCheapBackend } from "./backend.js";
 import { createAffiliateLinkResolver } from "./affiliate-links.js";
+import { createOfficialCatalogPort } from "./official-catalog.js";
 
 const shopifyPort = createShopifyPortFromEnvironment(process.env);
 const dealPort = createDealPortFromEnvironment(process.env);
@@ -27,14 +28,16 @@ const officialStorefrontRegistry = createOfficialStorefrontRegistryPortFromEnvir
 const merchantTrustRegistry = createMerchantTrustRegistryPortFromEnvironment(process.env);
 const affiliateLinks = createAffiliateLinkResolver();
 const stateDirectory = process.env.FINDCHEAP_STATE_DIR ?? join(homedir(), ".findcheap-agent", "watches-v1");
+const officialShopify = createOfficialShopifySearchPort({
+  ...(officialStorefrontRegistry === undefined ? {} : { imageProxyOrigin: officialStorefrontRegistry.imageProxyOrigin })
+});
 const backend = createFindCheapBackend({
   catalog: {
     shopify: shopifyPort,
     awin: awinPort,
     ...(ebayPort === undefined ? {} : { ebay: ebayPort }),
-    officialShopify: createOfficialShopifySearchPort({
-      ...(officialStorefrontRegistry === undefined ? {} : { imageProxyOrigin: officialStorefrontRegistry.imageProxyOrigin })
-    }),
+    officialShopify,
+    officialCatalog: createOfficialCatalogPort({ path: join(stateDirectory, "official-catalog-v1.json"), official: officialShopify }),
     ...(officialStorefrontRegistry === undefined ? {} : { officialStorefrontRegistry }),
     ...(merchantTrustRegistry === undefined ? {} : { merchantTrustRegistry })
   },

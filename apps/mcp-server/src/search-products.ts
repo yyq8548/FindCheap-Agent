@@ -1,5 +1,8 @@
 import { z } from "zod";
 import { SearchRun } from "./search-run.js";
+import { candidateFingerprint, sourceProductFingerprint, visualQueryHash } from "./visual-source-fingerprints.js";
+import type { OfficialCatalogPort, OfficialCatalogDiagnostics } from "./official-catalog.js";
+import { assessVisualVerdict, type VisualReviewAssessment } from "./visual-review-policy.js";
 
 import type {
   AwinProduct,
@@ -22,6 +25,7 @@ import {
 import {
   merchantRecommendationTier,
   resolveVerifiedOfficialStorefront,
+  resolveVerifiedOfficialStorefrontByHost,
   resolveMerchantTrust
 } from "./merchant-trust.js";
 import type { MerchantRecommendationTier } from "./merchant-trust.js";
@@ -30,15 +34,14 @@ import {
   VisualProductInputSchema,
   classifyVisualProduct,
   hasVisualProductFamilyConflict,
-  isVisualAttributeOccluded,
-  visualBroadSearchTerms,
   visualOfficialStoreSearchQueries,
-  visualSearchTerms,
   type VisualMatch,
   type VisualMatchGroup,
   type VisualOfficialStoreQuery,
   type VisualProductInput
 } from "./visual-product-discovery.js";
+import { buildVisualRetrievalQuery } from "./visual-retrieval-query.js";
+import { productReferenceKey } from "./product-reference.js";
 import {
   classifyShopifyCandidate,
   hasNamedProductIntent,
@@ -134,6 +137,7 @@ export type SearchProductsInput = z.infer<typeof SearchProductsInputSchema>;
 /** Internal execution controls. These are never exposed through the MCP schema. */
 export type SearchProductsExecutionInput = SearchProductsInput & {
   deferVisualFiltering?: boolean;
+  relaxVisualRetrieval?: boolean;
   searchRun?: SearchRun;
 };
 
@@ -149,6 +153,7 @@ type CandidateBase = {
   identityEvidence: string[];
   resultGroup: "REQUESTED_PRODUCT" | "DISCOVERY" | "ALTERNATIVE";
   visualMatchGroup?: VisualMatchGroup | undefined;
+  visualReviewAssessment?: VisualReviewAssessment | undefined;
   visualMatchEvidence?: string[] | undefined;
   visualMatchScore?: number | undefined;
   presentationGroup?: ProductPresentationGroup | undefined;
@@ -186,7 +191,11 @@ export const VisualEvidenceAttributeSchema = z.enum([
 const VisualEvidencePairSchema = z.object({
   attribute: VisualEvidenceAttributeSchema,
   referenceEvidence: z.string().trim().min(1).max(160),
-  candidateEvidence: z.string().trim().min(1).max(160)
+  candidateEvidence: z.string().trim().min(1).max(160),
+  referenceObservation: z.object({
+    confidence: z.number().min(0).max(1),
+    visibility: z.enum(["VISIBLE", "PARTIAL", "OCCLUDED", "UNKNOWN"])
+  }).strict().optional().describe("Required only for a newly observed reference attribute. Cannot override prior uncertainty or occlusion.")
 }).strict();
 
 export const CodexVisualVerdictSchema = z.object({
@@ -214,6 +223,7 @@ export const CodexVisualVerdictSchema = z.object({
 export type CodexVisualVerdict = z.infer<typeof CodexVisualVerdictSchema>;
 
 export type UnifiedSearchExecution = {
+  officialCatalogDiagnostics?: OfficialCatalogDiagnostics;
   searchRun?: SearchRun;
   reviewPool?: UnifiedCandidate[];
   candidates: UnifiedCandidate[];
@@ -242,7 +252,7 @@ export type UnifiedSearchExecution = {
   identityProductsExcluded: number;
   visualProductsExcluded: number;
   officialStoreFallback: {
-    status: "NOT_USED" | "COMPLETE" | "UNAVAILABLE";
+    status: "NOT_USED" | "COMPLETE" | "PARTIAL" | "UNAVAILABLE";
     productsReturned: number;
     sourceHost?: string;
     diagnostic?: {
@@ -271,43 +281,13 @@ export function finalizeCodexVisualCandidates(
   visualInput?: VisualProductInput
 ): UnifiedCandidate[] {
   const accepted = reviewed.flatMap(({ candidate, verdict }) => {
-    const visibleMatches = visualInput === undefined
-      ? verdict.matches
-      : verdict.matches.filter((entry) => !isVisualAttributeOccluded(visualInput, entry.attribute));
-    const visibleConflicts = visualInput === undefined
-      ? verdict.conflicts
-      : verdict.conflicts.filter((entry) => !isVisualAttributeOccluded(visualInput, entry.attribute));
-    const ignoredConflictCount = verdict.conflicts.length - visibleConflicts.length;
-    const uniqueMatches = new Map(visibleMatches.map((entry) => [entry.attribute, entry]));
-    const matchCount = uniqueMatches.size;
-    const structuralAttributes = new Set(["SILHOUETTE", "NECKLINE", "SLEEVE", "CLOSURE", "COLLAR", "WAIST", "HEM", "LENGTH", "PRINT_PLACEMENT", "DISTINCTIVE_DETAIL"]);
-    const structuralMatchCount = [...uniqueMatches.keys()].filter((attribute) => structuralAttributes.has(attribute)).length;
-    const colorwayOnlyConflict = visibleConflicts.length > 0 &&
-      visibleConflicts.every((entry) => entry.attribute === "COLOR" || entry.attribute === "PATTERN") &&
-      structuralMatchCount >= 3;
-    const reviewedClassification = verdict.classification === "CONFLICT" &&
-      ignoredConflictCount > 0 && visibleConflicts.length === 0
-      ? matchCount >= 3
-        ? "POSSIBLE_SAME_ITEM" as const
-        : matchCount >= 2
-          ? "HIGHLY_SIMILAR" as const
-          : "SAME_STYLE" as const
-      : verdict.classification;
-    if (
-      (reviewedClassification === "CONFLICT" || visibleConflicts.length > 0) &&
-      !colorwayOnlyConflict
-    ) return [];
-    const classification = colorwayOnlyConflict ? "HIGHLY_SIMILAR" : reviewedClassification;
-    const group: VisualMatchGroup = classification === "POSSIBLE_SAME_ITEM" && matchCount >= 3
-      ? "POSSIBLE_SAME_ITEM"
-      : (classification === "POSSIBLE_SAME_ITEM" || classification === "HIGHLY_SIMILAR") && matchCount >= 2
-        ? "HIGHLY_SIMILAR"
-        : "SAME_STYLE";
-    if (group === "SAME_STYLE" && !allowAlternatives) return [];
-    const visualEvidence = [...uniqueMatches.values()].map((entry) =>
+    const review = assessVisualVerdict(verdict, visualInput, allowAlternatives);
+    if (review === undefined) return [];
+    const { group, matchCount, structuralMatchCount } = review;
+    const visualEvidence = review.matches.map((entry) =>
       `Codex visual match ${entry.attribute}: ${entry.referenceEvidence} | ${entry.candidateEvidence}`
     );
-    const visualDifferences = visibleConflicts.map((entry) =>
+    const visualDifferences = review.conflicts.map((entry) =>
       `Codex visual difference ${entry.attribute}: ${entry.referenceEvidence} | ${entry.candidateEvidence}`
     );
     const stableExact = candidate.identityStatus === "EXACT";
@@ -315,7 +295,8 @@ export function finalizeCodexVisualCandidates(
       ...candidate,
       visualMatchGroup: group,
       visualMatchEvidence: unique([...(candidate.visualMatchEvidence ?? []), ...visualEvidence, ...visualDifferences]),
-      visualMatchScore: visualGroupScore(group) + Math.min(matchCount, 16),
+      visualMatchScore: review.score,
+      visualReviewAssessment: { group, matchCount, structuralMatchCount },
       identityEvidence: unique([...candidate.identityEvidence, ...visualEvidence, ...visualDifferences]),
       identityStatus: stableExact ? "EXACT" as const : group === "SAME_STYLE" ? "SIMILAR" as const : "DISCOVERY_MATCH" as const,
       resultGroup: stableExact ? candidate.resultGroup : visualResultGroup(group)
@@ -326,7 +307,7 @@ export function finalizeCodexVisualCandidates(
     "MERCHANT_DIVERSE",
     allowAlternatives,
     true
-  ).slice(0, limit);
+  ).sort(compareRankedCandidates).slice(0, limit);
 }
 
 export function shouldQueryAwin(query: string): boolean {
@@ -341,6 +322,7 @@ export async function searchProducts(
     ebay?: EbayBrowsePort;
     deals?: DealPort;
     officialShopify?: OfficialShopifySearchPort;
+    officialCatalog?: OfficialCatalogPort;
     officialStorefrontRegistry?: OfficialStorefrontRegistryPort;
     merchantTrustRegistry?: MerchantTrustRegistryPort;
   }
@@ -397,7 +379,7 @@ export async function searchProducts(
         input.brand !== undefined && !containsBrand(identityProductQuery, input.brand) ? input.brand : "",
         identityProductQuery
       ]).join(" ").slice(0, 300).trim()
-    : input.deferVisualFiltering === true
+    : input.deferVisualFiltering === true && input.visualInput === undefined
       ? productQuery
       : buildSourceQuery({ ...input, query: productQuery });
   const sourceQuery = searchIntent === "EXACT_PRODUCT"
@@ -405,7 +387,7 @@ export async function searchProducts(
         input.brand !== undefined && !containsBrand(identityProductQuery, input.brand) ? input.brand : "",
         identityProductQuery
       ]).join(" ").slice(0, 300).trim()
-    : input.deferVisualFiltering === true
+    : input.deferVisualFiltering === true && input.visualInput === undefined
       ? productQuery
       : buildSourceQuery({ ...input, query: productQuery });
   const affiliateEligible = shouldQueryAwin(sourceQuery);
@@ -426,6 +408,7 @@ export async function searchProducts(
   let shopifyCandidates: UnifiedCandidate[] = [];
   let ebayCandidates: UnifiedCandidate[] = [];
   let observedShopifyProducts: ShopifyProduct[] = [];
+  let officialCatalogDiagnostics: OfficialCatalogDiagnostics | undefined;
   let officialStoreFallback: UnifiedSearchExecution["officialStoreFallback"] = {
     status: "NOT_USED",
     productsReturned: 0
@@ -438,13 +421,15 @@ export async function searchProducts(
   const queryAwin = async (query: string, limit: number, merge: boolean): Promise<void> => {
     if (!affiliateEligible) return;
     try {
-      const result = await searchRun.read("AWIN", JSON.stringify([query, limit]), () => ports.awin.search({
+      const result = await searchRun.read("AWIN", JSON.stringify([query, limit]), (signal) => ports.awin.search({
         query,
         limit,
+        signal,
         ...(input.maxItemPriceCents === undefined ? {} : { maxItemPriceCents: input.maxItemPriceCents })
       }));
       awinResult = result;
       awinStatus = "COMPLETE";
+      if (input.visualInput !== undefined) searchRun.recordVisualStage("NORMALIZED", result.products.map((product) => sourceProductFingerprint("AWIN", product)), { source: "AWIN", queryHash: visualQueryHash(query) });
       const incoming = result.products
         .map((product) => awinCandidate(
           product,
@@ -458,6 +443,7 @@ export async function searchProducts(
         ))
         .filter((candidate): candidate is UnifiedCandidate => candidate !== undefined);
       affiliateCandidates = merge ? mergeCandidates(affiliateCandidates, incoming) : incoming;
+      if (input.visualInput !== undefined) searchRun.recordVisualStage("ELIGIBLE", incoming.map(candidateFingerprint), { source: "AWIN", queryHash: visualQueryHash(query) });
     } catch {
       awinStatus = "UNAVAILABLE";
       awinError = "DATA_SOURCE_UNAVAILABLE";
@@ -465,9 +451,10 @@ export async function searchProducts(
   };
   const queryShopify = async (query: string, limit: number, merge: boolean): Promise<void> => {
     try {
-      const result = await searchRun.read("SHOPIFY", JSON.stringify([query, limit]), () => ports.shopify.search({
+      const result = await searchRun.read("SHOPIFY", JSON.stringify([query, limit]), (signal) => ports.shopify.search({
         query,
         limit,
+        signal,
         comparisonMode: searchIntent === "VISUAL_DISCOVERY" ? "DISCOVERY" : input.comparisonMode,
         selectionMode: input.selectionMode,
         ...(input.maxItemPriceCents === undefined ? {} : { maxItemPriceCents: input.maxItemPriceCents }),
@@ -477,6 +464,7 @@ export async function searchProducts(
       shopifyResult = result;
       observedShopifyProducts = mergeShopifyProducts(observedShopifyProducts, result.products);
       shopifyStatus = result.coverage;
+      if (input.visualInput !== undefined) searchRun.recordVisualStage("NORMALIZED", result.products.map((product) => sourceProductFingerprint("SHOPIFY", product)), { source: "SHOPIFY", queryHash: visualQueryHash(query) });
       const incoming = result.products
         .map((product) => shopifyCandidate(
           product,
@@ -490,6 +478,7 @@ export async function searchProducts(
         ))
         .filter((candidate): candidate is UnifiedCandidate => candidate !== undefined);
       shopifyCandidates = merge ? mergeCandidates(shopifyCandidates, incoming) : incoming;
+      if (input.visualInput !== undefined) searchRun.recordVisualStage("ELIGIBLE", incoming.map(candidateFingerprint), { source: "SHOPIFY", queryHash: visualQueryHash(query) });
     } catch (error) {
       shopifyStatus = shopifyResult === undefined ? "UNAVAILABLE" : "PARTIAL";
       shopifyError ??= productSourceError(error);
@@ -498,14 +487,16 @@ export async function searchProducts(
   const queryEbay = async (query: string, limit: number, merge: boolean): Promise<void> => {
     if (ports.ebay === undefined || ebayStatus === "SKIPPED") return;
     try {
-      const result = await searchRun.read("EBAY", JSON.stringify([query, limit]), () => ports.ebay!.search({
+      const result = await searchRun.read("EBAY", JSON.stringify([query, limit]), (signal) => ports.ebay!.search({
         query,
         limit,
+        signal,
         ...(input.maxItemPriceCents === undefined ? {} : { maxItemPriceCents: input.maxItemPriceCents }),
         ...(input.zipCode === undefined ? {} : { zipCode: input.zipCode })
       }));
       ebayResult = result;
       ebayStatus = "COMPLETE";
+      if (input.visualInput !== undefined) searchRun.recordVisualStage("NORMALIZED", result.products.map((product) => sourceProductFingerprint("EBAY", product)), { source: "EBAY", queryHash: visualQueryHash(query) });
       const incoming = result.products
         .map((product) => ebayCandidate(
           product,
@@ -519,6 +510,7 @@ export async function searchProducts(
         ))
         .filter((candidate): candidate is UnifiedCandidate => candidate !== undefined);
       ebayCandidates = merge ? mergeCandidates(ebayCandidates, incoming) : incoming;
+      if (input.visualInput !== undefined) searchRun.recordVisualStage("ELIGIBLE", incoming.map(candidateFingerprint), { source: "EBAY", queryHash: visualQueryHash(query) });
     } catch (error) {
       if (error instanceof Error && error.message === "SOURCE_NOT_CONFIGURED") {
         if (ebayResult === undefined) ebayStatus = "SKIPPED";
@@ -529,6 +521,91 @@ export async function searchProducts(
     }
   };
 
+  const officialProducts: ShopifyProduct[] = [];
+  const officialCandidates: UnifiedCandidate[] = [];
+  const queryOfficial = async (officialSeed: OfficialShopifyStoreSeed): Promise<void> => {
+    const attempts: NonNullable<UnifiedSearchExecution["officialStoreFallback"]["diagnostic"]>["attempts"] = [];
+    const visualExcludedBefore = visualExcludedKeys.size;
+    let failed = false;
+    let successes = 0;
+    let sourcePageUrl = input.visualInput?.sourcePageUrl;
+    if (sourcePageUrl !== undefined) {
+      const source = new URL(sourcePageUrl);
+      // Rewrite only registry-reviewed official/storefront aliases. This avoids
+      // following arbitrary cross-origin redirects during exact PDP hydration.
+      const storefront = resolveVerifiedOfficialStorefrontByHost(source.hostname);
+      if (storefront?.host === officialSeed.sourceHost) {
+        source.hostname = storefront.host;
+        sourcePageUrl = source.href;
+      }
+    }
+    const stages = [
+      ...(sourcePageUrl === undefined ? [] : [{ stage: "FULL" as const, query: "direct official product", sourcePageUrl }]),
+      ...buildOfficialStoreQueries(input, searchIntent)
+    ];
+    for (const attempt of stages) {
+      const directUrl = "sourcePageUrl" in attempt ? attempt.sourcePageUrl : undefined;
+      try {
+        const products = await searchRun.read("OFFICIAL", JSON.stringify([officialSeed.sourceHost, attempt.query, directUrl]), (signal) => ports.officialShopify!.search({
+          seed: officialSeed, query: attempt.query, limit: 12, cacheScope: searchRun, signal,
+          ...(input.requiredSize === undefined ? {} : { requiredSize: input.requiredSize }),
+          ...(directUrl === undefined ? {} : { sourcePageUrl: directUrl })
+        }));
+        successes += 1;
+        if (input.visualInput !== undefined) searchRun.recordVisualStage("NORMALIZED", products.map((product) => sourceProductFingerprint("SHOPIFY", product)), { source: "OFFICIAL", queryHash: visualQueryHash(attempt.query) });
+        officialProducts.splice(0, officialProducts.length, ...mergeShopifyProducts(officialProducts, products));
+        const incoming = products.map((product) => shopifyCandidate(
+          product, input, searchIntent, identityQuery, featureExcludedKeys, brandExcludedKeys,
+          identityExcludedKeys, visualExcludedKeys
+        )).filter((candidate): candidate is UnifiedCandidate => candidate !== undefined);
+        if (input.visualInput !== undefined) searchRun.recordVisualStage("ELIGIBLE", incoming.map(candidateFingerprint), { source: "OFFICIAL", queryHash: visualQueryHash(attempt.query) });
+        const merged = input.deferVisualFiltering === true
+          ? mergeCandidatesPreservingOrder(officialCandidates, incoming)
+          : mergeCandidates(officialCandidates, incoming);
+        officialCandidates.splice(0, officialCandidates.length, ...merged);
+        attempts.push({ stage: attempt.stage, query: attempt.query, productsReturned: products.length, acceptedCandidates: incoming.length });
+        if (hasSufficientOfficialMatches(officialCandidates, input.limit)) break;
+      } catch {
+        failed = true;
+        attempts.push({ stage: attempt.stage, query: attempt.query, productsReturned: 0, acceptedCandidates: 0 });
+        // An unsafe/missing direct URL may fall back to reviewed-store search. A
+        // failed search stage stops further fan-out, preserving earlier successes.
+        if (directUrl === undefined) break;
+      }
+    }
+    const outcome = officialCandidates.length > 0 ? "ACCEPTED" as const
+      : failed ? "OFFICIAL_UNAVAILABLE" as const
+        : officialProducts.length === 0 ? "OFFICIAL_ZERO_RESULTS" as const
+          : visualExcludedKeys.size > visualExcludedBefore ? "OFFICIAL_VISUAL_EVIDENCE_INSUFFICIENT" as const
+            : "OFFICIAL_CANDIDATES_REJECTED" as const;
+    officialStoreFallback = {
+      status: failed ? successes > 0 ? "PARTIAL" : "UNAVAILABLE" : "COMPLETE",
+      productsReturned: officialProducts.length, sourceHost: officialSeed.sourceHost,
+      diagnostic: { outcome, attempts }
+    };
+  };
+  // Visual searches know a registry seed before global discovery. Starting it
+  // here avoids spending the entire shared budget on unrelated global results.
+  const earlyOfficialSeed = input.visualInput === undefined ? undefined : officialStoreSeed([], input);
+  const earlyOfficial = ports.officialShopify !== undefined && earlyOfficialSeed !== undefined
+    ? queryOfficial(earlyOfficialSeed) : undefined;
+  const catalogCandidates: UnifiedCandidate[] = [];
+  const catalogProducts: ShopifyProduct[] = [];
+  const catalogSearch = ports.officialCatalog === undefined || input.visualInput === undefined ? undefined : (async () => {
+    try {
+      const result = await searchRun.read("OFFICIAL", `catalog:${sourceQuery}`, (signal) => ports.officialCatalog!.search({
+        query: sourceQuery, visualInput: input.visualInput!, limit: 18, signal
+      }));
+      officialCatalogDiagnostics = result.diagnostics;
+      searchRun.recordVisualStage("NORMALIZED", result.products.map((product) => sourceProductFingerprint("SHOPIFY", product)), { source: "OFFICIAL_CATALOG", queryHash: visualQueryHash(sourceQuery) });
+      catalogProducts.push(...result.products);
+      catalogCandidates.push(...result.products.map((product) => shopifyCandidate(product, input, searchIntent, identityQuery,
+        featureExcludedKeys, brandExcludedKeys, identityExcludedKeys, visualExcludedKeys)).filter((candidate): candidate is UnifiedCandidate => candidate !== undefined));
+      searchRun.recordVisualStage("ELIGIBLE", catalogCandidates.map(candidateFingerprint), { source: "OFFICIAL_CATALOG", queryHash: visualQueryHash(sourceQuery) });
+    } catch {
+      officialCatalogDiagnostics = { status: "CACHE_UNAVAILABLE", cachedProducts: 0, returnedProducts: 0, approvedSources: 0, coveredQueries: 0, expiredProducts: 0 };
+    }
+  })();
   await Promise.all([
     queryAwin(sourceQuery, 12, false),
     queryShopify(sourceQuery, 12, false),
@@ -550,7 +627,7 @@ export async function searchProducts(
   const expandedQuery = buildExpandedQuery(input, searchIntent, identityQuery);
   if (
     countDisplayEligibleCandidates(
-      [...affiliateCandidates, ...ebayCandidates, ...shopifyCandidates],
+      [...affiliateCandidates, ...ebayCandidates, ...shopifyCandidates, ...officialCandidates],
       input.allowAlternatives
     ) < input.limit
   ) {
@@ -574,79 +651,22 @@ export async function searchProducts(
     ));
   }
 
-  const officialSeed = officialStoreSeed(observedShopifyProducts, input);
+  await earlyOfficial;
+  await catalogSearch;
+  const officialSeed = earlyOfficialSeed ?? officialStoreSeed(observedShopifyProducts, input);
   if (
+    earlyOfficial === undefined &&
     ports.officialShopify !== undefined &&
     officialSeed !== undefined &&
     (input.brandMode === "REQUIRED" || lacksStrongMatch([...affiliateCandidates, ...shopifyCandidates, ...ebayCandidates], searchIntent))
   ) {
-    const attempts: NonNullable<UnifiedSearchExecution["officialStoreFallback"]["diagnostic"]>["attempts"] = [];
-    const officialProducts: ShopifyProduct[] = [];
-    const officialCandidates: UnifiedCandidate[] = [];
-    const visualExcludedBefore = visualExcludedKeys.size;
-    try {
-      for (const attempt of buildOfficialStoreQueries(input, searchIntent)) {
-          const products = await searchRun.read("OFFICIAL", JSON.stringify([officialSeed.sourceHost, attempt.query]), () => ports.officialShopify!.search({
-          seed: officialSeed,
-          query: attempt.query,
-          limit: 12
-          }));
-        const newProducts = mergeShopifyProducts(officialProducts, products);
-        officialProducts.splice(0, officialProducts.length, ...newProducts);
-        const incoming = products
-          .map((product) => shopifyCandidate(
-            product,
-            input,
-            searchIntent,
-            identityQuery,
-            featureExcludedKeys,
-            brandExcludedKeys,
-            identityExcludedKeys,
-            visualExcludedKeys
-          ))
-          .filter((candidate): candidate is UnifiedCandidate => candidate !== undefined);
-        const merged = input.deferVisualFiltering === true
-          ? mergeCandidatesPreservingOrder(officialCandidates, incoming)
-          : mergeCandidates(officialCandidates, incoming);
-        officialCandidates.splice(0, officialCandidates.length, ...merged);
-        attempts.push({
-          stage: attempt.stage,
-          query: attempt.query,
-          productsReturned: products.length,
-          acceptedCandidates: incoming.length
-        });
-        if (hasSufficientOfficialMatches(officialCandidates, input.limit)) break;
-      }
-      const outcome = officialCandidates.length > 0
-        ? "ACCEPTED" as const
-        : officialProducts.length === 0
-          ? "OFFICIAL_ZERO_RESULTS" as const
-          : visualExcludedKeys.size > visualExcludedBefore
-            ? "OFFICIAL_VISUAL_EVIDENCE_INSUFFICIENT" as const
-            : "OFFICIAL_CANDIDATES_REJECTED" as const;
-      officialStoreFallback = {
-        status: "COMPLETE",
-        productsReturned: officialProducts.length,
-        sourceHost: officialSeed.sourceHost,
-        diagnostic: { outcome, attempts }
-      };
-      shopifyCandidates = input.deferVisualFiltering === true
-        ? mergeCandidatesPreservingOrder(officialCandidates, shopifyCandidates)
-        : mergeCandidates(shopifyCandidates, officialCandidates);
-      if (shopifyResult !== undefined) {
-        shopifyResult = {
-          ...shopifyResult,
-          products: mergeShopifyProducts(shopifyResult.products, officialProducts)
-        };
-      }
-    } catch {
-      officialStoreFallback = {
-        status: "UNAVAILABLE",
-        productsReturned: 0,
-        sourceHost: officialSeed.sourceHost,
-        diagnostic: { outcome: "OFFICIAL_UNAVAILABLE", attempts }
-      };
-    }
+    await queryOfficial(officialSeed);
+  }
+  shopifyCandidates = input.deferVisualFiltering === true
+    ? mergeCandidatesPreservingOrder([...officialCandidates, ...catalogCandidates], shopifyCandidates)
+    : mergeCandidates(shopifyCandidates, [...officialCandidates, ...catalogCandidates]);
+  if (shopifyResult !== undefined) {
+    shopifyResult = { ...shopifyResult, products: mergeShopifyProducts(shopifyResult.products, [...officialProducts, ...catalogProducts]) };
   }
 
   const rawCandidates = [...affiliateCandidates, ...shopifyCandidates, ...ebayCandidates];
@@ -656,6 +676,7 @@ export async function searchProducts(
   const reviewPool = input.deferVisualFiltering === true
     ? selectVisualReviewCandidates(enrichedCandidates, 18, input.visualInput)
     : undefined;
+  if (reviewPool !== undefined && input.visualInput !== undefined) searchRun.recordVisualStage("REVIEW_POOL", reviewPool.map(candidateFingerprint));
   const candidates = input.deferVisualFiltering === true
     ? reviewPool!.slice(0, input.limit)
     : selectPresentationCandidates(
@@ -670,7 +691,8 @@ export async function searchProducts(
     awinStatus !== "UNAVAILABLE" &&
     ebayStatus !== "UNAVAILABLE" &&
     shopifyStatus !== "UNAVAILABLE" &&
-    shopifyStatus !== "PARTIAL";
+    shopifyStatus !== "PARTIAL" &&
+    officialStoreFallback.status !== "PARTIAL" && officialStoreFallback.status !== "UNAVAILABLE";
   const chromeFallbackEligible =
     candidates.length === 0 &&
     !searchRun.diagnostics().budgetExhausted &&
@@ -680,6 +702,7 @@ export async function searchProducts(
   return {
     candidates,
     searchRun,
+    ...(officialCatalogDiagnostics === undefined ? {} : { officialCatalogDiagnostics }),
     ...(reviewPool === undefined ? {} : { reviewPool }),
     ...(awinResult === undefined ? {} : { awinResult }),
     ...(shopifyResult === undefined ? {} : { shopifyResult }),
@@ -704,12 +727,6 @@ export async function searchProducts(
     searchIntent,
     chromeFallbackEligible
   };
-}
-
-function visualGroupScore(group: VisualMatchGroup): number {
-  if (group === "POSSIBLE_SAME_ITEM") return 100;
-  if (group === "HIGHLY_SIMILAR") return 70;
-  return 40;
 }
 
 function visualResultGroup(group: VisualMatchGroup): CandidateBase["resultGroup"] {
@@ -1136,7 +1153,11 @@ function buildExpandedQuery(
     ]).filter((part) => part !== "").join(" ").slice(0, 300).trim();
   }
   if (input.visualInput !== undefined) {
-    return visualBroadSearchTerms(input.visualInput).join(" ").slice(0, 300).trim() || input.query;
+    return buildVisualRetrievalQuery(input.visualInput, {
+      ...(input.brand === undefined ? {} : { brand: input.brand }),
+      ...(input.productType === undefined ? {} : { productType: input.productType }),
+      relaxed: true
+    }) || input.query;
   }
   if (input.brand !== undefined && input.brandMode === "REQUIRED") {
     return unique([input.brand, input.productType ?? input.query]).join(" ").slice(0, 300).trim();
@@ -1155,9 +1176,15 @@ function buildExpandedQuery(
   return parts.join(" ").slice(0, 300).trim();
 }
 
-function buildSourceQuery(input: Pick<SearchProductsInput, "query" | "brand" | "productType" | "visualInput" | "maxItemPriceCents">): string {
+function buildSourceQuery(input: Pick<SearchProductsInput, "query" | "brand" | "productType" | "visualInput" | "maxItemPriceCents"> & {
+  relaxVisualRetrieval?: boolean;
+}): string {
   if (input.visualInput !== undefined) {
-    return visualSearchTerms(input.visualInput).join(" ").slice(0, 300).trim() || input.query;
+    return buildVisualRetrievalQuery(input.visualInput, {
+      ...(input.brand === undefined ? {} : { brand: input.brand }),
+      ...(input.productType === undefined ? {} : { productType: input.productType }),
+      relaxed: input.relaxVisualRetrieval === true
+    }) || input.query;
   }
   const query = productOnlyQuery(input.query, input.maxItemPriceCents !== undefined);
   return unique([
@@ -1303,19 +1330,27 @@ function hasSufficientOfficialMatches(candidates: UnifiedCandidate[], limit: num
 
 function officialStoreSeed(
   products: ShopifyProduct[],
-  input: Pick<SearchProductsInput, "brand" | "brandMode">
+  input: Pick<SearchProductsInput, "brand" | "brandMode" | "visualInput">
 ): OfficialShopifyStoreSeed | undefined {
-  if (input.brand === undefined || input.brandMode !== "REQUIRED") return undefined;
+  const brand = input.brand ?? input.visualInput?.brand;
+  let sourceStore: ReturnType<typeof resolveVerifiedOfficialStorefront>;
+  if (input.visualInput?.sourcePageUrl !== undefined) {
+    const url = new URL(input.visualInput.sourcePageUrl);
+    if (url.protocol === "https:" && url.username === "" && url.password === "" && url.port === "") {
+      sourceStore = resolveVerifiedOfficialStorefrontByHost(url.hostname);
+    }
+  }
+  if (brand === undefined && sourceStore === undefined) return undefined;
+  if (input.visualInput === undefined && input.brandMode !== "REQUIRED") return undefined;
   const observed = products.find((product) => {
     const trust = resolveMerchantTrust(product.sourceHost, product.merchant);
     return trust.level === "OFFICIAL" &&
       trust.verification === "INDEPENDENT" &&
       [product.brand, product.merchant, product.title]
-        .some((value) => value !== undefined && containsBrand(value, input.brand!));
+        .some((value) => value !== undefined && brand !== undefined && containsBrand(value, brand));
   });
-  if (observed !== undefined) return observed;
-  const storefront = resolveVerifiedOfficialStorefront(input.brand);
-  if (storefront === undefined) return undefined;
+  const storefront = sourceStore ?? (brand === undefined ? undefined : resolveVerifiedOfficialStorefront(brand));
+  if (storefront === undefined) return observed;
   return {
     merchantId: `official-${storefront.host}`,
     merchant: storefront.brand,
@@ -1456,10 +1491,10 @@ function mergeCandidatesPreservingOrder(
 
 function mergeShopifyProducts(current: ShopifyProduct[], incoming: ShopifyProduct[]): ShopifyProduct[] {
   const products = new Map(current.map((product) => [
-    `${product.sourceHost}:${product.handle}`,
+    productReferenceKey(product),
     product
   ]));
-  for (const product of incoming) products.set(`${product.sourceHost}:${product.handle}`, product);
+  for (const product of incoming) products.set(productReferenceKey(product), product);
   return [...products.values()];
 }
 

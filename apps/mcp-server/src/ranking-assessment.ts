@@ -1,3 +1,10 @@
+import { visualReviewScore, type VisualReviewAssessment } from "./visual-review-policy.js";
+
+export const PRIMARY_BLOCK_REASON_CODES = [
+  "VARIANT_OUT_OF_STOCK", "UNVERIFIED_MERCHANT", "UNFULFILLED_REQUIREMENTS", "SIMILAR_ONLY", "MISSING_PRICE"
+] as const;
+export type PrimaryBlockReasonCode = typeof PRIMARY_BLOCK_REASON_CODES[number];
+
 export type RankingInput = {
   title: string;
   matchStatus: "EXACT" | "DISCOVERY_MATCH" | "SIMILAR";
@@ -13,11 +20,14 @@ export type RankingInput = {
   itemPriceCents?: number | undefined;
   confirmedCouponPriceCents?: number | undefined;
   couponRank?: number | undefined;
+  visualReviewAssessment?: VisualReviewAssessment | undefined;
 };
 
 export type RankingAssessment = {
   primaryEligible: boolean;
+  primaryBlockReasons: PrimaryBlockReasonCode[];
   matchRank: number;
+  visualReviewScore: number;
   limitationCount: number;
   featureEvidence: string[];
   preferenceEvidence: string[];
@@ -38,9 +48,17 @@ export function assessRanking(input: RankingInput): RankingAssessment {
   const couponRank = Number.isFinite(input.couponRank) ? Math.max(-1, Math.min(2, input.couponRank!)) : -1;
   const effectivePrice = validPrice(input.itemPriceCents) && couponRank === 2 && validPrice(input.confirmedCouponPriceCents)
     ? Math.min(itemPrice, input.confirmedCouponPriceCents) : itemPrice;
+  const primaryBlockReasons: PrimaryBlockReasonCode[] = [];
+  if (input.availability === "OUT_OF_STOCK") primaryBlockReasons.push("VARIANT_OUT_OF_STOCK");
+  if (!trusted) primaryBlockReasons.push("UNVERIFIED_MERCHANT");
+  if (limitationCount > 0) primaryBlockReasons.push("UNFULFILLED_REQUIREMENTS");
+  if (input.matchStatus === "SIMILAR") primaryBlockReasons.push("SIMILAR_ONLY");
+  if (!validPrice(input.itemPriceCents)) primaryBlockReasons.push("MISSING_PRICE");
   return {
-    primaryEligible: trusted && limitationCount === 0 && input.matchStatus !== "SIMILAR" && input.availability !== "OUT_OF_STOCK",
+    primaryEligible: primaryBlockReasons.length === 0,
+    primaryBlockReasons,
     matchRank: input.matchStatus === "EXACT" ? 0 : input.matchStatus === "DISCOVERY_MATCH" ? 1 : 2,
+    visualReviewScore: visualReviewScore(input.visualReviewAssessment),
     limitationCount,
     featureEvidence: evidenceKeys(input.featureEvidence),
     preferenceEvidence: evidenceKeys(input.preferenceEvidence),
@@ -57,6 +75,7 @@ export function assessRanking(input: RankingInput): RankingAssessment {
 export function compareRankingAssessments(left: RankingAssessment, right: RankingAssessment): number {
   return left.matchRank - right.matchRank ||
     left.limitationCount - right.limitationCount ||
+    right.visualReviewScore - left.visualReviewScore ||
     right.featureEvidence.length - left.featureEvidence.length ||
     right.preferenceEvidence.length - left.preferenceEvidence.length ||
     left.trustRank - right.trustRank ||
@@ -70,6 +89,7 @@ export function compareRankingAssessments(left: RankingAssessment, right: Rankin
 export function hasEquivalentFitEvidence(left: RankingAssessment, right: RankingAssessment): boolean {
   return left.featureEvidence.length + left.preferenceEvidence.length > 0 &&
     left.matchRank === right.matchRank && left.limitationCount === right.limitationCount &&
+    left.visualReviewScore === right.visualReviewScore &&
     left.trustRank === right.trustRank && left.availabilityRank === right.availabilityRank &&
     sameEvidence(left.featureEvidence, right.featureEvidence) && sameEvidence(left.preferenceEvidence, right.preferenceEvidence);
 }

@@ -6,6 +6,27 @@ import {
 import { SearchProductsInputSchema } from "../src/search-products.js";
 
 describe("product recommendation", () => {
+  it("keeps a server-validated possible same item ahead of a cheaper similar item", () => {
+    const decision = choosePrimaryRecommendation([
+      { ...product({ title: "Possible same dress", matchStatus: "DISCOVERY_MATCH", presentationGroup: "TRUSTED_MATCH", price: 59800 }),
+        visualReviewAssessment: { group: "POSSIBLE_SAME_ITEM" as const, structuralMatchCount: 3, matchCount: 5 } },
+      { ...product({ title: "Cheaper similar dress", matchStatus: "DISCOVERY_MATCH", presentationGroup: "TRUSTED_MATCH", price: 10000 }),
+        visualReviewAssessment: { group: "HIGHLY_SIMILAR" as const, structuralMatchCount: 2, matchCount: 4 } }
+    ]);
+    expect(decision.primaryProductIndex).toBe(0);
+    expect(decision.reasonCodes).not.toContain("LOWER_PRICE");
+  });
+
+  it("uses price only after equal verified visual fit", () => {
+    const review = { group: "HIGHLY_SIMILAR" as const, structuralMatchCount: 2, matchCount: 4 };
+    const decision = choosePrimaryRecommendation([
+      { ...product({ title: "Expensive", matchStatus: "DISCOVERY_MATCH", presentationGroup: "TRUSTED_MATCH", price: 20000 }), visualReviewAssessment: review },
+      { ...product({ title: "Cheaper", matchStatus: "DISCOVERY_MATCH", presentationGroup: "TRUSTED_MATCH", price: 10000 }), visualReviewAssessment: review }
+    ]);
+    expect(decision.primaryProductIndex).toBe(1);
+    expect(decision.reasonCodes).toContain("LOWER_PRICE");
+  });
+
   it.each([
     ["en-US", "Apple MacBook Pro", "laptop computer", "maximum budget, main use, and preferred screen size"],
     ["zh-CN", "想买一台笔记本电脑", "笔记本电脑", "预算上限、主要用途和偏好的屏幕尺寸"]
@@ -124,7 +145,7 @@ describe("product recommendation", () => {
       })
     ]);
 
-    expect(decision).toEqual({ state: "RESEARCH_ONLY", reasonCodes: [] });
+    expect(decision).toEqual({ state: "RESEARCH_ONLY", reasonCodes: ["UNVERIFIED_MERCHANT"] });
   });
 
   it("never recommends a product with an unresolved required feature", () => {
@@ -150,7 +171,7 @@ describe("product recommendation", () => {
         price: 100_000,
         requiredFeatureLimitations: ["dandruff control"]
       })
-    ])).toEqual({ state: "RESEARCH_ONLY", reasonCodes: [] });
+    ])).toEqual({ state: "RESEARCH_ONLY", reasonCodes: ["UNFULFILLED_REQUIREMENTS"] });
   });
 
   it("keeps primary choice unchanged when trusted products move between all three display groups", () => {
@@ -178,7 +199,7 @@ describe("product recommendation", () => {
       ...product({ title: "Conflicted merchant", presentationGroup: "TRUSTED_MATCH", price: 100 }),
       merchantTrust: { level, verification: "INDEPENDENT" as const }
     }]);
-    expect(decision).toEqual({ state: "RESEARCH_ONLY", reasonCodes: [] });
+    expect(decision).toEqual({ state: "RESEARCH_ONLY", reasonCodes: ["UNVERIFIED_MERCHANT"] });
   });
 
   it("does not use a merchant-wide coupon estimate as a confirmed product price", () => {
@@ -188,6 +209,36 @@ describe("product recommendation", () => {
         coupon: { productApplicability: "MERCHANT_WIDE", estimatedPrice: 500 } })
     ]);
     expect(decision.primaryProductIndex).toBe(0);
+  });
+
+  it("attributes an official out-of-stock variant to inventory, not merchant trust", () => {
+    const faye = { ...product({ title: "FAYE DRESS -- ALDERBROOK PLAID", presentationGroup: "OFFICIAL_STORE", price: 26800 }),
+      availability: "OUT_OF_STOCK" as const, merchantTrust: { verification: "INDEPENDENT" as const, level: "OFFICIAL" as const } };
+    expect(choosePrimaryRecommendation([faye])).toEqual({ state: "RESEARCH_ONLY", reasonCodes: ["VARIANT_OUT_OF_STOCK"] });
+    expect(faye.merchantTrust.level).toBe("OFFICIAL");
+  });
+
+  it.each([undefined, NaN, -1, 1.5])("does not select a primary without a valid item price (%s)", (amountCents) => {
+    const item = product({ title: "No price", presentationGroup: "OFFICIAL_STORE", price: 100 });
+    const missing = { ...item, itemPrice: amountCents === undefined ? undefined : { amountCents, currency: "USD" as const } };
+    expect(choosePrimaryRecommendation([missing])).toEqual({ state: "RESEARCH_ONLY", reasonCodes: ["MISSING_PRICE"] });
+  });
+
+  it("keeps verified zero prices valid and research blockers out of READY reasons", () => {
+    const item = product({ title: "Verified free sample", presentationGroup: "OFFICIAL_STORE", price: 0 });
+    expect(choosePrimaryRecommendation([item, { ...item, availability: "OUT_OF_STOCK" as const }])).toMatchObject({
+      state: "READY", primaryProductIndex: 0, reasonCodes: ["EXACT_MATCH", "TRUSTED_MERCHANT"]
+    });
+  });
+
+  it("deduplicates actual blockers and stays inside the three-reason output contract", () => {
+    const item = product({ title: "Research", presentationGroup: "TRUSTED_MATCH", price: 100, merchantVerified: false,
+      requiredFeatureLimitations: ["required material unknown"] });
+    const result = choosePrimaryRecommendation([{ ...item, availability: "OUT_OF_STOCK" as const, matchStatus: "SIMILAR" as const,
+      itemPrice: undefined }, item]);
+    expect(result.reasonCodes).toEqual(["VARIANT_OUT_OF_STOCK", "UNVERIFIED_MERCHANT", "UNFULFILLED_REQUIREMENTS"]);
+    expect(choosePrimaryRecommendation([{ ...product({ title: "Only similar", presentationGroup: "OFFICIAL_STORE", price: 100 }),
+      matchStatus: "SIMILAR" as const }]).reasonCodes).toEqual(["SIMILAR_ONLY"]);
   });
 });
 

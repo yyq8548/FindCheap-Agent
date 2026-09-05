@@ -51,6 +51,114 @@ function ebay(products = [ebayProduct("1", 2100)]): EbayBrowsePort {
 }
 
 describe("unified product search", () => {
+  it("uses the registered generic platform even when a global Shopify-shaped result exists", async () => {
+    const product = shopifyProduct("generic-official", 12000, "UNKNOWN", { sourceHost: "www.freepeople.com", merchant: "Free People",
+      brand: "Free People", title: "Free People Wrap Cami", productType: "top", merchantUrl: "https://www.freepeople.com/shop/wrap-cami/" });
+    const officialSearch = vi.fn<OfficialShopifySearchPort["search"]>(async () => []);
+    await searchProducts(SearchProductsInputSchema.parse({ query: "Free People cami", brand: "Free People", brandMode: "REQUIRED" }), {
+      awin: awin([]), shopify: shopify([product]), officialShopify: { search: officialSearch }
+    });
+    expect(officialSearch).toHaveBeenCalledWith(expect.objectContaining({ seed: expect.objectContaining({ platform: "GENERIC_JSON_LD" }) }));
+  });
+  it("uses the reviewed local official catalog for an unbranded visual request and records all stages", async () => {
+    const product = shopifyProduct("official-cache", 12000, "UNKNOWN", { sourceHost: "www.shopdoen.com", merchant: "DÔEN",
+      title: "Blue scoop neck floral dress", productType: "dress", merchantUrl: "https://www.shopdoen.com/products/blue-floral-dress" });
+    const officialCatalog = { search: vi.fn(async () => ({ products: [product], diagnostics: { status: "FRESH" as const,
+      cachedProducts: 1, returnedProducts: 1, approvedSources: 1, coveredQueries: 1, expiredProducts: 0 } })) };
+    const result = await searchProducts({ ...SearchProductsInputSchema.parse({ query: "blue floral dress", visualInput: {
+      productType: "dress", colors: ["blue"], patterns: ["floral"], neckline: "scoop neck"
+    } }), deferVisualFiltering: true }, { awin: awin([]), shopify: shopify([]), officialCatalog });
+    expect(officialCatalog.search).toHaveBeenCalledOnce();
+    expect(result.reviewPool?.some((candidate) => candidate.shopifyProduct?.handle === product.handle)).toBe(true);
+    expect(result.officialCatalogDiagnostics?.cachedProducts).toBe(1);
+    expect(JSON.stringify(result.searchRun?.diagnostics())).toContain("REVIEW_POOL");
+    await searchProducts(SearchProductsInputSchema.parse({ query: "blue dress" }), { awin: awin([]), shopify: shopify([]), officialCatalog });
+    expect(officialCatalog.search).toHaveBeenCalledOnce();
+  });
+  it("keeps reliable visual anchors in both global passes without a required brand", async () => {
+    const ports = { awin: awin([]), shopify: shopify([]), ebay: ebay([]) };
+    await searchProducts({
+      ...SearchProductsInputSchema.parse({ query: "dress", visualInput: {
+        productType: "dress", colors: ["black"], length: "mini",
+        neckline: "boat neck", distinctiveDetails: ["horizontal lace bands"],
+        observations: [{ attribute: "SLEEVE", value: "long sleeve", confidence: 0.2, visibility: "VISIBLE" }]
+      } }), deferVisualFiltering: true
+    }, ports);
+    for (const port of [ports.awin, ports.shopify, ports.ebay]) {
+      const calls = vi.mocked(port.search).mock.calls;
+      expect(calls.length).toBeGreaterThan(0);
+      for (const [input] of calls) {
+        expect(input.query).toMatch(/dress/u);
+        expect(input.query).toMatch(/black/u);
+        expect(input.query).toMatch(/mini/u);
+        expect(input.query).toMatch(/lace|boat/u);
+        expect(input.query).not.toMatch(/long sleeve/u);
+      }
+    }
+  });
+
+  it("starts a registry-backed observed-brand official search before the global catalog resolves", async () => {
+    let releaseCatalog!: () => void;
+    const catalogBlocked = new Promise<void>((resolve) => { releaseCatalog = resolve; });
+    const officialSearch = vi.fn<OfficialShopifySearchPort["search"]>(async () => []);
+    const pending = searchProducts({ ...SearchProductsInputSchema.parse({
+      query: "black dress", visualInput: { brand: "DÔEN", productType: "dress", colors: ["black"] }
+    }), deferVisualFiltering: true }, {
+      awin: awin([]), shopify: { search: vi.fn(async () => { await catalogBlocked; return shopifyResult([]); }) },
+      officialShopify: { search: officialSearch }
+    });
+    try {
+      await vi.waitFor(() => expect(officialSearch).toHaveBeenCalled(), { timeout: 100 });
+    } finally { releaseCatalog(); await pending; }
+  });
+
+  it("preserves an earlier official product when a later official query fails", async () => {
+    const found = shopifyProduct("cornella-retained", 59_800, "UNKNOWN", {
+      merchant: "DÔEN", brand: "DÔEN", sourceHost: "www.shopdoen.com",
+      title: "Cornella Dress -- Black", productType: "dress",
+      merchantUrl: "https://www.shopdoen.com/products/cornella-dress-black"
+    });
+    const officialSearch = vi.fn<OfficialShopifySearchPort["search"]>()
+      .mockResolvedValueOnce([found]).mockRejectedValue(new Error("upstream timeout"));
+    const result = await searchProducts({ ...SearchProductsInputSchema.parse({
+      query: "black dress", brand: "DÔEN", visualInput: {
+        productType: "dress", colors: ["black"], length: "mini", neckline: "boat neck"
+      }
+    }), deferVisualFiltering: true }, { awin: awin([]), shopify: shopify([]), officialShopify: { search: officialSearch } });
+    expect(result.candidates.some((candidate) => candidate.shopifyProduct?.handle === found.handle)).toBe(true);
+    expect(result.officialStoreFallback).toMatchObject({ status: "PARTIAL", productsReturned: 1 });
+  });
+
+  it("routes a known official source URL without inventing a required brand", async () => {
+    const officialSearch = vi.fn<OfficialShopifySearchPort["search"]>(async () => []);
+    const sourcePageUrl = "https://www.shopdoen.com/products/cornella-dress-black?variant=472002";
+    await searchProducts({ ...SearchProductsInputSchema.parse({
+      query: "black dress", visualInput: { productType: "dress", colors: ["black"], sourcePageUrl }
+    }), deferVisualFiltering: true }, { awin: awin([]), shopify: shopify([]), officialShopify: { search: officialSearch } });
+    expect(officialSearch.mock.calls[0]?.[0]).toMatchObject({
+      sourcePageUrl, seed: { sourceHost: "www.shopdoen.com" }
+    });
+  });
+
+  it("canonicalizes only registry-approved official aliases before direct hydration", async () => {
+    const officialSearch = vi.fn<OfficialShopifySearchPort["search"]>(async () => []);
+    await searchProducts({ ...SearchProductsInputSchema.parse({ query: "black dress", visualInput: {
+      productType: "dress", sourcePageUrl: "https://shopdoen.com/products/cornella-dress-black"
+    } }), deferVisualFiltering: true }, { awin: awin([]), shopify: shopify([]), officialShopify: { search: officialSearch } });
+    expect(officialSearch.mock.calls[0]?.[0].sourcePageUrl).toBe("https://www.shopdoen.com/products/cornella-dress-black");
+  });
+
+  it("uses an observed brand for recall without excluding another brand's structurally valid candidate", async () => {
+    const other = shopifyProduct("other-brand-dress", 1000, "UNKNOWN", {
+      title: "Black Mini Dress", brand: "Other Brand", productType: "dress"
+    });
+    const result = await searchProducts({ ...SearchProductsInputSchema.parse({ query: "black mini dress", visualInput: {
+      brand: "DÔEN", productType: "dress", colors: ["black"], length: "mini"
+    } }), deferVisualFiltering: true }, { awin: awin([]), shopify: shopify([other]) });
+    expect(result.reviewPool?.some((entry) => entry.shopifyProduct?.handle === other.handle)).toBe(true);
+    expect(result.brandProductsExcluded).toBe(0);
+  });
+
   it("accepts a bounded descriptive hard-feature alternative", () => {
     const feature = "contains ketoconazole, selenium sulfide, or zinc pyrithione as an active anti-dandruff ingredient";
 
@@ -1510,10 +1618,10 @@ describe("unified product search", () => {
     expect(result.searchPasses).toBe(2);
     expect(result.brandProductsExcluded).toBe(1);
     expect(result.chromeFallbackEligible).toBe(true);
-    expect(shopifySearch).toHaveBeenCalledTimes(2);
-    expect(shopifySearch.mock.calls[0]?.[0].query).not.toBe(shopifySearch.mock.calls[1]?.[0].query);
+    expect(shopifySearch).toHaveBeenCalledTimes(1);
+    expect(result.searchRun?.diagnostics().cacheHits).toBeGreaterThan(0);
     expect(shopifySearch.mock.calls.every(([request]) => request.query?.startsWith("DÔEN ") === true)).toBe(true);
-    expect(shopifySearch.mock.calls[1]?.[0].query).toBe("DÔEN dress");
+    expect(shopifySearch.mock.calls[0]?.[0].query).toBe("DÔEN dress black lace");
   });
 
   it("searches one independently verified official Shopify store when the catalog lacks a strong visual match", async () => {
@@ -1565,11 +1673,11 @@ describe("unified product search", () => {
     });
 
     expect(officialSearch).toHaveBeenCalledOnce();
-    expect(officialSearch).toHaveBeenCalledWith({
-      seed: officialSeed,
+    expect(officialSearch).toHaveBeenCalledWith(expect.objectContaining({
+      seed: expect.objectContaining({ sourceHost: officialSeed.sourceHost, brand: "DÔEN" }),
       query: "black lace tiered mini dress",
       limit: 12
-    });
+    }));
     expect(result.candidates[0]).toMatchObject({
       source: "SHOPIFY_GLOBAL_CATALOG",
       visualMatchGroup: "POSSIBLE_SAME_ITEM",
@@ -1802,7 +1910,7 @@ describe("unified product search", () => {
     });
 
     expect(finalized[0]).toMatchObject({
-      visualMatchGroup: "POSSIBLE_SAME_ITEM",
+      visualMatchGroup: "HIGHLY_SIMILAR",
       identityStatus: "DISCOVERY_MATCH"
     });
     expect(finalized[0]?.visualMatchEvidence?.join(" ")).not.toContain("cap sleeve");
@@ -1882,10 +1990,7 @@ describe("unified product search", () => {
     }];
 
     expect(finalizeCodexVisualCandidates(reviewed, false)).toEqual([]);
-    expect(finalizeCodexVisualCandidates(reviewed, true)[0]).toMatchObject({
-      visualMatchGroup: "SAME_STYLE",
-      identityStatus: "SIMILAR"
-    });
+    expect(finalizeCodexVisualCandidates(reviewed, true)).toEqual([]);
   });
 
   it("progressively broadens an official storefront query until a usable product is found", async () => {

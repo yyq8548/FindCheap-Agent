@@ -43,6 +43,7 @@ export type AwinSearchInput = {
   query: string;
   limit: number;
   maxItemPriceCents?: number | undefined;
+  signal?: AbortSignal;
 };
 
 export type AwinProduct = {
@@ -117,9 +118,11 @@ export function createAwinFeedPort(
 
   return {
     async search(rawInput) {
-      const input = parseAwinSearchInput(rawInput);
+      const { signal, ...request } = rawInput;
+      signal?.throwIfAborted();
+      const input = parseAwinSearchInput(request);
       if (publicSearch !== undefined) {
-        return fetchPublicSearch(publicSearch, input, fetchRequest, clock, sleep);
+        return fetchPublicSearch(publicSearch, input, fetchRequest, clock, sleep, signal);
       }
       const remote = parseRemoteConfiguration(environment);
       const archive = remote === undefined
@@ -127,7 +130,8 @@ export function createAwinFeedPort(
             compressed: await read(feedPath),
             snapshotAt: (await fileStat(feedPath)).mtime.toISOString()
           }
-        : await fetchRemoteArchive(remote, fetchRequest);
+        : await fetchRemoteArchive(remote, fetchRequest, signal);
+      signal?.throwIfAborted();
       return searchAwinFeedIndex(createAwinFeedIndex(archive.compressed, archive.snapshotAt), input);
     }
   };
@@ -831,11 +835,13 @@ async function fetchPublicSearch(
   input: AwinSearchInput,
   fetchRequest: typeof fetch,
   clock: () => number,
-  sleep: (milliseconds: number) => Promise<void>
+  sleep: (milliseconds: number) => Promise<void>,
+  signal?: AbortSignal
 ): Promise<AwinSearchResult> {
   const started = clock();
   let lastError: unknown;
   for (let attempt = 0; attempt < 2; attempt += 1) {
+    signal?.throwIfAborted();
     const elapsed = Math.max(0, clock() - started);
     const remaining = configuration.timeoutMs - elapsed;
     if (remaining < 50) break;
@@ -843,8 +849,9 @@ async function fetchPublicSearch(
       ? Math.max(50, Math.floor(remaining * 0.6))
       : remaining;
     try {
-      return await fetchPublicSearchAttempt(configuration.url, input, fetchRequest, attemptBudget);
+      return await fetchPublicSearchAttempt(configuration.url, input, fetchRequest, attemptBudget, signal);
     } catch (error) {
+      signal?.throwIfAborted();
       lastError = error;
       if (attempt !== 0 || !retryablePublicSearchError(error)) throw error;
       const delay = Math.min(75, Math.max(0, configuration.timeoutMs - (clock() - started) - 50));
@@ -860,8 +867,12 @@ async function fetchPublicSearchAttempt(
   url: string,
   input: AwinSearchInput,
   fetchRequest: typeof fetch,
-  timeoutMs: number
+  timeoutMs: number,
+  parentSignal?: AbortSignal
 ): Promise<AwinSearchResult> {
+  parentSignal?.throwIfAborted();
+  const timeout = AbortSignal.timeout(timeoutMs);
+  const signal = parentSignal === undefined ? timeout : AbortSignal.any([parentSignal, timeout]);
   const response = await fetchRequest(url, {
     method: "POST",
     redirect: "error",
@@ -870,7 +881,7 @@ async function fetchPublicSearchAttempt(
       "content-type": "application/json"
     },
     body: JSON.stringify(input),
-    signal: AbortSignal.timeout(timeoutMs)
+    signal
   });
   if (!response.ok) {
     await response.body?.cancel().catch(() => {});
@@ -885,7 +896,8 @@ async function fetchPublicSearchAttempt(
   const encoded = await readLimitedBody(
     response,
     MAX_AWIN_PUBLIC_SEARCH_RESPONSE_BYTES,
-    "Awin Search service"
+    "Awin Search service",
+    { signal }
   );
   let decoded: unknown;
   try {
@@ -1009,8 +1021,12 @@ function parsePublicAwinProduct(value: unknown): AwinProduct {
 
 async function fetchRemoteArchive(
   configuration: { url: string; token: string; timeoutMs: number },
-  fetchRequest: typeof fetch
+  fetchRequest: typeof fetch,
+  parentSignal?: AbortSignal
 ): Promise<{ compressed: Uint8Array; snapshotAt: string }> {
+  parentSignal?.throwIfAborted();
+  const timeout = AbortSignal.timeout(configuration.timeoutMs);
+  const signal = parentSignal === undefined ? timeout : AbortSignal.any([parentSignal, timeout]);
   const response = await fetchRequest(configuration.url, {
     method: "GET",
     redirect: "error",
@@ -1018,14 +1034,14 @@ async function fetchRemoteArchive(
       accept: "application/gzip, application/octet-stream",
       authorization: `Bearer ${configuration.token}`
     },
-    signal: AbortSignal.timeout(configuration.timeoutMs)
+    signal
   });
   if (!response.ok) throw new Error(`Awin Feed service returned HTTP ${response.status}`);
   const contentType = response.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
   if (contentType !== "application/gzip" && contentType !== "application/octet-stream") {
     throw new Error("Awin Feed service returned an unsupported content type");
   }
-  const compressed = await readLimitedBody(response, MAX_AWIN_COMPRESSED_BYTES, "Awin Feed service");
+  const compressed = await readLimitedBody(response, MAX_AWIN_COMPRESSED_BYTES, "Awin Feed service", { signal });
   const snapshotAt = response.headers.get("x-feed-snapshot-at");
   if (snapshotAt === null || !Number.isFinite(Date.parse(snapshotAt))) {
     throw new Error("Awin Feed service omitted a valid snapshot timestamp");
@@ -1037,8 +1053,9 @@ export async function readLimitedBody(
   response: Response,
   limit: number,
   sourceName = "remote source",
-  options: { timeoutMs?: number; onBytes?: (bytes: number) => void } = {}
+  options: { timeoutMs?: number; onBytes?: (bytes: number) => void; signal?: AbortSignal } = {}
 ): Promise<Uint8Array> {
+  options.signal?.throwIfAborted();
   const declared = response.headers.get("content-length");
   if (declared !== null && (!/^\d+$/u.test(declared) || Number(declared) > limit)) {
     throw new Error(`${sourceName} response is too large`);
@@ -1047,11 +1064,14 @@ export async function readLimitedBody(
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;
+  const cancel = (): void => { void reader.cancel().catch(() => undefined); };
+  options.signal?.addEventListener("abort", cancel, { once: true });
   try {
     while (true) {
       const next = options.timeoutMs === undefined
         ? await reader.read()
         : await readStreamChunkWithTimeout(reader, options.timeoutMs, sourceName);
+      options.signal?.throwIfAborted();
       if (next.done) break;
       total += next.value.byteLength;
       options.onBytes?.(total);
@@ -1059,6 +1079,7 @@ export async function readLimitedBody(
       chunks.push(next.value);
     }
   } finally {
+    options.signal?.removeEventListener("abort", cancel);
     await reader.cancel().catch(() => {});
     reader.releaseLock();
   }

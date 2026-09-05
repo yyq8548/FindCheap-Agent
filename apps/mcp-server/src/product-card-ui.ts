@@ -957,7 +957,23 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
             .filter(Boolean).join(" / ");
           if (identity) body.append(make("div", "details", identity));
           const variants = Object.entries(product.variantDimensions || {}).map(([name, value]) => name + ": " + value).join(" / ");
-          if (variants) body.append(make("div", "details", variants));
+          const availabilityScope = product.availabilityScope;
+          const availability = String(product.availability || cardData.availability || "UNKNOWN");
+          if (variants) body.append(make("div", "details", (availabilityScope === "PRODUCT_COLOR"
+            ? text("Price shown for variant: ", "报价对应规格：")
+            : availabilityScope === "SELECTED_VARIANT" ? text("Selected variant: ", "当前选规格：") : "") + variants));
+          if (availabilityScope === "PRODUCT_COLOR") {
+            const availableSizes = availability === "IN_STOCK" && Array.isArray(product.availableSizes)
+              ? [...new Set(product.availableSizes.filter((size) => typeof size === "string" && size.trim().length > 0)
+                .slice(0, 100).map((size) => size.trim().slice(0, 100)))] : [];
+            body.append(make("div", "details", availability === "UNKNOWN"
+              ? text("Size availability for this color has not been confirmed.", "同色尺码库存尚未确认。")
+              : availableSizes.length > 0
+                ? text("Available sizes in this color: ", "同色可售尺码：") + availableSizes.join(text(", ", "、"))
+                : text("No saleable sizes are currently confirmed for this color.", "当前同色暂无已确认可售尺码。")));
+          } else if (availabilityScope === "SELECTED_VARIANT") {
+            body.append(make("div", "details", text("This does not describe other sizes or colors.", "不代表其他尺码或颜色的库存。")));
+          }
           if (product?.productRating && Number.isFinite(Number(product.productRating.value)) && Number.isInteger(Number(product.productRating.count))) {
             body.append(make("div", "details", currentLocale === "zh-CN"
               ? "商品评分：" + Number(product.productRating.value).toFixed(1) + "/5（" + Number(product.productRating.count) + " 条评价）"
@@ -980,7 +996,12 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
           badges.append(make("span", "badge " + (trustBadge === "MERCHANT_UNVERIFIED" ? "unverified" : "trusted"), badgeText(trustBadge)));
           const conditionBadge = String(cardData.conditionBadge || product.condition || "UNKNOWN");
           if (conditionBadge !== "UNKNOWN") badges.append(make("span", "badge", badgeText(conditionBadge)));
-          badges.append(make("span", "badge", badgeText(String(cardData.availability || product.availability || "UNKNOWN"))));
+          const scopedStockLabel = availability === "IN_STOCK" ? text("In stock", "有货")
+            : availability === "OUT_OF_STOCK" ? text("Out of stock", "缺货") : text("Unknown", "未知");
+          badges.append(make("span", "badge", availabilityScope === "SELECTED_VARIANT"
+            ? text("Selected variant stock: ", "当前选规格库存：") + scopedStockLabel
+            : availabilityScope === "PRODUCT_COLOR" ? text("This color: ", "同色库存：") + scopedStockLabel
+              : badgeText(availability)));
           const couponBadge = couponBadgeText(product, cardData);
           if (couponBadge) badges.append(make("span", "badge", couponBadge));
           row.append(badges);

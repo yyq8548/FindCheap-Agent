@@ -22,6 +22,8 @@ jobs:
       - run: pnpm build:awin-feed
       - run: git diff --exit-code -- plugins/findcheap-agent/dist/mcp-server.js
       - run: git diff --exit-code -- plugins/findcheap-agent/dist/mcp-server.meta.json
+      - run: git diff --exit-code -- plugins/findcheap-agent/dist/visual-image-worker.cjs plugins/findcheap-agent/dist/visual-image-worker.meta.json
+      - run: git ls-files --error-unmatch plugins/findcheap-agent/dist/visual-image-worker.cjs plugins/findcheap-agent/dist/visual-image-worker.meta.json
       - run: git diff --exit-code -- plugins/findcheap-agent/THIRD_PARTY_NOTICES.md
       - run: pnpm test:mcp-stdio
       - run: pnpm lint
@@ -41,5 +43,7 @@ jobs:
       - run: pnpm build:mcp
       - run: git diff --exit-code -- plugins/findcheap-agent/dist/mcp-server.js
       - run: git diff --exit-code -- plugins/findcheap-agent/dist/mcp-server.meta.json
+      - run: git diff --exit-code -- plugins/findcheap-agent/dist/visual-image-worker.cjs plugins/findcheap-agent/dist/visual-image-worker.meta.json
+      - run: git ls-files --error-unmatch plugins/findcheap-agent/dist/visual-image-worker.cjs plugins/findcheap-agent/dist/visual-image-worker.meta.json
       - run: git diff --exit-code -- plugins/findcheap-agent/THIRD_PARTY_NOTICES.md
       - run: pnpm test:mcp-stdio

@@ -41,9 +41,11 @@ describe("plugin bundle provenance", () => {
     };
     const notices = await readFile(path.join(pluginRoot, "THIRD_PARTY_NOTICES.md"), "utf8");
     const bundleHash = createHash("sha256").update(bundle).digest("hex");
+    const worker = await readFile(path.join(pluginRoot, "dist", "visual-image-worker.cjs"));
+    const workerMetafile = JSON.parse(await readFile(path.join(pluginRoot, "dist", "visual-image-worker.meta.json"), "utf8")) as typeof metafile;
 
     const packageRoots = new Map(
-      Object.keys(metafile.inputs)
+      Object.keys({ ...metafile.inputs, ...workerMetafile.inputs })
         .map(packageFromInput)
         .filter((inputPackage): inputPackage is { name: string; root: string } => Boolean(inputPackage))
         .map((inputPackage) => [inputPackage.root, inputPackage.name])
@@ -63,6 +65,8 @@ describe("plugin bundle provenance", () => {
 
     expect(notices).toContain("Source entry: `apps/mcp-server/src/stdio.ts`");
     expect(notices).toContain(`Bundle SHA-256: \`${bundleHash}\``);
+    expect(notices).toContain(`Image worker SHA-256: \`${createHash("sha256").update(worker).digest("hex")}\``);
+    expect(Object.values(workerMetafile.inputs).every((input) => input.bytes === undefined)).toBe(true);
     expect(Object.values(metafile.inputs).every((input) => input.bytes === undefined)).toBe(true);
     const bundleOutput = Object.values(metafile.outputs)[0];
     expect(bundleOutput?.entryPoint).toBe("src/stdio.ts");
@@ -79,7 +83,9 @@ describe("plugin bundle provenance", () => {
       "ajv",
       "ajv-formats",
       "zod",
-      "zod-to-json-schema"
+      "zod-to-json-schema",
+      "jpeg-js",
+      "pngjs"
     ]));
     expect(noticedPackages).toEqual(bundledPackages);
     expect(runtimeSection.match(/^- License: .+$/gm)).toHaveLength(bundledPackages.length);

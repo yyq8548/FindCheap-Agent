@@ -328,6 +328,7 @@ export function createShopifyGlobalCatalogPort(
 
   return {
     async search(input) {
+      input.signal?.throwIfAborted();
       const startedAt = monotonicNow();
       try {
         const sourceQuery = input.query ?? input.handle?.replaceAll("-", " ") ?? "";
@@ -335,15 +336,18 @@ export function createShopifyGlobalCatalogPort(
         let totals = emptyAttemptTotals();
         let latest: ShopifySearchResult | undefined;
         for (const [index, attempt] of plan.entries()) {
+          input.signal?.throwIfAborted();
+          const timeout = AbortSignal.timeout(remainingTimeoutMs(startedAt, timeoutMs, monotonicNow));
+          const signal = input.signal === undefined ? timeout : AbortSignal.any([input.signal, timeout]);
           const response = await fetchRequest(SHOPIFY_GLOBAL_CATALOG_ENDPOINT, {
             method: "POST",
             redirect: "error",
             headers: { "content-type": "application/json", accept: "application/json" },
             body: JSON.stringify(searchRequest(input, profileUrl, attempt.query)),
-            signal: AbortSignal.timeout(remainingTimeoutMs(startedAt, timeoutMs, monotonicNow))
+            signal
           });
           if (!response.ok) throw new Error("catalog request failed");
-          const parsed = CatalogEnvelopeSchema.parse(JSON.parse(await readLimitedText(response)));
+          const parsed = CatalogEnvelopeSchema.parse(JSON.parse(await readLimitedText(response, signal)));
           const catalogProducts = parseCatalogProducts(parsed.result.structuredContent.products);
           latest = buildResult(
             catalogProducts.products,
@@ -817,7 +821,8 @@ function selectDiverseThenFill(products: GlobalCandidate[], limit: number): Glob
   return selected;
 }
 
-async function readLimitedText(response: Response): Promise<string> {
+async function readLimitedText(response: Response, signal: AbortSignal): Promise<string> {
+  signal.throwIfAborted();
   const declared = response.headers.get("content-length");
   if (declared !== null && (!/^\d+$/u.test(declared) || Number(declared) > MAX_RESPONSE_BYTES)) {
     throw new Error("catalog response is too large");
@@ -826,15 +831,21 @@ async function readLimitedText(response: Response): Promise<string> {
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > MAX_RESPONSE_BYTES) {
-      await reader.cancel();
-      throw new Error("catalog response is too large");
+  const cancel = (): void => { void reader.cancel().catch(() => undefined); };
+  signal.addEventListener("abort", cancel, { once: true });
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      signal.throwIfAborted();
+      if (done) break;
+      total += value.byteLength;
+      if (total > MAX_RESPONSE_BYTES) throw new Error("catalog response is too large");
+      chunks.push(value);
     }
-    chunks.push(value);
+  } finally {
+    signal.removeEventListener("abort", cancel);
+    await reader.cancel().catch(() => undefined);
+    reader.releaseLock();
   }
   const bytes = new Uint8Array(total);
   let offset = 0;

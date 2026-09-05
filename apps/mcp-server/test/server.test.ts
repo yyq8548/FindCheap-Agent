@@ -424,7 +424,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.17.12",
+        version: "0.17.13",
         terminalStage: "DOM_RENDERED",
         stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
       }
@@ -433,7 +433,7 @@ describe("shopping MCP server", () => {
     expect(result.structuredContent).toEqual({ status: "RECORDED" });
     expect(record).toHaveBeenCalledWith(expect.objectContaining({
       renderId,
-      version: "0.17.12",
+      version: "0.17.13",
       terminalStage: "DOM_RENDERED",
       stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
     }));
@@ -441,7 +441,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.17.12",
+        version: "0.17.13",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 14 }
       }
@@ -451,7 +451,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.17.12",
+        version: "0.17.13",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 300_001 }
       }
@@ -462,7 +462,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId: "22222222-2222-4222-8222-222222222222",
-        version: "0.17.12",
+        version: "0.17.13",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 1 }
       }
@@ -1287,7 +1287,8 @@ describe("Coupon and Watch tools", () => {
             classification: "HIGHLY_SIMILAR",
             matches: [
               { attribute: "PRODUCT_TYPE", referenceEvidence: "coffee pods", candidateEvidence: "coffee pods" },
-              { attribute: "DISTINCTIVE_DETAIL", referenceEvidence: "single serve", candidateEvidence: "single serve" }
+              { attribute: "DISTINCTIVE_DETAIL", referenceEvidence: "single serve", candidateEvidence: "single serve",
+                referenceObservation: { confidence: 0.9, visibility: "VISIBLE" } }
             ],
             conflicts: []
           }
@@ -1431,7 +1432,7 @@ describe("Coupon and Watch tools", () => {
       }
     });
 
-    expect(catalogSearch.mock.calls[0]?.[0].query).toBe("SKIMS Soft Lounge Long Slip Dress");
+    expect(catalogSearch.mock.calls[0]?.[0].query).toBe("SKIMS Soft Lounge Long Slip Dress dress gray");
     expect(officialSearch.mock.calls[0]?.[0].query).toBe("Soft Lounge Long Slip Dress");
     expect(found.structuredContent).toMatchObject({
       status: "OK",
@@ -1505,7 +1506,7 @@ describe("Coupon and Watch tools", () => {
     });
   });
 
-  it("retries an initial zero-candidate visual search with the same brand and product family", async () => {
+  it("preserves visual anchors and shares an identical simplified zero-result read", async () => {
     const baseline = await shopifyPort.search({
       query: "placeholder",
       limit: 1,
@@ -1559,11 +1560,10 @@ describe("Coupon and Watch tools", () => {
       }
     });
 
-    expect(search.mock.calls[0]?.[0].query).toBe("Reformation midi dress");
-    expect(search.mock.calls[2]?.[0].query).toContain("Reformation midi dress high front-left slit fitted bodice");
+    expect(search.mock.calls[0]?.[0].query).toBe("Reformation dress green midi slit");
+    expect(search).toHaveBeenCalledOnce();
     expect(result.structuredContent).toMatchObject({
-      status: "OK",
-      candidates: [{ title: "Reformation Marella Midi Dress" }]
+      status: "NO_IMAGE_CANDIDATES", candidates: []
     });
   });
 
@@ -1612,7 +1612,7 @@ describe("Coupon and Watch tools", () => {
     });
   });
 
-  it("softens uncertain visual text and retries once after every first-pass candidate conflicts", async () => {
+  it("reviews early broader recall together without repeating searches or promoting softened hints", async () => {
     const baseline = await shopifyPort.search({
       query: "placeholder",
       limit: 1,
@@ -1621,7 +1621,7 @@ describe("Coupon and Watch tools", () => {
       membershipIds: []
     });
     const search = vi.fn<ShopifyPort["search"]>(async (input) => {
-      const relaxed = input.query?.includes("square neckline with lace inset") === true;
+      const relaxed = input.query?.includes("initialhint") !== true;
       return {
         ...baseline,
         products: [{
@@ -1629,7 +1629,7 @@ describe("Coupon and Watch tools", () => {
           handle: relaxed ? "broader-ivory-dress" : "wrong-black-dress",
           title: relaxed ? "Broader Ivory Mini Dress" : "Wrong Black Maxi Dress",
           productType: "dress",
-          description: relaxed ? "ivory mini dress" : "black maxi dress",
+          description: relaxed ? "ivory mini dress with square neckline" : "black maxi dress",
           imageUrl: relaxed
             ? "https://cdn.shopify.com/broader.jpg"
             : "https://cdn.shopify.com/wrong.jpg",
@@ -1658,6 +1658,7 @@ describe("Coupon and Watch tools", () => {
         featureMode: "REQUIRED",
         visualInput: {
           productType: "dress",
+          suspectedProductName: "initialhint",
           colors: ["ivory"],
           patterns: ["solid"],
           neckline: "square neckline with lace inset",
@@ -1668,18 +1669,24 @@ describe("Coupon and Watch tools", () => {
     });
     const firstStructured = first.structuredContent as {
       visualSessionId: string;
-      candidates: Array<{ candidateId: string }>;
+      candidates: Array<{ candidateId: string; title: string }>;
     };
-    expect(firstStructured.candidates).toHaveLength(1);
-    expect(search.mock.calls[0]?.[0].query).toBe("dress");
+    expect(firstStructured.candidates).toHaveLength(2);
+    expect(firstStructured.candidates.map(({ title }) => title)).toEqual(expect.arrayContaining([
+      "Wrong Black Maxi Dress", "Broader Ivory Mini Dress"
+    ]));
+    expect(search.mock.calls[0]?.[0].query).toBe("initialhint dress ivory lace square neck");
+    expect(search.mock.calls[1]?.[0].query).toContain("dress ivory lace square neck");
+    expect(search).toHaveBeenCalledTimes(2);
+    expect(load).toHaveBeenCalledTimes(2);
 
-    const retry = await client.callTool({
+    const finalized = await client.callTool({
       name: "finalize_visual_search",
       arguments: {
         visualSessionId: firstStructured.visualSessionId,
-        verdicts: [{
-          candidateId: firstStructured.candidates[0]!.candidateId,
-          verdict: {
+        verdicts: firstStructured.candidates.map(({ candidateId, title }) => ({
+          candidateId,
+          verdict: title === "Wrong Black Maxi Dress" ? {
             classification: "CONFLICT",
             matches: [{
               attribute: "PRODUCT_TYPE",
@@ -1691,55 +1698,34 @@ describe("Coupon and Watch tools", () => {
               referenceEvidence: "ivory",
               candidateEvidence: "black"
             }]
-          }
-        }]
-      }
-    });
-    const retryStructured = retry.structuredContent as {
-      products: unknown[];
-      visualReview: {
-        stage: string;
-        visualSessionId: string;
-        candidates: Array<{ candidateId: string; title: string }>;
-      };
-    };
-    expect(retryStructured.products).toEqual([]);
-    expect(retryStructured.visualReview).toMatchObject({
-      stage: "RELAXED_REVIEW",
-      terminal: false,
-      finalAnswerAllowed: false,
-      requiredNextTool: "finalize_visual_search",
-      candidates: [{ title: "Broader Ivory Mini Dress" }]
-    });
-    const retryContent = retry.content as Array<{ type: string; text?: string }>;
-    expect(retryContent[0]?.text).toContain("Final answer is forbidden");
-    expect(search.mock.calls[1]?.[0].query).toContain("dress square neckline with lace inset short puff sleeves");
-    expect(retry.content).toEqual(expect.arrayContaining([
-      expect.objectContaining({ type: "image", mimeType: "image/jpeg" })
-    ]));
-
-    const finalized = await client.callTool({
-      name: "finalize_visual_search",
-      arguments: {
-        visualSessionId: retryStructured.visualReview.visualSessionId,
-        verdicts: [{
-          candidateId: retryStructured.visualReview.candidates[0]!.candidateId,
-          verdict: {
+          } : {
             classification: "HIGHLY_SIMILAR",
             matches: [
               { attribute: "PRODUCT_TYPE", referenceEvidence: "dress", candidateEvidence: "dress" },
-              { attribute: "COLOR", referenceEvidence: "ivory", candidateEvidence: "ivory" }
+              { attribute: "COLOR", referenceEvidence: "ivory", candidateEvidence: "ivory" },
+              { attribute: "NECKLINE", referenceEvidence: "square neckline", candidateEvidence: "square neckline" },
+              { attribute: "DISTINCTIVE_DETAIL", referenceEvidence: "small center bow", candidateEvidence: "small center bow" }
             ],
             conflicts: []
           }
-        }]
+        }))
       }
     });
+    expect(finalized.isError).not.toBe(true);
     expect(finalized.structuredContent).toMatchObject({
       status: "OK",
-      products: [{ visualMatchGroup: "HIGHLY_SIMILAR", selectionId: expect.any(String) }]
+      products: [{ title: "Broader Ivory Mini Dress", visualMatchGroup: "HIGHLY_SIMILAR", matchStatus: "DISCOVERY_MATCH", selectionId: expect.any(String) }]
     });
+    expect(finalized.structuredContent).not.toHaveProperty("visualReview");
+    expect(JSON.stringify(finalized.structuredContent)).not.toContain("Codex visual match DISTINCTIVE_DETAIL");
     expect(search).toHaveBeenCalledTimes(2);
+    expect(load).toHaveBeenCalledTimes(2);
+    const reused = await client.callTool({ name: "finalize_visual_search", arguments: {
+      visualSessionId: firstStructured.visualSessionId,
+      verdicts: firstStructured.candidates.map(({ candidateId }) => ({ candidateId,
+        verdict: { classification: "SAME_STYLE", matches: [], conflicts: [] } }))
+    } });
+    expect(reused.isError).toBe(true);
   });
 
   it("renders an official-store fallback card when the catalog source is unavailable", async () => {

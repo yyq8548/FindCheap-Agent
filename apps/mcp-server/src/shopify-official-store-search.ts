@@ -32,6 +32,7 @@ const JsonLdVariantSchema = z.object({
   gtin: z.string().trim().max(300).optional(),
   mpn: z.string().trim().max(300).optional(),
   size: z.string().trim().max(300).optional(),
+  color: z.string().trim().min(1).max(100).optional(),
   image: z.string().url().max(4_096).optional(),
   offers: JsonLdOfferSchema
 }).passthrough();
@@ -44,6 +45,7 @@ const JsonLdProductGroupSchema = z.object({
     z.object({ name: z.string().trim().min(1).max(300) }).passthrough()
   ]).optional(),
   description: z.string().max(100_000).optional(),
+  color: z.string().trim().min(1).max(100).optional(),
   image: z.union([z.string().url().max(4_096), z.array(z.string().url().max(4_096)).max(20)]).optional(),
   hasVariant: z.array(JsonLdVariantSchema).min(1).max(100)
 }).passthrough();
@@ -62,6 +64,13 @@ export type OfficialShopifySearchInput = {
   seed: ShopifyProduct | OfficialShopifyStoreSeed;
   query: string;
   limit: number;
+  sourcePageUrl?: string;
+  requiredSize?: string;
+  /** Explicit user constraint only, never inferred from a reference image. */
+  requiredColor?: string;
+  signal?: AbortSignal;
+  /** Ephemeral identity of one bounded search; never a process-wide cache key. */
+  cacheScope?: object;
 };
 
 export type OfficialStructuredProduct = {
@@ -74,6 +83,7 @@ export type OfficialStructuredProduct = {
     sku?: string | undefined;
     gtin?: string | undefined;
     size?: string | undefined;
+    color?: string | undefined;
     imageUrl?: string | undefined;
     amountCents: number;
     available: boolean;
@@ -87,7 +97,8 @@ export interface OfficialShopifySearchPort {
 
 export type OfficialShopifyFetch = (
   url: string,
-  allowedHost: string
+  allowedHost: string,
+  signal?: AbortSignal
 ) => Promise<{ response: Response; finalUrl: string }>;
 
 type Dependencies = {
@@ -99,42 +110,123 @@ type Dependencies = {
 export function createOfficialShopifySearchPort(
   dependencies: Dependencies = {}
 ): OfficialShopifySearchPort {
-  const fetchDocument = dependencies.fetchDocument ?? ((url, allowedHost) =>
-    safeFetchWithProvenance({ url }, { allowedHosts: [allowedHost] }));
+  const fetchDocument = dependencies.fetchDocument ?? ((url, allowedHost, signal) =>
+    safeFetchWithProvenance({ url }, { allowedHosts: [allowedHost], ...(signal === undefined ? {} : { signal }) }));
   const clock = dependencies.clock ?? { now: () => new Date() };
-  const generic = createGenericOfficialStoreSearchPort({
-    fetchDocument,
-    clock,
-    ...(dependencies.imageProxyOrigin === undefined ? {} : { imageProxyOrigin: dependencies.imageProxyOrigin })
-  });
+  const scopes = new WeakMap<object, OfficialReadCache>();
 
   return {
     async search(input) {
-      if ("platform" in input.seed && input.seed.platform === "GENERIC_JSON_LD") return generic.search(input);
+      input.signal?.throwIfAborted();
       const sourceHost = verifiedOfficialHost(input.seed);
-      const candidates = await findStorefrontProducts(
-        fetchDocument,
+      let cache: OfficialReadCache | undefined;
+      if (input.cacheScope !== undefined) {
+        cache = scopes.get(input.cacheScope);
+        if (cache === undefined) { cache = { reads: new Map(), bytes: 0 }; scopes.set(input.cacheScope, cache); }
+      }
+      const scopedFetch = scopedOfficialFetch(fetchDocument, cache, input.signal);
+      if ("platform" in input.seed && input.seed.platform === "GENERIC_JSON_LD") {
+        return createGenericOfficialStoreSearchPort({
+          fetchDocument: scopedFetch, clock,
+          ...(dependencies.imageProxyOrigin === undefined ? {} : { imageProxyOrigin: dependencies.imageProxyOrigin })
+        }).search(input);
+      }
+      const direct = input.sourcePageUrl === undefined ? undefined : directProductReference(sourceHost, input.sourcePageUrl);
+      const candidates = direct === undefined ? await findStorefrontProducts(
+        scopedFetch,
         sourceHost,
         input.query,
         input.limit
-      );
+      ) : [direct];
       const hydrated: Array<ShopifyProduct | undefined> = await Promise.all(candidates.map(
         async (candidate): Promise<ShopifyProduct | undefined> => {
           try {
             return await hydrateStorefrontProduct(
-              fetchDocument,
+              scopedFetch,
               sourceHost,
               candidate,
               input.seed,
-              clock.now()
+              clock.now(),
+              direct?.variantId,
+              input.requiredSize,
+              input.requiredColor
             );
           } catch {
+            input.signal?.throwIfAborted();
+            if (direct !== undefined) throw new Error("official direct product unavailable");
             return undefined;
           }
       }));
       return hydrated.filter((product): product is ShopifyProduct => product !== undefined);
     }
   };
+}
+
+type CachedOfficialDocument = { text: string; status: number; headers: [string, string][]; finalUrl: string };
+type OfficialReadCache = { reads: Map<string, Promise<CachedOfficialDocument>>; bytes: number };
+const MAX_SCOPE_CACHE_BYTES = 8 * 1024 * 1024;
+const MAX_SCOPE_CACHE_ENTRIES = 32;
+
+function scopedOfficialFetch(
+  fetchDocument: OfficialShopifyFetch, cache: OfficialReadCache | undefined, signal: AbortSignal | undefined
+): OfficialShopifyFetch {
+  return async (url, host) => {
+    signal?.throwIfAborted();
+    // Search responses differ by query; reuse only bounded source documents.
+    const cacheable = cache !== undefined && /(?:\.xml|\.js)$|\/products\//u.test(new URL(url).pathname);
+    const key = `${host}:${url}`;
+    let pending = cacheable ? cache.reads.get(key) : undefined;
+    if (pending === undefined) {
+      const read = async (): Promise<CachedOfficialDocument> => {
+        const fetched = await (signal === undefined ? fetchDocument(url, host) : fetchDocument(url, host, signal));
+        signal?.throwIfAborted();
+        const reader = fetched.response.body?.getReader();
+        const chunks: Uint8Array[] = [];
+        const maxBytes = new URL(url).pathname.endsWith(".xml") ? 2 * 1024 * 1024 : 1024 * 1024;
+        let size = 0;
+        if (reader !== undefined) {
+          const cancel = (): void => { void reader.cancel().catch(() => undefined); };
+          signal?.addEventListener("abort", cancel, { once: true });
+          try {
+            for (;;) {
+              const chunk = await reader.read();
+              signal?.throwIfAborted();
+              if (chunk.done) break;
+              size += chunk.value.byteLength;
+              if (size > maxBytes) { await reader.cancel(); throw new Error("official document size limit"); }
+              chunks.push(chunk.value);
+            }
+          } finally { signal?.removeEventListener("abort", cancel); reader.releaseLock(); }
+        }
+        return { text: Buffer.concat(chunks).toString("utf8"), status: fetched.response.status,
+          headers: [...fetched.response.headers], finalUrl: fetched.finalUrl };
+      };
+      pending = read();
+      if (cacheable && cache.reads.size < MAX_SCOPE_CACHE_ENTRIES && cache.bytes < MAX_SCOPE_CACHE_BYTES) {
+        cache.reads.set(key, pending);
+        void pending.then((document) => {
+          const size = Buffer.byteLength(document.text, "utf8");
+          if (cache.bytes + size > MAX_SCOPE_CACHE_BYTES) cache.reads.delete(key);
+          else cache.bytes += size;
+        }, () => { cache.reads.delete(key); });
+      }
+    }
+    const document = await pending;
+    signal?.throwIfAborted();
+    return { response: new Response(document.text, { status: document.status, headers: document.headers }), finalUrl: document.finalUrl };
+  };
+}
+
+function directProductReference(host: string, value: string): StorefrontProductReference & { variantId?: string } {
+  const url = new URL(value);
+  const handle = url.pathname.match(/^\/products\/([A-Za-z0-9][A-Za-z0-9_-]{0,200})\/?$/u)?.[1];
+  const variantId = url.searchParams.get("variant");
+  if (handle === undefined || !validSameHostUrl(value, host) ||
+    [...url.searchParams.keys()].some((key) => key !== "variant") ||
+    url.searchParams.getAll("variant").length > 1 || (variantId !== null && !/^\d{1,30}$/u.test(variantId))) {
+    throw new Error("official direct product URL invalid");
+  }
+  return { handle, url: `https://${host}/products/${handle}`, ...(variantId === null ? {} : { variantId }) };
 }
 
 async function findStorefrontProducts(
@@ -212,7 +304,10 @@ async function hydrateStorefrontProduct(
   host: string,
   candidate: StorefrontProductReference,
   seed: ShopifyProduct | OfficialShopifyStoreSeed,
-  checkedAt: Date
+  checkedAt: Date,
+  requestedVariantId?: string,
+  requiredSize?: string,
+  requiredColor?: string
 ): Promise<ShopifyProduct> {
   const productUrl = exactProductUrl(host, candidate.url, candidate.handle);
   try {
@@ -222,7 +317,16 @@ async function hydrateStorefrontProduct(
     if (!fetched.response.ok) throw new Error("official product document unavailable");
     const product = ShopifyProductJsonSchema.parse(JSON.parse(await fetched.response.text()));
     if (product.handle !== candidate.handle) throw new Error("official product handle changed");
-    const variant = product.variants.find((entry) => entry.available) ?? product.variants[0];
+    const dimension = (entry: (typeof product.variants)[number], kind: "size" | "color") =>
+      Object.entries(shopifyVariantDimensions(product.options, entry)).find(([name]) =>
+        kind === "size" ? /size|尺码/iu.test(name) : /colou?r|颜色/iu.test(name))?.[1];
+    const explicitVariant = product.variants.find((entry) => entry.id === requestedVariantId);
+    const color = requiredColor ?? dimension(explicitVariant ?? product.variants[0]!, "color");
+    const sameColor = product.variants.filter((entry) => color === undefined || sameDimension(dimension(entry, "color"), color));
+    const eligible = sameColor.filter((entry) => requiredSize === undefined || sameDimension(dimension(entry, "size"), requiredSize));
+    const variant = requestedVariantId === undefined
+      ? eligible.find((entry) => entry.available) ?? eligible[0]
+      : eligible.find((entry) => entry.id === requestedVariantId);
     if (variant === undefined) throw new Error("official product has no variant");
     const productType = officialProductType(product.title, product.product_type, product.type);
     return officialProduct(seed, host, checkedAt, {
@@ -236,6 +340,8 @@ async function hydrateStorefrontProduct(
         ? []
         : [variant.barcode],
       variantDimensions: shopifyVariantDimensions(product.options, variant),
+      availableSizes: [...new Set(sameColor.filter((entry) => entry.available).map((entry) => dimension(entry, "size")).filter((size): size is string => size !== undefined))],
+      availabilityScope: requestedVariantId !== undefined || requiredSize !== undefined ? "SELECTED_VARIANT" : "PRODUCT_COLOR",
       imageUrl: product.featured_image ?? undefined,
       amountCents: variant.price,
       available: variant.available,
@@ -244,7 +350,13 @@ async function hydrateStorefrontProduct(
   } catch {
     const html = await fetchText(fetchDocument, productUrl, host, "official product page");
     const structured = parseOfficialStructuredProduct(html, host, candidate.handle);
-    const variant = structured.variants.find((entry) => entry.available) ?? structured.variants[0];
+    const requested = structured.variants.find((entry) => entry.variantId === requestedVariantId);
+    const color = requiredColor ?? (requestedVariantId === undefined ? structured.variants[0]?.color : requested?.color);
+    const sameColor = structured.variants.filter((entry) => color === undefined || sameDimension(entry.color, color));
+    const eligible = sameColor.filter((entry) => requiredSize === undefined || sameDimension(entry.size, requiredSize));
+    const variant = requestedVariantId === undefined
+      ? eligible.find((entry) => entry.available) ?? eligible[0]
+      : eligible.find((entry) => entry.variantId === requestedVariantId);
     if (variant === undefined) throw new Error("official structured product data was incomplete");
     return officialProduct(seed, host, checkedAt, {
       handle: variant.variantId,
@@ -253,7 +365,9 @@ async function hydrateStorefrontProduct(
       brand: structured.brand,
       sku: variant.sku,
       gtins: variant.gtin === undefined ? [] : [variant.gtin],
-      variantDimensions: variant.size === undefined ? {} : { Size: variant.size },
+      variantDimensions: { ...(variant.size === undefined ? {} : { Size: variant.size }), ...(variant.color === undefined ? {} : { Color: variant.color }) },
+      ...(color === undefined ? {} : { availableSizes: [...new Set(sameColor.filter((entry) => entry.available).flatMap((entry) => entry.size === undefined ? [] : [entry.size]))] }),
+      availabilityScope: requestedVariantId !== undefined || requiredSize !== undefined || color === undefined ? "SELECTED_VARIANT" : "PRODUCT_COLOR",
       imageUrl: variant.imageUrl,
       amountCents: variant.amountCents,
       available: variant.available,
@@ -289,6 +403,8 @@ function officialProduct(
     sku?: string | undefined;
     gtins: string[];
     variantDimensions: Record<string, string>;
+    availableSizes?: string[];
+    availabilityScope: "SELECTED_VARIANT" | "PRODUCT_COLOR";
     imageUrl?: string | null | undefined;
     amountCents: number;
     available: boolean;
@@ -311,6 +427,8 @@ function officialProduct(
     ...(product.sku === undefined || product.sku === "" ? {} : { sku: product.sku }),
     gtins: product.gtins,
     variantDimensions: product.variantDimensions,
+    ...(product.availableSizes === undefined ? {} : { availableSizes: product.availableSizes }),
+    availabilityScope: product.availabilityScope,
     matchStatus: "DISCOVERY_MATCH",
     matchEvidence: ["matched the independently verified official Shopify storefront search"],
     condition: "UNKNOWN",
@@ -473,6 +591,7 @@ export function parseOfficialStructuredProduct(
       ...(variant.mpn === undefined || variant.mpn === "" ? {} : { sku: variant.mpn }),
       ...(variant.gtin === undefined || variant.gtin === "" ? {} : { gtin: variant.gtin }),
       ...(variant.size === undefined || variant.size === "" ? {} : { size: variant.size }),
+      ...((variant.color ?? group.color) === undefined ? {} : { color: variant.color ?? group.color }),
       ...((variant.image ?? fallbackImage) === undefined ? {} : { imageUrl: variant.image ?? fallbackImage }),
       amountCents,
       available: isInStock(variant.offers.availability),
@@ -548,6 +667,10 @@ function uniqueProducts(
 
 function normalizeHost(value: string): string {
   return value.normalize("NFKC").trim().toLocaleLowerCase("en-US").replace(/\.$/u, "");
+}
+
+function sameDimension(value: string | undefined, required: string): boolean {
+  return value !== undefined && value.normalize("NFKC").trim().toLowerCase() === required.normalize("NFKC").trim().toLowerCase();
 }
 
 function canonicalHref(value: string): string {

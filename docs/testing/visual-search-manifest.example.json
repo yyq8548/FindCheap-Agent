@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 2,
+  "cohort": {
+    "path": "cohort.json",
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "baseline": {
+    "version": "0.17.12",
+    "commit": "9a6fc1c39fd1dda5f486c87e8a737e164ecb8049"
+  },
+  "candidate": {
+    "version": "REPLACE_WITH_CANDIDATE_VERSION",
+    "commit": "0000000000000000000000000000000000000000"
+  },
+  "cases": [
+    {
+      "id": "template-only-not-a-real-sample",
+      "image": { "path": "images/replace.png", "sha256": "0000000000000000000000000000000000000000000000000000000000000000" },
+      "imageOrigin": "SYNTHETIC",
+      "split": "HELD_OUT",
+      "label": { "path": "labels/replace.json", "sha256": "0000000000000000000000000000000000000000000000000000000000000000" },
+      "runs": [
+        {
+          "brandMode": "WITH_BRAND",
+          "baseline": {
+            "capture": { "path": "captures/baseline-with-brand.json", "sha256": "0000000000000000000000000000000000000000000000000000000000000000" },
+            "review": { "path": "reviews/baseline-with-brand.json", "sha256": "0000000000000000000000000000000000000000000000000000000000000000" }
+          },
+          "candidate": {
+            "capture": { "path": "captures/candidate-with-brand.json", "sha256": "0000000000000000000000000000000000000000000000000000000000000000" },
+            "review": { "path": "reviews/candidate-with-brand.json", "sha256": "0000000000000000000000000000000000000000000000000000000000000000" }
+          }
+        },
+        {
+          "brandMode": "WITHOUT_BRAND",
+          "baseline": {
+            "capture": { "path": "captures/baseline-without-brand.json", "sha256": "0000000000000000000000000000000000000000000000000000000000000000" },
+            "review": { "path": "reviews/baseline-without-brand.json", "sha256": "0000000000000000000000000000000000000000000000000000000000000000" }
+          },
+          "candidate": {
+            "capture": { "path": "captures/candidate-without-brand.json", "sha256": "0000000000000000000000000000000000000000000000000000000000000000" },
+            "review": { "path": "reviews/candidate-without-brand.json", "sha256": "0000000000000000000000000000000000000000000000000000000000000000" }
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -202,6 +202,19 @@ export function resolveVerifiedOfficialStorefront(brand: string): VerifiedOffici
   };
 }
 
+/** Resolve only reviewed registry entries; a supplied URL cannot grant official trust. */
+export function resolveVerifiedOfficialStorefrontByHost(host: string): VerifiedOfficialStorefront | undefined {
+  const requested = normalizeHost(host);
+  const managed = managedOfficialStorefronts.find((store) =>
+    normalizeHost(store.storefrontHost ?? store.officialHost) === requested || normalizeHost(store.officialHost) === requested
+  );
+  if (managed !== undefined) return { ...managed, host: managed.storefrontHost ?? managed.officialHost };
+  const record = MERCHANT_TRUST_RECORDS.find((candidate) => candidate.level === "OFFICIAL" &&
+    (normalizeHost(candidate.storefrontHost ?? candidate.host) === requested || normalizeHost(candidate.host) === requested));
+  const brand = record?.storefrontBrands?.[0];
+  return brand === undefined ? undefined : resolveVerifiedOfficialStorefront(brand);
+}
+
 export function replaceManagedOfficialStorefronts(records: readonly OfficialStorefrontRecord[]): void {
   managedOfficialStorefronts = records.map((record) => ({
     ...record,

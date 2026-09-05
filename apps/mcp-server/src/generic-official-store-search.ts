@@ -19,7 +19,10 @@ const JsonLdOfferSchema = z.object({
   price: z.union([z.number().nonnegative(), z.string().regex(/^\d+(?:\.\d{1,2})?$/u)]),
   priceCurrency: z.string().trim().length(3),
   availability: z.string().trim().max(300).optional(),
-  url: z.string().url().max(4_096).optional()
+  url: z.string().trim().min(1).max(4_096).optional(),
+  sku: z.string().trim().max(300).optional(),
+  size: z.string().trim().max(100).optional(),
+  color: z.string().trim().max(100).optional()
 }).passthrough();
 
 const JsonLdProductSchema = z.object({
@@ -29,6 +32,7 @@ const JsonLdProductSchema = z.object({
   ]),
   name: z.string().trim().min(1).max(1_000),
   description: z.string().max(100_000).optional(),
+  color: z.string().trim().min(1).max(100).optional(),
   brand: z.union([
     z.string().trim().min(1).max(300),
     z.object({ name: z.string().trim().min(1).max(300) }).passthrough()
@@ -58,20 +62,39 @@ type Dependencies = {
 export function createGenericOfficialStoreSearchPort(
   dependencies: Dependencies = {}
 ): OfficialShopifySearchPort {
-  const fetchDocument = dependencies.fetchDocument ?? ((url, allowedHost) =>
-    safeFetchWithProvenance({ url }, { allowedHosts: [allowedHost] }));
+  const fetchDocument = dependencies.fetchDocument ?? ((url, allowedHost, signal) =>
+    safeFetchWithProvenance({ url }, { allowedHosts: [allowedHost], ...(signal === undefined ? {} : { signal }) }));
   const clock = dependencies.clock ?? { now: () => new Date() };
   const imageProxyOrigin = validProxyOrigin(dependencies.imageProxyOrigin);
   return {
     async search(input) {
+      input.signal?.throwIfAborted();
       if (!("platform" in input.seed) || input.seed.platform !== "GENERIC_JSON_LD") return [];
       const seed = input.seed as OfficialShopifyStoreSeed;
       const host = verifiedHost(seed);
-      const candidates = await discoverProducts(fetchDocument, input.query, input.limit, seed, host);
+      const scopedFetch: OfficialShopifyFetch = async (url, allowedHost) => {
+        input.signal?.throwIfAborted();
+        return input.signal === undefined ? fetchDocument(url, allowedHost) : fetchDocument(url, allowedHost, input.signal);
+      };
+      let directUrl: string | undefined;
+      if (input.sourcePageUrl !== undefined) {
+        directUrl = approvedProductUrl(input.sourcePageUrl, host, seed.productPathPrefixes ?? ["/products/"]);
+        const source = new URL(input.sourcePageUrl);
+        source.hash = "";
+        if (directUrl === undefined || directUrl !== source.href) throw new Error("official direct product URL invalid");
+      }
+      const candidates = directUrl === undefined
+        ? await discoverProducts(scopedFetch, input.query, input.limit, seed, host)
+        : [{ url: directUrl, title: "", score: 1 }];
       const products = await Promise.all(candidates.slice(0, Math.min(input.limit, MAX_PRODUCT_PAGES)).map(async (candidate) => {
         try {
-          return await hydrateProduct(fetchDocument, seed, host, candidate.url, clock.now(), imageProxyOrigin);
+          const product = await hydrateProduct(scopedFetch, seed, host, candidate.url, clock.now(), imageProxyOrigin, input.requiredSize, input.requiredColor);
+          if (directUrl !== undefined && [...new URL(directUrl).searchParams].some(([key, value]) =>
+            new URL(product.merchantUrl).searchParams.get(key) !== value)) throw new Error("official selected variant was not verified");
+          return product;
         } catch {
+          input.signal?.throwIfAborted();
+          if (directUrl !== undefined) throw new Error("official direct product unavailable");
           return undefined;
         }
       }));
@@ -178,19 +201,72 @@ async function hydrateProduct(
   host: string,
   productUrl: string,
   checkedAt: Date,
-  imageProxyOrigin: string | undefined
+  imageProxyOrigin: string | undefined,
+  requiredSize?: string,
+  requiredColor?: string
 ): Promise<ShopifyProduct> {
-  const html = await fetchText(fetchDocument, productUrl, host, MAX_PRODUCT_BYTES, "official product page");
+  const html = await fetchText(fetchDocument, productUrl, host, MAX_PRODUCT_BYTES, "official product page", true);
   const product = productFromHtml(html);
   const offers = Array.isArray(product.offers) ? product.offers : [product.offers];
-  const offer = offers.find((entry) => isInStock(entry.availability)) ?? offers[0];
+  const source = new URL(productUrl);
+  const explicitSize = requiredSize ?? source.searchParams.get("size") ?? undefined;
+  const exact = offers.find((entry) => entry.url !== undefined &&
+    approvedProductUrl(entry.url, host, seed.productPathPrefixes ?? ["/products/"]) === source.href);
+  const offerUrlColor = (entry: z.infer<typeof JsonLdOfferSchema>): string | undefined => {
+    const url = approvedProductUrl(entry.url ?? productUrl, host, seed.productPathPrefixes ?? ["/products/"]);
+    return url === undefined ? undefined : new URL(url).searchParams.get("color") ?? undefined;
+  };
+  const offerColor = (entry: z.infer<typeof JsonLdOfferSchema>): string | undefined => entry.color ?? offerUrlColor(entry);
+  const explicitColor = requiredColor ?? source.searchParams.get("color") ??
+    (exact === undefined ? undefined : offerColor(exact)) ?? product.color ?? offerColor(offers[0]!);
+  if (product.color !== undefined && explicitColor !== undefined && !sameValue(product.color, explicitColor)) {
+    throw new Error("official product color was not verified");
+  }
+  const colorSelector = [...source.searchParams].find(([key]) => /^dwvar_[A-Za-z0-9_-]{1,64}_color$/u.test(key));
+  const sameColor = offers.filter((entry) => {
+    const url = approvedProductUrl(entry.url ?? productUrl, host, seed.productPathPrefixes ?? ["/products/"]);
+    if (url === undefined) return false;
+    const offerPath = new URL(url).pathname;
+    if (offerPath !== source.pathname) {
+      const sku = product.sku ?? product.mpn;
+      const sourceId = source.pathname.split("/").at(-1)?.replace(/\.html$/u, "");
+      const offerId = offerPath.split("/").at(-1)?.replace(/\.html$/u, "");
+      if (sku === undefined || sourceId !== sku || offerId === undefined ||
+        !offerPath.startsWith(source.pathname.slice(0, source.pathname.lastIndexOf("/") + 1)) ||
+        !offerId.startsWith(sku) || !/^\d+$/u.test(offerId.slice(sku.length))) return false;
+    }
+    const urlColor = offerUrlColor(entry);
+    if (entry.color !== undefined && urlColor !== undefined && !sameValue(entry.color, urlColor)) return false;
+    if (explicitColor !== undefined && !sameValue(offerColor(entry) ?? product.color, explicitColor)) return false;
+    if (colorSelector !== undefined) {
+      const id = colorSelector[0].slice(6, -6);
+      const sku = product.sku ?? product.mpn;
+      const offerId = new URL(url).pathname.split("/").at(-1)?.replace(/\.html$/u, "");
+      if (sku !== id || !id.toUpperCase().endsWith(colorSelector[1].toUpperCase()) ||
+        offerId === undefined || !offerId.startsWith(id) || !/^\d*$/u.test(offerId.slice(id.length))) return false;
+    }
+    return true;
+  });
+  const eligible = sameColor.filter((entry) => (explicitSize === undefined || sameValue(entry.size, explicitSize)) &&
+    [...source.searchParams].filter(([key]) => key === "variant" || key === "type").every(([key, value]) =>
+      entry.url !== undefined && new URL(entry.url, `https://${host}`).searchParams.get(key) === value));
+  // Shared bare PDP URLs are not size selection. Pin only a proven URL variant;
+  // requiredSize already narrows eligible without depending on offer order.
+  const urlSelectsVariant = source.searchParams.has("variant") || source.searchParams.has("size") ||
+    (exact?.sku !== undefined && exact.sku !== product.sku && exact.sku !== product.mpn &&
+      source.pathname.split("/").at(-1)?.replace(/\.html$/u, "") === exact.sku);
+  const offer = urlSelectsVariant && exact !== undefined ? eligible.find((entry) => entry === exact)
+    : eligible.find((entry) => isInStock(entry.availability)) ?? eligible[0];
   if (offer === undefined || offer.priceCurrency.toUpperCase() !== "USD") throw new Error("official product price was unavailable");
   const price = typeof offer.price === "number" ? offer.price : Number(offer.price);
   const amountCents = Math.round(price * 100);
   if (!Number.isSafeInteger(amountCents) || amountCents < 1 || amountCents > 100_000_000) {
     throw new Error("official product price was invalid");
   }
-  const canonicalUrl = approvedProductUrl(offer.url ?? productUrl, host, seed.productPathPrefixes ?? ["/products/"]);
+  const selectedVariant = explicitSize !== undefined || urlSelectsVariant;
+  const knownColor = explicitColor !== undefined || colorSelector !== undefined;
+  const canonicalUrl = colorSelector !== undefined && !selectedVariant ? source.href
+    : approvedProductUrl(offer.url ?? productUrl, host, seed.productPathPrefixes ?? ["/products/"]);
   if (canonicalUrl === undefined) throw new Error("official product URL was invalid");
   const trust = resolveMerchantTrust(host, seed.merchant);
   if (trust.level !== "OFFICIAL" || trust.verification !== "INDEPENDENT") {
@@ -201,8 +277,9 @@ async function hydrateProduct(
   const imageUrl = approvedImageUrl(image, host, seed.imageHosts ?? [], imageProxyOrigin);
   const gtins = [product.gtin, product.gtin8, product.gtin12, product.gtin13, product.gtin14]
     .filter((value): value is string => value !== undefined && value !== "");
-  const stableKey = product.sku ?? product.mpn ?? gtins[0] ?? canonicalUrl;
+  const stableKey = offer.sku ?? product.sku ?? product.mpn ?? gtins[0] ?? canonicalUrl;
   const sku = product.sku ?? product.mpn;
+  const selectedColor = offerColor(offer) ?? product.color;
   return {
     merchantId: `official-${seed.officialHost ?? host}`,
     merchant: seed.merchant,
@@ -215,7 +292,9 @@ async function hydrateProduct(
     ...(brand === undefined ? {} : { brand }),
     ...(sku === undefined ? {} : { sku }),
     gtins,
-    variantDimensions: {},
+    variantDimensions: { ...(selectedColor === undefined ? {} : { Color: selectedColor }), ...(offer.size === undefined ? {} : { Size: offer.size }) },
+    ...(knownColor ? { availableSizes: [...new Set(sameColor.filter((entry) => isInStock(entry.availability)).flatMap((entry) => entry.size === undefined ? [] : [entry.size]))] } : {}),
+    availabilityScope: selectedVariant || !knownColor ? "SELECTED_VARIANT" : "PRODUCT_COLOR",
     matchStatus: "DISCOVERY_MATCH",
     matchEvidence: ["matched independently verified official Product JSON-LD"],
     condition: "UNKNOWN",
@@ -260,11 +339,13 @@ async function fetchText(
   url: string,
   host: string,
   maximumBytes: number,
-  label: string
+  label: string,
+  requireExact = false
 ): Promise<string> {
   const fetched = await fetchDocument(url, host);
   const finalUrl = new URL(fetched.finalUrl);
   if (!fetched.response.ok || !sameHost(finalUrl, host)) throw new Error(`${label} unavailable`);
+  if (requireExact && finalUrl.href !== new URL(url).href) throw new Error(`${label} identity changed`);
   const contentType = fetched.response.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
   if (contentType !== undefined && contentType !== "text/html" && contentType !== "application/xml" && contentType !== "text/xml") {
     throw new Error(`${label} content type was unsupported`);
@@ -282,6 +363,9 @@ function approvedProductUrl(value: string, host: string, prefixes: readonly stri
     if (!sameHost(url, host) || !prefixes.some((prefix) => url.pathname.startsWith(prefix))) return undefined;
     url.hash = "";
     for (const key of [...url.searchParams.keys()]) {
+      const colorSelector = key.match(/^dwvar_([A-Za-z0-9_-]{1,64})_color$/u);
+      if (colorSelector !== null && url.pathname.endsWith(`/${colorSelector[1]}.html`) &&
+        /^[A-Za-z0-9_-]{1,40}$/u.test(url.searchParams.get(key) ?? "") && url.searchParams.getAll(key).length === 1) continue;
       if (!["color", "size", "variant", "type"].includes(key)) url.searchParams.delete(key);
     }
     return url.href;
@@ -372,6 +456,10 @@ function decodeXml(value: string): string {
 
 function isInStock(value: string | undefined): boolean {
   return value !== undefined && /(?:^|\/)InStock$/iu.test(value);
+}
+
+function sameValue(value: string | undefined, expected: string): boolean {
+  return value !== undefined && value.normalize("NFKC").trim().toLowerCase() === expected.normalize("NFKC").trim().toLowerCase();
 }
 
 function validProxyOrigin(value: string | undefined): string | undefined {

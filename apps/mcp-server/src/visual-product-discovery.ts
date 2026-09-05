@@ -85,12 +85,30 @@ export function isVisualAttributeOccluded(visual: VisualProductInput, attribute:
   return hasVisualOcclusion(visual, key);
 }
 
-function hasVisualOcclusion(visual: VisualProductInput, key: string, region?: string): boolean {
-  return (visual.occlusions ?? []).some((occlusion) =>
+function hasVisualOcclusion(visual: VisualProductInput, key: string, region?: string, explicitlyVisible = false): boolean {
+  return (visual.occlusions ?? []).flatMap((entry) => entry.split(/[.;。；]/u)).some((occlusion) =>
     // A specifically observed left-side detail is not hidden by a right-side occlusion.
     !(region !== undefined && oppositeVisualSides(region, occlusion)) &&
-    OCCLUDED_ATTRIBUTE_PATTERNS.some(([candidateKey, pattern]) => candidateKey === key && pattern.test(occlusion))
+    OCCLUDED_ATTRIBUTE_PATTERNS.some(([candidateKey, pattern]) => candidateKey === key && pattern.test(occlusion)) &&
+    (!explicitlyVisible || !isLocalVisualOcclusion(occlusion, key, region))
   );
+}
+
+function isLocalVisualOcclusion(occlusion: string, key: string, region?: string): boolean {
+  // Explicit full absence always wins, even against a confident VISIBLE label.
+  if (/\b(?:fully|completely|entire|whole|not visible|outside|out of (?:the )?frame|cropped out)\b|完全|全部|全被|不可见|画面外/iu.test(occlusion)) return false;
+  if (/\b(?:partly|partially|part of|small|edge)\b|部分|局部|边缘/iu.test(occlusion)) return true;
+  if (/\b(?:both|all)\b|双侧|两侧/iu.test(occlusion)) return false;
+  // Hair covering shoulders or a strap crossing the chest does not imply that
+  // the observed sleeve/neckline itself is hidden. Legacy guesses get no exception.
+  const direct: Record<string, RegExp> = {
+    SLEEVE: /\bsleeves?\b|袖/iu,
+    NECKLINE: /\b(?:neckline|neck|collar)\b|领口|衣领/iu,
+    WAIST: /\bwaist\b|腰/iu
+  };
+  if (region !== undefined && direct[key]?.test(region) && direct[key]?.test(occlusion)) return false;
+  if (/\b(?:left|right|crosses)\b|左|右/iu.test(occlusion)) return true;
+  return direct[key] !== undefined && !direct[key]!.test(occlusion);
 }
 
 export function relaxVisualProductInput(visual: VisualProductInput): VisualProductInput {
@@ -102,6 +120,14 @@ export function relaxVisualProductInput(visual: VisualProductInput): VisualProdu
     ...colors.map((value) => ({ attribute: "COLOR", value })),
     ...(length === undefined ? [] : [{ attribute: "LENGTH", value: length }])
   ].filter((entry) => entry.value.length > 100);
+  const patterns = observed.filter((entry) => ["PATTERN", "PRINT"].includes(entry.attribute) && entry.source !== "HINT").slice(0, 2);
+  const patternObservations = patterns.filter((entry) => entry.source !== "LEGACY" || entry.value.length > 100 || entry.attribute === "PRINT")
+    .map((entry) => ({ attribute: entry.attribute, value: entry.value, confidence: entry.confidence ?? 0.8,
+      visibility: "VISIBLE" as const, ...(entry.region === undefined ? {} : { region: entry.region }) }));
+  const observations = [
+    ...longAnchors.map((entry) => ({ ...entry, confidence: 0.8, visibility: "VISIBLE" as const })),
+    ...patternObservations
+  ];
   const structuralPriority = ["DETAIL", "NECKLINE", "SLEEVE", "CLOSURE", "COLLAR", "WAIST", "HEM", "SILHOUETTE"];
   const structuralDetails = observed
     .filter((entry) => structuralPriority.includes(entry.attribute))
@@ -117,11 +143,10 @@ export function relaxVisualProductInput(visual: VisualProductInput): VisualProdu
         ? coreProductType(visual.productType) : relaxedProductType(visual.productType)
     }),
     colors: colors.filter((value) => value.length <= 100),
+    patterns: patterns.filter((entry) => entry.source === "LEGACY" && entry.attribute === "PATTERN" && entry.value.length <= 100).map((entry) => entry.value),
     ...(length === undefined || length.length > 100 ? {} : { length }),
     // Observation values permit longer evidence than the compact legacy fields.
-    ...(longAnchors.length === 0 ? {} : {
-      observations: longAnchors.map((entry) => ({ ...entry, confidence: 0.8, visibility: "VISIBLE" as const }))
-    }),
+    ...(observations.length === 0 ? {} : { observations }),
     ...(structuralDetails.length === 0 ? {} : { distinctiveDetails: structuralDetails })
   });
 }
@@ -225,6 +250,7 @@ export type NormalizedVisualEvidence = {
   inferred: boolean;
   visibility: "VISIBLE" | "PARTIAL" | "OCCLUDED" | "UNKNOWN";
   region?: string;
+  confidence?: number;
 };
 
 const STRUCTURAL_ATTRIBUTES = ["DETAIL", "SILHOUETTE", "NECKLINE", "SLEEVE", "CLOSURE", "COLLAR", "WAIST", "HEM", "LENGTH"];
@@ -233,21 +259,29 @@ const RETRIEVAL_ATTRIBUTES = [...STRUCTURAL_ATTRIBUTES, "PATTERN", "PRINT", "VIS
 /** One evidence path for old fields and structured observations; never identity proof. */
 export function normalizeVisualEvidence(visual: VisualProductInput): NormalizedVisualEvidence[] {
   const evidence: NormalizedVisualEvidence[] = [];
+  const uncertainAttributes = new Set((visual.observations ?? []).filter((entry) => entry.confidence < 0.8 ||
+    (entry.visibility !== undefined && entry.visibility !== "VISIBLE"))
+    .map((entry) => visualAttributeKey(entry.attribute)).filter((key) => key !== undefined));
   const add = (
     attribute: string, value: string | undefined,
     source: NormalizedVisualEvidence["source"] = "LEGACY", inferred = false,
-    visibility?: NormalizedVisualEvidence["visibility"], region?: string
+    visibility?: NormalizedVisualEvidence["visibility"], region?: string, confidence?: number
   ): void => {
     if (value === undefined) return;
     const key = visualAttributeKey(attribute) ?? inferredVisualAttribute(value) ?? "DETAIL";
+    inferred ||= uncertainAttributes.has(key);
     const occlusionKey = key === "DETAIL" && region !== undefined
       ? OCCLUDED_ATTRIBUTE_PATTERNS.find(([, pattern]) => pattern.test(region))?.[0] : key;
+    const explicitlyVisible = !inferred && ((source === "OBSERVATION" && visibility === "VISIBLE") ||
+      (source === "LEGACY" && (visual.observations ?? []).some((entry) => visualAttributeKey(entry.attribute) === key &&
+        entry.confidence >= 0.8 && entry.visibility === "VISIBLE")));
     evidence.push({
       attribute: key, value, source, inferred: inferred || key === "MATERIAL",
       visibility: visibility === "UNKNOWN" || visibility === "OCCLUDED" || visibility === "PARTIAL"
         ? visibility
-        : occlusionKey !== undefined && hasVisualOcclusion(visual, occlusionKey, region) ? "UNKNOWN" : "VISIBLE",
-      ...(region === undefined ? {} : { region })
+        : occlusionKey !== undefined && hasVisualOcclusion(visual, occlusionKey, region, explicitlyVisible) ? "UNKNOWN" : "VISIBLE",
+      ...(region === undefined ? {} : { region }),
+      ...(confidence === undefined ? {} : { confidence })
     });
   };
   const lists: Array<readonly [string, string[], boolean]> = [
@@ -265,10 +299,10 @@ export function normalizeVisualEvidence(visual: VisualProductInput): NormalizedV
   ];
   for (const [attribute, value] of fields) add(attribute, value);
   for (const entry of visual.observations ?? []) {
-    add(entry.attribute, entry.value, "OBSERVATION", entry.confidence < 0.8, entry.visibility, entry.region);
+    add(entry.attribute, entry.value, "OBSERVATION", entry.confidence < 0.8, entry.visibility, entry.region, entry.confidence);
   }
   for (const entry of visual.inferences ?? []) {
-    add(entry.attribute, entry.value, "INFERENCE", true, entry.visibility, entry.region);
+    add(entry.attribute, entry.value, "INFERENCE", true, entry.visibility, entry.region, entry.confidence);
   }
   for (const clue of visual.hardClues ?? []) add(inferredVisualAttribute(clue) ?? "DETAIL", clue, "HINT");
   for (const clue of [...(visual.styleClues ?? []), ...(visual.softClues ?? [])]) {
@@ -283,7 +317,8 @@ export function normalizeVisualEvidence(visual: VisualProductInput): NormalizedV
     const observedLowConfidence = entry.source === "OBSERVATION" && entry.inferred;
     if (existing === undefined || entry.visibility !== "VISIBLE" ||
       (existing.visibility === "VISIBLE" && !existingLowConfidence &&
-        (observedLowConfidence || (existing.inferred && !entry.inferred)))) {
+        (observedLowConfidence || (existing.inferred && !entry.inferred) ||
+          (entry.source === "OBSERVATION" && existing.source === "LEGACY")))) {
       uniqueEvidence.set(key, entry);
     }
   }
@@ -423,7 +458,9 @@ export function visualOfficialStoreSearchQueries(visual: VisualProductInput): Vi
   const fullProductType = officialFullProductType(normalizedType, category);
   const normalizedEvidence = visibleVisualEvidence(visual);
   const evidence = unique(normalizedEvidence.map((entry) => searchTerm(entry.value)));
-  const color = searchTerm(normalizedEvidence.find((entry) => entry.attribute === "COLOR" && !entry.inferred)?.value);
+  const colorway = visualColorwayTerms(visual);
+  const color = colorway.colors.join(" ") ||
+    searchTerm(normalizedEvidence.find((entry) => entry.attribute === "COLOR" && !entry.inferred)?.value);
   const lengthEvidence = normalizeVisualEvidence(visual).filter((entry) => entry.attribute === "LENGTH");
   const length = officialVisualDescriptors(unique([searchTerm(lengthEvidence.length === 0
     ? visual.productType
@@ -473,7 +510,11 @@ export function visualOfficialStoreSearchQueries(visual: VisualProductInput): Vi
 function officialVisualDescriptors(evidence: string[]): string[] {
   const text = evidence.join(" ");
   const descriptors: Array<[RegExp, string]> = [
-    [/\bfloral\b/u, "floral"],
+    [/\bplaid\b|\bcheck(?:ed)?\b/u, "plaid"],
+    [/\btartan\b/u, "tartan"],
+    [/\bpinstripes?\b/u, "pinstripe"],
+    [/\bstrip(?:e[ds]?|ed)\b/u, "stripe"],
+    [/\b(?:floral|flowers?)\b/u, "floral"],
     [/\b(?:smock(?:ed|ing)?|shirred|elasticated waist)\b/u, "smocked"],
     [/\blace\b/u, "lace"],
     [/\brib(?:bed|bing)\b/u, "ribbed"],
@@ -507,6 +548,22 @@ function officialVisualDescriptors(evidence: string[]): string[] {
     [/\bcotton\b/u, "cotton"]
   ];
   return descriptors.flatMap(([pattern, descriptor]) => pattern.test(text) ? [descriptor] : []);
+}
+
+const COLOR_TERMS = /\b(?:black|white|ivory|cream|ecru|beige|gray|grey|navy|teal|blue|burgundy|maroon|red|pink|green|olive|brown|chocolate|tan|yellow|purple|orange|gold|silver)\b/gu;
+
+/** Bounded observable colorway hints; no product name, identity, price or trust. */
+export function visualColorwayTerms(visual: VisualProductInput): { colors: string[]; patterns: string[] } {
+  const evidence = normalizeVisualEvidence(visual).filter((entry) => entry.visibility === "VISIBLE" && !entry.inferred && entry.source !== "HINT");
+  const colorEvidence = [...evidence.filter((entry) => entry.attribute === "COLOR"),
+    ...evidence.filter((entry) => entry.attribute === "PATTERN" || entry.attribute === "PRINT")];
+  const colors = unique(colorEvidence.flatMap((entry) => {
+    const raw = normalizeRaw(entry.value).replace(/\bgrey\b/gu, "gray");
+    return raw.match(COLOR_TERMS) ?? normalize(entry.value).match(COLOR_TERMS) ?? [];
+  })).slice(0, 4);
+  const patterns = officialVisualDescriptors(evidence.filter((entry) => entry.attribute === "PATTERN" || entry.attribute === "PRINT")
+    .map((entry) => normalize(entry.value))).filter((entry) => ["plaid", "tartan", "pinstripe", "stripe", "floral", "ribbed", "lace"].includes(entry));
+  return { colors, patterns };
 }
 
 function officialVisualSynonymDetails(details: string[]): string[] {
@@ -630,7 +687,7 @@ function visualAttributeKey(value: string): string | undefined {
     pattern: "PATTERN", patterns: "PATTERN", silhouette: "SILHOUETTE", shape: "SILHOUETTE",
     neckline: "NECKLINE", neck: "NECKLINE", sleeve: "SLEEVE", sleeves: "SLEEVE", "sleeve type": "SLEEVE",
     length: "LENGTH", waist: "WAIST", hem: "HEM", closure: "CLOSURE", collar: "COLLAR",
-    print: "PRINT", "print description": "PRINT", "visible text": "VISIBLE_TEXT", style: "STYLE",
+    print: "PRINT", "print description": "PRINT", "print placement": "PRINT", "visible text": "VISIBLE_TEXT", style: "STYLE",
     detail: "DETAIL", "distinctive detail": "DETAIL", "distinctive details": "DETAIL"
   };
   return aliases[normalizeRaw(value)] ?? inferredVisualAttribute(value);

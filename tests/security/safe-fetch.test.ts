@@ -26,6 +26,73 @@ function policy(overrides: Partial<FetchPolicy> = {}): FetchPolicy {
 }
 
 describe("safeFetch", () => {
+  it("rejects cancelled work before DNS resolution", async () => {
+    const currentPolicy = policy({ signal: AbortSignal.abort() });
+    await expect(safeFetch({ url: "https://shop.example/x" }, currentPolicy)).rejects.toThrow(/abort/iu);
+    expect(currentPolicy.resolve).not.toHaveBeenCalled();
+    expect(currentPolicy.request).not.toHaveBeenCalled();
+  });
+
+  it("cancels stalled DNS and never requests after a late DNS answer", async () => {
+    const controller = new AbortController();
+    let finishDns!: (addresses: ResolvedAddress[]) => void;
+    const request = vi.fn(async () => new Response("ok"));
+    const pending = safeFetch({ url: "https://shop.example/x" }, policy({
+      signal: controller.signal,
+      resolve: () => new Promise((resolve) => { finishDns = resolve; }), request
+    }));
+    const rejected = expect(pending).rejects.toThrow(/abort/iu);
+    await vi.waitFor(() => expect(finishDns).toBeTypeOf("function"));
+    controller.abort();
+    await rejected;
+    finishDns([publicAddress]);
+    await Promise.resolve();
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it("shares cancellation across redirect hops and stops before a subsequent hop", async () => {
+    const controller = new AbortController();
+    const request = vi.fn(async (_url: URL, init: RequestInit) => {
+      controller.abort();
+      expect(init.signal?.aborted).toBe(true);
+      return new Response(null, { status: 302, headers: { location: "/next" } });
+    });
+    await expect(safeFetch({ url: "https://shop.example/x" }, policy({ signal: controller.signal, request })))
+      .rejects.toThrow(/abort/iu);
+    expect(request).toHaveBeenCalledTimes(1);
+  });
+
+  it("cancels a stalled request and disposes a late response without reading it", async () => {
+    const controller = new AbortController();
+    let finishRequest!: (response: Response) => void;
+    const pending = safeFetch({ url: "https://shop.example/x" }, policy({
+      signal: controller.signal,
+      request: () => new Promise((resolve) => { finishRequest = resolve; })
+    }));
+    const rejected = expect(pending).rejects.toThrow(/abort/iu);
+    await vi.waitFor(() => expect(finishRequest).toBeTypeOf("function"));
+    controller.abort();
+    await rejected;
+    const cancelled = vi.fn();
+    finishRequest(new Response(new ReadableStream({ cancel: cancelled })));
+    await vi.waitFor(() => expect(cancelled).toHaveBeenCalledTimes(1));
+  });
+
+  it("cancels a stalled body and releases its reader", async () => {
+    const controller = new AbortController();
+    const cancelled = vi.fn();
+    const body = new ReadableStream<Uint8Array>({ cancel: cancelled });
+    const pending = safeFetch({ url: "https://shop.example/x" }, policy({
+      signal: controller.signal, request: async () => new Response(body)
+    }));
+    const rejected = expect(pending).rejects.toThrow(/abort/iu);
+    await vi.waitFor(() => expect(body.locked).toBe(true));
+    controller.abort();
+    await rejected;
+    expect(cancelled).toHaveBeenCalledTimes(1);
+    expect(body.locked).toBe(false);
+  });
+
   it("returns the canonical validated final URL after multiple redirects", async () => {
     const request = vi.fn(async (url: URL) => {
       if (url.pathname === "/start") {
@@ -274,6 +341,27 @@ describe("safeFetch", () => {
     ).rejects.toThrow(/response too large/i);
   });
 
+  it("enforces a caller's smaller response cap before buffering an oversized image", async () => {
+    const cancelled = vi.fn();
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (let index = 0; index < 4; index += 1) controller.enqueue(new Uint8Array(500_000));
+      }, cancel: cancelled
+    });
+    await expect(safeFetch({ url: "https://shop.example/image" }, policy({
+      maxResponseBytes: 1_500_000, request: async () => new Response(body)
+    }))).rejects.toThrow(/response too large/iu);
+    expect(cancelled).toHaveBeenCalledTimes(1);
+    expect(body.locked).toBe(false);
+  });
+
+  it("never permits a caller to increase the global response byte cap", async () => {
+    await expect(safeFetch({ url: "https://shop.example/image" }, policy({
+      maxResponseBytes: MAX_RESPONSE_BYTES * 2,
+      request: async () => new Response("x", { headers: { "content-length": String(MAX_RESPONSE_BYTES + 1) } })
+    }))).rejects.toThrow(/response too large/iu);
+  });
+
   it("passes the approved DNS set and an 8-second abort signal to the request seam", async () => {
     const request = vi.fn<NonNullable<FetchPolicy["request"]>>(async () => new Response("ok"));
     const response = await safeFetch({ url: "https://shop.example/x" }, policy({ request }));
@@ -343,7 +431,7 @@ describe("safeFetch", () => {
       servername: "shop.example",
       agent: false,
       headers: expect.objectContaining({
-        "user-agent": "FindCheap-Agent/0.17.12 (+https://github.com/yyq8548/FindCheap-Agent)"
+        "user-agent": "FindCheap-Agent/0.17.13 (+https://github.com/yyq8548/FindCheap-Agent)"
       })
     });
     expect(captured?.lookup).toBeTypeOf("function");

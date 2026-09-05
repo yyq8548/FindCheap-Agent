@@ -1,0 +1,16 @@
+{
+  "kind": "FROZEN_VISUAL_EVALUATION_COHORT",
+  "frozenAt": "2026-09-04T12:15:00Z",
+  "reviewerId": "REPLACE_WITH_HUMAN_REVIEWER",
+  "cases": [
+    {
+      "id": "template-only-not-a-real-sample",
+      "imageSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "labelSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "styleFamilyId": "REPLACE_WITH_REVIEWED_STYLE_FAMILY",
+      "split": "HELD_OUT",
+      "priorExposure": "UNSEEN",
+      "eligibility": "SUPPORTED_RETRIEVABLE"
+    }
+  ]
+}

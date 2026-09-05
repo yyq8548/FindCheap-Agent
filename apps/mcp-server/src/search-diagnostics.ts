@@ -7,7 +7,7 @@ export type SearchOutcome = "REVIEW_REQUIRED" | "MATCH_FOUND" | "NO_CANDIDATES" 
 /** Public diagnostic allowlist: never serialize an execution, query, source URL,
  * image, coupon, or provider exception into the trace. */
 export function searchDiagnostics(execution: UnifiedSearchExecution, outcome: SearchOutcome, counts: {
-  imageAttempts?: number; imagesLoaded?: number; reviewed?: number; returned?: number;
+  imageAttempts?: number; imagesLoaded?: number; reviewed?: number; reviewConflicts?: number; reviewInsufficient?: number; returned?: number;
 } = {}) {
   const run = execution.searchRun?.diagnostics();
   const snapshotTime = execution.awinResult?.snapshotAt;
@@ -27,6 +27,14 @@ export function searchDiagnostics(execution: UnifiedSearchExecution, outcome: Se
         attempts: execution.officialStoreFallback.diagnostic.attempts.length
       })
     },
+    ...(execution.officialCatalogDiagnostics === undefined ? {} : { officialCatalog: {
+      status: execution.officialCatalogDiagnostics.status,
+      cachedProducts: execution.officialCatalogDiagnostics.cachedProducts,
+      returnedProducts: execution.officialCatalogDiagnostics.returnedProducts,
+      approvedSources: execution.officialCatalogDiagnostics.approvedSources,
+      coveredQueries: execution.officialCatalogDiagnostics.coveredQueries,
+      expiredProducts: execution.officialCatalogDiagnostics.expiredProducts
+    } }),
     sourcePasses: execution.searchPasses,
     ...(snapshotAt === undefined ? {} : { awinSnapshotAt: snapshotAt }),
     candidatePool: (execution.reviewPool ?? execution.candidates).length,
@@ -39,6 +47,8 @@ export function searchDiagnostics(execution: UnifiedSearchExecution, outcome: Se
     ...(counts.imageAttempts === undefined ? {} : { imageAttempts: counts.imageAttempts }),
     ...(counts.imagesLoaded === undefined ? {} : { imagesLoaded: counts.imagesLoaded }),
     ...(counts.reviewed === undefined ? {} : { reviewed: counts.reviewed }),
+    ...(counts.reviewConflicts === undefined ? {} : { reviewConflicts: counts.reviewConflicts }),
+    ...(counts.reviewInsufficient === undefined ? {} : { reviewInsufficient: counts.reviewInsufficient }),
     ...(counts.returned === undefined ? {} : { returned: counts.returned })
   };
 }
