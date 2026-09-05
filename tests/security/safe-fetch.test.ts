@@ -431,7 +431,7 @@ describe("safeFetch", () => {
       servername: "shop.example",
       agent: false,
       headers: expect.objectContaining({
-        "user-agent": "FindCheap-Agent/0.17.13 (+https://github.com/yyq8548/FindCheap-Agent)"
+        "user-agent": "FindCheap-Agent/0.17.14 (+https://github.com/yyq8548/FindCheap-Agent)"
       })
     });
     expect(captured?.lookup).toBeTypeOf("function");

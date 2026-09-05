@@ -4797,7 +4797,7 @@
   },
   "outputs": {
     "../../plugins/findcheap-agent/dist/mcp-server.js": {
-      "bytes": 835343,
+      "bytes": 836643,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
@@ -5487,7 +5487,7 @@
           "bytesInOutput": 942
         },
         "src/generic-official-store-search.ts": {
-          "bytesInOutput": 11559
+          "bytesInOutput": 12312
         },
         "src/merchant-trust-registry-client.ts": {
           "bytesInOutput": 1283
@@ -5538,7 +5538,7 @@
           "bytesInOutput": 1616
         },
         "src/search-products.ts": {
-          "bytesInOutput": 30233
+          "bytesInOutput": 30340
         },
         "src/search-run.ts": {
           "bytesInOutput": 3392
@@ -5574,7 +5574,7 @@
           "bytesInOutput": 6366
         },
         "src/visual-product-discovery.ts": {
-          "bytesInOutput": 19409
+          "bytesInOutput": 19849
         },
         "src/visual-retrieval-query.ts": {
           "bytesInOutput": 884

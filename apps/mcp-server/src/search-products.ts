@@ -35,6 +35,7 @@ import {
   classifyVisualProduct,
   hasVisualProductFamilyConflict,
   visualOfficialStoreSearchQueries,
+  visualOfficialStoreDiscoveryQuery,
   type VisualMatch,
   type VisualMatchGroup,
   type VisualOfficialStoreQuery,
@@ -541,7 +542,7 @@ export async function searchProducts(
     }
     const stages = [
       ...(sourcePageUrl === undefined ? [] : [{ stage: "FULL" as const, query: "direct official product", sourcePageUrl }]),
-      ...buildOfficialStoreQueries(input, searchIntent)
+      ...buildOfficialStoreQueries(input, searchIntent, officialSeed.platform === "GENERIC_JSON_LD")
     ];
     for (const attempt of stages) {
       const directUrl = "sourcePageUrl" in attempt ? attempt.sourcePageUrl : undefined;
@@ -1269,7 +1270,8 @@ function preferredSizePreference(value: string): string {
 
 function buildOfficialStoreQueries(
   input: SearchProductsInput,
-  searchIntent: ProductSearchIntent
+  searchIntent: ProductSearchIntent,
+  compactOfficialDiscovery = false
 ): VisualOfficialStoreQuery[] {
   if (input.visualInput !== undefined && searchIntent !== "EXACT_PRODUCT") {
     const suspectedName = input.visualInput.suspectedProductName;
@@ -1278,10 +1280,12 @@ function buildOfficialStoreQueries(
       : input.brand === undefined
         ? suspectedName
         : withoutRequestedBrand(suspectedName, input.brand);
+    const compactQuery = compactOfficialDiscovery ? visualOfficialStoreDiscoveryQuery(input.visualInput) : undefined;
     const attempts = [
       ...(suspectedQuery === undefined || suspectedQuery.trim() === ""
         ? []
         : [{ stage: "FULL" as const, query: suspectedQuery }]),
+      ...(compactQuery === undefined ? [] : [{ stage: "CORE" as const, query: compactQuery }]),
       ...visualOfficialStoreSearchQueries(input.visualInput)
     ];
     const seen = new Set<string>();

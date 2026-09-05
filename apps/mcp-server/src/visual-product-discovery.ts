@@ -452,6 +452,19 @@ export function visualBroadSearchTerms(visual: VisualProductInput): string[] {
   return unique([visual.brand ?? visual.logoText, coreProductType(visual.productType)]);
 }
 
+/** A short official-site discovery query only; final visual constraints stay intact. */
+export function visualOfficialStoreDiscoveryQuery(visual: VisualProductInput): string | undefined {
+  const category = coreProductType(searchTerm(visual.productType));
+  if (category === undefined) return undefined;
+  const evidence = visibleVisualEvidence(visual).filter(entry => !entry.inferred);
+  const details = officialVisualDescriptors(evidence.map(entry => normalize(entry.value)));
+  const primaryColor = visualColorwayTerms(visual).colors[0]?.replace(/^chocolate$/u, "brown");
+  const structure = ["strapless", "spaghetti strap", "scoop neck", "boat neck", "square neck", "long sleeve", "short sleeve", "sleeveless"]
+    .find(detail => details.includes(detail));
+  if (category === "top" && structure === "spaghetti strap") return unique([primaryColor, "cami"]).join(" ");
+  return unique([primaryColor, structure ?? details[0], category]).join(" ");
+}
+
 export function visualOfficialStoreSearchQueries(visual: VisualProductInput): VisualOfficialStoreQuery[] {
   const normalizedType = searchTerm(visual.productType);
   const category = officialSearchProductType(visual, normalizedType);
@@ -522,6 +535,7 @@ function officialVisualDescriptors(evidence: string[]): string[] {
     [/\bmidi\b/u, "midi"],
     [/\bmaxi\b|ankle[\s-]*length/u, "maxi"],
     [/\bslip\b/u, "slip"],
+    [/\bstrapless\b/u, "strapless"],
     [/spaghetti[\s-]*strap|ultra[\s-]*skinny strap/u, "spaghetti strap"],
     [/\bcap[\s-]*sleeve/u, "cap sleeve"],
     [/\b(?:boat|bateau)[\s-]*(?:neck|neckline)?\b/u, "boat neck"],

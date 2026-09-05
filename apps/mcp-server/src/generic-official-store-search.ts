@@ -115,6 +115,10 @@ async function discoverProducts(
   try {
     const searchUrl = new URL(template.replace("{query}", encodeURIComponent(query)), `https://${host}`);
     const html = await fetchText(fetchDocument, searchUrl.href, host, MAX_DISCOVERY_BYTES, "official search page");
+    // A site's ranked result list is stronger discovery evidence than tokens in
+    // style names or swatch links. It is not identity or visual-match evidence.
+    const ranked = structuredSearchLinks(html, host, seed.productPathPrefixes ?? ["/products/"]);
+    if (ranked.length > 0) return ranked.slice(0, Math.min(limit, MAX_PRODUCT_PAGES));
     discovered.push(...htmlProductLinks(html, host, seed.productPathPrefixes ?? ["/products/"], query));
   } catch {
     // Some official sites expose only Sitemap discovery.
@@ -180,6 +184,27 @@ function htmlProductLinks(
   return entries;
 }
 
+function structuredSearchLinks(html: string, host: string, prefixes: readonly string[]): CandidateReference[] {
+  const schema = z.object({ "@type": z.literal("ItemList"), itemListElement: z.array(z.object({
+    "@type": z.literal("ListItem"), position: z.number().int().min(1).max(100_000),
+    url: z.string().min(1).max(4_096)
+  })).max(100) });
+  for (const match of html.matchAll(/<script\b[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/giu)) {
+    try {
+      const parsed = schema.safeParse(JSON.parse(match[1] ?? ""));
+      if (!parsed.success) continue;
+      const seen = new Set<string>();
+      return [...parsed.data.itemListElement].sort((a, b) => a.position - b.position).flatMap(entry => {
+        const url = approvedProductUrl(entry.url, host, prefixes);
+        if (url === undefined || seen.has(url)) return [];
+        seen.add(url);
+        return [{ url, title: "", score: 0 }];
+      });
+    } catch { /* Malformed structured data may use the bounded HTML fallback. */ }
+  }
+  return [];
+}
+
 function xmlProductLinks(
   xml: string,
   host: string,
@@ -233,7 +258,7 @@ async function hydrateProduct(
       const offerId = offerPath.split("/").at(-1)?.replace(/\.html$/u, "");
       if (sku === undefined || sourceId !== sku || offerId === undefined ||
         !offerPath.startsWith(source.pathname.slice(0, source.pathname.lastIndexOf("/") + 1)) ||
-        !offerId.startsWith(sku) || !/^\d+$/u.test(offerId.slice(sku.length))) return false;
+        !sameOfferIdentifier(sku, offerId, entry)) return false;
     }
     const urlColor = offerUrlColor(entry);
     if (entry.color !== undefined && urlColor !== undefined && !sameValue(entry.color, urlColor)) return false;
@@ -243,7 +268,7 @@ async function hydrateProduct(
       const sku = product.sku ?? product.mpn;
       const offerId = new URL(url).pathname.split("/").at(-1)?.replace(/\.html$/u, "");
       if (sku !== id || !id.toUpperCase().endsWith(colorSelector[1].toUpperCase()) ||
-        offerId === undefined || !offerId.startsWith(id) || !/^\d*$/u.test(offerId.slice(id.length))) return false;
+        offerId === undefined || !sameOfferIdentifier(id, offerId, entry)) return false;
     }
     return true;
   });
@@ -317,6 +342,15 @@ function productFromHtml(html: string): z.infer<typeof JsonLdProductSchema> {
     }
   }
   throw new Error("official Product JSON-LD was unavailable");
+}
+
+function sameOfferIdentifier(base: string, offerId: string, offer: z.infer<typeof JsonLdOfferSchema>): boolean {
+  if (!offerId.startsWith(base)) return false;
+  const suffix = offerId.slice(base.length);
+  if (/^\d*$/u.test(suffix)) return true;
+  // Letter size suffixes require agreement between URL, explicit offer SKU and
+  // size. Do not accept arbitrary siblings merely sharing a product prefix.
+  return /^[A-Za-z0-9]{1,8}$/u.test(suffix) && offer.sku === offerId && offer.size === suffix;
 }
 
 function findProduct(value: unknown): unknown | undefined {
