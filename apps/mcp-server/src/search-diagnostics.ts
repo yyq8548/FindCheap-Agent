@@ -27,14 +27,6 @@ export function searchDiagnostics(execution: UnifiedSearchExecution, outcome: Se
         attempts: execution.officialStoreFallback.diagnostic.attempts.length
       })
     },
-    ...(execution.officialCatalogDiagnostics === undefined ? {} : { officialCatalog: {
-      status: execution.officialCatalogDiagnostics.status,
-      cachedProducts: execution.officialCatalogDiagnostics.cachedProducts,
-      returnedProducts: execution.officialCatalogDiagnostics.returnedProducts,
-      approvedSources: execution.officialCatalogDiagnostics.approvedSources,
-      coveredQueries: execution.officialCatalogDiagnostics.coveredQueries,
-      expiredProducts: execution.officialCatalogDiagnostics.expiredProducts
-    } }),
     sourcePasses: execution.searchPasses,
     ...(snapshotAt === undefined ? {} : { awinSnapshotAt: snapshotAt }),
     candidatePool: (execution.reviewPool ?? execution.candidates).length,

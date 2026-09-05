@@ -24,6 +24,40 @@ const conflict = { classification: "CONFLICT", matches: [], conflicts: [
 ] };
 
 describe("cross-round visual regressions", () => {
+  it.each([true, false])("reserves official continuation despite a full same-run tail; new result=%s", async fresh => {
+    let second = false;
+    const officialDress = (index: number) => ({ ...dress(index), merchant: "DÔEN", brand: "DÔEN",
+      merchantId: "official-doen", sourceHost: "www.shopdoen.com",
+      merchantUrl: `https://www.shopdoen.com/products/round-${index}` });
+    const original = Array.from({ length: 9 }, (_, index) => officialDress(index));
+    const search = vi.fn(async () => second && fresh ? [...original, officialDress(99)] : original);
+    const replay = await connectReplay(async () => searchResult([]), {
+      officialShopify: { search },
+      visualCandidateImages: { load: async url => ({ data: Buffer.from(url).toString("base64"), mimeType: "image/jpeg" }) }
+    });
+    try {
+      const first = await replay.client.callTool({ name: "search_visual_candidates", arguments: {
+        ...request, brand: "DÔEN", brandMode: "REQUIRED", visualInput: { ...request.visualInput, brand: "DÔEN" }
+      } });
+      const initial = sessionOf(first.structuredContent);
+      expect(initial.candidates).toHaveLength(6);
+      const firstCalls = search.mock.calls.length;
+      second = true;
+      const next = await replay.client.callTool({ name: "finalize_visual_search", arguments: {
+        visualSessionId: initial.visualSessionId,
+        verdicts: initial.candidates.map(({ candidateId }) => ({ candidateId, verdict: conflict }))
+      } });
+      expect(next.isError).not.toBe(true);
+      expect(search.mock.calls.length).toBeGreaterThan(firstCalls);
+      const candidates = sessionOf(next.structuredContent).candidates;
+      expect(candidates).toHaveLength(3);
+      expect(candidates.map(entry => entry.title)).toEqual([
+        officialDress(6).title, officialDress(7).title, officialDress(fresh ? 99 : 8).title
+      ]);
+      expect(next._meta?.["findcheap/searchTrace"]).toMatchObject({ reviewed: 6, imageRequests: 9, budgetExhausted: false });
+    } finally { await replay.close(); }
+  });
+
   it("does not present the same product and image content twice when its CDN query changes", async () => {
     let second = false;
     const load = vi.fn(async (url: string) => ({

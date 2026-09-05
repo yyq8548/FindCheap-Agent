@@ -92,9 +92,9 @@ export function createGenericOfficialStoreSearchPort(
           if (directUrl !== undefined && [...new URL(directUrl).searchParams].some(([key, value]) =>
             new URL(product.merchantUrl).searchParams.get(key) !== value)) throw new Error("official selected variant was not verified");
           return product;
-        } catch {
+        } catch (error) {
           input.signal?.throwIfAborted();
-          if (directUrl !== undefined) throw new Error("official direct product unavailable");
+          if (directUrl !== undefined) throw new Error("official direct product unavailable", { cause: error });
           return undefined;
         }
       }));
@@ -303,8 +303,10 @@ async function hydrateProduct(
       const sku = product.sku ?? product.mpn;
       const sourceId = source.pathname.split("/").at(-1)?.replace(/\.html$/u, "");
       const offerId = offerPath.split("/").at(-1)?.replace(/\.html$/u, "");
-      if (sku === undefined || sourceId !== sku || offerId === undefined ||
+      const master = sku !== undefined && sourceId !== sku && verifiedMasterSku(html, source, sku);
+      if (sku === undefined || (sourceId !== sku && !master) || offerId === undefined ||
         !offerPath.startsWith(source.pathname.slice(0, source.pathname.lastIndexOf("/") + 1)) ||
+        (master && (entry.sku !== offerId || entry.size !== offerId.slice(sku.length))) ||
         !sameOfferIdentifier(sku, offerId, entry)) return false;
     }
     const urlColor = offerUrlColor(entry);
@@ -398,6 +400,23 @@ function sameOfferIdentifier(base: string, offerId: string, offer: z.infer<typeo
   // Letter size suffixes require agreement between URL, explicit offer SKU and
   // size. Do not accept arbitrary siblings merely sharing a product prefix.
   return /^[A-Za-z0-9]{1,8}$/u.test(suffix) && offer.sku === offerId && offer.size === suffix;
+}
+
+/** Reformation's declared sitemap uses seven-digit style URLs. The fetched page
+ * must confirm that exact canonical URL and a style+color SKU; offer size/SKU
+ * agreement remains mandatory below. This is default-color discovery, not an
+ * explicit variant override or proof that the user's photo is the same item. */
+function verifiedMasterSku(html: string, source: URL, sku: string): boolean {
+  const id = source.pathname.split("/").at(-1)?.replace(/\.html$/u, "") ?? "";
+  if (source.hostname !== "www.thereformation.com" || source.search !== "" || !/^\d{7}$/u.test(id) ||
+    sku.slice(0, 7) !== id || !/^\d{7}[A-Z]{3}$/u.test(sku)) return false;
+  for (const match of html.matchAll(/<link\b([^>]{1,8192})>/giu)) {
+    const attributes = match[1]!;
+    if (!/\brel=["']canonical["']/iu.test(attributes)) continue;
+    const href = attributes.match(/\bhref=["']([^"']{1,4096})["']/iu)?.[1];
+    if (href !== undefined && new URL(decodeXml(href), source).href === source.href) return true;
+  }
+  return false;
 }
 
 function findProduct(value: unknown): unknown | undefined {

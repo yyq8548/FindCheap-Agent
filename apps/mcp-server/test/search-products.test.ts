@@ -14,6 +14,9 @@ import type { EbayBrowsePort } from "../src/ebay-client.js";
 import type { OfficialShopifySearchPort } from "../src/shopify-official-store-search.js";
 import { hasStrongProductIdentifier } from "../src/shopify-match.js";
 import { DOEN_VISUAL_GOLDEN_CASES } from "./fixtures/doen-visual-golden.js";
+import { SearchRun } from "../src/search-run.js";
+import { sourceProductFingerprint } from "../src/visual-source-fingerprints.js";
+import { visualOfficialStoreSearchQueries } from "../src/visual-product-discovery.js";
 
 const now = "2026-08-24T12:00:00.000Z";
 
@@ -51,6 +54,36 @@ function ebay(products = [ebayProduct("1", 2100)]): EbayBrowsePort {
 }
 
 describe("unified product search", () => {
+  it("keeps the original Shopify first query before the new structural continuation", async () => {
+    const input = SearchProductsInputSchema.parse({ query: "cream floral dress", brand: "DÔEN", visualInput: {
+      productType: "dress", colors: ["cream"], patterns: ["floral bouquets"], neckline: "scoop neck"
+    } });
+    const official = vi.fn<OfficialShopifySearchPort["search"]>(async () => []);
+    await searchProducts({ ...input, deferVisualFiltering: true }, { awin: awin([]), shopify: shopify([]), officialShopify: { search: official } });
+    expect(official.mock.calls[0]?.[0].query).toBe(visualOfficialStoreSearchQueries(input.visualInput!)[0]?.query);
+    expect(official.mock.calls[1]?.[0].query).toBe("scoop neck dress");
+  });
+  it("continues official queries after review instead of stopping again on cached text matches", async () => {
+    const first = shopifyProduct("first", 12000, "UNKNOWN", { sourceHost: "www.freepeople.com", merchant: "Free People",
+      brand: "Free People", title: "Blue floral mini dress", productType: "dress",
+      description: "Blue floral mini dress with round neck, sleeveless", merchantUrl: "https://www.freepeople.com/shop/first/" });
+    const next = { ...first, handle: "next", merchantUrl: "https://www.freepeople.com/shop/next/" };
+    let attempts = 0;
+    const official = vi.fn<OfficialShopifySearchPort["search"]>(async () => ++attempts <= 2 ? [first] : [next]);
+    const searchRun = new SearchRun();
+    const input = { ...SearchProductsInputSchema.parse({ query: "blue floral mini dress", brand: "Free People", visualInput: {
+      productType: "dress", colors: ["blue"], patterns: ["floral"], length: "mini", sleeveType: "sleeveless"
+    } }), deferVisualFiltering: true, searchRun };
+    const ports = { awin: awin([]), shopify: shopify([]), officialShopify: { search: official } };
+    await searchProducts(input, ports);
+    const prior = official.mock.calls.map(([call]) => call.query);
+    expect(prior).toEqual(["blue floral mini dress"]);
+    searchRun.recordVisualStage("REVIEW_CONFLICT", [sourceProductFingerprint("SHOPIFY", first)]);
+    const result = await searchProducts(input, ports);
+    expect(official.mock.calls.filter(([call]) => call.query === prior[0])).toHaveLength(1);
+    expect(official.mock.calls.map(([call]) => call.query)).toContain("sleeveless mini dress");
+    expect(result.reviewPool?.some(candidate => candidate.shopifyProduct?.handle === "next")).toBe(true);
+  });
   it("uses the registered generic platform even when a global Shopify-shaped result exists", async () => {
     const product = shopifyProduct("generic-official", 12000, "UNKNOWN", { sourceHost: "www.freepeople.com", merchant: "Free People",
       brand: "Free People", title: "Free People Wrap Cami", productType: "top", merchantUrl: "https://www.freepeople.com/shop/wrap-cami/" });
@@ -60,20 +93,24 @@ describe("unified product search", () => {
     });
     expect(officialSearch).toHaveBeenCalledWith(expect.objectContaining({ seed: expect.objectContaining({ platform: "GENERIC_JSON_LD" }) }));
   });
-  it("uses the reviewed local official catalog for an unbranded visual request and records all stages", async () => {
-    const product = shopifyProduct("official-cache", 12000, "UNKNOWN", { sourceHost: "www.shopdoen.com", merchant: "DÔEN",
+  it.each([false, true])("ignores legacy local-catalog injection and uses current providers; visual=%s", async visual => {
+    const product = shopifyProduct("live-provider", 12000, "UNKNOWN", { sourceHost: "www.shopdoen.com", merchant: "DÔEN",
       title: "Blue scoop neck floral dress", productType: "dress", merchantUrl: "https://www.shopdoen.com/products/blue-floral-dress" });
-    const officialCatalog = { search: vi.fn(async () => ({ products: [product], diagnostics: { status: "FRESH" as const,
-      cachedProducts: 1, returnedProducts: 1, approvedSources: 1, coveredQueries: 1, expiredProducts: 0 } })) };
-    const result = await searchProducts({ ...SearchProductsInputSchema.parse({ query: "blue floral dress", visualInput: {
+    // Legacy JavaScript callers may retain this extra field; it has no authority.
+    const officialCatalog = { search: vi.fn(async () => { throw new Error("LOCAL_CATALOG_MUST_NOT_BE_READ"); }) };
+    const ports = { awin: awin([]), shopify: shopify([product]), officialCatalog };
+    const input = { ...SearchProductsInputSchema.parse({ query: "blue floral dress", ...(visual ? { visualInput: {
       productType: "dress", colors: ["blue"], patterns: ["floral"], neckline: "scoop neck"
-    } }), deferVisualFiltering: true }, { awin: awin([]), shopify: shopify([]), officialCatalog });
-    expect(officialCatalog.search).toHaveBeenCalledOnce();
-    expect(result.reviewPool?.some((candidate) => candidate.shopifyProduct?.handle === product.handle)).toBe(true);
-    expect(result.officialCatalogDiagnostics?.cachedProducts).toBe(1);
-    expect(JSON.stringify(result.searchRun?.diagnostics())).toContain("REVIEW_POOL");
-    await searchProducts(SearchProductsInputSchema.parse({ query: "blue dress" }), { awin: awin([]), shopify: shopify([]), officialCatalog });
-    expect(officialCatalog.search).toHaveBeenCalledOnce();
+    } } : {}) }), deferVisualFiltering: visual };
+    const result = await searchProducts(input, ports);
+    expect(officialCatalog.search).not.toHaveBeenCalled();
+    expect(result.candidates.some(candidate => candidate.shopifyProduct?.handle === product.handle)).toBe(true);
+    expect(result).not.toHaveProperty("officialCatalogDiagnostics");
+    expect(JSON.stringify(result.searchRun?.diagnostics())).not.toContain("OFFICIAL_CATALOG");
+    const calls = vi.mocked(ports.shopify.search).mock.calls.length;
+    await searchProducts(input, ports);
+    expect(vi.mocked(ports.shopify.search).mock.calls.length).toBeGreaterThan(calls);
+    expect(officialCatalog.search).not.toHaveBeenCalled();
   });
   it("keeps reliable visual anchors in both global passes without a required brand", async () => {
     const ports = { awin: awin([]), shopify: shopify([]), ebay: ebay([]) };

@@ -17,7 +17,6 @@ import { createOfficialStorefrontRegistryPortFromEnvironment } from "./official-
 import { createMerchantTrustRegistryPortFromEnvironment } from "./merchant-trust-registry-client.js";
 import { createFindCheapBackend } from "./backend.js";
 import { createAffiliateLinkResolver } from "./affiliate-links.js";
-import { createOfficialCatalogPort } from "./official-catalog.js";
 
 const shopifyPort = createShopifyPortFromEnvironment(process.env);
 const dealPort = createDealPortFromEnvironment(process.env);
@@ -37,7 +36,6 @@ const backend = createFindCheapBackend({
     awin: awinPort,
     ...(ebayPort === undefined ? {} : { ebay: ebayPort }),
     officialShopify,
-    officialCatalog: createOfficialCatalogPort({ path: join(stateDirectory, "official-catalog-v1.json"), official: officialShopify }),
     ...(officialStorefrontRegistry === undefined ? {} : { officialStorefrontRegistry }),
     ...(merchantTrustRegistry === undefined ? {} : { merchantTrustRegistry })
   },

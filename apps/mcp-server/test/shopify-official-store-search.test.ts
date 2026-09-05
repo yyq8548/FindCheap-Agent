@@ -60,6 +60,17 @@ const productJson = {
 };
 
 describe("official Shopify storefront search", () => {
+  it("counts cached documents separately without double-counting bytes or requests", async () => {
+    const fetchDocument = vi.fn<OfficialShopifyFetch>(async url => ({ finalUrl: url, response: new Response(JSON.stringify(productJson), { headers: { "content-type": "application/json" } }) }));
+    const port = createOfficialShopifySearchPort({ fetchDocument });
+    const onRead = vi.fn(); const cacheScope = {};
+    const input = { seed, query: "dress", limit: 1, sourcePageUrl: "https://www.shopdoen.com/products/cornella-dress-black", cacheScope, onRead };
+    await port.search(input); await port.search(input);
+    expect(fetchDocument).toHaveBeenCalledOnce();
+    expect(onRead.mock.calls.reduce((sum, [delta]) => sum + (delta.requests ?? 0), 0)).toBe(1);
+    expect(onRead.mock.calls.reduce((sum, [delta]) => sum + (delta.bytes ?? 0), 0)).toBe(Buffer.byteLength(JSON.stringify(productJson)));
+    expect(onRead.mock.calls.reduce((sum, [delta]) => sum + (delta.cacheHits ?? 0), 0)).toBe(1);
+  });
   it.each([true, false])("isolates ProductGroup size availability from other colors (color known: %s)", async (colorKnown) => {
     const target = "https://www.shopdoen.com/products/cornella-dress-black";
     const group = { "@type": "ProductGroup", name: "Example dress", hasVariant: [

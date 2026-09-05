@@ -74,6 +74,9 @@ describe("plugin bundle provenance", () => {
     expect(outputInputs.length).toBeGreaterThan(0);
     expect(outputInputs.every((input) => input in metafile.inputs)).toBe(true);
     expect(outputInputs).toContain("src/stdio.ts");
+    expect(Object.keys(metafile.inputs).some(input => /official-catalog/u.test(input))).toBe(false);
+    expect(bundle.toString("utf8")).not.toContain("official-catalog-v1.json");
+    expect(bundle.toString("utf8")).not.toContain("OFFICIAL_CATALOG");
     expect(Object.values(bundleOutput?.inputs ?? {}).every(
       (input) => Number.isInteger(input.bytesInOutput) && input.bytesInOutput >= 0
     )).toBe(true);

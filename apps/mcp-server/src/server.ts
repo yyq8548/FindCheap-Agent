@@ -9,7 +9,6 @@ import { SearchRun, SearchBudgetError, SearchReadTimeoutError } from "./search-r
 import { buildVisualRetrievalQuery } from "./visual-retrieval-query.js";
 import { assessVisualVerdict, hasAdmissibleVisualConflict } from "./visual-review-policy.js";
 import { researchRecommendationMessage } from "./recommendation-message.js";
-import type { OfficialCatalogPort } from "./official-catalog.js";
 import { searchDiagnostics, type SearchOutcome } from "./search-diagnostics.js";
 import { createExecutedToolRegistrar } from "./execution/tool-registry.js";
 import {
@@ -1813,7 +1812,6 @@ export type ShoppingServerDependencies = {
   cartQuotes?: ShopifyCartQuotePort;
   selectedProducts?: ShopifySelectedProductInspector;
   officialShopify?: OfficialShopifySearchPort;
-  officialCatalog?: OfficialCatalogPort;
   officialStorefrontRegistry?: OfficialStorefrontRegistryPort;
   merchantTrustRegistry?: MerchantTrustRegistryPort;
   visualCandidateImages?: VisualCandidateImagePort;
@@ -2030,7 +2028,6 @@ export function createShoppingServer(
       awin: dependencies.awin ?? createUnavailableAwinPort(),
       ...(dependencies.ebay === undefined ? {} : { ebay: dependencies.ebay }),
       ...(dependencies.officialShopify === undefined ? {} : { officialShopify: dependencies.officialShopify }),
-      ...(dependencies.officialCatalog === undefined ? {} : { officialCatalog: dependencies.officialCatalog }),
       ...(dependencies.officialStorefrontRegistry === undefined ? {} : { officialStorefrontRegistry: dependencies.officialStorefrontRegistry }),
       ...(dependencies.merchantTrustRegistry === undefined ? {} : { merchantTrustRegistry: dependencies.merchantTrustRegistry })
     },
@@ -2056,7 +2053,6 @@ export function createShoppingServer(
   const awinShopifyQuotes = backend.product.awinShopifyQuotes;
   const selectedProducts = backend.product.selectedProducts;
   const officialShopify = backend.catalog.officialShopify;
-  const officialCatalog = backend.catalog.officialCatalog;
   const officialStorefrontRegistry = backend.catalog.officialStorefrontRegistry;
   const merchantTrustRegistry = backend.catalog.merchantTrustRegistry;
   const visualCandidateImages = backend.visualCandidateImages;
@@ -2255,7 +2251,6 @@ export function createShoppingServer(
     ...(ebayPort === undefined ? {} : { ebay: ebayPort }),
     ...(toolAvailability.verifiedDeals ? { deals: dealPort } : {}),
     ...(officialShopify === undefined ? {} : { officialShopify }),
-    ...(officialCatalog === undefined ? {} : { officialCatalog }),
     ...(officialStorefrontRegistry === undefined ? {} : { officialStorefrontRegistry }),
     ...(merchantTrustRegistry === undefined ? {} : { merchantTrustRegistry })
   });
@@ -2846,12 +2841,21 @@ export function createShoppingServer(
         !finalCandidates.some((candidate) => candidate.visualMatchGroup === "POSSIBLE_SAME_ITEM"));
       if (needsReview && snapshot.attempt === 1 && snapshot.execution.searchRun?.canRead("IMAGE") !== false) {
         // A recalled seventh result must not disappear when the first six conflict.
+        // A full same-run tail must not starve official continuation either. Reserve
+        // one output slot, request, and byte share; unused capacity returns to the tail.
+        const reserveContinuation = finalCandidates.length === 0 &&
+          snapshot.execution.officialStoreFallback.status === "COMPLETE" &&
+          snapshot.execution.searchRun?.canRead("OFFICIAL") === true;
         let secondExecution = snapshot.execution;
         let secondImageLoad = await loadVisualCandidates(
           secondExecution,
           snapshot.imageAttemptedKeys,
-          MAX_RELAXED_VISUAL_CANDIDATES,
-          { contentKeys: snapshot.imageContentKeys, round: 2 }
+          MAX_RELAXED_VISUAL_CANDIDATES - (reserveContinuation ? 1 : 0),
+          { contentKeys: snapshot.imageContentKeys, round: 2,
+            ...(reserveContinuation ? {
+              maxAttempts: Math.max(0, secondExecution.searchRun!.remainingImageRequests() - 1),
+              maxDataChars: Math.floor(MAX_VISUAL_CANDIDATE_OUTPUT_DATA_CHARS * 2 / 3)
+            } : {}) }
         );
         const imageAttemptedKeys = new Set([...snapshot.imageAttemptedKeys, ...secondImageLoad.attemptedKeys]);
         let stage: "POOL_REVIEW" | "RELAXED_REVIEW" = "POOL_REVIEW";
@@ -2862,7 +2866,9 @@ export function createShoppingServer(
           stage = "RELAXED_REVIEW";
           secondExecution = await runUnifiedSearch(visualRetrievalSearchInput(snapshot.input, true, snapshot.execution.searchRun));
           for (const candidate of secondExecution.reviewPool ?? secondExecution.candidates) snapshot.retrievedProductHashes.add(visualProductHash(candidate));
-          const supplemental = await loadVisualCandidates(secondExecution, imageAttemptedKeys,
+          const excludedKeys = reserveContinuation ? new Set([...imageAttemptedKeys,
+            ...(snapshot.execution.reviewPool ?? snapshot.execution.candidates).map(visualCandidateKey)]) : imageAttemptedKeys;
+          const supplemental = await loadVisualCandidates(secondExecution, excludedKeys,
             MAX_RELAXED_VISUAL_CANDIDATES - secondImageLoad.entries.length, { maxDataChars: remainingDataChars,
               contentKeys: snapshot.imageContentKeys, round: 2 });
           for (const key of supplemental.attemptedKeys) imageAttemptedKeys.add(key);
@@ -2871,6 +2877,18 @@ export function createShoppingServer(
             diagnostics: mergeVisualImageLoadDiagnostics(secondImageLoad.diagnostics, supplemental.diagnostics),
             attemptedKeys: imageAttemptedKeys
           };
+        }
+        if (reserveContinuation && secondImageLoad.entries.length < MAX_RELAXED_VISUAL_CANDIDATES &&
+            snapshot.execution.searchRun?.canRead("IMAGE")) {
+          const tail = await loadVisualCandidates(snapshot.execution, imageAttemptedKeys,
+            MAX_RELAXED_VISUAL_CANDIDATES - secondImageLoad.entries.length, {
+              maxDataChars: MAX_VISUAL_CANDIDATE_OUTPUT_DATA_CHARS - secondImageLoad.entries.reduce((sum, entry) => sum + entry.image.data.length, 0),
+              contentKeys: snapshot.imageContentKeys, round: 2
+            });
+          for (const key of tail.attemptedKeys) imageAttemptedKeys.add(key);
+          secondImageLoad = { entries: [...secondImageLoad.entries, ...tail.entries],
+            diagnostics: mergeVisualImageLoadDiagnostics(secondImageLoad.diagnostics, tail.diagnostics),
+            attemptedKeys: imageAttemptedKeys };
         }
         const available = secondImageLoad.entries;
         snapshot.execution = secondExecution;

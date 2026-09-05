@@ -71,6 +71,8 @@ export type OfficialShopifySearchInput = {
   signal?: AbortSignal;
   /** Ephemeral identity of one bounded search; never a process-wide cache key. */
   cacheScope?: object;
+  /** Internal transport accounting. No URLs or text are exposed to the observer. */
+  onRead?: (delta: { requests?: number; bytes?: number; cacheHits?: number }) => void;
 };
 
 export type OfficialStructuredProduct = {
@@ -98,7 +100,8 @@ export interface OfficialShopifySearchPort {
 export type OfficialShopifyFetch = (
   url: string,
   allowedHost: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  onRead?: OfficialShopifySearchInput["onRead"]
 ) => Promise<{ response: Response; finalUrl: string }>;
 
 type Dependencies = {
@@ -110,8 +113,10 @@ type Dependencies = {
 export function createOfficialShopifySearchPort(
   dependencies: Dependencies = {}
 ): OfficialShopifySearchPort {
-  const fetchDocument = dependencies.fetchDocument ?? ((url, allowedHost, signal) =>
-    safeFetchWithProvenance({ url }, { allowedHosts: [allowedHost], ...(signal === undefined ? {} : { signal }) }));
+  const fetchDocument = dependencies.fetchDocument ?? ((url, allowedHost, signal, onRead) =>
+    safeFetchWithProvenance({ url }, { allowedHosts: [allowedHost],
+      maxResponseBytes: new URL(url).pathname.endsWith(".xml") ? 2 * 1024 * 1024 : 1024 * 1024,
+      ...(onRead === undefined ? {} : { onRead }), ...(signal === undefined ? {} : { signal }) }));
   const clock = dependencies.clock ?? { now: () => new Date() };
   const scopes = new WeakMap<object, OfficialReadCache>();
 
@@ -124,7 +129,7 @@ export function createOfficialShopifySearchPort(
         cache = scopes.get(input.cacheScope);
         if (cache === undefined) { cache = { reads: new Map(), bytes: 0 }; scopes.set(input.cacheScope, cache); }
       }
-      const scopedFetch = scopedOfficialFetch(fetchDocument, cache, input.signal);
+      const scopedFetch = scopedOfficialFetch(fetchDocument, cache, input.signal, input.onRead, dependencies.fetchDocument === undefined);
       if ("platform" in input.seed && input.seed.platform === "GENERIC_JSON_LD") {
         return createGenericOfficialStoreSearchPort({
           fetchDocument: scopedFetch, clock,
@@ -168,7 +173,8 @@ const MAX_SCOPE_CACHE_BYTES = 8 * 1024 * 1024;
 const MAX_SCOPE_CACHE_ENTRIES = 32;
 
 function scopedOfficialFetch(
-  fetchDocument: OfficialShopifyFetch, cache: OfficialReadCache | undefined, signal: AbortSignal | undefined
+  fetchDocument: OfficialShopifyFetch, cache: OfficialReadCache | undefined, signal: AbortSignal | undefined,
+  onRead?: OfficialShopifySearchInput["onRead"], nativeAccounting = false
 ): OfficialShopifyFetch {
   return async (url, host) => {
     signal?.throwIfAborted();
@@ -178,7 +184,9 @@ function scopedOfficialFetch(
     let pending = cacheable ? cache.reads.get(key) : undefined;
     if (pending === undefined) {
       const read = async (): Promise<CachedOfficialDocument> => {
-        const fetched = await (signal === undefined ? fetchDocument(url, host) : fetchDocument(url, host, signal));
+        if (!nativeAccounting) onRead?.({ requests: 1 });
+        const fetched = await (nativeAccounting ? fetchDocument(url, host, signal, onRead)
+          : signal === undefined ? fetchDocument(url, host) : fetchDocument(url, host, signal));
         signal?.throwIfAborted();
         const reader = fetched.response.body?.getReader();
         const chunks: Uint8Array[] = [];
@@ -193,10 +201,12 @@ function scopedOfficialFetch(
               signal?.throwIfAborted();
               if (chunk.done) break;
               size += chunk.value.byteLength;
+              if (!nativeAccounting) onRead?.({ bytes: chunk.value.byteLength });
               if (size > maxBytes) { await reader.cancel(); throw new Error("official document size limit"); }
               chunks.push(chunk.value);
             }
-          } finally { signal?.removeEventListener("abort", cancel); reader.releaseLock(); }
+          } catch (error) { await reader.cancel().catch(() => undefined); throw error; }
+          finally { signal?.removeEventListener("abort", cancel); reader.releaseLock(); }
         }
         return { text: Buffer.concat(chunks).toString("utf8"), status: fetched.response.status,
           headers: [...fetched.response.headers], finalUrl: fetched.finalUrl };
@@ -210,7 +220,7 @@ function scopedOfficialFetch(
           else cache.bytes += size;
         }, () => { cache.reads.delete(key); });
       }
-    }
+    } else onRead?.({ cacheHits: 1 });
     const document = await pending;
     signal?.throwIfAborted();
     return { response: new Response(document.text, { status: document.status, headers: document.headers }), finalUrl: document.finalUrl };

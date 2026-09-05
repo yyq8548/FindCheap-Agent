@@ -3984,46 +3984,6 @@
         }
       ]
     },
-    "src/official-catalog.ts": {
-      "format": "esm",
-      "imports": [
-        {
-          "external": true,
-          "kind": "import-statement",
-          "path": "node:fs/promises"
-        },
-        {
-          "external": true,
-          "kind": "import-statement",
-          "path": "node:path"
-        },
-        {
-          "external": true,
-          "kind": "import-statement",
-          "path": "node:crypto"
-        },
-        {
-          "kind": "import-statement",
-          "original": "zod",
-          "path": "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/index.js"
-        },
-        {
-          "kind": "import-statement",
-          "original": "./merchant-trust.js",
-          "path": "src/merchant-trust.ts"
-        },
-        {
-          "kind": "import-statement",
-          "original": "./product-reference.js",
-          "path": "src/product-reference.ts"
-        },
-        {
-          "kind": "import-statement",
-          "original": "./visual-product-discovery.js",
-          "path": "src/visual-product-discovery.ts"
-        }
-      ]
-    },
     "src/official-storefront-registry-client.ts": {
       "format": "esm",
       "imports": [
@@ -4671,11 +4631,6 @@
           "kind": "import-statement",
           "original": "./affiliate-links.js",
           "path": "src/affiliate-links.ts"
-        },
-        {
-          "kind": "import-statement",
-          "original": "./official-catalog.js",
-          "path": "src/official-catalog.ts"
         }
       ]
     },
@@ -4797,7 +4752,7 @@
   },
   "outputs": {
     "../../plugins/findcheap-agent/dist/mcp-server.js": {
-      "bytes": 838676,
+      "bytes": 833779,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
@@ -4940,21 +4895,6 @@
           "external": true,
           "kind": "import-statement",
           "path": "node:crypto"
-        },
-        {
-          "external": true,
-          "kind": "import-statement",
-          "path": "node:fs/promises"
-        },
-        {
-          "external": true,
-          "kind": "import-statement",
-          "path": "node:path"
-        },
-        {
-          "external": true,
-          "kind": "import-statement",
-          "path": "node:crypto"
         }
       ],
       "inputs": {
@@ -4980,10 +4920,10 @@
           "bytesInOutput": 195
         },
         "../../node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/server/index.js": {
-          "bytesInOutput": 8036
+          "bytesInOutput": 8031
         },
         "../../node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/server/mcp.js": {
-          "bytesInOutput": 14794
+          "bytesInOutput": 14776
         },
         "../../node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/server/stdio.js": {
           "bytesInOutput": 1028
@@ -4995,7 +4935,7 @@
           "bytesInOutput": 574
         },
         "../../node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/shared/protocol.js": {
-          "bytesInOutput": 16065
+          "bytesInOutput": 16040
         },
         "../../node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/shared/stdio.js": {
           "bytesInOutput": 638
@@ -5004,7 +4944,7 @@
           "bytesInOutput": 1536
         },
         "../../node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/types.js": {
-          "bytesInOutput": 12482
+          "bytesInOutput": 12477
         },
         "../../node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/validation/ajv-provider.js": {
           "bytesInOutput": 450
@@ -5073,7 +5013,7 @@
           "bytesInOutput": 1980
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/core.js": {
-          "bytesInOutput": 12299
+          "bytesInOutput": 12305
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/refs/data.json": {
           "bytesInOutput": 358
@@ -5346,13 +5286,13 @@
           "bytesInOutput": 54
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/external.js": {
-          "bytesInOutput": 1773
+          "bytesInOutput": 1772
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/helpers/errorUtil.js": {
           "bytesInOutput": 129
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/helpers/parseUtil.js": {
-          "bytesInOutput": 1468
+          "bytesInOutput": 1465
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/helpers/util.js": {
           "bytesInOutput": 1705
@@ -5361,7 +5301,7 @@
           "bytesInOutput": 3029
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/types.js": {
-          "bytesInOutput": 50038
+          "bytesInOutput": 49992
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v4/classic/checks.js": {
           "bytesInOutput": 0
@@ -5382,7 +5322,7 @@
           "bytesInOutput": 10400
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v4/core/api.js": {
-          "bytesInOutput": 4774
+          "bytesInOutput": 4725
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v4/core/checks.js": {
           "bytesInOutput": 6003
@@ -5415,7 +5355,7 @@
           "bytesInOutput": 11445
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v4/core/util.js": {
-          "bytesInOutput": 7594
+          "bytesInOutput": 7592
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v4/core/versions.js": {
           "bytesInOutput": 33
@@ -5445,7 +5385,7 @@
           "bytesInOutput": 2145
         },
         "../../packages/network-safety/src/safe-fetch.ts": {
-          "bytesInOutput": 8261
+          "bytesInOutput": 8344
         },
         "src/affiliate-links.ts": {
           "bytesInOutput": 2966
@@ -5487,16 +5427,13 @@
           "bytesInOutput": 942
         },
         "src/generic-official-store-search.ts": {
-          "bytesInOutput": 13666
+          "bytesInOutput": 14223
         },
         "src/merchant-trust-registry-client.ts": {
           "bytesInOutput": 1283
         },
         "src/merchant-trust.ts": {
           "bytesInOutput": 9659
-        },
-        "src/official-catalog.ts": {
-          "bytesInOutput": 6626
         },
         "src/official-storefront-registry-client.ts": {
           "bytesInOutput": 1326
@@ -5535,16 +5472,16 @@
           "bytesInOutput": 1784
         },
         "src/search-diagnostics.ts": {
-          "bytesInOutput": 1616
+          "bytesInOutput": 1206
         },
         "src/search-products.ts": {
-          "bytesInOutput": 30340
+          "bytesInOutput": 29884
         },
         "src/search-run.ts": {
-          "bytesInOutput": 3392
+          "bytesInOutput": 3878
         },
         "src/server.ts": {
-          "bytesInOutput": 129646
+          "bytesInOutput": 130318
         },
         "src/shopify-cart-quote.ts": {
           "bytesInOutput": 10343
@@ -5556,10 +5493,10 @@
           "bytesInOutput": 22361
         },
         "src/shopify-match.ts": {
-          "bytesInOutput": 7891
+          "bytesInOutput": 7896
         },
         "src/shopify-official-store-search.ts": {
-          "bytesInOutput": 13264
+          "bytesInOutput": 13540
         },
         "src/shopify-product-json.ts": {
           "bytesInOutput": 1432
@@ -5568,13 +5505,13 @@
           "bytesInOutput": 2946
         },
         "src/stdio.ts": {
-          "bytesInOutput": 986
+          "bytesInOutput": 913
         },
         "src/visual-candidate-images.ts": {
           "bytesInOutput": 6366
         },
         "src/visual-product-discovery.ts": {
-          "bytesInOutput": 20495
+          "bytesInOutput": 21232
         },
         "src/visual-retrieval-query.ts": {
           "bytesInOutput": 884

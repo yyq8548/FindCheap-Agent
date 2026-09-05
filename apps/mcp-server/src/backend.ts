@@ -12,14 +12,12 @@ import type { VisualCandidateImagePort } from "./visual-candidate-images.js";
 import type { WatchStore } from "./watch-store.js";
 import type { AwinProductPort } from "../../../packages/awin-feed/src/index.js";
 import type { BackendCapability } from "./execution/capabilities.js";
-import type { OfficialCatalogPort } from "./official-catalog.js";
 
 export type CatalogBackend = {
   shopify: ShopifyPort;
   awin: AwinProductPort;
   ebay?: EbayBrowsePort;
   officialShopify?: OfficialShopifySearchPort;
-  officialCatalog?: OfficialCatalogPort;
   officialStorefrontRegistry?: OfficialStorefrontRegistryPort;
   merchantTrustRegistry?: MerchantTrustRegistryPort;
 };

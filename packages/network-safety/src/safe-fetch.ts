@@ -94,6 +94,8 @@ export type FetchPolicy = {
   maxResponseBytes?: number;
   resolve?: ResolveHost;
   request?: SafeRequest;
+  /** Internal accounting/admission callback; no target URL or body content. */
+  onRead?: (delta: { requests?: number; bytes?: number }) => void;
 };
 
 export type SafeFetchInput = { url: string };
@@ -220,6 +222,7 @@ export async function safeFetchWithProvenance(
     let response: Response;
 
     try {
+      policy.onRead?.({ requests: 1 });
       response = await abortable(() => request(
         current,
         { redirect: "manual", signal },
@@ -252,7 +255,7 @@ export async function safeFetchWithProvenance(
       void response.body?.cancel().catch(() => undefined);
       throw error;
     }
-    const buffered = await bufferResponse(response, maximum, signal);
+    const buffered = await bufferResponse(response, maximum, signal, policy.onRead);
     const finalUrl = new URL(current.href);
     finalUrl.hostname = normalizeHostname(current.hostname);
     finalUrl.hash = "";
@@ -453,7 +456,7 @@ function enforceContentLength(headers: Headers, maximum: number): void {
   if (length > maximum) throw new Error("response too large");
 }
 
-async function bufferResponse(response: Response, maximum: number, signal: AbortSignal): Promise<Response> {
+async function bufferResponse(response: Response, maximum: number, signal: AbortSignal, onRead?: FetchPolicy["onRead"]): Promise<Response> {
   signal.throwIfAborted();
   if (response.body === null) {
     return new Response(null, responseInit(response));
@@ -470,12 +473,16 @@ async function bufferResponse(response: Response, maximum: number, signal: Abort
       signal.throwIfAborted();
       if (done) break;
       size += value.byteLength;
+      onRead?.({ bytes: value.byteLength });
       if (size > maximum) {
         cancel();
         throw new Error("response too large");
       }
       chunks.push(value);
     }
+  } catch (error) {
+    cancel();
+    throw error;
   } finally {
     signal.removeEventListener("abort", cancel);
     reader.releaseLock();

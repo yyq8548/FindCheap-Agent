@@ -2,6 +2,20 @@ import { describe, expect, it, vi } from "vitest";
 import { SearchRun, SearchBudgetError, SearchReadTimeoutError } from "../src/search-run.js";
 
 describe("bounded search run", () => {
+  it("keeps continuation state private to a run and independent of trace truncation", async () => {
+    const run = new SearchRun({ maxCatalogRequests: 1 });
+    const hash = "a".repeat(64);
+    expect(run.claimOfficialQuery(hash)).toBe(true);
+    expect(run.claimOfficialQuery(hash)).toBe(false);
+    expect(new SearchRun().claimOfficialQuery(hash)).toBe(true);
+    for (let index = 0; index < 50; index++) run.recordVisualStage("NORMALIZED", []);
+    run.recordVisualStage("REVIEW_CONFLICT", [{ productHash: hash }]);
+    expect(run.wasVisuallyReviewed(hash)).toBe(true);
+    expect(new SearchRun().wasVisuallyReviewed(hash)).toBe(false);
+    await run.read("OFFICIAL", "first", async () => []);
+    expect(run.claimOfficialQuery("b".repeat(64))).toBe(true);
+    await expect(run.read("OFFICIAL", "next", async () => [])).rejects.toBeInstanceOf(SearchBudgetError);
+  });
   it("aborts the underlying operation when its read deadline expires", async () => {
     vi.useFakeTimers();
     try {

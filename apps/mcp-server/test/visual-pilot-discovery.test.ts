@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { createGenericOfficialStoreSearchPort } from "../src/generic-official-store-search.js";
-import { VisualProductInputSchema, classifyVisualProduct, visualOfficialStoreSearchQueries, visualOfficialStoreDiscoveryQuery } from "../src/visual-product-discovery.js";
+import { VisualProductInputSchema, classifyVisualProduct, hasVisualProductFamilyConflict, visualOfficialStoreSearchQueries, visualOfficialStoreDiscoveryQuery, visualOfficialStructureQuery } from "../src/visual-product-discovery.js";
 import type { OfficialShopifyFetch, OfficialShopifyStoreSeed } from "../src/shopify-official-store-search.js";
+import { replaceManagedOfficialStorefronts } from "../src/merchant-trust.js";
 
 const seed: OfficialShopifyStoreSeed = { merchantId: "official-freepeople.com", merchant: "Free People",
   sourceHost: "www.freepeople.com", merchantUrl: "https://www.freepeople.com/", platform: "GENERIC_JSON_LD",
@@ -13,6 +14,44 @@ const product = { "@type": "Product", name: "Example Top", sku: "STYLEBLU", offe
 ] };
 
 describe("bounded official discovery pilot", () => {
+  it.each(["Amy Bodysuit", "France Jumpsuit", "Blue Romper"])("excludes %s from standalone top retrieval", title => {
+    expect(hasVisualProductFamilyConflict(VisualProductInputSchema.parse({ productType: "top" }), { title })).toBe(true);
+  });
+  it("hydrates a sitemap master style only with canonical and structured variant agreement", async () => {
+    const host = "www.thereformation.com";
+    const url = `https://${host}/products/example-dress/0100001.html`;
+    const store = { brand: "Reformation", aliases: [], officialHost: host, platform: "GENERIC_JSON_LD" as const,
+      productPathPrefixes: ["/products/"], imageHosts: [], evidenceUrl: `https://${host}/`, reviewedAt: "2026-09-05", status: "APPROVED" as const };
+    replaceManagedOfficialStorefronts([store]);
+    const data = { "@type": "Product", name: "Example Dress", sku: "0100001BLU", offers: [{ price: 50, priceCurrency: "USD",
+      sku: "0100001BLU00S", size: "00S", color: "Blue", url: "/products/example-dress/0100001BLU00S.html", availability: "https://schema.org/InStock" }] };
+    let html = `<link rel="canonical" href="${url}">${page(data)}`;
+    const port = createGenericOfficialStoreSearchPort({ fetchDocument: async value => ({ finalUrl: value, response: new Response(html, { headers: { "content-type": "text/html" } }) }) });
+    const input = { seed: { ...store, sourceHost: host, merchant: "Reformation", merchantId: "official-example", merchantUrl: `https://${host}/` },
+      query: "public product", limit: 1, sourcePageUrl: url };
+    try {
+      expect((await port.search(input))[0]).toMatchObject({ sku: "0100001BLU", variantDimensions: { Color: "Blue", Size: "00S" } });
+      html = page(data);
+      await expect(port.search(input)).rejects.toThrow();
+      html = `<link rel="canonical" href="${url}">${page({ ...data, sku: "0100002BLU" })}`;
+      await expect(port.search(input)).rejects.toThrow();
+      html = `<link rel="canonical" href="${url}">${page(data)}`;
+      await expect(port.search({ ...input, requiredColor: "Red" })).rejects.toThrow();
+      await expect(port.search({ ...input, sourcePageUrl: url + "?color=Red" })).rejects.toThrow();
+      html = `<link rel="canonical" href="${url}">${page({ ...data, offers: [{ ...data.offers[0], sku: "unrelated", size: "000", url: "/products/example-dress/0100001BLU000.html" }] })}`;
+      await expect(port.search(input)).rejects.toThrow();
+    } finally { replaceManagedOfficialStorefronts([]); }
+  });
+  it("keeps a palette-free structure query and excludes swimwear before dress review", () => {
+    const visual = VisualProductInputSchema.parse({ productType: "dress", colors: ["blue"], patterns: ["floral"], length: "mini", observations: [
+      { attribute: "NECKLINE", value: "high gently draped round neckline", confidence: 0.94, visibility: "VISIBLE" },
+      { attribute: "SLEEVE", value: "sleeveless", confidence: 0.99, visibility: "VISIBLE" }
+    ] });
+    expect(visualOfficialStoreDiscoveryQuery(visual)).toBe("blue floral mini dress");
+    expect(visualOfficialStructureQuery(visual)).toBe("round neck mini dress");
+    expect(hasVisualProductFamilyConflict(visual, { title: "Womens L/s Swell Seeker 1pc Swimsuit" })).toBe(true);
+    expect(hasVisualProductFamilyConflict(visual, { title: "Blue Mini Dress", description: "Pair with your bikini for a beach day" })).toBe(false);
+  });
   it("records only the verified core structure from a longer visible observation", () => {
     const visual = VisualProductInputSchema.parse({ brand: "Example", productType: "dress", observations: [
       { attribute: "NECKLINE", value: "broad low rounded scoop neckline", confidence: 0.98, visibility: "VISIBLE" }

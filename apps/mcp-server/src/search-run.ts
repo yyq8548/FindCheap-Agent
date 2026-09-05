@@ -7,7 +7,7 @@ export type VisualStage = "NORMALIZED" | "ELIGIBLE" | "REVIEW_POOL" | "IMAGES_PR
 export type VisualFingerprint = { productHash: string; styleHash?: string; colorwayHash?: string;
   imageUrlHash?: string; imageSha256?: string };
 type VisualStageOptions = {
-  source?: "AWIN" | "SHOPIFY" | "EBAY" | "OFFICIAL" | "OFFICIAL_CATALOG";
+  source?: "AWIN" | "SHOPIFY" | "EBAY" | "OFFICIAL";
   queryHash?: string;
   round?: 1 | 2;
   counts?: Partial<Record<"identity" | "brand" | "requirements" | "visual" | "outOfStock" | "malformed", number>>;
@@ -16,7 +16,7 @@ type VisualStageEvent = VisualStageOptions & { stage: VisualStage; count: number
   fingerprints: VisualFingerprint[]; fingerprintsTruncated?: true };
 const visualStages = new Set<VisualStage>(["NORMALIZED", "ELIGIBLE", "REVIEW_POOL", "IMAGES_PRESENTED",
   "IMAGES_DUPLICATED", "REVIEW_ACCEPTED", "REVIEW_CONFLICT", "REVIEW_INSUFFICIENT", "FINAL"]);
-const visualSources = new Set(["AWIN", "SHOPIFY", "EBAY", "OFFICIAL", "OFFICIAL_CATALOG"]);
+const visualSources = new Set(["AWIN", "SHOPIFY", "EBAY", "OFFICIAL"]);
 const validHash = (value: unknown): value is string => typeof value === "string" && /^[a-f0-9]{64}$/u.test(value);
 
 export class SearchBudgetError extends Error {
@@ -32,11 +32,16 @@ export class SearchRun {
   readonly traceId = randomUUID();
   readonly #options: SearchRunOptions;
   readonly #reads = new Map<string, Promise<unknown>>();
+  readonly #officialQueries = new Set<string>();
+  readonly #reviewedProducts = new Set<string>();
   #catalogRequests = 0;
   #imageRequests = 0;
   #dealRequests = 0;
   #registryRequests = 0;
   #cacheHits = 0;
+  #officialHttpRequests = 0;
+  #officialHttpBytes = 0;
+  #officialDocumentCacheHits = 0;
   #active = 0;
   #activeSince = 0;
   #elapsed = 0;
@@ -54,10 +59,29 @@ export class SearchRun {
 
   remainingImageRequests(): number { return Math.max(0, 12 - this.#imageRequests); }
 
+  /** Execution-owned continuation, not a model-supplied cursor. The read budget still applies. */
+  claimOfficialQuery(hash: string): boolean {
+    if (!validHash(hash) || this.#officialQueries.has(hash) || this.#officialQueries.size >= 64) return false;
+    this.#officialQueries.add(hash);
+    return true;
+  }
+
+  wasVisuallyReviewed(hash: string): boolean { return this.#reviewedProducts.has(hash); }
+
+  recordOfficialRead(delta: { requests?: number; bytes?: number; cacheHits?: number }): void {
+    this.#officialHttpRequests += delta.requests ?? 0;
+    this.#officialHttpBytes += delta.bytes ?? 0;
+    this.#officialDocumentCacheHits += delta.cacheHits ?? 0;
+  }
+
   /** Local bounded audit data only. Source strings, titles, URLs and queries never
    * cross this boundary; truncation is explicit and never changes source counts. */
   recordVisualStage(stage: VisualStage, entries: readonly VisualFingerprint[], options: VisualStageOptions = {}): void {
     if (!visualStages.has(stage)) return;
+    // Control state is independent of diagnostic truncation. At most 12 images are read per run.
+    if (["REVIEW_ACCEPTED", "REVIEW_CONFLICT", "REVIEW_INSUFFICIENT"].includes(stage)) {
+      for (const entry of entries) if (validHash(entry.productHash) && this.#reviewedProducts.size < 32) this.#reviewedProducts.add(entry.productHash);
+    }
     if (this.#visualStages.length >= 48) { this.#visualTraceTruncated = true; return; }
     const fingerprints = entries.filter((entry) => validHash(entry.productHash))
       .slice(0, Math.min(64, 256 - this.#visualFingerprints)).map((entry) => ({
@@ -148,6 +172,9 @@ export class SearchRun {
     return {
       traceId: this.traceId,
       catalogRequests: this.#catalogRequests,
+      officialHttpRequests: this.#officialHttpRequests,
+      officialHttpBytes: this.#officialHttpBytes,
+      officialDocumentCacheHits: this.#officialDocumentCacheHits,
       imageRequests: this.#imageRequests,
       dealRequests: this.#dealRequests,
       cacheHits: this.#cacheHits,

@@ -26,6 +26,22 @@ function policy(overrides: Partial<FetchPolicy> = {}): FetchPolicy {
 }
 
 describe("safeFetch", () => {
+  it("counts actual redirect requests and consumed response bytes without source content", async () => {
+    const onRead = vi.fn();
+    const request = vi.fn().mockResolvedValueOnce(new Response(null, { status: 302, headers: { location: "/next" } }))
+      .mockResolvedValueOnce(new Response("hello"));
+    await safeFetch({ url: "https://shop.example/private-query" }, policy({ request, onRead }));
+    expect(onRead.mock.calls).toEqual([[{ requests: 1 }], [{ requests: 1 }], [{ bytes: 5 }]]);
+    expect(JSON.stringify(onRead.mock.calls)).not.toMatch(/shop|private|hello/u);
+  });
+  it("cancels the body when an internal byte budget rejects further reading", async () => {
+    const cancel = vi.fn();
+    const stream = new ReadableStream<Uint8Array>({ start(controller) { controller.enqueue(new Uint8Array(10)); }, cancel });
+    await expect(safeFetch({ url: "https://shop.example/x" }, policy({ request: async () => new Response(stream),
+      onRead: delta => { if (delta.bytes) throw new Error("BYTE_BUDGET"); } }))).rejects.toThrow("BYTE_BUDGET");
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(stream.locked).toBe(false);
+  });
   it("rejects cancelled work before DNS resolution", async () => {
     const currentPolicy = policy({ signal: AbortSignal.abort() });
     await expect(safeFetch({ url: "https://shop.example/x" }, currentPolicy)).rejects.toThrow(/abort/iu);
@@ -431,7 +447,7 @@ describe("safeFetch", () => {
       servername: "shop.example",
       agent: false,
       headers: expect.objectContaining({
-        "user-agent": "FindCheap-Agent/0.17.15 (+https://github.com/yyq8548/FindCheap-Agent)"
+        "user-agent": "FindCheap-Agent/0.17.16 (+https://github.com/yyq8548/FindCheap-Agent)"
       })
     });
     expect(captured?.lookup).toBeTypeOf("function");

@@ -178,6 +178,9 @@ const ALIAS_GROUPS = [
   ["men", "mens", "male", "男士", "男款"],
   ["dress", "dresses", "裙", "裙子", "连衣裙"],
   ["skirt", "skirts", "半身裙"],
+  ["swimsuit", "swimsuits", "swimwear", "bikini", "bikinis", "bathing suit", "泳衣", "泳装", "比基尼"],
+  ["jumpsuit", "jumpsuits", "romper", "rompers", "连体裤"],
+  ["bodysuit", "bodysuits", "连体衣"],
   ["trouser", "trousers", "pants", "pant", "长裤", "裤子", "西裤"],
   ["shorts", "boy short", "boy shorts", "短裤"],
   ["jeans", "denim pants", "牛仔裤"],
@@ -233,7 +236,7 @@ const ALIAS_GROUPS = [
 ] as const;
 
 const PRODUCT_FAMILIES = new Set([
-  "dress", "skirt", "trouser", "shorts", "jeans", "t shirt", "shirt", "top", "jacket", "coat",
+  "dress", "skirt", "swimsuit", "jumpsuit", "bodysuit", "trouser", "shorts", "jeans", "t shirt", "shirt", "top", "jacket", "coat",
   "shoe", "ballet flat", "sneaker", "boot", "handbag", "backpack", "headphone", "earbud", "watch"
 ]);
 
@@ -470,6 +473,17 @@ export function visualOfficialStoreDiscoveryQuery(visual: VisualProductInput): s
   return unique([primaryColor, structure ?? details[0], category]).join(" ");
 }
 
+/** Separate structure from palette: merchant color names often differ from visible colors. */
+export function visualOfficialStructureQuery(visual: VisualProductInput): string | undefined {
+  const category = coreProductType(searchTerm(visual.productType));
+  if (category === undefined) return undefined;
+  const details = officialVisualDescriptors(visibleVisualEvidence(visual).filter(entry => !entry.inferred).map(entry => normalize(entry.value)));
+  const structure = ["strapless", "spaghetti strap", "scoop neck", "boat neck", "square neck", "high neck", "round neck", "long sleeve", "short sleeve", "sleeveless"]
+    .find(detail => details.includes(detail));
+  const length = details.find(detail => ["mini", "midi", "maxi"].includes(detail));
+  return unique([structure, length, category]).join(" ");
+}
+
 export function visualOfficialStoreSearchQueries(visual: VisualProductInput): VisualOfficialStoreQuery[] {
   const normalizedType = searchTerm(visual.productType);
   const category = officialSearchProductType(visual, normalizedType);
@@ -550,6 +564,8 @@ function officialVisualDescriptors(evidence: string[]): string[] {
     [/\bsweetheart[\s-]*(?:neck|neckline)?\b/u, "sweetheart neck"],
     [/\bv[\s-]*(?:neck|neckline)\b/u, "v neck"],
     [/\bscoop[\s-]*(?:neck|neckline)\b/u, "scoop neck"],
+    [/\bhigh[\s-]*(?:neck|neckline)\b/u, "high neck"],
+    [/\b(?:round|crew)[\s-]*(?:neck|neckline)\b/u, "round neck"],
     [/\boff[\s-]*(?:the[\s-]*)?shoulder\b/u, "off shoulder"],
     [/\blong[\s-]*sleeve/u, "long sleeve"],
     [/\bshort[\s-]*sleeve/u, "short sleeve"],
