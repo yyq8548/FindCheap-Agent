@@ -4225,6 +4225,11 @@
         },
         {
           "kind": "import-statement",
+          "original": "./product-constraint-matcher.js",
+          "path": "src/product-constraint-matcher.ts"
+        },
+        {
+          "kind": "import-statement",
           "original": "./visual-product-discovery.js",
           "path": "src/visual-product-discovery.ts"
         },
@@ -4559,6 +4564,16 @@
         },
         {
           "kind": "import-statement",
+          "original": "./product-constraint-matcher.js",
+          "path": "src/product-constraint-matcher.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./product-requirements.js",
+          "path": "src/product-requirements.ts"
+        },
+        {
+          "kind": "import-statement",
           "original": "./generic-official-store-search.js",
           "path": "src/generic-official-store-search.ts"
         }
@@ -4817,7 +4832,7 @@
   },
   "outputs": {
     "../../plugins/findcheap-agent/dist/mcp-server.js": {
-      "bytes": 854508,
+      "bytes": 856468,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
@@ -5507,7 +5522,7 @@
           "bytesInOutput": 1326
         },
         "src/product-candidate-ranking.ts": {
-          "bytesInOutput": 6085
+          "bytesInOutput": 6183
         },
         "src/product-card-telemetry.ts": {
           "bytesInOutput": 814
@@ -5522,7 +5537,7 @@
           "bytesInOutput": 10937
         },
         "src/product-constraint-matcher.ts": {
-          "bytesInOutput": 11494
+          "bytesInOutput": 11619
         },
         "src/product-recommendation.ts": {
           "bytesInOutput": 3301
@@ -5531,7 +5546,7 @@
           "bytesInOutput": 128
         },
         "src/product-requirements.ts": {
-          "bytesInOutput": 3099
+          "bytesInOutput": 3399
         },
         "src/ranking-assessment.ts": {
           "bytesInOutput": 2512
@@ -5546,7 +5561,7 @@
           "bytesInOutput": 1948
         },
         "src/search-products.ts": {
-          "bytesInOutput": 32262
+          "bytesInOutput": 33125
         },
         "src/search-requirements-context.ts": {
           "bytesInOutput": 1309
@@ -5555,7 +5570,7 @@
           "bytesInOutput": 3966
         },
         "src/server.ts": {
-          "bytesInOutput": 135134
+          "bytesInOutput": 135107
         },
         "src/shopify-cart-quote.ts": {
           "bytesInOutput": 10343
@@ -5570,7 +5585,7 @@
           "bytesInOutput": 7896
         },
         "src/shopify-official-store-search.ts": {
-          "bytesInOutput": 13540
+          "bytesInOutput": 14141
         },
         "src/shopify-product-json.ts": {
           "bytesInOutput": 1432

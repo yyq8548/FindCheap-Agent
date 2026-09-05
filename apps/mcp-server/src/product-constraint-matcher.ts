@@ -269,6 +269,13 @@ function resolution(value: string): string | undefined {
   return RESOLUTIONS.find((entry) => entry.patterns.some((pattern) => pattern.test(value)))?.name;
 }
 
+/** Only a standalone color requirement, not a phrase such as "red leather shoes". */
+export function isColorRequirement(value: string): boolean {
+  const normalized = normalize(value).replace(/^(?:colou?r\s*[:=]?\s*)/u, "").trim();
+  return disjunctiveAlternatives(normalized).every(part =>
+    [...COMPOUND_COLORS, ...SIMPLE_COLORS].some(color => part === color));
+}
+
 function requestedColorName(value: string): string | undefined {
   return [...observedColors(value)][0];
 }

@@ -1367,9 +1367,9 @@ function unifiedResult(
         identityProductsExcluded: shopifyResponse.structuredContent.diagnostics.identityProductsExcluded + execution.identityProductsExcluded,
         chromeFallbackEligible: execution.chromeFallbackEligible
       },
-      questions: input.visualInput === undefined
-        ? shopifyResponse.structuredContent.questions
-        : shopifyResponse.structuredContent.questions.slice(0, 1),
+      // Provider questions describe an intermediate catalog pass, not the merged
+      // result. Missing user fields are handled before search by clarification.
+      questions: input.visualInput === undefined ? [] : shopifyResponse.structuredContent.questions.slice(0, 1),
       products
     }
   };

@@ -48,7 +48,7 @@ function candidateRanking(candidate: UnifiedCandidate) {
     availability: source.availability, requiredFeatureLimitations: candidate.requiredFeatureLimitations,
     featureEvidence: candidate.featureEvidence, preferenceEvidence: candidate.preferenceEvidence,
     visualReviewAssessment: candidate.visualReviewAssessment,
-    itemPriceCents: candidatePrice(candidate), confirmedCouponPriceCents: candidateEffectivePrice(candidate),
+    itemPriceCents: source.itemPrice?.amountCents, confirmedCouponPriceCents: candidateEffectivePrice(candidate),
     couponRank: candidateCouponRank(candidate)
   });
 }
@@ -193,6 +193,11 @@ export function countDisplayEligibleCandidates(
 ): number {
   return candidates.filter((candidate) => passesVisualDisplayGate(candidate, allowAlternatives) &&
     candidate.requiredFeatureLimitations.length === 0 && candidate.requirementAssessment?.status !== "CONFLICT").length;
+}
+
+/** Research leads do not satisfy a text search's replenishment target. */
+export function countRecommendationEligibleCandidates(candidates: UnifiedCandidate[]): number {
+  return new Set(candidates.filter(candidate => candidateRanking(candidate).primaryEligible).map(candidateKey)).size;
 }
 
 export function compareLowestPrice(left: UnifiedCandidate, right: UnifiedCandidate): number {

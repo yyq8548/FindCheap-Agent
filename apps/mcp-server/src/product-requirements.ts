@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { evaluateFeature, type FeatureMatchStatus } from "./product-constraint-matcher.js";
+import { evaluateFeature, isColorRequirement, type FeatureMatchStatus } from "./product-constraint-matcher.js";
 import { sanitizeExternalText } from "./execution/external-data-fence.js";
 
 export const RequirementAssessmentSchema = z.object({
@@ -21,12 +21,14 @@ export type RequirementProduct = {
   sku?: string | undefined;
   variantDimensions?: Readonly<Record<string, string>> | undefined;
   evidenceSource?: "PRODUCT" | "FEED";
+  itemPrice?: { amountCents: number; currency: string } | undefined;
 };
 type Requirements = {
   requiredFeatures: readonly string[];
   excludedFeatures: readonly string[];
   preferences: readonly string[];
   requiredSize?: string | undefined;
+  maxItemPriceCents?: number | undefined;
 };
 
 export function isFootwear(value: string): boolean {
@@ -59,7 +61,7 @@ export function evaluateProductRequirements(product: RequirementProduct, input: 
   const requirements = [...new Set(input.requiredFeatures)];
   for (const requirement of requirements) {
     const isSize = input.requiredSize === requirement || /^(?:(?:shoe )?size\s*[:=]?\s*)?(?:(?:US|UK|EU)\s*\d+(?:\.5)?|XXXS|XXS|XS|S|M|L|XL|XXL|XXXL)$/iu.test(requirement);
-    const isColor = /^(?:(?:color|colour)\s*[:=]?\s*)?(?:black|white|red|pink|yellow|blue|green|brown|grey|gray|purple|orange|beige)$/iu.test(requirement);
+    const isColor = isColorRequirement(requirement);
     const dimension = dimensions.find(([name]) => isSize ? /^(?:shoe )?size(?:s)?$/iu.test(name)
       : /^(?:long|short)\s+(?:hair|wig)|^(?:长发|短发)$/iu.test(requirement) ? /^(?:hair )?length(?:[- ]inches)?$/iu.test(name)
         : /^(?:straight|curly|wavy)\s+(?:hair|wig)|^(?:直发|卷发)$/iu.test(requirement) ? /^(?:hair )?(?:texture|style)$/iu.test(name)
@@ -79,7 +81,7 @@ export function evaluateProductRequirements(product: RequirementProduct, input: 
       source = "VARIANT";
       observed = /length/iu.test(dimension[0])
         ? `wig hair length: ${dimension[1]}${/^\d+(?:\.\d+)?$/u.test(dimension[1]) ? " inches" : ""}`
-        : `wig hair ${dimension[1]}`;
+        : isColor ? `color ${dimension[1]}` : `wig hair ${dimension[1]}`;
       status = evaluateFeature(observed, requirement);
     } else {
       status = evaluateFeature(observed, requirement);
@@ -90,6 +92,14 @@ export function evaluateProductRequirements(product: RequirementProduct, input: 
     }
     entries.push({ requirement: sanitizeExternalText(requirement, 200), status, source,
       ...(observed === "" ? {} : { observed: sanitizeExternalText(observed, 240) }) });
+  }
+  if (input.maxItemPriceCents !== undefined) {
+    const price = product.itemPrice;
+    const verified = price?.currency === "USD" && Number.isSafeInteger(price.amountCents) && price.amountCents >= 0;
+    entries.push({ requirement: `maximum item price: USD ${(input.maxItemPriceCents / 100).toFixed(2)}`,
+      status: !verified ? "UNKNOWN" : price.amountCents <= input.maxItemPriceCents ? "MATCHED" : "CONTRADICTED",
+      source: verified ? product.evidenceSource ?? "PRODUCT" : "MISSING",
+      ...(verified ? { observed: `USD ${(price.amountCents / 100).toFixed(2)}` } : {}) });
   }
   for (const excluded of input.excludedFeatures) {
     if (evaluateFeature(text, excluded) === "MATCHED") entries.push({

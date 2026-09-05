@@ -29,6 +29,7 @@ import {
 } from "./merchant-trust.js";
 import type { MerchantRecommendationTier } from "./merchant-trust.js";
 import { evaluateProductRequirements, normalizedSizeRequirement, type RequirementAssessment, type RequirementProduct } from "./product-requirements.js";
+import { isColorRequirement } from "./product-constraint-matcher.js";
 import type { ShopifySelectedProductInspector } from "./shopify-selected-product.js";
 import {
   VisualProductInputSchema,
@@ -65,6 +66,7 @@ import {
   compareLowestPrice,
   compareRankedCandidates,
   countDisplayEligibleCandidates,
+  countRecommendationEligibleCandidates,
   selectPresentationCandidates,
   selectVisualReviewCandidates
 } from "./product-candidate-ranking.js";
@@ -427,7 +429,8 @@ export async function searchProducts(
   const approvedAwinHosts = new Map<string, Set<string>>();
   let inspectionCount = 0;
   const inspectRequiredVariants = async (products: ShopifyProduct[]): Promise<ShopifyProduct[]> => {
-    if (ports.selectedProducts === undefined || input.visualInput !== undefined || input.deferVisualFiltering === true || input.requiredFeatures.length === 0) return products;
+    if (ports.selectedProducts === undefined || input.visualInput !== undefined || input.deferVisualFiltering === true ||
+      (input.requiredFeatures.length === 0 && input.maxItemPriceCents === undefined)) return products;
     const results: ShopifyProduct[][] = [];
     let next = 0;
     await Promise.all(Array.from({ length: 2 }, async () => {
@@ -608,6 +611,8 @@ export async function searchProducts(
           seed: officialSeed, query: attempt.query, limit: 12, cacheScope: searchRun, signal,
           onRead: delta => searchRun.recordOfficialRead(delta),
           ...(input.requiredSize === undefined ? {} : { requiredSize: input.requiredSize }),
+          ...(input.visualInput === undefined && input.requiredFeatures.some(isColorRequirement)
+            ? { requiredColor: input.requiredFeatures.find(isColorRequirement)! } : {}),
           ...(directUrl === undefined ? {} : { sourcePageUrl: directUrl })
         }));
         successes += 1;
@@ -623,6 +628,8 @@ export async function searchProducts(
           : mergeCandidates(officialCandidates, incoming);
         officialCandidates.splice(0, officialCandidates.length, ...merged);
         attempts.push({ stage: attempt.stage, query: attempt.query, productsReturned: products.length, acceptedCandidates: incoming.length });
+        if (input.visualInput === undefined && input.deferVisualFiltering !== true &&
+          countRecommendationEligibleCandidates(officialCandidates) >= Math.min(input.limit, searchIntent === "EXACT_PRODUCT" ? 1 : 2)) break;
         if (hasSufficientOfficialMatches(officialCandidates.filter(candidate =>
           !searchRun.wasVisuallyReviewed(candidateFingerprint(candidate).productHash)), input.limit)) break;
       } catch {
@@ -644,9 +651,10 @@ export async function searchProducts(
       diagnostic: { outcome, attempts }
     };
   };
-  // Visual searches know a registry seed before global discovery. Starting it
-  // here avoids spending the entire shared budget on unrelated global results.
-  const earlyOfficialSeed = input.visualInput === undefined ? undefined : officialStoreSeed([], input);
+  // Images and explicitly requested brands can resolve a reviewed registry seed
+  // before global discovery. Both paths share the existing request/time budget.
+  const earlyOfficialSeed = input.visualInput !== undefined || (input.brand !== undefined && input.brandMode === "REQUIRED")
+    ? officialStoreSeed([], input) : undefined;
   const earlyOfficial = ports.officialShopify !== undefined && earlyOfficialSeed !== undefined
     ? queryOfficial(earlyOfficialSeed) : undefined;
   await Promise.all([
@@ -669,7 +677,7 @@ export async function searchProducts(
   let searchPasses: 1 | 2 = 1;
   const expandedQuery = buildExpandedQuery(input, searchIntent, identityQuery);
   if (
-    countDisplayEligibleCandidates(
+    (input.visualInput !== undefined || input.deferVisualFiltering === true ? countDisplayEligibleCandidates : countRecommendationEligibleCandidates)(
       [...affiliateCandidates, ...ebayCandidates, ...shopifyCandidates, ...officialCandidates],
       input.allowAlternatives
     ) < input.limit
@@ -897,7 +905,7 @@ function awinCandidate(
   );
   if (identity === undefined) return undefined;
   const evidence = evaluateConstraints({ title: product.title, productType: product.category,
-    description: product.requirementEvidence, evidenceSource: "FEED" }, input);
+    description: product.requirementEvidence, evidenceSource: "FEED", itemPrice: product.itemPrice }, input);
   if (evidence.contradicted.length > 0) {
     featureExcludedKeys.add(key);
     return undefined;
@@ -1094,13 +1102,15 @@ function allowsConfigurationDiscovery(
     ...(input.featureMode === "REQUIRED" ? input.features : [])
   ]);
   const minimumMatched = Math.max(2, Math.ceil(required.length * 2 / 3));
+  const matched = evidence.matched.filter(feature => required.includes(feature)).length;
+  const unknown = evidence.unknown.filter(feature => required.includes(feature)).length;
   return input.comparisonMode === "DISCOVERY" &&
     !hasStrongProductIdentifier(input.query) &&
     input.brand !== undefined &&
     input.brandMode === "REQUIRED" &&
     required.length >= 2 &&
-    evidence.matched.length >= minimumMatched &&
-    evidence.matched.length + evidence.unknown.length === required.length &&
+    matched >= minimumMatched &&
+    matched + unknown === required.length &&
     evidence.contradicted.length === 0 &&
     merchantTrust.level !== "UNKNOWN" &&
     merchantTrust.level !== "RISKY" &&
@@ -1150,7 +1160,7 @@ function ebayCandidate(
   );
   if (identity === undefined) return undefined;
   const evidence = evaluateConstraints({ title: product.title, productType: product.category,
-    description: product.attributes.join(" ") }, input);
+    description: product.attributes.join(" "), itemPrice: product.itemPrice }, input);
   if (evidence.contradicted.length > 0) {
     featureExcludedKeys.add(key);
     return undefined;
@@ -1360,6 +1370,19 @@ function buildOfficialStoreQueries(
   const withoutBrand = input.brand === undefined
     ? input.query
     : withoutRequestedBrand(input.query, input.brand);
+  if (input.visualInput === undefined && searchIntent === "EXACT_PRODUCT") {
+    const name = productOnlyQuery(withoutBrand, input.maxItemPriceCents !== undefined);
+    const full = unique([name, ...input.requiredFeatures.filter(feature => !normalize(name).includes(normalize(feature)))])
+      .join(" ").slice(0, 300).trim();
+    // Relax only variant terms. Never truncate a named product to a broad category.
+    let core = name;
+    for (const feature of input.requiredFeatures) {
+      core = core.replace(new RegExp(`(?:^|\\s)${escapeRegExp(feature)}(?=\\s|$)`, "giu"), " ");
+    }
+    core = core.replace(/\s+/gu, " ").trim() || name;
+    return [{ stage: "FULL" as const, query: full }, ...(normalize(full) === normalize(core)
+      ? [] : [{ stage: "CORE" as const, query: core }])];
+  }
   const visualCategory = input.visualInput === undefined
     ? undefined
     : visualOfficialStoreSearchQueries(input.visualInput)
@@ -1636,7 +1659,7 @@ function normalize(value: string): string {
 
 function evaluateConstraints(
   product: RequirementProduct,
-  input: Pick<SearchProductsInput, "requiredFeatures" | "excludedFeatures" | "preferences" | "features" | "featureMode" | "requiredSize">
+  input: Pick<SearchProductsInput, "requiredFeatures" | "excludedFeatures" | "preferences" | "features" | "featureMode" | "requiredSize" | "maxItemPriceCents">
 ) {
   const required = unique([
     ...input.requiredFeatures,
@@ -1647,7 +1670,8 @@ function evaluateConstraints(
     ...(input.featureMode === "PREFERRED" ? input.features : [])
   ]);
   return evaluateProductRequirements(product, { requiredFeatures: required,
-    excludedFeatures: input.excludedFeatures, preferences, requiredSize: input.requiredSize });
+    excludedFeatures: input.excludedFeatures, preferences, requiredSize: input.requiredSize,
+    maxItemPriceCents: input.maxItemPriceCents });
 }
 
 function inferredPackagingExclusions(

@@ -5,6 +5,8 @@ import { safeFetchWithProvenance } from "../../../packages/network-safety/src/sa
 import { resolveMerchantTrust } from "./merchant-trust.js";
 import type { ShopifyProduct } from "./shopify-client.js";
 import { ShopifyProductJsonSchema, shopifyVariantDimensions } from "./shopify-product-json.js";
+import { evaluateFeature, isColorRequirement } from "./product-constraint-matcher.js";
+import { sizeEvidence } from "./product-requirements.js";
 import { createGenericOfficialStoreSearchPort } from "./generic-official-store-search.js";
 
 const PredictiveProductSchema = z.object({
@@ -333,8 +335,8 @@ async function hydrateStorefrontProduct(
         kind === "size" ? /size|尺码/iu.test(name) : /colou?r|颜色/iu.test(name))?.[1];
     const explicitVariant = product.variants.find((entry) => entry.id === requestedVariantId);
     const color = requiredColor ?? dimension(explicitVariant ?? product.variants[0]!, "color");
-    const sameColor = product.variants.filter((entry) => color === undefined || sameDimension(dimension(entry, "color"), color));
-    const eligible = sameColor.filter((entry) => requiredSize === undefined || sameDimension(dimension(entry, "size"), requiredSize));
+    const sameColor = product.variants.filter((entry) => color === undefined || matchesColor(dimension(entry, "color") ?? product.title, color));
+    const eligible = sameColor.filter((entry) => requiredSize === undefined || matchesSize(dimension(entry, "size"), requiredSize, product.description));
     const variant = requestedVariantId === undefined
       ? eligible.find((entry) => entry.available) ?? eligible[0]
       : eligible.find((entry) => entry.id === requestedVariantId);
@@ -363,8 +365,8 @@ async function hydrateStorefrontProduct(
     const structured = parseOfficialStructuredProduct(html, host, candidate.handle);
     const requested = structured.variants.find((entry) => entry.variantId === requestedVariantId);
     const color = requiredColor ?? (requestedVariantId === undefined ? structured.variants[0]?.color : requested?.color);
-    const sameColor = structured.variants.filter((entry) => color === undefined || sameDimension(entry.color, color));
-    const eligible = sameColor.filter((entry) => requiredSize === undefined || sameDimension(entry.size, requiredSize));
+    const sameColor = structured.variants.filter((entry) => color === undefined || matchesColor(entry.color ?? entry.title, color));
+    const eligible = sameColor.filter((entry) => requiredSize === undefined || matchesSize(entry.size, requiredSize, structured.description));
     const variant = requestedVariantId === undefined
       ? eligible.find((entry) => entry.available) ?? eligible[0]
       : eligible.find((entry) => entry.variantId === requestedVariantId);
@@ -642,6 +644,18 @@ function findProductGroup(value: unknown): unknown | undefined {
   const record = value as Record<string, unknown>;
   const type = record["@type"];
   if (type === "ProductGroup" || (Array.isArray(type) && type.includes("ProductGroup"))) return value;
+  if (type === "Product" || (Array.isArray(type) && type.includes("Product"))) {
+    // Shopify's ordinary Product schema puts variant-specific prices in offers,
+    // not hasVariant. The same domain/path/variant and USD checks still apply.
+    const offers = Array.isArray(record.offers) ? record.offers : [record.offers];
+    if (offers.length > 0 && offers.length <= 100 && offers.every(offer => typeof offer === "object" && offer !== null)) {
+      return { ...record, "@type": "ProductGroup", hasVariant: offers.map(offer => {
+        const entry = offer as Record<string, unknown>;
+        return { name: record.name, color: record.color, image: Array.isArray(record.image) ? record.image[0] : record.image,
+          mpn: entry.sku ?? entry.mpn, offers: entry };
+      }) };
+    }
+  }
   return findProductGroup(record["@graph"]);
 }
 
@@ -653,7 +667,8 @@ function exactVariantUrl(host: string, value: string, expectedHandle: string): s
     url.password !== "" ||
     url.port !== "" ||
     normalizeHost(url.hostname) !== host ||
-    url.pathname !== `/products/${expectedHandle}`
+    url.pathname !== `/products/${expectedHandle}` ||
+    url.searchParams.getAll("variant").length !== 1
   ) {
     throw new Error("official structured variant URL was invalid");
   }
@@ -682,6 +697,14 @@ function normalizeHost(value: string): string {
 
 function sameDimension(value: string | undefined, required: string): boolean {
   return value !== undefined && value.normalize("NFKC").trim().toLowerCase() === required.normalize("NFKC").trim().toLowerCase();
+}
+
+function matchesColor(value: string, required: string): boolean {
+  return sameDimension(value, required) || (isColorRequirement(required) && evaluateFeature(value, required) === "MATCHED");
+}
+
+function matchesSize(value: string | undefined, required: string, description?: string): boolean {
+  return value !== undefined && (sameDimension(value, required) || evaluateFeature(`size ${sizeEvidence(value, description)}`, required) === "MATCHED");
 }
 
 function canonicalHref(value: string): string {

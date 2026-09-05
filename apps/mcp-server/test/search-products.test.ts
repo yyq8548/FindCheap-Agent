@@ -1099,7 +1099,7 @@ describe("unified product search", () => {
     )).toBe(true);
   });
 
-  it("keeps trusted fully matched configurations without claiming exact identity", async () => {
+  it.each([undefined, 300_000])("keeps configuration evidence separate from budget eligibility: %s", async maxItemPriceCents => {
     const configured = shopifyProduct("macbook-m5-pro-24", 234_900, "UNKNOWN", {
       title: "MacBook Pro 14-inch M5 Pro",
       productType: "Laptop Computers",
@@ -1112,6 +1112,7 @@ describe("unified product search", () => {
       brandMode: "REQUIRED",
       productType: "laptop computer",
       requiredFeatures: ["14-inch display", "M5 Pro chip", "24GB memory"],
+      ...(maxItemPriceCents === undefined ? {} : { maxItemPriceCents }),
       limit: 3
     }), { awin: awin([]), shopify: shopify([configured]) });
 
