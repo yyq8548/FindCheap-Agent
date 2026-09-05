@@ -3,6 +3,7 @@ import { RECOMMENDATION_REASON_CODES, choosePrimaryRecommendation } from "./prod
 import { DealAssessmentSchema, DealSummarySchema, type DealAssessment, type DealSummary } from "./deal-assessment.js";
 import { DealLookupStatusSchema } from "./deal-client.js";
 import { RequirementAssessmentSchema, type RequirementAssessment } from "./product-requirements.js";
+import { assessQualityEvidence, comparableSameProduct, comparableUnitPrices, QualityEvidenceSchema, UnitPriceSchema, unitPriceEvidence, type ValueProduct } from "./product-value-evidence.js";
 
 const MoneySchema = z.object({
   amountCents: z.number().int().nonnegative(),
@@ -51,6 +52,8 @@ const ComparisonEntrySchema = z.object({
   deliveredTotalExpiresAt: z.string().datetime().optional(),
   deliveredTotalStatus: z.enum(["QUOTED", "NOT_QUOTED", "MERCHANT_CHECKOUT_ONLY"]),
   comparedPrice: MoneySchema.optional(),
+  unitPrice: UnitPriceSchema.optional(),
+  qualityEvidence: QualityEvidenceSchema.optional(),
   availability: z.enum(["IN_STOCK", "OUT_OF_STOCK", "UNKNOWN"]),
   condition: z.enum(["NEW", "USED", "REFURBISHED", "OPEN_BOX", "UNKNOWN"]),
   merchantTrust: z.object({
@@ -96,6 +99,7 @@ export const ProductComparisonOutputSchema = z.object({
   mode: z.enum(["SAME_PRODUCT_OFFERS", "PRODUCT_CHOICES"]).optional(),
   focus: z.array(z.enum(COMPARISON_FOCUS_VALUES)),
   priceBasis: z.enum(["ITEM_PRICE", "DELIVERED_TOTAL", "UNAVAILABLE"]).optional(),
+  priceComparability: z.enum(["SAME_PRODUCT", "UNIT_PRICE_ONLY", "NOT_LIKE_FOR_LIKE"]).optional(),
   priceDelta: z.object({
     basis: z.enum(["ITEM_PRICE", "DELIVERED_TOTAL"]),
     currency: z.literal("USD"),
@@ -116,7 +120,7 @@ export const ProductComparisonOutputSchema = z.object({
 export type ProductComparisonInput = z.infer<typeof ProductComparisonInputSchema>;
 export type ProductComparisonOutput = z.infer<typeof ProductComparisonOutputSchema>;
 
-export type ComparableProduct = {
+export type ComparableProduct = ValueProduct & {
   selectionId?: string;
   title: string;
   merchant: string;
@@ -177,7 +181,7 @@ export function buildProductComparison(
   identity: { comparisonId: string; renderId: string; expiresAt: string; evaluatedAt: string; requirementsVersion?: number }
 ): ProductComparisonOutput {
   const evaluatedAtMs = Date.parse(identity.evaluatedAt);
-  const sameProduct = hasSharedStableIdentity(products) && variantsCompatible(products) && conditionsCompatible(products);
+  const sameProduct = products.length >= 2 && products.slice(1).every(product => comparableSameProduct(products[0]!, product));
   if (input.mode === "SAME_PRODUCT_OFFERS" && !sameProduct) {
     return {
       status: "SAME_PRODUCT_IDENTITY_UNVERIFIED",
@@ -193,6 +197,8 @@ export function buildProductComparison(
     ? "PRODUCT_CHOICES" as const
     : sameProduct ? "SAME_PRODUCT_OFFERS" as const : "PRODUCT_CHOICES" as const;
   const priceBasis = comparablePriceBasis(products, evaluatedAtMs);
+  const unitComparable = products.length >= 2 && products.slice(1).every(product => comparableUnitPrices(products[0]!, product) !== undefined);
+  const priceComparability = sameProduct ? "SAME_PRODUCT" as const : unitComparable ? "UNIT_PRICE_ONLY" as const : "NOT_LIKE_FOR_LIKE" as const;
   const entries = products.map((product) => comparisonEntry(product, priceBasis, evaluatedAtMs));
   const decisionProducts = products.map((product, index) => ({
     ...product,
@@ -201,7 +207,7 @@ export function buildProductComparison(
       ? product.coupons
       : { verified: product.coupons.verified }
   }));
-  const decision = choosePrimaryRecommendation(decisionProducts);
+  const decision = choosePrimaryRecommendation(decisionProducts, evaluatedAtMs);
   const recommendedSelectionId = decision.primaryProductIndex === undefined
     ? undefined
     : entries[decision.primaryProductIndex]?.selectionId;
@@ -228,7 +234,9 @@ export function buildProductComparison(
         "比较的是不同身份或规格的商品；证据数量相同或价格更低，并不代表用途和适合程度相同。")]
     } : {})
   };
-  const delta = priceDelta(entries, priceBasis);
+  // A nominal package-price spread is not savings across a single bottle,
+  // mixed kit, different capacity or unknown condition.
+  const delta = sameProduct ? priceDelta(entries, priceBasis) : undefined;
   const comparisonMessage = localize(input.responseLocale,
     mode === "SAME_PRODUCT_OFFERS"
       ? "Verified same-product offers are compared using server evidence."
@@ -264,6 +272,7 @@ export function buildProductComparison(
     mode,
     focus: input.focus,
     priceBasis,
+    priceComparability,
     ...(delta === undefined ? {} : { priceDelta: delta }),
     recommendation,
     entries
@@ -293,6 +302,7 @@ function comparisonEntry(
   if (product.condition === "UNKNOWN") unknowns.push("CONDITION");
   if (product.availability === "UNKNOWN") unknowns.push("AVAILABILITY");
   if (product.merchantTrust.verification === "UNVERIFIED") unknowns.push("MERCHANT_TRUST");
+  const unitPrice = unitPriceEvidence(product);
   return {
     selectionId: product.selectionId!,
     title: product.title,
@@ -310,6 +320,8 @@ function comparisonEntry(
     ...(deliveredTotalExpiresAt === undefined ? {} : { deliveredTotalExpiresAt }),
     deliveredTotalStatus,
     ...(comparedPrice === undefined ? {} : { comparedPrice }),
+    ...(unitPrice === undefined ? {} : { unitPrice }),
+    qualityEvidence: assessQualityEvidence(product),
     availability: product.availability,
     condition: product.condition,
     merchantTrust: {
@@ -337,32 +349,6 @@ function comparisonEntry(
     unknowns,
     checkedAt: product.checkedAt
   };
-}
-
-function hasSharedStableIdentity(products: ComparableProduct[]): boolean {
-  if (products.length < 2) return false;
-  const first = products[0]!;
-  const commonGtin = first.gtins.some((gtin) => products.every((product) => product.gtins.includes(gtin)));
-  if (commonGtin) return true;
-  const brand = normalized(first.brand);
-  const sku = normalized(first.sku);
-  return brand !== "" && sku !== "" && products.every((product) =>
-    normalized(product.brand) === brand && normalized(product.sku) === sku
-  );
-}
-
-function variantsCompatible(products: ComparableProduct[]): boolean {
-  const explicit = products.map((product) => Object.entries(product.variantDimensions)
-    .map(([key, value]) => `${normalized(key)}=${normalized(value)}`).sort());
-  const first = explicit[0] ?? [];
-  return explicit.every((dimensions) =>
-    dimensions.length === first.length && dimensions.every((value, index) => value === first[index])
-  );
-}
-
-function conditionsCompatible(products: ComparableProduct[]): boolean {
-  const condition = products[0]?.condition;
-  return condition !== undefined && condition !== "UNKNOWN" && products.every((product) => product.condition === condition);
 }
 
 function comparablePriceBasis(
@@ -407,10 +393,6 @@ function priceDelta(
     highestSelectionId: highest.selectionId,
     amountCents: highest.comparedPrice!.amountCents - lowest.comparedPrice!.amountCents
   };
-}
-
-function normalized(value: string | undefined): string {
-  return value?.normalize("NFKC").trim().toLocaleLowerCase("en-US") ?? "";
 }
 
 function localize(locale: "en-US" | "zh-CN", english: string, chinese: string): string {

@@ -16,12 +16,15 @@ export function textSearchRecovery(execution: UnifiedSearchExecution, allowAlter
   const base = { qualified, recommendable, awaitingVerification };
   if (execution.searchRun?.diagnostics().budgetExhausted) return { ...base,
     action: "REPORT_INCOMPLETE" as const, reason: "BUDGET_EXHAUSTED" as const };
+  // The execution layer independently assesses safe recovery. A transient failed
+  // source is incomplete coverage, not a veto on another authorized read-only source.
+  if (execution.chromeFallbackEligible) return { ...base, action: "REQUEST_WEB_SEARCH" as const,
+    reason: Object.values(execution.sourceStatus).some(value => value === "UNAVAILABLE" || value === "PARTIAL")
+      ? "SOURCE_UNAVAILABLE" as const : qualified > 0 && recommendable === 0 ? "MERCHANT_UNVERIFIED" as const
+        : awaitingVerification > 0 ? "REQUIREMENTS_UNVERIFIED" as const : "NO_QUALIFIED_MATCH" as const };
   if (Object.values(execution.sourceStatus).some(value => value === "UNAVAILABLE" || value === "PARTIAL") ||
     ["UNAVAILABLE", "PARTIAL"].includes(execution.officialStoreFallback.status)) return { ...base,
     action: "REPORT_INCOMPLETE" as const, reason: "SOURCE_UNAVAILABLE" as const };
-  if (execution.chromeFallbackEligible) return { ...base, action: "REQUEST_WEB_SEARCH" as const,
-    reason: qualified > 0 && recommendable === 0 ? "MERCHANT_UNVERIFIED" as const
-      : awaitingVerification > 0 ? "REQUIREMENTS_UNVERIFIED" as const : "NO_QUALIFIED_MATCH" as const };
   if (qualified > 0 && recommendable === 0 && execution.candidates.filter(candidate =>
     countDisplayEligibleCandidates([candidate], allowAlternatives) > 0).every(candidate => candidate.recommendationTier !== "TRUSTED_OR_AFFILIATE")) return { ...base,
     action: "REPORT_UNVERIFIED_MERCHANT" as const, reason: "MERCHANT_UNVERIFIED" as const };

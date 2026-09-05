@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { productReferenceKey } from "../apps/mcp-server/src/product-reference.js";
 import { CodexVisualVerdictSchema } from "../apps/mcp-server/src/search-products.js";
+import { WebConsentStatusSchema, WebProductUrlSchema } from "../apps/mcp-server/src/web-product-recovery.js";
 
 const Hash = z.string().regex(/^[a-f0-9]{64}$/u);
 const Id = z.string().regex(/^[A-Za-z0-9_.:-]{1,160}$/u);
@@ -65,13 +66,15 @@ const Capture = z.object({
   ...Release.shape,
   referenceExtraction: z.object({ modelId: Id, messageId: Id, visualInput: z.record(z.unknown()) }).strict(),
   calls: z.array(z.object({
-    toolName: z.enum(["search_visual_candidates", "finalize_visual_search"]),
+    toolName: z.enum(["search_visual_candidates", "finalize_visual_search", "begin_web_search", "complete_web_search"]),
+    // Mandatory for the new web lease path; old no-web captures remain valid.
+    startedAt: z.string().datetime({ offset: true }).optional(), finishedAt: z.string().datetime({ offset: true }).optional(),
     arguments: z.record(z.unknown()), result: z.record(z.unknown())
-  }).strict()).min(1).max(3)
+  }).strict()).min(1).max(6)
 }).strict();
 const CardReference = z.object({
   merchantId: z.string(), sourceHost: z.string(), handle: z.string(), selectionId: Id,
-  sourceKind: z.enum(["AWIN_PRODUCT_FEED", "SHOPIFY_GLOBAL_CATALOG", "EBAY_BROWSE"]).optional()
+  sourceKind: z.enum(["AWIN_PRODUCT_FEED", "SHOPIFY_GLOBAL_CATALOG", "EBAY_BROWSE", "WEB_PRODUCT_PAGE"]).optional()
 }).passthrough();
 const InitialTerminalFailure = z.object({ code: z.enum([
   "OFFICIAL_SOURCE_UNAVAILABLE", "OFFICIAL_ZERO_RESULTS", "NO_CATALOG_CANDIDATES", "NO_LOADABLE_IMAGES",
@@ -163,7 +166,7 @@ export async function evaluateVisualSearch(raw: unknown, load: ArtifactLoader) {
           capture.version !== parsed.data[release].version || capture.commit !== parsed.data[release].commit ||
           review.caseId !== entry.id || review.captureSha256 !== record.capture.sha256) throw new Error("RUN_PROVENANCE_MISMATCH");
         if (Object.keys(capture.referenceExtraction.visualInput).length === 0) throw new Error("REFERENCE_EXTRACTION_MISSING");
-        if (capture.calls[0]?.toolName !== "search_visual_candidates" || capture.calls.slice(1).some((call) => call.toolName !== "finalize_visual_search")) {
+        if (capture.calls[0]?.toolName !== "search_visual_candidates" || capture.calls.slice(1).some((call) => call.toolName === "search_visual_candidates")) {
           throw new Error("INVALID_TOOL_TRAJECTORY");
         }
         const firstArguments = capture.calls[0]!.arguments;
@@ -181,11 +184,78 @@ export async function evaluateVisualSearch(raw: unknown, load: ArtifactLoader) {
         let roundIds: string[] = [];
         let finalHashes: string[] | undefined;
         let primary: string | undefined;
+        let finalizedRounds = 0;
+        let recoveryRenderId: string | undefined;
+        let consentCalls = 0;
+        let consentRetryAllowed = false;
+        let webLease: { token: string; deadline: number } | undefined;
+        let webConsumed = false;
+        let webVisualFinalized = false;
+        let webVisualDeadline: number | undefined;
+        let lastTimedCallEnd = Date.parse(capture.startedAt);
+        const webProductHashes = new Set<string>();
+        const timedCall = (call: z.infer<typeof Capture>["calls"][number]) => {
+          if (call.startedAt === undefined || call.finishedAt === undefined) throw new Error("WEB_CALL_TIMESTAMPS_REQUIRED");
+          const start = Date.parse(call.startedAt); const end = Date.parse(call.finishedAt);
+          if (start < lastTimedCallEnd || end < start || end > Date.parse(review.reviewedAt)) throw new Error("WEB_CALL_TIME_ORDER_INVALID");
+          lastTimedCallEnd = end;
+          return { start, end };
+        };
         for (const call of capture.calls) {
-          if (finalHashes !== undefined) throw new Error("CALL_AFTER_TERMINAL_RESULT");
           if (call.result.isError === true) throw new Error("FAILED_MCP_CALL");
           const structured = z.record(z.unknown()).parse(call.result.structuredContent);
+          if (call.toolName === "begin_web_search") {
+            const args = z.object({ renderId: z.string().uuid() }).strict().parse(call.arguments);
+            if (recoveryRenderId === undefined || args.renderId !== recoveryRenderId || finalizedRounds >= 2 || roundIds.length > 0 ||
+              webConsumed || webLease !== undefined || consentCalls >= 2 || consentCalls > 0 && !consentRetryAllowed) throw new Error("WEB_RECOVERY_NOT_ADMISSIBLE");
+            const time = timedCall(call);
+            const consent = z.object({ status: WebConsentStatusSchema, retryable: z.boolean(), attempt: z.number().int().min(0).max(2) }).parse(structured);
+            consentCalls += 1;
+            consentRetryAllowed = false;
+            if (consent.status === "READY") {
+              const ready = z.object({ webSessionId: z.string().uuid(), expiresAt: z.string().datetime({ offset: true }),
+                queries: z.array(z.string().min(1).max(1_000)).min(1).max(2),
+                diagnostics: z.object({ formSupported: z.literal(true), hostAction: z.literal("ACCEPT_TRUE") }),
+                limits: z.object({ durationMs: z.literal(60_000), merchantPages: z.literal(5), results: z.literal(3), discoveryQueries: z.literal(2) }).strict()
+              }).parse(structured);
+              const deadline = Date.parse(ready.expiresAt);
+              if (consent.retryable || consent.attempt !== consentCalls || deadline <= time.end || deadline > time.end + 60_000) throw new Error("WEB_LEASE_INVALID");
+              webLease = { token: ready.webSessionId, deadline };
+              finalHashes = undefined;
+            } else {
+              if (structured.webSessionId !== undefined) throw new Error("NONREADY_HAS_WEB_LEASE");
+              consentRetryAllowed = consent.retryable && consent.attempt === 1 && consentCalls === 1 &&
+                (consent.status === "PERMISSION_TIMEOUT" || consent.status === "PERMISSION_ERROR");
+              if (!consentRetryAllowed) recoveryRenderId = undefined;
+            }
+            continue;
+          }
+          if (call.toolName === "complete_web_search") {
+            const args = z.object({ renderId: z.string().uuid(), webSessionId: z.string().uuid(), urls: z.array(WebProductUrlSchema).max(5) }).strict().parse(call.arguments);
+            const time = timedCall(call);
+            if (webLease === undefined || webConsumed || args.renderId !== recoveryRenderId || args.webSessionId !== webLease.token ||
+              time.start >= webLease.deadline || finalizedRounds >= 2 || roundIds.length > 0) throw new Error("WEB_LEASE_MISSING_OR_EXPIRED");
+            if (new Set(args.urls.map(value => new URL(value).hostname)).size !== args.urls.length) throw new Error("WEB_MERCHANT_PAGE_LIMIT");
+            z.array(CardReference).max(0).parse(structured.products);
+            if (structured.visualReview !== undefined) {
+              const next = z.object({ stage: z.literal("RELAXED_REVIEW"), terminal: z.literal(false), finalAnswerAllowed: z.literal(false),
+                requiredNextTool: z.literal("finalize_visual_search"), visualSessionId: Id,
+                expiresAt: z.string().datetime({ offset: true }), candidates: z.array(z.object({ candidateId: Id })).min(1).max(3)
+              }).parse(structured.visualReview);
+              webVisualDeadline = Date.parse(next.expiresAt);
+              if (webVisualDeadline <= time.end) throw new Error("WEB_VISUAL_SESSION_EXPIRED");
+            } else if (!InitialTerminalFailure.safeParse(structured.visualSearchFailure).success) throw new Error("WEB_VISUAL_REVIEW_REQUIRED");
+            webConsumed = true;
+            webLease = undefined;
+            recoveryRenderId = undefined;
+          } else if (finalHashes !== undefined) throw new Error("CALL_AFTER_TERMINAL_RESULT");
           if (call.toolName === "finalize_visual_search") {
+            finalizedRounds += 1;
+            if (finalizedRounds > 2 || webVisualFinalized) throw new Error("VISUAL_REVIEW_ROUND_LIMIT");
+            if (webConsumed) {
+              if (webVisualDeadline === undefined || timedCall(call).start >= webVisualDeadline) throw new Error("WEB_VISUAL_SESSION_EXPIRED");
+              webVisualFinalized = true;
+            }
             const verdicts = z.array(z.object({ candidateId: Id, verdict: CodexVisualVerdictSchema })).min(1).max(6).parse(call.arguments.verdicts);
             if (sessionId === undefined || call.arguments.visualSessionId !== sessionId ||
               verdicts.length !== roundIds.length || new Set(verdicts.map((verdict) => verdict.candidateId)).size !== verdicts.length ||
@@ -194,6 +264,8 @@ export async function evaluateVisualSearch(raw: unknown, load: ArtifactLoader) {
           }
           const meta = z.object({ "findcheap/visualEvaluation": EvaluationTrace }).parse(call.result._meta)["findcheap/visualEvaluation"];
           if (meta.traceId !== capture.runId) throw new Error("TRACE_ID_MISMATCH");
+          if (call.toolName === "complete_web_search") meta.reviewedCandidates.forEach(item => webProductHashes.add(item.productHash));
+          if (webVisualFinalized && (meta.finalProductHashes === undefined || structured.visualReview !== undefined)) throw new Error("WEB_VISUAL_REVIEW_MUST_TERMINATE");
           meta.retrievedProductHashes.forEach((hash) => retrieved.add(hash));
           const next = structured.visualReview === undefined ? structured : z.record(z.unknown()).parse(structured.visualReview);
           const descriptors = z.array(z.object({ candidateId: Id })).max(6).parse(next.candidates ?? []);
@@ -223,6 +295,7 @@ export async function evaluateVisualSearch(raw: unknown, load: ArtifactLoader) {
             if (meta.finalProductHashes.some((hash) => !reviewed.has(hash))) throw new Error("FINAL_OUTSIDE_REVIEWED_POOL");
             const cards = z.array(CardReference).max(3).parse(structured.products ?? []);
             const cardHashes = cards.map((card) => sha256(Buffer.from(productReferenceKey(card))));
+            if (cards.some((card, index) => card.sourceKind === "WEB_PRODUCT_PAGE" && (!webConsumed || !webProductHashes.has(cardHashes[index]!)))) throw new Error("WEB_CARD_OUTSIDE_AUTHORIZED_REVIEW");
             if (stableJson(cardHashes) !== stableJson(meta.finalProductHashes)) throw new Error("FINAL_CARD_IDENTITY_MISMATCH");
             const recommendation = structured.recommendation === undefined ? undefined : z.object({ primarySelectionId: Id.optional() }).parse(structured.recommendation);
             const selected = cards.find((card) => card.selectionId === recommendation?.primarySelectionId);
@@ -230,6 +303,11 @@ export async function evaluateVisualSearch(raw: unknown, load: ArtifactLoader) {
             if (selectedHash !== meta.primaryProductHash || (recommendation?.primarySelectionId !== undefined && selected === undefined)) throw new Error("PRIMARY_METADATA_MISMATCH");
             finalHashes = meta.finalProductHashes;
             primary = meta.primaryProductHash;
+            const recovery = structured.recovery === undefined ? undefined : z.record(z.unknown()).parse(structured.recovery);
+            if (recovery?.action === "REQUEST_WEB_SEARCH") {
+              if (finalHashes.length > 0 || finalizedRounds >= 2 || webConsumed) throw new Error("WEB_RECOVERY_NOT_ADMISSIBLE");
+              recoveryRenderId = z.string().uuid().parse(structured.renderId);
+            }
           }
         }
         if (finalHashes === undefined) throw new Error("TERMINAL_CAPTURE_MISSING");

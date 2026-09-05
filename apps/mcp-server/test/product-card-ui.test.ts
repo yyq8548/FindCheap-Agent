@@ -81,6 +81,62 @@ function couponFixture(coupons: Record<string, unknown>) {
 }
 
 describe("product-card MCP Apps UI", () => {
+  it.each([false, true])("keeps interleaved legacy cards in snapshot ordinal order (visual=%s)", visual => {
+    const base = couponFixture({ verified: [] }).products[0]!;
+    const products = ["ordinal-one", "ordinal-two", "ordinal-three"].map((title, index) => ({ ...base, title,
+      card: { ...base.card, title }, selectionId: title, presentationGroup: undefined,
+      recommendationTier: visual || index === 1 ? "TRUSTED_OR_AFFILIATE" : "GENERAL_UNVERIFIED",
+      ...(visual ? { visualMatchGroup: index === 1 ? "HIGHLY_SIMILAR" : "SAME_STYLE" } : {}) }));
+    const articles = nodes(renderFixture({ locale: "en-US", products })).filter(node => node.tagName === "ARTICLE");
+    expect(articles).toHaveLength(3);
+    articles.forEach((article, index) => expect(text(article)).toContain(products[index]!.title));
+  });
+  it.each(["zh-CN", "en-US"])("does not advertise an expired coupon or cached coupon price in %s", locale => {
+    const fixture = couponFixture({ verified: [{ code: "OLD", productApplicability: "PRODUCT_CONFIRMED", validTo: "2000-01-01T00:00:00Z",
+      assessment: { status: "CONFIRMED", recommendationEligible: true } }],
+      estimatedItemPriceAfterCoupon: { amountCents: 100, currency: "USD" } });
+    const content = text(renderFixture({ ...fixture, locale }));
+    expect(content).not.toContain(locale === "zh-CN" ? "使用优惠后预计" : "Estimated after Coupon");
+    expect(content).not.toContain(locale === "zh-CN" ? "Findcheap 找到了可用的coupon" : "FindCheap found an available coupon");
+    expect(content).toContain(locale === "zh-CN" ? "已过期" : "Expired");
+  });
+  it.each(["CONFIRMED_COUPON_SAVINGS", "LOWER_SAME_PRODUCT_PRICE", "LOWER_COMPARABLE_UNIT_PRICE"])(
+    "does not retain %s from an expired coupon price when rendering an old snapshot", reason => {
+      const fixture = couponFixture({ verified: [{ productApplicability: "PRODUCT_CONFIRMED", validTo: "2000-01-01T00:00:00Z",
+        assessment: { status: "CONFIRMED", recommendationEligible: true } }],
+        estimatedItemPriceAfterCoupon: { amountCents: 100, currency: "USD" } });
+      Object.assign(fixture.products[0]!, { presentationGroup: "BEST_VALUE", valueEvidence: { reason, amountCents: 1000, currency: "USD", basis: "ITEM_PRICE" } });
+      expect(nodes(renderFixture(fixture)).filter(node => node.className === "evidence")).toHaveLength(0);
+    });
+  it("retains confirmed savings while the coupon price remains current", () => {
+    const fixture = couponFixture({ verified: [{ productApplicability: "PRODUCT_CONFIRMED", validTo: "2099-01-01T00:00:00Z",
+      assessment: { status: "CONFIRMED", recommendationEligible: true } }],
+      estimatedItemPriceAfterCoupon: { amountCents: 100, currency: "USD" } });
+    Object.assign(fixture.products[0]!, { presentationGroup: "BEST_VALUE", valueEvidence: { reason: "CONFIRMED_COUPON_SAVINGS", amountCents: 3900, currency: "USD", basis: "ITEM_PRICE" } });
+    expect(text(renderFixture(fixture))).toContain("已确认商品优惠节省：");
+  });
+  it.each(["zh-CN", "en-US"])("keeps the only value card visible in tier three even when it is primary, with evidence in %s", locale => {
+    const fixture = couponFixture({ verified: [] });
+    Object.assign(fixture.products[0]!, { selectionId: "primary-value", presentationGroup: "BEST_VALUE", title: "Shampoo 500 mL",
+      unitPrice: { amountCents: 600, currency: "USD", unit: "ML", perQuantity: 100, quantity: 500, source: "TITLE", sourceText: "500 mL", priceBasis: "ITEM_PRICE" },
+      valueEvidence: { reason: "LOWER_COMPARABLE_UNIT_PRICE", amountCents: 200, currency: "USD", basis: "PER_100_ML", comparedWithTitle: "Other shampoo 250 mL" },
+      qualityEvidence: { status: "UNKNOWN", qualityGuaranteed: false } });
+    const app = renderFixture({ ...fixture, locale, recommendation: { state: "READY", primarySelectionId: "primary-value" } });
+    const content = text(app);
+    expect(content).toContain(locale === "zh-CN" ? "高性价比匹配" : "Best-value high-match options");
+    expect(content).toContain(locale === "zh-CN" ? "可比单位价格更低" : "Lower comparable unit price");
+    expect(content).toContain(locale === "zh-CN" ? "不含优惠、税费和运费" : "before coupon, tax and shipping");
+    expect(content).toContain(locale === "zh-CN" ? "质量依据尚未核实" : "quality evidence not verified");
+    expect(nodes(app).filter(node => node.tagName === "ARTICLE")).toHaveLength(1);
+    expect(nodes(app).filter(node => node.className === "card featured no-image")).toHaveLength(1);
+  });
+  it("does not render a discount as confirmed without a confirmed eligible assessment", () => {
+    const fixture = couponFixture({ verified: [{ code: "UNKNOWN", productApplicability: "PRODUCT_CONFIRMED" }],
+      estimatedItemPriceAfterCoupon: { amountCents: 100, currency: "USD" } });
+    const output = text(renderFixture(fixture));
+    expect(output).not.toContain("使用优惠后预计");
+    expect(output).toContain("此商品适用性未确认");
+  });
   it.each(["zh-CN", "en-US"])("collapses research cards but keeps their selection controls in %s", locale => {
     const fixture = couponFixture({ verified: [] });
     Object.assign(fixture.products[0]!, { selectionId: "selection-one", presentationGroup: "RESEARCH_ONLY", requiredFeatureLimitations: ["anti-dandruff"] });
@@ -163,7 +219,7 @@ describe("product-card MCP Apps UI", () => {
       lookupStatus: "COMPLETE", summary: { status: "MERCHANT_CANDIDATE", recommendedDealId: "recommended", reasonCodes: [] },
       verified: [
         { dealId: "wholesale", code: "WHOLESALE30", productApplicability: "MERCHANT_WIDE", assessment: { status: "INELIGIBLE", reasonCodes: ["MINIMUM_SPEND_NOT_MET"], recommendationEligible: false } },
-        { dealId: "recommended", code: "TRY18", productApplicability: "MERCHANT_WIDE", assessment: { status: "CONDITIONAL", reasonCodes: ["MERCHANT_ELIGIBILITY_UNCONFIRMED"], recommendationEligible: true } },
+        { dealId: "recommended", code: "TRY18", productApplicability: "MERCHANT_WIDE", validTo: "2099-01-01T00:00:00Z", assessment: { status: "CONDITIONAL", reasonCodes: ["MERCHANT_ELIGIBILITY_UNCONFIRMED"], recommendationEligible: true } },
         { dealId: "other", code: "<img src=x onerror=alert(1)>", productApplicability: "MERCHANT_WIDE" }
       ]
     }));
@@ -209,7 +265,7 @@ describe("product-card MCP Apps UI", () => {
   });
 
   it("localizes the Coupon summary in English without promoting merchant-wide evidence", () => {
-    const output = couponFixture({ lookupStatus: "PARTIAL", verified: [{ code: "TRY18", productApplicability: "MERCHANT_WIDE" }] });
+    const output = couponFixture({ lookupStatus: "PARTIAL", verified: [{ code: "TRY18", productApplicability: "MERCHANT_WIDE", validTo: "2099-01-01T00:00:00Z" }] });
     const app = renderFixture({ ...output, locale: "en-US" });
     expect(text(app)).toContain("Coupon lookup only partially completed");
     expect(text(app)).toContain("FindCheap found an available coupon.");
@@ -350,7 +406,7 @@ describe("product-card MCP Apps UI", () => {
       params: expect.objectContaining({
         name: "report_product_card_metrics",
         arguments: expect.objectContaining({
-          version: "0.17.20",
+          version: "0.17.21",
           terminalStage: "DOM_RENDERED",
           stages: expect.objectContaining({ DOM_RENDERED: expect.any(Number) })
         })
@@ -651,7 +707,7 @@ describe("product-card MCP Apps UI", () => {
     expect(output).toContain("Other relevant products - review merchant carefully");
     expect(output.indexOf("Exact Product")).toBeLessThan(output.indexOf("Discovery Product"));
     expect(output.indexOf("Discovery Product")).toBeLessThan(output.indexOf("Similar Product"));
-    expect(output).toContain("Product rating: 3.9/5 (2 reviews)");
+    expect(output).toContain("Source-reported product rating: 3.9/5 (2 reviews); not a quality guarantee.");
     expect(output).toContain("Highly rated product · merchant unverified");
     expect(output).toContain("Verify seller identity, returns, and payment protection");
     expect(output).toContain("Sony");
@@ -662,7 +718,7 @@ describe("product-card MCP Apps UI", () => {
     expect(output).toContain("Observed Aug 19, 2026");
   });
 
-  it("renders the primary recommendation first, then the remaining presentation groups", () => {
+  it("highlights the single primary recommendation in its original presentation group", () => {
     const script = PRODUCT_CARD_HTML.match(/<script>([\s\S]*)<\/script>/u)?.[1];
     const app = new FakeNode();
     const product = (title: string, presentationGroup: string, selectionId: string) => ({
@@ -720,12 +776,12 @@ describe("product-card MCP Apps UI", () => {
     expect(output).toContain("Only products hosted on independently verified official brand websites");
     expect(output).toContain("approved Awin merchants");
     expect(output).toContain("Product ratings do not verify merchants.");
-    expect(output).toContain("First to consider");
+    expect(output).toContain("First recommendation");
     const featured = nodes(app).filter((node) => node.className.includes("featured"));
     expect(featured).toHaveLength(1);
     expect(text(featured[0]!)).toContain("Trusted Product");
-    expect(output.indexOf("Trusted Product")).toBeLessThan(output.indexOf("Official Product"));
-    expect(output.indexOf("Official Product")).toBeLessThan(output.indexOf("Another Trusted Product"));
+    expect(output.indexOf("Official Product")).toBeLessThan(output.indexOf("Trusted Product"));
+    expect(output.indexOf("Trusted Product")).toBeLessThan(output.indexOf("Another Trusted Product"));
     expect(output.indexOf("Another Trusted Product")).toBeLessThan(output.indexOf("Value Product"));
   });
 
@@ -889,6 +945,7 @@ describe("product-card MCP Apps UI", () => {
               code: "EXACT20",
               discountPercent: 20,
               productApplicability: "PRODUCT_CONFIRMED",
+              assessment: { status: "CONFIRMED", recommendationEligible: true },
               validTo: "2026-09-10T00:00:00.000Z"
             }],
             estimatedItemPriceAfterCoupon: { amountCents: 3_200, currency: "USD" }
@@ -923,7 +980,7 @@ describe("product-card MCP Apps UI", () => {
     expect(output).toContain("已验证优惠：EXACT20");
     expect(output).toContain("使用优惠后预计：US$32.00");
     expect(output).toContain("该优惠已确认适用于此商品");
-    expect(output).toContain("值得先看");
+    expect(output).not.toContain("首选推荐");
     expect(output).toContain("为什么匹配");
     expect(output).toContain("商品状态未核实");
     expect(output).toContain("Findcheap 找到了可用的coupon");
@@ -968,7 +1025,7 @@ describe("product-card MCP Apps UI", () => {
       method: "ui/initialize",
       params: {
         protocolVersion: "2026-01-26",
-        appInfo: { name: "FindCheap Agent product cards", version: "0.17.20" },
+        appInfo: { name: "FindCheap Agent product cards", version: "0.17.21" },
         appCapabilities: { availableDisplayModes: ["inline"] }
       }
     });

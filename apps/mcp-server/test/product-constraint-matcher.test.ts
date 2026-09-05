@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { evaluateFeature } from "../src/product-constraint-matcher.js";
+import { evaluateProductRequirements } from "../src/product-requirements.js";
 
 const featureMatches = (searchable: string, feature: string): boolean =>
   evaluateFeature(searchable, feature) === "MATCHED";
@@ -8,6 +9,33 @@ const matchFeatures = (searchable: string, features: readonly string[]): string[
   features.filter((feature) => featureMatches(searchable, feature));
 
 describe("product constraint matcher", () => {
+  it.each([
+    "Honor of Kings Li Bai Phoenix wig. Naruto default wig is available separately.",
+    "Honor of Kings Li Bai Phoenix wig, Naruto default wig sold separately.",
+    "Honor of Kings Li Bai Phoenix wig and Naruto default wig.",
+    "Honor of Kings Li Bai default wig is available separately.",
+    "Honor of Kings Li Bai default wig is possible only when paired with another costume."
+  ])("does not borrow default appearance across merchant claims: %s", description => {
+    const result = evaluateProductRequirements({ title: "Honor of Kings Li Bai Phoenix wig", description },
+      { query: "Honor of Kings Li Bai wig", requiredFeatures: ["default appearance"], excludedFeatures: [], preferences: [] });
+    expect(result.assessment.entries[0]?.status).toBe("UNKNOWN");
+  });
+  it.each(["Honor of Kings Li Bai default wig", "Default Honor of Kings Li Bai wig", "王者荣耀 李白 原皮 假发"])(
+    "accepts a direct same-claim role and default appearance: %s", description => {
+      const result = evaluateProductRequirements({ title: "Wig", description },
+        { query: "Honor of Kings Li Bai wig", requiredFeatures: ["default appearance"], excludedFeatures: [], preferences: [] });
+      expect(result.assessment.entries[0]?.status).toBe("MATCHED");
+    });
+  it("does not transfer an intervening product's default negation to the requested character", () => {
+    expect(evaluateFeature("Honor of Kings Li Bai default wig. Naruto wig. Not default.",
+      "Honor of Kings Li Bai default wig")).toBe("MATCHED");
+  });
+  it("understands character as a structural identity word without borrowing anchors across products", () => {
+    expect(evaluateFeature("王者荣耀 李白 假发", "Honor of Kings Li Bai character")).toBe("MATCHED");
+    expect(evaluateFeature("王者荣耀 韩信 假发", "Honor of Kings Li Bai character")).toBe("UNKNOWN");
+    expect(evaluateFeature("Not Honor of Kings Li Bai wig", "Honor of Kings Li Bai character")).toBe("CONTRADICTED");
+    expect(evaluateFeature("Black short wig", "Honor of Kings Li Bai character black")).toBe("UNKNOWN");
+  });
   it.each([
     ["Short human hair wig Finger Wave", "long hair", "CONTRADICTED"],
     ["Curly human hair wig", "straight hair", "CONTRADICTED"],

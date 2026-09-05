@@ -6,6 +6,88 @@ import {
 import { SearchProductsInputSchema } from "../src/search-products.js";
 
 describe("product recommendation", () => {
+  it.each([
+    ["2026-09-05T12:00:00.001Z", 0],
+    ["2026-09-05T12:00:00.000Z", 1],
+    ["2026-09-05T11:59:59.999Z", 1],
+    [undefined, 1],
+    ["not-a-date", 1]
+  ])("evaluates coupon expiry once against the supplied time (%s)", (validTo, expectedIndex) => {
+    const discounted = product({ title: "With coupon", presentationGroup: "TRUSTED_MATCH", price: 2000,
+      coupon: { productApplicability: "PRODUCT_CONFIRMED", estimatedPrice: 100 } });
+    const result = choosePrimaryRecommendation([
+      { ...discounted, coupons: { ...discounted.coupons, verified: discounted.coupons.verified.map(offer => ({ ...offer, validTo })) } },
+      product({ title: "Ordinary", presentationGroup: "TRUSTED_MATCH", price: 1000 })
+    ], Date.parse("2026-09-05T12:00:00Z"));
+    expect(result.primaryProductIndex).toBe(expectedIndex);
+  });
+  it("does not assign an expired coupon's cached price to a different active coupon", () => {
+    const discounted = product({ title: "With coupon", presentationGroup: "TRUSTED_MATCH", price: 2000,
+      coupon: { productApplicability: "PRODUCT_CONFIRMED", estimatedPrice: 100 } });
+    const offer = discounted.coupons.verified[0]!;
+    const result = choosePrimaryRecommendation([
+      { ...discounted, coupons: { ...discounted.coupons, verified: [{ ...offer, validTo: "2026-09-05T11:00:00Z" },
+        { ...offer, validTo: "2026-09-06T12:00:00Z" }] } },
+      product({ title: "Ordinary", presentationGroup: "TRUSTED_MATCH", price: 1000 })
+    ], Date.parse("2026-09-05T12:00:00Z"));
+    expect(result.primaryProductIndex).toBe(1);
+  });
+  it.each(["EV charging station", "Tesla EV charger", "Tesla 充电桩"])("asks one compatibility question before recommending %s", query => {
+    const input = SearchProductsInputSchema.parse({ query, productType: "EV charging station", comparisonMode: "DISCOVERY", responseLocale: "zh-CN" });
+    expect(highVarianceClarification(input)).toMatchObject({ question: expect.stringContaining("使用国家或地区"),
+      evidence: "EV charger compatibility lacks region, vehicle/connector, complete charger/kit" });
+  });
+  it("accepts explicit charger compatibility and leaves accessory searches alone", () => {
+    const input = SearchProductsInputSchema.parse({ query: "EV charger", productType: "EV charging station", comparisonMode: "DISCOVERY",
+      primaryUse: "US home charging", requiredFeatures: ["J1772", "complete charger"] });
+    expect(highVarianceClarification(input)).toBeUndefined();
+    expect(highVarianceClarification(SearchProductsInputSchema.parse({ query: "Tesla charger cable", productType: "EV charger accessory", comparisonMode: "DISCOVERY" }))).toBeUndefined();
+  });
+  it("does not confuse a charger with an included cable or unknown connector with an accessory or known compatibility", () => {
+    expect(highVarianceClarification(SearchProductsInputSchema.parse({ query: "EV charger with cable", comparisonMode: "DISCOVERY" }))).toBeDefined();
+    expect(highVarianceClarification(SearchProductsInputSchema.parse({ query: "美国充电桩整机，接口未知", comparisonMode: "DISCOVERY" }))?.evidence)
+      .toBe("EV charger compatibility lacks vehicle/connector");
+  });
+  it("identifies EV clarification and asks only about missing compatibility", () => {
+    const clarification = highVarianceClarification(SearchProductsInputSchema.parse({
+      query: "美国充电桩整机", comparisonMode: "DISCOVERY", responseLocale: "zh-CN"
+    }));
+    expect(clarification).toEqual({
+      kind: "EV_COMPATIBILITY",
+      question: "请确认车辆型号或充电接口。",
+      evidence: "EV charger compatibility lacks vehicle/connector"
+    });
+  });
+  it("does not repeat a supplied English charger requirement or accept a negative one", () => {
+    const clarification = highVarianceClarification(SearchProductsInputSchema.parse({
+      query: "EV charger", primaryUse: "Canada", requiredFeatures: ["NACS", "kit unknown"],
+      comparisonMode: "DISCOVERY", responseLocale: "en-US"
+    }));
+    expect(clarification).toEqual({
+      kind: "EV_COMPATIBILITY",
+      question: "Please confirm whether you need a complete charger or a DIY kit.",
+      evidence: "EV charger compatibility lacks complete charger/kit"
+    });
+  });
+  it("does not claim lower price for a single bottle against a mixed bundle", () => {
+    const decision = choosePrimaryRecommendation([
+      product({ title: "Shampoo 250 mL", presentationGroup: "TRUSTED_MATCH", price: 1000 }),
+      product({ title: "Shampoo and Conditioner Bundle 250 mL", presentationGroup: "TRUSTED_MATCH", price: 2000 })
+    ]);
+    expect(decision.reasonCodes).not.toContain("LOWER_PRICE");
+  });
+
+  it("rejects a conditional product-confirmed coupon as a price or recommendation benefit", () => {
+    const conditional = product({ title: "Conditional", presentationGroup: "TRUSTED_MATCH", price: 2000,
+      coupon: { productApplicability: "PRODUCT_CONFIRMED", estimatedPrice: 100 } });
+    const decision = choosePrimaryRecommendation([
+      { ...conditional, coupons: { ...conditional.coupons, verified: [{ productApplicability: "PRODUCT_CONFIRMED" as const,
+        assessment: { status: "CONDITIONAL" as const, recommendationEligible: false } }] } },
+      product({ title: "Ordinary", presentationGroup: "TRUSTED_MATCH", price: 1000 })
+    ]);
+    expect(decision.primaryProductIndex).toBe(1);
+    expect(decision.reasonCodes).not.toContain("VERIFIED_COUPON");
+  });
   it("keeps a server-validated possible same item ahead of a cheaper similar item", () => {
     const decision = choosePrimaryRecommendation([
       { ...product({ title: "Possible same dress", matchStatus: "DISCOVERY_MATCH", presentationGroup: "TRUSTED_MATCH", price: 59800 }),
@@ -40,6 +122,7 @@ describe("product recommendation", () => {
     });
 
     expect(highVarianceClarification(input)).toMatchObject({
+      kind: "SHOPPING_PREFERENCES",
       question: expect.stringContaining(expected),
       evidence: "high-variance laptop discovery lacks budget, use, size"
     });
@@ -257,6 +340,7 @@ function product(options: {
 }) {
   return {
     title: options.title,
+    brand: "Fixture brand", sku: "SAME-VARIANT", gtins: [], variantDimensions: {}, condition: "NEW" as const,
     matchStatus: options.matchStatus ?? "EXACT",
     presentationGroup: options.presentationGroup,
     recommendationTier: options.recommendationTier ?? "TRUSTED_OR_AFFILIATE",
@@ -270,7 +354,9 @@ function product(options: {
     coupons: options.coupon === undefined
       ? { verified: [] }
       : {
-          verified: [{ title: "Coupon", productApplicability: options.coupon.productApplicability }],
+          verified: [{ title: "Coupon", productApplicability: options.coupon.productApplicability, validTo: "2099-01-01T00:00:00Z",
+            assessment: { status: options.coupon.productApplicability === "PRODUCT_CONFIRMED" ? "CONFIRMED" as const : "CONDITIONAL" as const,
+              recommendationEligible: options.coupon.productApplicability === "PRODUCT_CONFIRMED" } }],
           ...(options.coupon.estimatedPrice === undefined
             ? {}
             : { estimatedItemPriceAfterCoupon: { amountCents: options.coupon.estimatedPrice } })

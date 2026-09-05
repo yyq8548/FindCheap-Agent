@@ -1,6 +1,7 @@
 import { resolveMerchantTrust } from "./merchant-trust.js";
 import { productReferenceKey } from "./product-reference.js";
-import { assessRanking, compareRankingAssessments } from "./ranking-assessment.js";
+import { assessRanking, compareRankingAssessments, hasEquivalentFitEvidence } from "./ranking-assessment.js";
+import { costAdvantage, isCurrentDeal, type ValueEvidence, type ValueProduct } from "./product-value-evidence.js";
 import { assessSelectedProductDeal } from "./deal-assessment.js";
 import {
   dealApplicabilityRank,
@@ -24,18 +25,18 @@ export function candidateMerchant(candidate: UnifiedCandidate): string {
   return candidate.shopifyProduct.merchant;
 }
 
-export function compareRankedCandidates(left: UnifiedCandidate, right: UnifiedCandidate): number {
+export function compareRankedCandidates(left: UnifiedCandidate, right: UnifiedCandidate, evaluatedAtMs = Date.now()): number {
   if (left.visualReviewAssessment !== undefined || right.visualReviewAssessment !== undefined) {
-    return compareRankingAssessments(candidateRanking(left), candidateRanking(right));
+    return compareRankingAssessments(candidateRanking(left, evaluatedAtMs), candidateRanking(right, evaluatedAtMs));
   }
   const visualDifference = (right.visualMatchScore ?? 0) - (left.visualMatchScore ?? 0);
   if (visualDifference !== 0) return visualDifference;
   const groupDifference = resultGroupRank(left.resultGroup) - resultGroupRank(right.resultGroup);
   if (groupDifference !== 0) return groupDifference;
-  return compareRankingAssessments(candidateRanking(left), candidateRanking(right));
+  return compareRankingAssessments(candidateRanking(left, evaluatedAtMs), candidateRanking(right, evaluatedAtMs));
 }
 
-function candidateRanking(candidate: UnifiedCandidate) {
+function candidateRanking(candidate: UnifiedCandidate, evaluatedAtMs: number) {
   const source = candidate.awinProduct ?? candidate.shopifyProduct ?? candidate.ebayProduct;
   const registered = resolveMerchantTrust(new URL(source.merchantUrl).hostname, candidateMerchant(candidate));
   const trust = candidate.shopifyProduct?.merchantTrust ?? (candidate.source === "AWIN_PRODUCT_FEED" &&
@@ -43,13 +44,15 @@ function candidateRanking(candidate: UnifiedCandidate) {
     ? { level: "ESTABLISHED_RETAILER" as const, verification: "INDEPENDENT" as const }
     : registered);
   return assessRanking({
+    ...candidateValueProduct(candidate, evaluatedAtMs),
     title: candidateTitle(candidate), matchStatus: candidate.identityStatus,
     recommendationTier: candidate.recommendationTier, merchantTrust: trust,
     availability: source.availability, requiredFeatureLimitations: candidate.requiredFeatureLimitations,
+    requirementAssessment: candidate.requirementAssessment,
     featureEvidence: candidate.featureEvidence, preferenceEvidence: candidate.preferenceEvidence,
     visualReviewAssessment: candidate.visualReviewAssessment,
-    itemPriceCents: source.itemPrice?.amountCents, confirmedCouponPriceCents: candidateEffectivePrice(candidate),
-    couponRank: candidateCouponRank(candidate)
+    itemPriceCents: source.itemPrice?.amountCents, confirmedCouponPriceCents: candidateEffectivePrice(candidate, evaluatedAtMs),
+    couponRank: candidateCouponRank(candidate, evaluatedAtMs)
   });
 }
 
@@ -58,10 +61,10 @@ export function selectPresentationCandidates(
   selectionMode: SearchProductsInput["selectionMode"],
   allowAlternatives: boolean,
   visualDiscovery: boolean,
-  requestedBrand = true
-): UnifiedCandidate[] {
-  const eligible = candidates.filter(candidate =>
-    candidate.requiredFeatureLimitations.length === 0 && candidate.requirementAssessment?.status !== "CONFLICT");
+  requestedBrand = true,
+  evaluatedAtMs = Date.now()
+): Array<UnifiedCandidate & { valueEvidence?: ValueEvidence }> {
+  const eligible = candidates.filter(candidate => candidateRanking(candidate, evaluatedAtMs).primaryEligible);
   const officialInTier = (candidate: UnifiedCandidate) => requestedBrand && isOfficialCandidate(candidate);
   const official = eligible
     .filter(officialInTier)
@@ -75,23 +78,22 @@ export function selectPresentationCandidates(
       candidate.recommendationTier === "TRUSTED_OR_AFFILIATE"
     );
   const rankedTrusted = trustedPool.sort(
-    selectionMode === "LOWEST_PRICE" ? compareLowestPrice : compareRankedCandidates
+    (left, right) => (selectionMode === "LOWEST_PRICE" ? compareLowestPrice : compareRankedCandidates)(left, right, evaluatedAtMs)
   );
-  const trusted = (selectionMode === "MERCHANT_DIVERSE"
-    ? selectMerchantDiverse(rankedTrusted, TRUSTED_PRODUCT_CARD_LIMIT)
-    : rankedTrusted.slice(0, TRUSTED_PRODUCT_CARD_LIMIT))
-    .map((candidate) => ({ ...candidate, presentationGroup: "TRUSTED_MATCH" as const }));
-  const selectedKeys = new Set([...official, ...trusted].map(candidateKey));
-  const rankedBestValue = eligible
-    .filter((candidate) => !selectedKeys.has(candidateKey(candidate)))
-    .filter((candidate) => !officialInTier(candidate))
-    .filter((candidate) => passesVisualDisplayGate(candidate, allowAlternatives))
-    .sort(selectionMode === "LOWEST_PRICE" ? compareLowestPrice : compareRankedCandidates);
-  const usedMerchantKeys = new Set([...official, ...trusted].map(candidateMerchantKey));
+  const values = new Map(rankedTrusted.map(candidate => [candidateKey(candidate), candidateValueAdvantage(candidate, eligible, evaluatedAtMs)]));
+  const rankedBestValue = rankedTrusted.filter(candidate => values.get(candidateKey(candidate)) !== undefined);
+  // Reserve only proved savings, not leftovers. A value card has the same
+  // trust and requirements gates as an ordinary trusted card.
   const bestValue = (selectionMode === "MERCHANT_DIVERSE"
-    ? selectMerchantDiverse(rankedBestValue, BEST_VALUE_PRODUCT_CARD_LIMIT, usedMerchantKeys)
+    ? selectMerchantDiverse(rankedBestValue, BEST_VALUE_PRODUCT_CARD_LIMIT)
     : rankedBestValue.slice(0, BEST_VALUE_PRODUCT_CARD_LIMIT))
-    .map((candidate) => ({ ...candidate, presentationGroup: "BEST_VALUE" as const }));
+    .map(candidate => ({ ...candidate, presentationGroup: "BEST_VALUE" as const, valueEvidence: values.get(candidateKey(candidate))! }));
+  const selectedValueKeys = new Set(bestValue.map(candidateKey));
+  const remainingTrusted = rankedTrusted.filter(candidate => !selectedValueKeys.has(candidateKey(candidate)));
+  const trusted = (selectionMode === "MERCHANT_DIVERSE"
+    ? selectMerchantDiverse(remainingTrusted, TRUSTED_PRODUCT_CARD_LIMIT)
+    : remainingTrusted.slice(0, TRUSTED_PRODUCT_CARD_LIMIT))
+    .map((candidate) => ({ ...candidate, presentationGroup: "TRUSTED_MATCH" as const }));
   const research = candidates.filter(candidate => !eligible.includes(candidate))
     .filter(candidate => passesVisualDisplayGate(candidate, allowAlternatives))
     .slice(0, 3).map(candidate => ({ ...candidate, presentationGroup: "RESEARCH_ONLY" as const }));
@@ -101,11 +103,36 @@ export function selectPresentationCandidates(
   return [];
 }
 
+function candidateValueProduct(candidate: UnifiedCandidate, evaluatedAtMs: number): ValueProduct {
+  const source = candidate.awinProduct ?? candidate.shopifyProduct ?? candidate.ebayProduct;
+  return { ...source, itemPrice: source.itemPrice === undefined ? undefined : { ...source.itemPrice, amountCents: candidateEffectivePrice(candidate, evaluatedAtMs) } };
+}
+
+function candidateValueAdvantage(candidate: UnifiedCandidate, peers: UnifiedCandidate[], evaluatedAtMs: number): ValueEvidence | undefined {
+  const assessment = candidateRanking(candidate, evaluatedAtMs);
+  const source = candidateValueProduct(candidate, evaluatedAtMs);
+  for (const peer of peers) {
+    if (candidateKey(candidate) === candidateKey(peer)) continue;
+    const other = candidateRanking(peer, evaluatedAtMs);
+    if (!hasEquivalentFitEvidence(assessment, other)) continue;
+    const a = assessment.qualityEvidence.rating;
+    const b = other.qualityEvidence.rating;
+    if (b && (!a || a.value < b.value || a.count < b.count)) continue;
+    const advantage = costAdvantage(source, candidateValueProduct(peer, evaluatedAtMs));
+    if (advantage) return advantage;
+  }
+  const saved = candidatePrice(candidate) - candidateEffectivePrice(candidate, evaluatedAtMs);
+  return saved > 0 && candidateCouponRank(candidate, evaluatedAtMs) === 2
+    ? { reason: "CONFIRMED_COUPON_SAVINGS", amountCents: saved, currency: "USD", basis: "ITEM_PRICE" }
+    : undefined;
+}
+
 export function selectVisualReviewCandidates(
   candidates: UnifiedCandidate[],
   limit: number,
   visual?: VisualProductInput
 ): UnifiedCandidate[] {
+  const evaluatedAtMs = Date.now();
   // Metadata-only SAME_STYLE is not a final verdict. Product-family conflicts
   // were already removed before candidate images reached this review queue.
   const eligible = candidates;
@@ -156,8 +183,8 @@ export function selectVisualReviewCandidates(
     ...candidate,
     presentationGroup: isOfficialCandidate(candidate)
       ? "OFFICIAL_STORE" as const
-      : candidate.recommendationTier === "GENERAL_UNVERIFIED"
-        ? "BEST_VALUE" as const
+      : candidateRanking(candidate, evaluatedAtMs).primaryBlockReasons.includes("UNVERIFIED_MERCHANT")
+        ? "RESEARCH_ONLY" as const
         : "TRUSTED_MATCH" as const
   }));
 }
@@ -197,17 +224,18 @@ export function countDisplayEligibleCandidates(
 
 /** Research leads do not satisfy a text search's replenishment target. */
 export function countRecommendationEligibleCandidates(candidates: UnifiedCandidate[]): number {
-  return new Set(candidates.filter(candidate => candidateRanking(candidate).primaryEligible).map(candidateKey)).size;
+  const evaluatedAtMs = Date.now();
+  return new Set(candidates.filter(candidate => candidateRanking(candidate, evaluatedAtMs).primaryEligible).map(candidateKey)).size;
 }
 
-export function compareLowestPrice(left: UnifiedCandidate, right: UnifiedCandidate): number {
+export function compareLowestPrice(left: UnifiedCandidate, right: UnifiedCandidate, evaluatedAtMs = Date.now()): number {
   if (left.visualReviewAssessment !== undefined || right.visualReviewAssessment !== undefined) {
-    return compareRankingAssessments(candidateRanking(left), candidateRanking(right));
+    return compareRankingAssessments(candidateRanking(left, evaluatedAtMs), candidateRanking(right, evaluatedAtMs));
   }
-  return candidateEffectivePrice(left) - candidateEffectivePrice(right) ||
+  return candidateEffectivePrice(left, evaluatedAtMs) - candidateEffectivePrice(right, evaluatedAtMs) ||
     candidatePrice(left) - candidatePrice(right) ||
-    candidateCouponRank(right) - candidateCouponRank(left) ||
-    compareRankedCandidates(left, right);
+    candidateCouponRank(right, evaluatedAtMs) - candidateCouponRank(left, evaluatedAtMs) ||
+    compareRankedCandidates(left, right, evaluatedAtMs);
 }
 
 export function candidateTitle(candidate: UnifiedCandidate): string {
@@ -293,19 +321,19 @@ function candidatePrice(candidate: UnifiedCandidate): number {
   return candidate.shopifyProduct.itemPrice?.amountCents ?? Number.MAX_SAFE_INTEGER;
 }
 
-function candidateEffectivePrice(candidate: UnifiedCandidate): number {
+function candidateEffectivePrice(candidate: UnifiedCandidate, evaluatedAtMs: number): number {
   const itemPrice = candidatePrice(candidate);
   if (!Number.isSafeInteger(itemPrice)) return itemPrice;
   return estimatedItemPriceAfterCoupon(
     itemPrice,
-    candidate.verifiedCoupons.filter((deal) => assessCandidateDeal(candidate, deal).status === "CONFIRMED"),
+    candidate.verifiedCoupons.filter((deal) => isCurrentDeal(deal, evaluatedAtMs) && assessCandidateDeal(candidate, deal).status === "CONFIRMED"),
     candidateProductId(candidate)
   ) ?? itemPrice;
 }
 
-function candidateCouponRank(candidate: UnifiedCandidate): number {
+function candidateCouponRank(candidate: UnifiedCandidate, evaluatedAtMs: number): number {
   const productId = candidateProductId(candidate);
-  return candidate.verifiedCoupons.reduce(
+  return candidate.verifiedCoupons.filter(deal => isCurrentDeal(deal, evaluatedAtMs)).reduce(
     (rank, deal) => {
       const assessment = assessCandidateDeal(candidate, deal);
       return Math.max(rank, assessment.recommendationEligible ? dealApplicabilityRank(deal, productId) : -1);

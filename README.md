@@ -7,6 +7,10 @@ English | [简体中文](README.zh-CN.md)
 
 Product form: **Codex Plugin Agent**.
 
+Current package: **v0.17.21** — requirement meaning, same-goal identity refinement,
+evidence-based recommendation gates and quote-fee exclusion. See the
+[release scope and known limits](docs/releases/v0.17.21.md).
+
 FindCheap Agent is a read-only Codex plugin for product search, offer matching, price checks, product cards, evidence-backed comparison views, verified deals, and shopping watches. It returns up to eight products in three tiers: 2 official-store matches, 3 trusted matches, and 3 best-value high-match options.
 
 Codex calls one public `search_products` tool through a local stdio MCP server. The router searches eligible Awin, Shopify, eBay, and verified official-store sources, then ranks qualifying products by product relevance and merchant tier. It automatically runs one broader internal search when the first pass cannot fill the requested cards. It offers an authorized bounded Chrome search only after both API passes return no usable verified product.
@@ -61,7 +65,9 @@ For a follow-up quote, refer to a result by its number or choose it from the car
 
 ## Product search
 
-The plugin uses one constrained search request across its eligible sources. Products from joined Awin programmes are considered for every product category when they satisfy the requested identity, condition, required features, availability, and price limits. Shopify Global Catalog fills remaining slots. Supported Chinese product terms are translated while identity and variant details remain unchanged.
+The plugin uses one constrained search request with parallel, eligible Awin, Shopify, eBay and known official sources. Source-specific short queries preserve identity anchors; all final results must still satisfy the original category, variant, budget and required-feature checks. A query compiler separates retrieval wording from eligibility, and typed failures distinguish local invalid queries, source rejection, timeout, rate limiting, schema and security errors.
+
+Continuations bind an explicit `parentRenderId` or server-issued `goalId` plus exact `goalRevision`. Requirements and prior candidates are rechecked without mutating old cards or treating old prices as fresh observations. Correcting product identity does not silently withdraw unrelated requirements. No global latest-result lookup or persistent product catalog is used.
 
 Explicit non-price requirements are hard filters, not ranking hints. The matcher normalizes display size, memory, storage, package count, volume, weight, resolution, refresh rate, power, apparel and shoe size, color, model generation, and compatibility wording. It understands common metric, US customary, and Chinese forms, including equivalent expressions such as `14-inch`, `14"`, and `35.56 cm`, along with minimum, maximum, and approximate requirements. Memory, storage, physical dimensions, quantity, and marketing refresh-rate labels remain separate so that a shared number does not create a false match.
 
@@ -88,12 +94,14 @@ Visual similarity is not exact product identity. A visual result remains `DISCOV
 FindCheap Agent keeps product identity, merchant trust, condition, and price evidence separate:
 
 - Match labels describe product identity only. `EXACT` requires strong identity evidence. `DISCOVERY_MATCH` and `SIMILAR` do not prove that two listings are the same product.
-- Results use three presentation groups. The first contains only products hosted on independently verified official brand websites, with at most two cards. The second contains high-match products from reviewed merchants, approved Awin merchants, or Shopify merchants rated above `3.8` with at least `2` reviews. Other relevant products appear in the best-value group with a limited-trust warning. Domains classified as `RISKY` are excluded.
+- Results use three recommendation groups, with caps rather than quotas: requested-brand official matches (2), independently reviewed or manually verified approved-Awin matches (3), and trusted matches with comparable-price or confirmed-Coupon savings evidence (3). Unverified merchants and missing hard evidence belong in a separate collapsed research group, never a purchase recommendation. Ratings do not establish merchant trust. Domains classified as `RISKY` are excluded.
 - Approved Awin merchants are eligible for the trusted-match group. Commission never changes product relevance scoring.
 - A displayed item price is the value returned by the configured source at observation time. Shipping, tax, mandatory fees, member price, coupons, and delivered total stay unavailable until the relevant merchant evidence or a successful quote provides them. ZIP tax may be labeled as an estimate, and checkout can change the final amount.
 - `UNKNOWN` condition means the source did not verify condition. It must not be described as new. For merchants with limited trust evidence, users should check seller identity, returns, and payment protection before buying.
 
-Affiliate commission never affects relevance scoring. `LOWEST_PRICE` compares qualifying item prices across sources; normal discovery preserves merchant diversity. If the first routed pass cannot fill the requested cards, the plugin runs one feature-enriched, larger-pool API search and reapplies the original hard constraints and merchant checks. Expanded results remain `DISCOVERY_MATCH` unless exact identity evidence exists. Chrome is offered only after the expanded pass also returns no usable product; partial coverage and source errors fail closed.
+Affiliate commission never affects relevance scoring. Normal discovery stops after enough recommendable results (at most three as its retrieval target), not merely to fill eight cards. Explicit same-product comparison retains its coverage target. A bounded complementary pass rechecks unchanged requirements. Only an explicit server `REQUEST_WEB_SEARCH` action permits requesting Chrome authorization; typed transient source failures may permit independent recovery, but invalid queries, schema/security failures and exhausted budgets cannot be bypassed.
+
+Primary recommendations remain highlighted in their original presentation group so visible ordinal positions and snapshot IDs agree. Unit prices use explicit compatible package quantities; different-product item prices do not produce a misleading same-product savings delta. Product quality is separately reported as source-rated or unknown, never guaranteed by merchant trust. See [implementation and acceptance status](docs/product/shopping-improvement-implementation-2026-09-05.md) for remaining business-validation gates.
 
 ## Offer comparison and delivery estimates
 

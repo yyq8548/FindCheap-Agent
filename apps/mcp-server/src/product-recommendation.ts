@@ -1,12 +1,15 @@
 import type { SearchProductsInput } from "./search-products.js";
 import { PRIMARY_BLOCK_REASON_CODES, assessRanking, compareRankingAssessments, hasEquivalentFitEvidence } from "./ranking-assessment.js";
 import type { VisualReviewAssessment } from "./visual-review-policy.js";
+import { costAdvantage, isCurrentDeal, type ValueProduct } from "./product-value-evidence.js";
+import { missingChargingRequirements } from "./decision-constraints.js";
 
 export const RECOMMENDATION_REASON_CODES = [
   "EXACT_MATCH",
   "BEST_FIT",
   "TRUSTED_MERCHANT",
   "LOWER_PRICE",
+  "LOWER_UNIT_PRICE",
   "VERIFIED_COUPON",
   ...PRIMARY_BLOCK_REASON_CODES
 ] as const;
@@ -21,7 +24,7 @@ export type RecommendationDecision = {
   question?: string;
 };
 
-type RecommendationProduct = {
+type RecommendationProduct = ValueProduct & {
   title: string;
   matchStatus: "EXACT" | "DISCOVERY_MATCH" | "SIMILAR";
   visualReviewAssessment?: VisualReviewAssessment | undefined;
@@ -41,7 +44,10 @@ type RecommendationProduct = {
   coupons: {
     verified: Array<{
       title?: string;
+      validTo?: string | undefined;
+      validFrom?: string | undefined;
       productApplicability?: "PRODUCT_CONFIRMED" | "MERCHANT_WIDE" | "UNKNOWN";
+      assessment?: { status: "CONFIRMED" | "CONDITIONAL" | "UNKNOWN" | "INELIGIBLE"; recommendationEligible: boolean } | undefined;
     }>;
     estimatedItemPriceAfterCoupon?: { amountCents: number } | undefined;
   };
@@ -65,6 +71,7 @@ const HIGH_VARIANCE_RULES: HighVarianceRule[] = [
 const SIZE_PATTERN = /(?:\b\d{1,3}(?:\.\d+)?\s*(?:inch|inches)\b|\d{1,3}(?:\.\d+)?\s*(?:英寸|寸))/iu;
 
 export function highVarianceClarification(input: SearchProductsInput): {
+  kind: "EV_COMPATIBILITY" | "SHOPPING_PREFERENCES";
   question: string;
   evidence: string;
 } | undefined {
@@ -74,11 +81,14 @@ export function highVarianceClarification(input: SearchProductsInput): {
     input.productType,
     input.requiredSize,
     input.preferredSize,
+    input.primaryUse,
     ...input.requiredFeatures,
     ...input.preferences
   ]
     .filter((value): value is string => value !== undefined)
     .join(" ");
+  const evClarification = chargingCompatibilityClarification(input);
+  if (evClarification) return evClarification;
   const rule = HIGH_VARIANCE_RULES.find((candidate) => candidate.terms.test(searchable));
   if (rule === undefined) return undefined;
 
@@ -99,6 +109,7 @@ export function highVarianceClarification(input: SearchProductsInput): {
   const chineseLabels = { budget: "预算上限", use: "主要用途", size: "偏好的屏幕尺寸" } as const;
   const labels = missing.map((field) => chinese ? chineseLabels[field] : englishLabels[field]);
   return {
+    kind: "SHOPPING_PREFERENCES",
     question: chinese
       ? `请告诉我${labels.length > 1 ? `${labels.slice(0, -1).join("、")}和${labels.at(-1)}` : labels[0]}，再决定首选商品。`
       : `Please share your ${joinEnglish(labels)} before I choose a first recommendation.`,
@@ -106,14 +117,14 @@ export function highVarianceClarification(input: SearchProductsInput): {
   };
 }
 
-export function choosePrimaryRecommendation(products: RecommendationProduct[]): RecommendationDecision {
+export function choosePrimaryRecommendation(products: RecommendationProduct[], evaluatedAtMs = Date.now()): RecommendationDecision {
   if (products.length === 0) return { state: "NO_MATCH", reasonCodes: [] };
   const assessed = products
     .map((product, index) => ({ product, index, assessment: assessRanking({
       ...product,
       itemPriceCents: product.itemPrice?.amountCents,
-      confirmedCouponPriceCents: product.coupons.estimatedItemPriceAfterCoupon?.amountCents,
-      couponRank: couponRank(product)
+      confirmedCouponPriceCents: currentCouponEstimate(product, evaluatedAtMs),
+      couponRank: couponRank(product, evaluatedAtMs)
     }) }));
   const eligible = assessed.filter(({ assessment }) => assessment.primaryEligible);
   if (eligible.length === 0) {
@@ -127,17 +138,13 @@ export function choosePrimaryRecommendation(products: RecommendationProduct[]): 
     selected.product.matchStatus === "EXACT" ? "EXACT_MATCH" : "BEST_FIT"
   ];
   if (selected.product.merchantTrust.verification === "INDEPENDENT") reasonCodes.push("TRUSTED_MERCHANT");
-  const peers = eligible.filter(({ assessment }) => hasEquivalentFitEvidence(assessment, selected.assessment));
-  const peerPrices = peers.map(({ assessment }) => assessment.effectivePriceCents);
-  const selectedPrice = selected.assessment.effectivePriceCents;
-  if (
-    peers.length > 1 &&
-    peerPrices.every((value) => value !== Number.MAX_SAFE_INTEGER) &&
-    selectedPrice === Math.min(...peerPrices) &&
-    peerPrices.some((value) => value > selectedPrice)
-  ) {
-    reasonCodes.push("LOWER_PRICE");
-  } else if (couponRank(selected.product) > 1) {
+  const peers = eligible.filter(({ index, assessment }) => index !== selected.index && hasEquivalentFitEvidence(assessment, selected.assessment));
+  const selectedPriceProduct = { ...selected.product, itemPrice: { amountCents: selected.assessment.effectivePriceCents, currency: "USD" as const } };
+  const savings = peers.map(peer => costAdvantage(selectedPriceProduct,
+    { ...peer.product, itemPrice: { amountCents: peer.assessment.effectivePriceCents, currency: "USD" } })).find(Boolean);
+  if (savings) {
+    reasonCodes.push(savings.reason === "LOWER_COMPARABLE_UNIT_PRICE" ? "LOWER_UNIT_PRICE" : "LOWER_PRICE");
+  } else if (couponRank(selected.product, evaluatedAtMs) > 1) {
     reasonCodes.push("VERIFIED_COUPON");
   }
   return {
@@ -147,13 +154,41 @@ export function choosePrimaryRecommendation(products: RecommendationProduct[]): 
   };
 }
 
-function couponRank(product: RecommendationProduct): number {
-  return product.coupons.verified.reduce((rank, coupon) => Math.max(
+function couponRank(product: RecommendationProduct, evaluatedAtMs: number): number {
+  return product.coupons.verified.filter(coupon => isCurrentDeal(coupon, evaluatedAtMs)).reduce((rank, coupon) => Math.max(
     rank,
-    coupon.productApplicability === "PRODUCT_CONFIRMED"
+    coupon.productApplicability === "PRODUCT_CONFIRMED" && coupon.assessment?.status === "CONFIRMED" && coupon.assessment.recommendationEligible
       ? 2
-      : coupon.productApplicability === "MERCHANT_WIDE" ? 1 : 0
+      : coupon.productApplicability === "MERCHANT_WIDE" && coupon.assessment?.status === "CONDITIONAL" &&
+        coupon.assessment.recommendationEligible ? 1 : -1
   ), -1);
+}
+
+function currentCouponEstimate(product: RecommendationProduct, evaluatedAtMs: number): number | undefined {
+  const scoped = product.coupons.verified.filter(coupon => coupon.productApplicability === "PRODUCT_CONFIRMED");
+  // A snapshot price does not identify its contributing coupon. If a possible
+  // contributor expired, do not transfer its price to a different active offer.
+  return scoped.length > 0 && scoped.every(coupon => isCurrentDeal(coupon, evaluatedAtMs) &&
+    coupon.assessment?.status === "CONFIRMED" && coupon.assessment.recommendationEligible)
+    ? product.coupons.estimatedItemPriceAfterCoupon?.amountCents : undefined;
+}
+
+function chargingCompatibilityClarification(input: SearchProductsInput): {
+  kind: "EV_COMPATIBILITY"; question: string; evidence: string;
+} | undefined {
+  const missing = missingChargingRequirements(input);
+  if (missing.length === 0) return undefined;
+  const chinese = input.responseLocale === "zh-CN" ||
+    (input.responseLocale === undefined && /\p{Script=Han}/u.test(input.query));
+  const chineseLabels = { region: "使用国家或地区", "vehicle/connector": "车辆型号或充电接口",
+    "complete charger/kit": "需要可安装整机还是自行组装套件" } as const;
+  const englishLabels = { region: "your country or region", "vehicle/connector": "your vehicle model or connector",
+    "complete charger/kit": "whether you need a complete charger or a DIY kit" } as const;
+  const labels = missing.map(field => chinese ? chineseLabels[field] : englishLabels[field]);
+  return { kind: "EV_COMPATIBILITY", question: chinese
+    ? `请确认${labels.join("、")}。`
+    : `Please confirm ${joinEnglish(labels)}.`,
+    evidence: `EV charger compatibility lacks ${missing.join(", ")}` };
 }
 
 function joinEnglish(values: string[]): string {

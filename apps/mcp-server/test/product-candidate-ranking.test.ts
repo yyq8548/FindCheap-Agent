@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compareLowestPrice, compareRankedCandidates, selectVisualReviewCandidates } from "../src/product-candidate-ranking.js";
+import { compareLowestPrice, compareRankedCandidates, selectPresentationCandidates, selectVisualReviewCandidates } from "../src/product-candidate-ranking.js";
 import type { UnifiedCandidate } from "../src/search-products.js";
 import type { VerifiedDeal } from "../src/deal-client.js";
 import { classifyVisualProduct, VisualProductInputSchema, type VisualProductInput } from "../src/visual-product-discovery.js";
@@ -131,6 +131,8 @@ describe("visual review pool", () => {
     };
     const trusted = visuallyAssessedCandidate("trusted", "Trusted Dress | Black", "black mini dress", visual);
     trusted.recommendationTier = "TRUSTED_OR_AFFILIATE";
+    if (trusted.source !== "SHOPIFY_GLOBAL_CATALOG") throw new Error("invalid fixture");
+    trusted.shopifyProduct.merchantTrust = { level: "ESTABLISHED_RETAILER", verification: "INDEPENDENT", evidence: ["fixture"] };
     const unverified = visuallyAssessedCandidate("unverified", "DOEN Unverified Dress | Black", "black mini dress with boat neck and cap sleeve", visual);
     if (unverified.source !== "SHOPIFY_GLOBAL_CATALOG") throw new Error("invalid fixture");
     unverified.shopifyProduct.merchant = "DOEN";
@@ -138,7 +140,7 @@ describe("visual review pool", () => {
     const result = selectVisualReviewCandidates([unverified, trusted, official], 3, visual);
 
     expect(result.map(item => item.shopifyProduct?.handle)).toEqual(["unverified", "trusted", "official"]);
-    expect(result.map(item => item.presentationGroup)).toEqual(["BEST_VALUE", "TRUSTED_MATCH", "OFFICIAL_STORE"]);
+    expect(result.map(item => item.presentationGroup)).toEqual(["RESEARCH_ONLY", "TRUSTED_MATCH", "OFFICIAL_STORE"]);
     expect(result[0]?.recommendationTier).toBe("GENERAL_UNVERIFIED");
   });
 
@@ -250,6 +252,16 @@ describe("candidate coupon ranking", () => {
     expect(compareRankedCandidates(discounted, cheaperRaw)).toBeLessThan(0);
     expect(compareLowestPrice(discounted, cheaperRaw)).toBeLessThan(0);
   });
+  it.each([[-1, "BEST_VALUE"], [0, "TRUSTED_MATCH"], [1, "TRUSTED_MATCH"]] as const)(
+    "uses the same coupon expiry boundary for sorting and third-tier qualification (%s ms)", (offset, group) => {
+      const at = Date.parse(confirmed.validTo) + offset;
+      const discounted = rankingCandidate("coupon-product", "Z Short human hair wig", 2_000, [confirmed]);
+      const baseline = rankingCandidate("baseline", "A Short human hair wig", 1_000);
+      expect(Math.sign(compareRankedCandidates(discounted, baseline, at))).toBe(offset < 0 ? -1 : 1);
+      expect(Math.sign(compareLowestPrice(discounted, baseline, at))).toBe(offset < 0 ? -1 : 1);
+      const result = selectPresentationCandidates([discounted, baseline], "LOWEST_PRICE", false, false, false, at);
+      expect(result.find(item => item.shopifyProduct?.handle === "coupon-product")?.presentationGroup).toBe(group);
+    });
 });
 
 function rankingCandidate(handle: string, title: string, amountCents: number, verifiedCoupons: VerifiedDeal[] = []): UnifiedCandidate {
@@ -265,3 +277,31 @@ function rankingCandidate(handle: string, title: string, amountCents: number, ve
     }
   };
 }
+
+describe("evidence-backed presentation tiers", () => {
+  it("folds even highly rated unverified merchants into research", () => {
+    const value = candidate("unknown", "Shampoo 250 mL");
+    value.recommendationTier = "HIGH_RATED_UNVERIFIED";
+    expect(selectPresentationCandidates([value], "LOWEST_PRICE", false, false, false))
+      .toMatchObject([{ presentationGroup: "RESEARCH_ONLY" }]);
+  });
+
+  it("does not label leftover trusted products best value without comparable cost evidence", () => {
+    const products = Array.from({ length: 6 }, (_, index) => rankingCandidate(`item-${index}`, `Different wig ${index}`, 1000 + index));
+    const result = selectPresentationCandidates(products, "MERCHANT_DIVERSE", false, false, false);
+    expect(result).toHaveLength(3);
+    expect(result.every(product => product.presentationGroup === "TRUSTED_MATCH")).toBe(true);
+  });
+
+  it("reserves a third-tier slot for a trusted equal-fit lower unit cost, not a cheaper small bottle", () => {
+    const products = [rankingCandidate("small", "Shampoo 100 mL", 1000), rankingCandidate("large", "Shampoo 500 mL", 3000)];
+    for (const product of products) {
+      if (product.source !== "SHOPIFY_GLOBAL_CATALOG") throw new Error("invalid fixture");
+      product.shopifyProduct.productType = "shampoo";
+      product.shopifyProduct.condition = "NEW";
+    }
+    const result = selectPresentationCandidates(products, "MERCHANT_DIVERSE", false, false, false);
+    expect(result.find(product => product.shopifyProduct?.handle === "large")?.presentationGroup).toBe("BEST_VALUE");
+    expect(result.find(product => product.shopifyProduct?.handle === "small")?.presentationGroup).toBe("TRUSTED_MATCH");
+  });
+});

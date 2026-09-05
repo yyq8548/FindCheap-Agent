@@ -78,7 +78,7 @@ describe("requirements-to-comparison regression", () => {
     });
     const candidate = result.candidates.find(candidate => candidate.shopifyProduct !== undefined)!;
     expect(candidate.shopifyProduct?.merchantTrust.verification).toBe(host === "ishowbeauty.com" ? "INDEPENDENT" : "UNVERIFIED");
-    expect(candidate.presentationGroup).toBe(host === "ishowbeauty.com" ? "TRUSTED_MATCH" : "BEST_VALUE");
+    expect(candidate.presentationGroup).toBe(host === "ishowbeauty.com" ? "TRUSTED_MATCH" : "RESEARCH_ONLY");
   });
 
   it("retains explicit color conflicts from the selected variant", () => {

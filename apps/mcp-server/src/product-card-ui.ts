@@ -328,9 +328,17 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     };
     const couponOffers = (product) => Array.isArray(product?.coupons?.verified)
       ? product.coupons.verified.filter((offer) => offer && typeof offer === "object") : [];
+    let couponEvaluatedAtMs = Date.now();
+    const couponValidity = (offer) => {
+      const end = Date.parse(offer?.validTo || "");
+      if (!Number.isFinite(end)) return "UNKNOWN";
+      if (end <= couponEvaluatedAtMs) return "EXPIRED";
+      const start = offer?.validFrom === undefined ? -Infinity : Date.parse(offer.validFrom);
+      return start <= couponEvaluatedAtMs ? "ACTIVE" : Number.isFinite(start) ? "NOT_STARTED" : "UNKNOWN";
+    };
     const primaryCoupon = (product) => {
       if (product?.coupons?.lookupStatus === "UNAVAILABLE") return undefined;
-      const offers = couponOffers(product);
+      const offers = couponOffers(product).filter(offer => couponValidity(offer) === "ACTIVE");
       const summary = product?.coupons?.summary;
       if (summary !== undefined) {
         if (!["CONFIRMED_DEAL", "MERCHANT_CANDIDATE"].includes(summary.status) || typeof summary.recommendedDealId !== "string") return undefined;
@@ -340,15 +348,25 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       return offers.find((offer) => offer.assessment?.status !== "INELIGIBLE");
     };
     const couponConfirmed = (offer) => offer?.productApplicability === "PRODUCT_CONFIRMED" &&
-      (offer.assessment === undefined || offer.assessment.status === "CONFIRMED");
+      offer.assessment?.status === "CONFIRMED" && offer.assessment.recommendationEligible === true && couponValidity(offer) === "ACTIVE";
+    const currentCouponPrice = (product) => {
+      const scoped = couponOffers(product).filter(offer => offer.productApplicability === "PRODUCT_CONFIRMED");
+      return scoped.length > 0 && scoped.every(couponConfirmed) ? product?.coupons?.estimatedItemPriceAfterCoupon : undefined;
+    };
     const couponValue = (offer) => offer?.code ? String(offer.code)
       : typeof offer?.discountPercent === "number" && Number.isFinite(offer.discountPercent)
         ? offer.discountPercent + "%" : offer?.discountAmount ? money(offer.discountAmount) : String(offer?.title || "");
-    const couponEligibility = (offer) => couponConfirmed(offer)
-      ? text("Confirmed for this product", "已确认适用于此商品")
-      : offer?.assessment?.status === "INELIGIBLE"
+    const couponEligibility = (offer) => {
+      const eligibility = couponConfirmed(offer) ? text("Confirmed for this product", "已确认适用于此商品")
+        : offer?.assessment?.status === "INELIGIBLE"
         ? text("Not eligible for this product", "不适用于此商品")
         : text("Not confirmed for this product", "此商品适用性未确认");
+      const validity = couponValidity(offer);
+      const timing = validity === "EXPIRED" ? text("Expired", "已过期")
+        : validity === "NOT_STARTED" ? text("Not yet active", "尚未生效")
+        : validity === "UNKNOWN" ? text("Offer validity unconfirmed", "优惠有效期未确认") : "";
+      return [eligibility, timing].filter(Boolean).join(" · ");
+    };
     const couponReasons = (offer) => (Array.isArray(offer?.assessment?.reasonCodes) ? offer.assessment.reasonCodes : []).map((reason) => ({
       PRODUCT_ID_CONFIRMED: text("Product ID confirmed", "商品 ID 已确认"),
       PRODUCT_ID_MISMATCH: text("Different product ID", "商品 ID 不符"),
@@ -363,6 +381,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     })[reason] || text("Eligibility requires confirmation", "适用条件需确认")).join("; ");
     const couponBadgeText = (product, cardData) => {
       const first = primaryCoupon(product);
+      if (!first && couponOffers(product).length > 0) return "";
       const extra = Array.isArray(product?.coupons?.verified) && product.coupons.verified.length > 1
         ? " +" + (product.coupons.verified.length - 1)
         : "";
@@ -575,14 +594,14 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
         group: "BEST_VALUE",
         title: text("Best-value high-match options", "高性价比匹配"),
         notice: text(
-          "Compare fit and evidence first, then confirmed after-Coupon or item price. Unverified merchants remain research leads, not purchase recommendations.",
-          "先比较匹配与证据，再比较已确认优惠后价格或原价。未核验商家仅供调研，不作为购买推荐。"
+          "Trusted, requirement-matched products with documented comparable-price or confirmed Coupon savings. Lower cost is not a quality guarantee.",
+          "来自可信商家、必要要求已匹配，且有可比价格或已确认优惠节省的证据。更低成本不等于质量保证。"
         )
       },
       {
         group: "RESEARCH_ONLY",
-        title: text("Requirements awaiting verification", "要求待核验"),
-        notice: text("These products do not count as fulfilled matches. Check the highlighted requirements before considering purchase.", "这些商品不计入达标结果；需先核实标出的要求，不能据此直接购买。")
+        title: text("Research awaiting verification", "待核验线索"),
+        notice: text("Merchant trust, requirements or availability still need verification. These are not purchase recommendations.", "商家可信度、必要要求或库存仍待核验；这些不是购买推荐。")
       }
     ];
     const visualGroupDefinitions = () => [
@@ -625,6 +644,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       INDEPENDENT: "独立验证", UNVERIFIED: "未验证"
     })[value] || String(value || "");
     const renderComparison = (output) => {
+      couponEvaluatedAtMs = Date.now();
       if (output.locale === "zh-CN" || output.locale === "en-US") currentLocale = output.locale;
       app.replaceChildren();
       const back = make("button", "compare-toggle", text("Back to results", "返回商品卡"));
@@ -637,6 +657,10 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
         return;
       }
       app.append(make("div", "summary", output.message));
+      if (output.priceComparability === "UNIT_PRICE_ONLY") app.append(make("div", "summary", text(
+        "Different package sizes: compare unit prices, not package-price savings.", "包装规格不同：比较单位价格，不将包装标价差称为节省。")));
+      if (output.priceComparability === "NOT_LIKE_FOR_LIKE") app.append(make("div", "summary", text(
+        "Prices are shown for reference, not evidence of like-for-like value.", "价格仅作参考，不代表同口径的性价比优势。")));
       const decision = output.recommendation ?? output.decision;
       for (const [key, label] of [["conditions", text("Recommendation conditions", "推荐条件")], ["limitations", text("Comparison limitations", "比较限制")]]) {
         const values = Array.isArray(decision?.[key]) ? decision[key].filter((value) => typeof value === "string") : [];
@@ -718,6 +742,17 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
           (item.status === "MATCHED" ? text("Verified", "已核验") : item.status === "UNKNOWN" ? text("Not verified", "待核验") : text("Conflicting evidence", "证据冲突"))) ?? entry.requirementEvidence)],
         [text("Compared price", "对比价格"), (entry) => make("span", entry.comparedPrice ? "price" : "details", entry.comparedPrice ? money(entry.comparedPrice) : text("Unavailable", "不可用"))],
         [text("Item price", "商品价"), (entry) => make("span", entry.itemPrice ? "" : "details", entry.itemPrice ? money(entry.itemPrice) : text("Unknown", "未知"))],
+        [text("Unit item price", "单位商品价"), (entry) => {
+          const unit = entry.unitPrice;
+          return make("span", "details", unit && Number.isSafeInteger(unit.amountCents) && unit.currency === "USD" && ["ML", "ITEM"].includes(unit.unit)
+            ? money(unit) + (unit.unit === "ML" ? " / 100 mL" : text(" / item", " / 件")) + text(" · before coupon, tax and shipping", " · 不含优惠、税费和运费")
+            : text("No unambiguous package quantity", "无明确可换算的包装数量"));
+        }],
+        [text("Quality evidence", "质量依据"), (entry) => {
+          const rating = entry.qualityEvidence?.rating;
+          return make("span", "details", rating ? text("Source-reported rating: ", "来源报告的评分：") + rating.value + "/5 (" + rating.count +
+            text(" reviews). Not a quality guarantee.", " 条评价）。不构成质量保证。") : text("Quality evidence not verified; merchant trust is separate.", "质量依据尚未核实；商家可信度单独判断。"));
+        }],
         [text("Delivered total", "到手价"), delivered],
         [text("Verified deals", "已验证优惠"), (entry) => {
           const section = make("div");
@@ -755,6 +790,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
         : product?.matchStatus === "EXACT" ? "REQUESTED_PRODUCT" : "DISCOVERY";
     };
     function render(output) {
+      couponEvaluatedAtMs = Date.now();
       currentLocale = output?.locale === "zh-CN"
         ? "zh-CN"
         : output?.locale === "en-US"
@@ -806,17 +842,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
         ["OFFICIAL_STORE", "TRUSTED_MATCH", "BEST_VALUE", "RESEARCH_ONLY"].includes(product?.presentationGroup)
       );
       const groupDefinitions = usesPresentationGroups
-        ? [
-            ...(primarySelectionId === undefined ? [] : [{
-              group: "PRIMARY_RECOMMENDATION",
-              title: text("First recommendation", "首选推荐"),
-              notice: text(
-                "Selected by product fit and merchant trust. Coupon evidence never overrides safety or relevance.",
-                "依据商品匹配度和商家可信度选出；优惠信息不会越过安全与相关性排序。"
-              )
-            }]),
-            ...presentationGroupDefinitions()
-          ]
+        ? presentationGroupDefinitions()
         : combinedGroupDefinitions(
             products.some((product) => typeof product?.visualMatchGroup === "string")
               ? visualGroupDefinitions()
@@ -923,15 +949,19 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
         }
         app.append(quoteSummary);
       }
-      for (const definition of groupDefinitions) {
-        const grouped = products.filter((product) => {
-          const isPrimary = primarySelectionId !== undefined && product?.selectionId === primarySelectionId;
-          if (definition.group === "PRIMARY_RECOMMENDATION") return isPrimary;
-          if (usesPresentationGroups && isPrimary) return false;
-          return usesPresentationGroups
-            ? product?.presentationGroup === definition.group
-            : resultGroup(product) === definition.group && recommendationTier(product) === definition.tier;
-        });
+      const displayGroups = usesPresentationGroups
+        ? groupDefinitions.map(definition => ({ definition, grouped: products.filter(product => product?.presentationGroup === definition.group) }))
+        : products.reduce((segments, product) => {
+            const definition = groupDefinitions.find(entry => resultGroup(product) === entry.group && recommendationTier(product) === entry.tier);
+            if (!definition) return segments;
+            const last = segments[segments.length - 1];
+            if (last?.definition === definition) last.grouped.push(product);
+            else segments.push({ definition, grouped: [product] });
+            return segments;
+          }, []);
+      // Legacy snapshots keep ordinal order. Merge only adjacent groups rather
+      // than moving a later matching card ahead of earlier snapshot entries.
+      for (const { definition, grouped } of displayGroups) {
         if (grouped.length === 0) continue;
         const researchOnly = definition.group === "RESEARCH_ONLY";
         const group = make(researchOnly ? "details" : "section", "group");
@@ -944,12 +974,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
         for (const product of grouped) {
           const cardData = product && typeof product.card === "object" ? product.card : {};
           const card = make("article", "card");
-          const isFirstSupported = primarySelectionId !== undefined
-            ? product?.selectionId === primarySelectionId
-            : output?.recommendation === undefined &&
-              product === products[0] &&
-              ["OFFICIAL_STORE", "TRUSTED_MATCH"].includes(product?.presentationGroup) &&
-              recommendationTier(product) !== "GENERAL_UNVERIFIED";
+          const isFirstSupported = primarySelectionId !== undefined && product?.selectionId === primarySelectionId;
           if (isFirstSupported) card.className = "card featured";
           const imageUrl = safeHttps(cardData.imageUrl);
           if (!imageUrl) card.className += " no-image";
@@ -981,7 +1006,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
           const body = make("div", "body");
           const merchantRow = make("div", "merchant-row");
           merchantRow.append(make("div", "merchant", cardData.merchant || product.merchant || text("Merchant", "商家")));
-          if (isFirstSupported) merchantRow.append(make("span", "rank-label", text("First to consider", "值得先看")));
+          if (isFirstSupported) merchantRow.append(make("span", "rank-label", text("First recommendation", "首选推荐")));
           body.append(merchantRow);
           if (cardData.sellerName || product.sellerName) {
             body.append(make("div", "details", text("Seller: ", "卖家：") + String(cardData.sellerName || product.sellerName)));
@@ -1015,16 +1040,36 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
           }
           if (product?.productRating && Number.isFinite(Number(product.productRating.value)) && Number.isInteger(Number(product.productRating.count))) {
             body.append(make("div", "details", currentLocale === "zh-CN"
-              ? "商品评分：" + Number(product.productRating.value).toFixed(1) + "/5（" + Number(product.productRating.count) + " 条评价）"
-              : "Product rating: " + Number(product.productRating.value).toFixed(1) + "/5 (" + Number(product.productRating.count) + " reviews)"));
+              ? "来源报告的商品评分：" + Number(product.productRating.value).toFixed(1) + "/5（" + Number(product.productRating.count) + " 条评价）；不构成质量保证。"
+              : "Source-reported product rating: " + Number(product.productRating.value).toFixed(1) + "/5 (" + Number(product.productRating.count) + " reviews); not a quality guarantee."));
+          } else if (product.qualityEvidence?.status === "UNKNOWN") {
+            body.append(make("div", "details", text("Product quality evidence not verified; merchant trust is separate.", "商品质量依据尚未核实；商家可信度单独判断。")));
           }
           const row = make("div", "row");
           const priceBlock = make("div", "");
           priceBlock.append(make("div", "price", money(cardData.primaryPrice)));
           if (cardData.priceLabel) priceBlock.append(make("div", "details", cardLabelText(cardData.priceLabel)));
-          if (product?.coupons?.estimatedItemPriceAfterCoupon && couponConfirmed(primaryCoupon(product))) {
+          if (currentCouponPrice(product) && couponConfirmed(primaryCoupon(product))) {
             priceBlock.append(make("div", "details", text("Estimated after Coupon: ", "使用优惠后预计：") +
               money(product.coupons.estimatedItemPriceAfterCoupon)));
+          }
+          const unitPrice = product.unitPrice;
+          if (unitPrice && Number.isSafeInteger(unitPrice.amountCents) && unitPrice.amountCents >= 0 && unitPrice.currency === "USD" && ["ML", "ITEM"].includes(unitPrice.unit)) {
+            priceBlock.append(make("div", "details", money(unitPrice) + (unitPrice.unit === "ML" ? " / 100 mL" : text(" / item", " / 件")) +
+              text(" · before coupon, tax and shipping", " · 不含优惠、税费和运费")));
+          }
+          const value = product.valueEvidence;
+          const valuePriceCurrent = (!product?.coupons?.estimatedItemPriceAfterCoupon || currentCouponPrice(product)) &&
+            (value?.reason !== "CONFIRMED_COUPON_SAVINGS" || currentCouponPrice(product));
+          if (valuePriceCurrent && value && Number.isSafeInteger(value.amountCents) && value.amountCents > 0 && value.currency === "USD") {
+            const labels = {
+              LOWER_SAME_PRODUCT_PRICE: text("Lower verified same-product price: ", "已核实同款价格更低："),
+              LOWER_COMPARABLE_UNIT_PRICE: text("Lower comparable unit price: ", "可比单位价格更低："),
+              CONFIRMED_COUPON_SAVINGS: text("Confirmed product Coupon savings: ", "已确认商品优惠节省：")
+            };
+            if (labels[value.reason]) body.append(make("div", "evidence", labels[value.reason] + money(value) +
+              (value.basis === "PER_100_ML" ? " / 100 mL" : value.basis === "PER_ITEM" ? text(" / item", " / 件") : "") +
+              (value.comparedWithTitle ? text(" vs ", "；对比 ") + String(value.comparedWithTitle) : "")));
           }
           row.append(priceBlock);
           const badges = make("div", "badges");

@@ -1,6 +1,24 @@
 import { z } from "zod";
-import { evaluateFeature, isColorRequirement, type FeatureMatchStatus } from "./product-constraint-matcher.js";
+import { evaluateFeature, isColorRequirement, namedIdentityFeatureStatus, type FeatureMatchStatus } from "./product-constraint-matcher.js";
 import { sanitizeExternalText } from "./execution/external-data-fence.js";
+import { functionalFeatureEvidence, requiredPrimaryUseFeatures } from "./functional-requirements.js";
+import { boundNamedIdentityRequirement } from "./named-product-identity.js";
+import { missingChargingRequirements } from "./decision-constraints.js";
+import { isPartialPriceListing } from "./shopify-match.js";
+
+/** Product/feed claims describe what the merchant says, not verified efficacy. */
+export const CandidateClaimEvidenceSchema = z.object({
+  kind: z.literal("MERCHANT_CLAIM"),
+  attribute: z.enum(["anti-dandruff", "oily scalp", "moisturizing", "dry hair", "anti-frizz", "fine hair", "cosplay"]),
+  source: z.enum(["PRODUCT", "FEED"]),
+  field: z.enum(["TITLE", "DESCRIPTION"]),
+  scope: z.enum(["PRODUCT", "OTHER_PRODUCT", "INGREDIENT", "CONDITIONAL"]),
+  status: z.enum(["MATCHED", "CONTRADICTED", "UNKNOWN"]),
+  start: z.number().int().nonnegative(),
+  end: z.number().int().nonnegative(),
+  quote: z.string().max(240)
+}).strict();
+export type CandidateClaimEvidence = z.infer<typeof CandidateClaimEvidenceSchema>;
 
 export const RequirementAssessmentSchema = z.object({
   policyVersion: z.literal("requirements-v1"),
@@ -9,7 +27,8 @@ export const RequirementAssessmentSchema = z.object({
     requirement: z.string().max(200),
     status: z.enum(["MATCHED", "CONTRADICTED", "UNKNOWN", "CONFLICT"]),
     source: z.enum(["VARIANT", "PRODUCT", "FEED", "MISSING"]),
-    observed: z.string().max(240).optional()
+    observed: z.string().max(240).optional(),
+    evidence: z.array(CandidateClaimEvidenceSchema).max(8).optional()
   }).strict()).max(32)
 }).strict();
 export type RequirementAssessment = z.infer<typeof RequirementAssessmentSchema>;
@@ -24,6 +43,9 @@ export type RequirementProduct = {
   itemPrice?: { amountCents: number; currency: string } | undefined;
 };
 type Requirements = {
+  query?: string | undefined;
+  productType?: string | undefined;
+  primaryUse?: string | undefined;
   requiredFeatures: readonly string[];
   excludedFeatures: readonly string[];
   preferences: readonly string[];
@@ -58,8 +80,22 @@ export function evaluateProductRequirements(product: RequirementProduct, input: 
   const text = [product.title, product.productType, product.description, product.brand, product.sku,
     ...dimensions.flat()].filter(Boolean).join(" ");
   const entries: RequirementAssessment["entries"] = [];
-  const requirements = [...new Set(input.requiredFeatures)];
+  const requirements = [...new Set([...input.requiredFeatures, ...requiredPrimaryUseFeatures(input.primaryUse)])];
   for (const requirement of requirements) {
+    const named = namedProductAssessment(product, boundNamedIdentityRequirement(requirement, input.query));
+    if (named !== undefined) {
+      entries.push({ requirement: sanitizeExternalText(requirement, 200), status: named.status,
+        source: named.status === "UNKNOWN" ? "MISSING" : product.evidenceSource ?? "PRODUCT",
+        observed: sanitizeExternalText(named.observed, 240) });
+      continue;
+    }
+    const claim = productClaimAssessment(product, requirement);
+    if (claim !== undefined) {
+      entries.push({ requirement: sanitizeExternalText(requirement, 200), status: claim.status,
+        source: claim.evidence.length === 0 ? "MISSING" : product.evidenceSource ?? "PRODUCT",
+        ...(claim.evidence.length === 0 ? {} : { observed: claim.evidence[0]!.quote, evidence: claim.evidence }) });
+      continue;
+    }
     const isSize = input.requiredSize === requirement || /^(?:(?:shoe )?size\s*[:=]?\s*)?(?:(?:US|UK|EU)\s*\d+(?:\.5)?|XXXS|XXS|XS|S|M|L|XL|XXL|XXXL)$/iu.test(requirement);
     const isColor = isColorRequirement(requirement);
     const dimension = dimensions.find(([name]) => isSize ? /^(?:shoe )?size(?:s)?$/iu.test(name)
@@ -93,19 +129,24 @@ export function evaluateProductRequirements(product: RequirementProduct, input: 
     entries.push({ requirement: sanitizeExternalText(requirement, 200), status, source,
       ...(observed === "" ? {} : { observed: sanitizeExternalText(observed, 240) }) });
   }
+  const partialPrice = isPartialPriceListing(product);
+  if (partialPrice) entries.push({ requirement: "complete item price", status: "UNKNOWN", source: "MISSING" });
   if (input.maxItemPriceCents !== undefined) {
     const price = product.itemPrice;
-    const verified = price?.currency === "USD" && Number.isSafeInteger(price.amountCents) && price.amountCents >= 0;
+    const verified = !partialPrice && price?.currency === "USD" && Number.isSafeInteger(price.amountCents) && price.amountCents >= 0;
     entries.push({ requirement: `maximum item price: USD ${(input.maxItemPriceCents / 100).toFixed(2)}`,
       status: !verified ? "UNKNOWN" : price.amountCents <= input.maxItemPriceCents ? "MATCHED" : "CONTRADICTED",
       source: verified ? product.evidenceSource ?? "PRODUCT" : "MISSING",
       ...(verified ? { observed: `USD ${(price.amountCents / 100).toFixed(2)}` } : {}) });
   }
   for (const excluded of input.excludedFeatures) {
-    if (evaluateFeature(text, excluded) === "MATCHED") entries.push({
+    if ((namedProductAssessment(product, excluded)?.status ?? productClaimAssessment(product, excluded)?.status ?? evaluateFeature(text, excluded)) === "MATCHED") entries.push({
       requirement: sanitizeExternalText(`excluded: ${excluded}`, 200), status: "CONTRADICTED", source: product.evidenceSource ?? "PRODUCT"
     });
   }
+  for (const gap of missingChargingRequirements(input)) entries.push({
+    requirement: `EV compatibility: ${gap}`, status: "UNKNOWN", source: "MISSING"
+  });
   const matched = entries.filter(entry => entry.status === "MATCHED").map(entry => entry.requirement);
   const contradicted = entries.filter(entry => entry.status === "CONTRADICTED").map(entry => entry.requirement);
   const unknown = entries.filter(entry => entry.status === "UNKNOWN" || entry.status === "CONFLICT").map(entry => entry.requirement);
@@ -113,5 +154,34 @@ export function evaluateProductRequirements(product: RequirementProduct, input: 
     status: contradicted.length > 0 || entries.some(entry => entry.status === "CONFLICT") ? "CONFLICT"
       : unknown.length > 0 ? "NEEDS_VERIFICATION" : "SATISFIED" };
   return { matched, contradicted, unknown,
-    preferences: input.preferences.filter(feature => evaluateFeature(text, feature) === "MATCHED"), assessment };
+    preferences: input.preferences.filter(feature =>
+      (namedProductAssessment(product, feature)?.status ?? productClaimAssessment(product, feature)?.status ?? evaluateFeature(text, feature)) === "MATCHED"), assessment };
+}
+
+function namedProductAssessment(product: RequirementProduct, requirement: string) {
+  const titleStatus = namedIdentityFeatureStatus(product.title, requirement);
+  if (titleStatus === undefined) return undefined;
+  const descriptionStatus = namedIdentityFeatureStatus(product.description ?? "", requirement)!;
+  const statuses = [titleStatus, descriptionStatus];
+  const status = statuses.includes("MATCHED") && statuses.includes("CONTRADICTED") ? "CONFLICT"
+    : statuses.includes("CONTRADICTED") ? "CONTRADICTED" : statuses.includes("MATCHED") ? "MATCHED" : "UNKNOWN";
+  return { status, observed: titleStatus === "UNKNOWN" ? product.description ?? "" : product.title } as const;
+}
+
+function productClaimAssessment(product: RequirementProduct, requirement: string) {
+  const context = { productTitle: product.title, productType: product.productType };
+  const title = functionalFeatureEvidence(product.title, requirement, context);
+  if (title === undefined) return undefined;
+  const description = functionalFeatureEvidence(product.description ?? "", requirement, context)!;
+  const evidence = ([{ field: "TITLE", result: title }, { field: "DESCRIPTION", result: description }] as const)
+    .flatMap(({ field, result }) => result.evidence.map(entry => ({ ...entry,
+      kind: "MERCHANT_CLAIM" as const, source: product.evidenceSource ?? "PRODUCT" as const, field,
+      quote: sanitizeExternalText(entry.quote, 240) })))
+    .sort((a, b) => ({ CONTRADICTED: 0, MATCHED: 1, UNKNOWN: 2 })[a.status] -
+      ({ CONTRADICTED: 0, MATCHED: 1, UNKNOWN: 2 })[b.status]).slice(0, 8);
+  // A functional conjunction can be supported across fields, but every named
+  // attribute still needs positive evidence and no attribute may conflict.
+  const combined = functionalFeatureEvidence([product.title, product.description].filter(Boolean).join(". "), requirement, context)!;
+  const status = combined.conflictingAttributes.length > 0 ? "CONFLICT" : combined.status;
+  return { status, evidence } as const;
 }

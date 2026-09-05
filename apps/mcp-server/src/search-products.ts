@@ -1,5 +1,8 @@
 import { z } from "zod";
 import { SearchRun } from "./search-run.js";
+import { compileSourceQuery, discoveryTarget, isExplicitCategoryQuery } from "./retrieval-plan.js";
+import { classifySourceFailure, type SourceFailure } from "./source-failure.js";
+import type { ValueEvidence } from "./product-value-evidence.js";
 import { candidateFingerprint, sourceProductFingerprint, visualQueryHash } from "./visual-source-fingerprints.js";
 import { assessVisualVerdict, type VisualReviewAssessment } from "./visual-review-policy.js";
 
@@ -29,7 +32,7 @@ import {
 } from "./merchant-trust.js";
 import type { MerchantRecommendationTier } from "./merchant-trust.js";
 import { evaluateProductRequirements, normalizedSizeRequirement, type RequirementAssessment, type RequirementProduct } from "./product-requirements.js";
-import { functionalQueryFeatures } from "./functional-requirements.js";
+import { functionalQueryFeatures, requiredPrimaryUseFeatures } from "./functional-requirements.js";
 import { isColorRequirement } from "./product-constraint-matcher.js";
 import type { ShopifySelectedProductInspector } from "./shopify-selected-product.js";
 import {
@@ -48,6 +51,7 @@ import { buildVisualRetrievalQuery } from "./visual-retrieval-query.js";
 import { productReferenceKey } from "./product-reference.js";
 import {
   classifyShopifyCandidate,
+  isPartialPriceListing,
   hasNamedProductIntent,
   hasSpecificProductIdentity,
   hasStrongProductIdentifier,
@@ -92,7 +96,7 @@ export const SearchProductsInputSchema = z.object({
     .describe("True only when the user explicitly says there is no fixed budget ceiling")
     .default(false),
   primaryUse: z.string().trim().min(1).max(120)
-    .describe("User-stated primary workload or use; never infer it")
+    .describe("User-stated primary workload or use; never infer it. Explicit cosplay/role-playing is a required use, not an optional preference")
     .optional(),
   preferredSize: z.string().trim().min(1).max(80)
     .describe("User-stated preferred physical or screen size; never infer it")
@@ -114,6 +118,7 @@ export const SearchProductsInputSchema = z.object({
   productType: z.string().trim().min(1).max(100).optional(),
   requiredFeatures: z.array(z.string().trim().min(1).max(160)).max(10)
     .refine((values) => new Set(values.map(normalize)).size === values.length, "required features must be unique")
+    .describe("Preserve stated must-have meaning. Keep symptoms such as 改善干燥毛躁 or reduce dryness and frizz, not for dry hair unless the user states dry-hair suitability. Identity refinement stays in query; do not invent an audience, material, color or fit")
     .default([]),
   excludedFeatures: z.array(z.string().trim().min(1).max(80)).max(10)
     .refine((values) => new Set(values.map(normalize)).size === values.length, "excluded features must be unique")
@@ -127,9 +132,11 @@ export const SearchProductsInputSchema = z.object({
     "CONTINUE_PREVIOUS_PRODUCT",
     "CORRECT_PREVIOUS_PRODUCT",
     "AMBIGUOUS"
-  ]).describe("NEW for a different shopping goal; CONTINUE for added budget, use, size, or other constraints; CORRECT only when the user changes prior product identity; AMBIGUOUS when unclear")
+  ]).describe("NEW for a different shopping goal; CONTINUE for added budget, use, size, constraints, or same-category identity refinement (pass the full refined identity in query); CORRECT for replacing prior product identity; AMBIGUOUS when unclear")
     .default("NEW_PRODUCT"),
   parentRenderId: z.string().uuid().optional().describe("Exact prior search snapshot for CONTINUE or CORRECT; never guess the latest search"),
+  goalId: z.string().uuid().optional().describe("Server-issued shopping goal binding; never infer a global latest goal"),
+  goalRevision: z.number().int().positive().optional().describe("Exact server-issued revision of the bound shopping goal"),
   clearConstraints: z.array(z.enum(["maxItemPriceCents", "requiredSize", "preferredSize", "requiredFeatures", "excludedFeatures", "preferences", "brand", "primaryUse", "allowAlternatives", "conditionPreference"])).max(10).default([])
     .describe("Clear only constraints the user explicitly withdrew; omitted constraints are retained on continuation"),
   removeRequiredFeatures: z.array(z.string().trim().min(1).max(160)).max(10).default([])
@@ -149,9 +156,11 @@ export type SearchProductsExecutionInput = SearchProductsInput & {
   deferVisualFiltering?: boolean;
   relaxVisualRetrieval?: boolean;
   searchRun?: SearchRun;
+  previousCandidates?: UnifiedCandidate[];
 };
 
 type CandidateBase = {
+  valueEvidence?: ValueEvidence;
   affiliateState: "APPROVED" | "NONE";
   recommendationTier: MerchantRecommendationTier;
   featureEvidence: string[];
@@ -234,6 +243,20 @@ export const CodexVisualVerdictSchema = z.object({
 export type CodexVisualVerdict = z.infer<typeof CodexVisualVerdictSchema>;
 
 export type UnifiedSearchExecution = {
+  sourceFailures?: SourceFailure[];
+  retrievedProductHashes?: string[];
+  retrievedProductsTruncated?: boolean;
+  previousProductHashes?: string[];
+  candidateFunnel?: {
+    sourceObservations: number;
+    sourceUnique: number;
+    previousRechecked: number;
+    previousRetained: number;
+    eligibleUnique: number;
+    requirementsMatchedUnique: number;
+    recommendableUnique: number;
+    presentedUnique: number;
+  };
   webRecovery?: { submitted: number; verified: number; rejected: number; unavailable: number };
   searchRun?: SearchRun;
   reviewPool?: UnifiedCandidate[];
@@ -256,6 +279,7 @@ export type UnifiedSearchExecution = {
   sourcePassDiagnostics: Array<{
     pass: 1 | 2;
     query: string;
+    sourceQueries?: Partial<Record<"awin" | "shopify" | "ebay", string>>;
     rawProducts: { awin: number; shopify: number; ebay: number };
     acceptedCandidates: { awin: number; shopify: number; ebay: number };
   }>;
@@ -291,7 +315,8 @@ export function finalizeCodexVisualCandidates(
   allowAlternatives: boolean,
   limit = 3,
   visualInput?: VisualProductInput,
-  requestedBrand = true
+  requestedBrand = true,
+  evaluatedAtMs = Date.now()
 ): UnifiedCandidate[] {
   const accepted = reviewed.flatMap(({ candidate, verdict }) => {
     const review = assessVisualVerdict(verdict, visualInput, allowAlternatives);
@@ -314,14 +339,15 @@ export function finalizeCodexVisualCandidates(
       identityStatus: stableExact ? "EXACT" as const : group === "SAME_STYLE" ? "SIMILAR" as const : "DISCOVERY_MATCH" as const,
       resultGroup: stableExact ? candidate.resultGroup : visualResultGroup(group)
     }];
-  }).sort(compareRankedCandidates);
+  }).sort((left, right) => compareRankedCandidates(left, right, evaluatedAtMs));
   return selectPresentationCandidates(
     accepted,
     "MERCHANT_DIVERSE",
     allowAlternatives,
     true,
-    requestedBrand
-  ).sort(compareRankedCandidates).slice(0, limit);
+    requestedBrand,
+    evaluatedAtMs
+  ).sort((left, right) => compareRankedCandidates(left, right, evaluatedAtMs)).slice(0, limit);
 }
 
 export function shouldQueryAwin(query: string): boolean {
@@ -350,6 +376,7 @@ export async function searchProducts(
   ]);
   const rawRequiredFeatures = unique([
     ...rawInput.requiredFeatures,
+    ...requiredPrimaryUseFeatures(rawInput.primaryUse),
     ...(rawInput.requiredSize === undefined ? [] : [normalizedSizeRequirement(rawInput.requiredSize, rawInput.productType ?? rawInput.query)]),
     ...(rawInput.featureMode === "REQUIRED" ? rawInput.features : [])
   ]);
@@ -375,7 +402,7 @@ export async function searchProducts(
     preferences: unique([
       ...rawInput.preferences,
       ...(rawInput.featureMode === "PREFERRED" ? rawInput.features : []),
-      ...(rawInput.primaryUse === undefined ? [] : [rawInput.primaryUse]),
+      ...(rawInput.primaryUse === undefined || requiredPrimaryUseFeatures(rawInput.primaryUse).length > 0 ? [] : [rawInput.primaryUse]),
       ...(rawInput.preferredSize === undefined ? [] : [normalizedSizeRequirement(rawInput.preferredSize, rawInput.productType ?? rawInput.query)])
     ])
   };
@@ -418,6 +445,12 @@ export async function searchProducts(
   let awinError: "DATA_SOURCE_UNAVAILABLE" | undefined;
   let shopifyError: "CATALOG_SCHEMA_CHANGED" | "DATA_SOURCE_UNAVAILABLE" | undefined;
   let ebayError: "DATA_SOURCE_UNAVAILABLE" | undefined;
+  const sourceFailures: SourceFailure[] = [];
+  const sourceQueries: Record<1 | 2, Partial<Record<"awin" | "shopify" | "ebay", string>>> = { 1: {}, 2: {} };
+  const recordFailure = (source: SourceFailure["source"], error: unknown) => {
+    const failure = classifySourceFailure(source, error);
+    if (!sourceFailures.some(item => item.source === source && item.kind === failure.kind)) sourceFailures.push(failure);
+  };
   let affiliateCandidates: UnifiedCandidate[] = [];
   let shopifyCandidates: UnifiedCandidate[] = [];
   let ebayCandidates: UnifiedCandidate[] = [];
@@ -432,6 +465,31 @@ export async function searchProducts(
   const visualExcludedKeys = new Set<string>();
   const inspected = new Map<string, Promise<ShopifyProduct[]>>();
   const approvedAwinHosts = new Map<string, Set<string>>();
+  const freshProductHashes = new Set<string>();
+  let sourceObservations = 0;
+  const observeProducts = (source: "AWIN" | "SHOPIFY" | "EBAY", products: Array<AwinProduct | ShopifyProduct | EbayProduct>) => {
+    sourceObservations += products.length;
+    for (const product of products) freshProductHashes.add(sourceProductFingerprint(source, product).productHash);
+  };
+  // Only the executor supplies this bounded, explicitly bound prior snapshot.
+  // Rebuild all assessments; never carry old Coupon or requirement verdicts.
+  const previous = input.visualInput === undefined && input.contextMode !== "NEW_PRODUCT" && input.contextMode !== "AMBIGUOUS"
+    ? (input.previousCandidates ?? []).slice(0, 18).flatMap(candidate => {
+        const product = candidate.awinProduct ?? candidate.shopifyProduct ?? candidate.ebayProduct;
+        if (product.availability === "OUT_OF_STOCK") return [];
+        const category = candidate.shopifyProduct?.productType ?? candidate.awinProduct?.category ?? candidate.ebayProduct?.category;
+        const description = candidate.shopifyProduct?.description ?? candidate.awinProduct?.requirementEvidence ?? candidate.ebayProduct?.attributes.join(" ");
+        if (searchIntent === "CATEGORY_DISCOVERY" && classifyShopifyCandidate(input.productType ?? identityQuery, {
+          title: product.title, ...(category === undefined ? {} : { productType: category }),
+          ...(description === undefined ? {} : { description })
+        }).status === "IRRELEVANT") return [];
+        const args = [input, searchIntent, identityQuery, featureExcludedKeys, brandExcludedKeys, identityExcludedKeys, visualExcludedKeys] as const;
+        const checked = candidate.source === "AWIN_PRODUCT_FEED" ? awinCandidate(candidate.awinProduct, ...args)
+          : candidate.source === "SHOPIFY_GLOBAL_CATALOG" ? shopifyCandidate(candidate.shopifyProduct, ...args)
+            : ebayCandidate(candidate.ebayProduct, ...args);
+        return checked === undefined ? [] : [checked];
+      }) : [];
+  const retainedPrevious = () => previous.filter(candidate => !freshProductHashes.has(candidateFingerprint(candidate).productHash));
   let inspectionCount = 0;
   const inspectRequiredVariants = async (products: ShopifyProduct[]): Promise<ShopifyProduct[]> => {
     if (ports.selectedProducts === undefined || input.visualInput !== undefined || input.deferVisualFiltering === true ||
@@ -453,7 +511,8 @@ export async function searchProducts(
           inspectionCount++;
           pending = searchRun.read("VARIANT", key, async signal => {
             const result = await ports.selectedProducts!.inspect(product, {}, { signal,
-              requirements: { requiredFeatures: input.requiredFeatures, requiredSize: input.requiredSize } });
+              requirements: { requiredFeatures: input.requiredFeatures, requiredSize: input.requiredSize,
+                query: input.query, productType: input.productType, primaryUse: input.primaryUse } });
             const originalUrl = new URL(product.merchantUrl);
             const variants = result.variants.filter(variant => {
               const url = new URL(variant.merchantUrl);
@@ -474,6 +533,8 @@ export async function searchProducts(
   const queryAwin = async (query: string, limit: number, merge: boolean): Promise<void> => {
     if (!affiliateEligible) return;
     try {
+      query = compileSourceQuery("AWIN", query, { pass: merge ? 2 : 1, identityQuery, visual: input.visualInput !== undefined });
+      sourceQueries[merge ? 2 : 1].awin = query;
       const result = await searchRun.read("AWIN", JSON.stringify([query, limit]), (signal) => ports.awin.search({
         query,
         limit,
@@ -485,6 +546,7 @@ export async function searchProducts(
         ...(input.maxItemPriceCents === undefined ? {} : { maxItemPriceCents: input.maxItemPriceCents })
       }));
       awinResult = result;
+      observeProducts("AWIN", result.products);
       for (const product of result.products) {
         const host = new URL(product.merchantUrl).hostname.toLowerCase().replace(/^www\./u, "");
         const merchants = approvedAwinHosts.get(host) ?? new Set<string>();
@@ -507,13 +569,16 @@ export async function searchProducts(
         .filter((candidate): candidate is UnifiedCandidate => candidate !== undefined);
       affiliateCandidates = merge ? mergeCandidates(affiliateCandidates, incoming) : incoming;
       if (input.visualInput !== undefined) searchRun.recordVisualStage("ELIGIBLE", incoming.map(candidateFingerprint), { source: "AWIN", queryHash: visualQueryHash(query) });
-    } catch {
+    } catch (error) {
       awinStatus = "UNAVAILABLE";
       awinError = "DATA_SOURCE_UNAVAILABLE";
+      recordFailure("AWIN", error);
     }
   };
   const queryShopify = async (query: string, limit: number, merge: boolean): Promise<void> => {
     try {
+      query = compileSourceQuery("SHOPIFY", query, { pass: merge ? 2 : 1, identityQuery, visual: input.visualInput !== undefined });
+      sourceQueries[merge ? 2 : 1].shopify = query;
       const response = await searchRun.read("SHOPIFY", JSON.stringify([query, limit]), (signal) => ports.shopify.search({
         query,
         limit,
@@ -525,6 +590,7 @@ export async function searchProducts(
         membershipIds: input.membershipIds ?? []
       }));
       const result = { ...response, products: await inspectRequiredVariants(response.products) };
+      observeProducts("SHOPIFY", result.products);
       shopifyResult = result;
       observedShopifyProducts = mergeShopifyProducts(observedShopifyProducts, result.products);
       shopifyStatus = result.coverage;
@@ -546,11 +612,14 @@ export async function searchProducts(
     } catch (error) {
       shopifyStatus = shopifyResult === undefined ? "UNAVAILABLE" : "PARTIAL";
       shopifyError ??= productSourceError(error);
+      recordFailure("SHOPIFY", error);
     }
   };
   const queryEbay = async (query: string, limit: number, merge: boolean): Promise<void> => {
     if (ports.ebay === undefined || ebayStatus === "SKIPPED") return;
     try {
+      query = compileSourceQuery("EBAY", query, { pass: merge ? 2 : 1, identityQuery, visual: input.visualInput !== undefined });
+      sourceQueries[merge ? 2 : 1].ebay = query;
       const result = await searchRun.read("EBAY", JSON.stringify([query, limit]), (signal) => ports.ebay!.search({
         query,
         limit,
@@ -559,6 +628,7 @@ export async function searchProducts(
         ...(input.zipCode === undefined ? {} : { zipCode: input.zipCode })
       }));
       ebayResult = result;
+      observeProducts("EBAY", result.products);
       ebayStatus = "COMPLETE";
       if (input.visualInput !== undefined) searchRun.recordVisualStage("NORMALIZED", result.products.map((product) => sourceProductFingerprint("EBAY", product)), { source: "EBAY", queryHash: visualQueryHash(query) });
       const incoming = result.products
@@ -581,6 +651,7 @@ export async function searchProducts(
       } else {
         ebayStatus = "UNAVAILABLE";
         ebayError = "DATA_SOURCE_UNAVAILABLE";
+        recordFailure("EBAY", error);
       }
     }
   };
@@ -608,12 +679,14 @@ export async function searchProducts(
       ...buildOfficialStoreQueries(input, searchIntent, officialSeed.platform === "GENERIC_JSON_LD")
     ];
     for (const attempt of stages) {
+      const compiledQuery = compileSourceQuery("SHOPIFY", attempt.query, { pass: attempts.length === 0 ? 1 : 2,
+        identityQuery, visual: input.visualInput !== undefined });
       const directUrl = "sourcePageUrl" in attempt ? attempt.sourcePageUrl : undefined;
-      const queryKey = JSON.stringify([officialSeed.sourceHost, attempt.query, directUrl]);
+      const queryKey = JSON.stringify([officialSeed.sourceHost, compiledQuery, directUrl]);
       if (input.deferVisualFiltering === true && !searchRun.claimOfficialQuery(visualQueryHash(queryKey))) continue;
       try {
         const products = await searchRun.read("OFFICIAL", queryKey, (signal) => ports.officialShopify!.search({
-          seed: officialSeed, query: attempt.query, limit: 12, cacheScope: searchRun, signal,
+          seed: officialSeed, query: compiledQuery, limit: 12, cacheScope: searchRun, signal,
           onRead: delta => searchRun.recordOfficialRead(delta),
           ...(input.requiredSize === undefined ? {} : { requiredSize: input.requiredSize }),
           ...(input.visualInput === undefined && input.requiredFeatures.some(isColorRequirement)
@@ -621,25 +694,27 @@ export async function searchProducts(
           ...(directUrl === undefined ? {} : { sourcePageUrl: directUrl })
         }));
         successes += 1;
-        if (input.visualInput !== undefined) searchRun.recordVisualStage("NORMALIZED", products.map((product) => sourceProductFingerprint("SHOPIFY", product)), { source: "OFFICIAL", queryHash: visualQueryHash(attempt.query) });
+        observeProducts("SHOPIFY", products);
+        if (input.visualInput !== undefined) searchRun.recordVisualStage("NORMALIZED", products.map((product) => sourceProductFingerprint("SHOPIFY", product)), { source: "OFFICIAL", queryHash: visualQueryHash(compiledQuery) });
         officialProducts.splice(0, officialProducts.length, ...mergeShopifyProducts(officialProducts, products));
         const incoming = products.map((product) => shopifyCandidate(
           product, input, searchIntent, identityQuery, featureExcludedKeys, brandExcludedKeys,
           identityExcludedKeys, visualExcludedKeys
         )).filter((candidate): candidate is UnifiedCandidate => candidate !== undefined);
-        if (input.visualInput !== undefined) searchRun.recordVisualStage("ELIGIBLE", incoming.map(candidateFingerprint), { source: "OFFICIAL", queryHash: visualQueryHash(attempt.query) });
+        if (input.visualInput !== undefined) searchRun.recordVisualStage("ELIGIBLE", incoming.map(candidateFingerprint), { source: "OFFICIAL", queryHash: visualQueryHash(compiledQuery) });
         const merged = input.deferVisualFiltering === true
           ? mergeCandidatesPreservingOrder(officialCandidates, incoming)
           : mergeCandidates(officialCandidates, incoming);
         officialCandidates.splice(0, officialCandidates.length, ...merged);
-        attempts.push({ stage: attempt.stage, query: attempt.query, productsReturned: products.length, acceptedCandidates: incoming.length });
+        attempts.push({ stage: attempt.stage, query: compiledQuery, productsReturned: products.length, acceptedCandidates: incoming.length });
         if (input.visualInput === undefined && input.deferVisualFiltering !== true &&
           countRecommendationEligibleCandidates(officialCandidates) >= Math.min(input.limit, searchIntent === "EXACT_PRODUCT" ? 1 : 2)) break;
         if (hasSufficientOfficialMatches(officialCandidates.filter(candidate =>
           !searchRun.wasVisuallyReviewed(candidateFingerprint(candidate).productHash)), input.limit)) break;
-      } catch {
+      } catch (error) {
         failed = true;
-        attempts.push({ stage: attempt.stage, query: attempt.query, productsReturned: 0, acceptedCandidates: 0 });
+        recordFailure("OFFICIAL", error);
+        attempts.push({ stage: attempt.stage, query: compiledQuery, productsReturned: 0, acceptedCandidates: 0 });
         // An unsafe/missing direct URL may fall back to reviewed-store search. A
         // failed search stage stops further fan-out, preserving earlier successes.
         if (directUrl === undefined) break;
@@ -665,10 +740,11 @@ export async function searchProducts(
   await Promise.all([
     queryAwin(sourceQuery, 12, false),
     queryShopify(sourceQuery, 12, false),
-    queryEbay(sourceQuery, input.selectionMode === "MERCHANT_DIVERSE" ? 1 : 12, false)
+    queryEbay(sourceQuery, input.selectionMode === "MERCHANT_DIVERSE" ? 1 : 12, false),
+    earlyOfficial
   ]);
 
-  const sourcePassDiagnostics: UnifiedSearchExecution["sourcePassDiagnostics"] = [sourcePassDiagnostic(
+  const sourcePassDiagnostics: UnifiedSearchExecution["sourcePassDiagnostics"] = [{ ...sourcePassDiagnostic(
     1,
     sourceQuery,
     awinResult,
@@ -677,15 +753,15 @@ export async function searchProducts(
     affiliateCandidates,
     shopifyCandidates,
     ebayCandidates
-  )];
+  ), sourceQueries: sourceQueries[1] }];
 
   let searchPasses: 1 | 2 = 1;
   const expandedQuery = buildExpandedQuery(input, searchIntent, identityQuery);
   if (
     (input.visualInput !== undefined || input.deferVisualFiltering === true ? countDisplayEligibleCandidates : countRecommendationEligibleCandidates)(
-      [...affiliateCandidates, ...ebayCandidates, ...shopifyCandidates, ...officialCandidates],
+      [...affiliateCandidates, ...ebayCandidates, ...shopifyCandidates, ...officialCandidates, ...retainedPrevious()],
       input.allowAlternatives
-    ) < input.limit
+    ) < discoveryTarget(input, input.visualInput !== undefined || input.deferVisualFiltering === true)
   ) {
     searchPasses = 2;
     await Promise.all([
@@ -695,7 +771,7 @@ export async function searchProducts(
         : queryShopify(expandedQuery, 12, true),
       queryEbay(expandedQuery, 12, true)
     ]);
-    sourcePassDiagnostics.push(sourcePassDiagnostic(
+    sourcePassDiagnostics.push({ ...sourcePassDiagnostic(
       2,
       expandedQuery,
       awinResult,
@@ -704,10 +780,9 @@ export async function searchProducts(
       affiliateCandidates,
       shopifyCandidates,
       ebayCandidates
-    ));
+    ), sourceQueries: sourceQueries[2] });
   }
 
-  await earlyOfficial;
   const officialSeed = earlyOfficialSeed ?? officialStoreSeed(observedShopifyProducts, input);
   if (
     earlyOfficial === undefined &&
@@ -739,7 +814,7 @@ export async function searchProducts(
         evidence: [`manually verified approved Awin merchant ${[...merchants][0]} on the same source domain`] }
     } };
   });
-  const rawCandidates = [...affiliateCandidates, ...shopifyCandidates, ...ebayCandidates];
+  const rawCandidates = [...affiliateCandidates, ...shopifyCandidates, ...ebayCandidates, ...retainedPrevious()];
   const enrichedCandidates = input.deferVisualFiltering === true ? rawCandidates : await addVerifiedCoupons(
     rawCandidates, ports.deals, input.membershipIds ?? [], searchRun
   );
@@ -747,17 +822,19 @@ export async function searchProducts(
     ? selectVisualReviewCandidates(enrichedCandidates, 18, input.visualInput)
     : undefined;
   if (reviewPool !== undefined && input.visualInput !== undefined) searchRun.recordVisualStage("REVIEW_POOL", reviewPool.map(candidateFingerprint));
+  const evaluatedAtMs = Date.now();
   const candidates = input.deferVisualFiltering === true
     ? reviewPool!.slice(0, input.limit)
     : selectPresentationCandidates(
         [...enrichedCandidates].sort(
-          input.selectionMode === "LOWEST_PRICE" ? compareLowestPrice : compareRankedCandidates
+          (left, right) => (input.selectionMode === "LOWEST_PRICE" ? compareLowestPrice : compareRankedCandidates)(left, right, evaluatedAtMs)
         ),
         input.selectionMode,
         input.allowAlternatives,
         input.visualInput !== undefined,
-        input.brand !== undefined && input.brandMode === "REQUIRED"
-      ).slice(0, input.limit);
+        input.brand !== undefined && input.brandMode === "REQUIRED",
+        evaluatedAtMs
+      ).slice(0, input.comparisonMode === "SAME_PRODUCT" ? Math.min(3, input.limit) : input.limit);
   const queriedSourcesComplete =
     awinStatus !== "UNAVAILABLE" &&
     ebayStatus !== "UNAVAILABLE" &&
@@ -767,11 +844,30 @@ export async function searchProducts(
   const chromeFallbackEligible =
     (input.visualInput === undefined ? countRecommendationEligibleCandidates(candidates) === 0 : candidates.length === 0) &&
     !searchRun.diagnostics().budgetExhausted &&
-    queriedSourcesComplete &&
+    !sourceFailures.some(failure => !failure.retryable) &&
+    (queriedSourcesComplete || (sourceFailures.length > 0 && sourceFailures.every(failure => failure.retryable) &&
+      // A partial result without a typed reason cannot be treated as a known
+      // transient failure. Recovery is independent, not proof of completeness.
+      (String(shopifyStatus) !== "PARTIAL" || sourceFailures.some(failure => failure.source === "SHOPIFY")) &&
+      (officialStoreFallback.status !== "PARTIAL" || sourceFailures.some(failure => failure.source === "OFFICIAL")))) &&
     searchPasses === 2;
 
   return {
     candidates,
+    retrievedProductHashes: [...freshProductHashes].slice(0, 200),
+    retrievedProductsTruncated: freshProductHashes.size > 200,
+    previousProductHashes: retainedPrevious().map(candidate => candidateFingerprint(candidate).productHash),
+    candidateFunnel: {
+      sourceObservations,
+      sourceUnique: freshProductHashes.size,
+      previousRechecked: input.visualInput === undefined && input.contextMode !== "NEW_PRODUCT" && input.contextMode !== "AMBIGUOUS" ? Math.min(18, input.previousCandidates?.length ?? 0) : 0,
+      previousRetained: retainedPrevious().length,
+      eligibleUnique: new Set(rawCandidates.map(candidateKey)).size,
+      requirementsMatchedUnique: new Set(rawCandidates.filter(candidate => candidate.requiredFeatureLimitations.length === 0 && candidate.requirementAssessment?.status !== "CONFLICT").map(candidateKey)).size,
+      recommendableUnique: countRecommendationEligibleCandidates(rawCandidates),
+      presentedUnique: new Set(candidates.map(candidateKey)).size
+    },
+    ...(sourceFailures.length === 0 ? {} : { sourceFailures }),
     searchRun,
     ...(reviewPool === undefined ? {} : { reviewPool }),
     ...(awinResult === undefined ? {} : { awinResult }),
@@ -801,8 +897,10 @@ export async function searchProducts(
 
 /** URL intake shares the normal requirement, identity, trust and ranking gates.
  * It never invokes another catalog pass or promotes browser assertions. */
-export function evaluateRecoveredProducts(request: SearchProductsInput, products: ShopifyProduct[], partial: boolean): UnifiedSearchExecution {
-  const input = { ...request,
+export function evaluateRecoveredProducts(request: SearchProductsInput, products: ShopifyProduct[], partial: boolean,
+  controls: { deferVisualFiltering?: boolean } = {}): UnifiedSearchExecution {
+  const evaluatedAtMs = Date.now();
+  const input = { ...request, ...controls,
     // Recovery inherits the typed condition even when the compact identity
     // query omits it. Never broaden an already snapshot-bound constraint.
     conditionPreference: request.conditionPreference,
@@ -824,9 +922,9 @@ export function evaluateRecoveredProducts(request: SearchProductsInput, products
     const candidate = shopifyCandidate({ ...product, matchStatus: identity.status }, input, searchIntent, identityQuery,
       features, brands, identities, visuals);
     return candidate === undefined ? [] : [candidate];
-  }).sort(compareRankedCandidates);
-  return { candidates: selectPresentationCandidates(candidates, input.selectionMode, input.allowAlternatives, false,
-    input.brand !== undefined).slice(0, Math.min(input.limit, 3)),
+  }).sort((left, right) => compareRankedCandidates(left, right, evaluatedAtMs));
+  return { candidates: controls.deferVisualFiltering === true ? candidates.slice(0, 5) : selectPresentationCandidates(candidates, input.selectionMode, input.allowAlternatives, false,
+    input.brand !== undefined, evaluatedAtMs).slice(0, Math.min(input.limit, 3)),
     sourceStatus: { awin: "SKIPPED", shopify: "SKIPPED", ebay: "SKIPPED", web: partial ? "PARTIAL" : "COMPLETE" },
     searchPasses: 1, sourcePassDiagnostics: [], featureProductsExcluded: features.size, brandProductsExcluded: brands.size,
     identityProductsExcluded: identities.size, visualProductsExcluded: 0,
@@ -921,6 +1019,7 @@ function awinCandidate(
     ? classifyShopifyCandidate(identityQuery, {
         title: product.title,
         productType: product.category,
+        ...(product.requirementEvidence === undefined ? {} : { description: product.requirementEvidence }),
         ...(verifiedBrand === undefined ? {} : { brand: verifiedBrand })
       })
     : undefined;
@@ -936,6 +1035,7 @@ function awinCandidate(
     {
       title: product.title,
       productType: product.category,
+      ...(product.requirementEvidence === undefined ? {} : { description: product.requirementEvidence }),
       ...(verifiedBrand === undefined ? {} : { brand: verifiedBrand })
     },
     product.matchStatus,
@@ -1024,6 +1124,7 @@ function shopifyCandidate(
     {
       title: product.title,
       ...(product.brand === undefined ? {} : { brand: product.brand }),
+      ...(product.description === undefined ? {} : { description: product.description }),
       ...(product.sku === undefined ? {} : { sku: product.sku }),
       handle: product.handle,
       gtins: product.gtins,
@@ -1081,7 +1182,7 @@ function shopifyCandidate(
 }
 
 export function resolveSearchIntent(
-  input: Pick<SearchProductsInput, "query" | "comparisonMode" | "visualInput" | "brand" | "brandMode">
+  input: Pick<SearchProductsInput, "query" | "comparisonMode" | "visualInput" | "brand" | "brandMode" | "productType">
 ): ProductSearchIntent {
   if (input.comparisonMode === "SAME_PRODUCT" || hasStrongProductIdentifier(input.query)) {
     return "EXACT_PRODUCT";
@@ -1090,6 +1191,7 @@ export function resolveSearchIntent(
   const identityQuery = input.brand !== undefined && input.brandMode === "REQUIRED"
     ? withoutRequestedBrand(input.query, input.brand)
     : input.query;
+  if (isExplicitCategoryQuery(identityQuery, input.productType)) return "CATEGORY_DISCOVERY";
   if (
     input.brand !== undefined &&
     input.brandMode === "REQUIRED" &&
@@ -1108,6 +1210,10 @@ function candidateIdentity(
   excluded: Set<string>,
   allowConfigurationDiscovery = false
 ): { status: Exclude<ShopifyMatchStatus, "IRRELEVANT">; evidence: string[] } | undefined {
+  if (isPartialPriceListing(candidate) && classifyShopifyCandidate(query, candidate).status === "IRRELEVANT") {
+    excluded.add(key);
+    return undefined;
+  }
   if (searchIntent !== "EXACT_PRODUCT") {
     return { status: sourceStatus, evidence: [] };
   }
@@ -1192,7 +1298,7 @@ function ebayCandidate(
     searchIntent,
     input.allowAlternatives,
     identityQuery,
-    { title: product.title, productType: product.category, tags: product.attributes },
+    { title: product.title, productType: product.category, description: product.attributes.join(" "), tags: product.attributes },
     product.matchStatus,
     key,
     identityExcludedKeys
@@ -1258,8 +1364,8 @@ function buildExpandedQuery(
   if (searchIntent === "EXACT_PRODUCT") {
     return unique([
       identityQuery,
-      input.productType ?? "",
-      ...input.requiredFeatures
+      input.productType !== undefined && !normalize(identityQuery).includes(normalize(input.productType)) ? input.productType : "",
+      ...functionalQueryFeatures(input.requiredFeatures).filter(feature => !normalize(identityQuery).includes(normalize(feature)))
     ]).filter((part) => part !== "").join(" ").slice(0, 300).trim();
   }
   if (input.visualInput !== undefined) {
@@ -1410,8 +1516,9 @@ function buildOfficialStoreQueries(
     ? input.query
     : withoutRequestedBrand(input.query, input.brand);
   if (input.visualInput === undefined && searchIntent === "EXACT_PRODUCT") {
-    const name = productOnlyQuery(withoutBrand, input.maxItemPriceCents !== undefined);
-    const full = unique([name, ...input.requiredFeatures.filter(feature => !normalize(name).includes(normalize(feature)))])
+    const name = stripPreferredSizeFromIdentity(stripPrimaryUseFromIdentity(
+      productOnlyQuery(withoutBrand, input.maxItemPriceCents !== undefined), input.primaryUse), input.requiredSize ?? input.preferredSize);
+    const full = unique([name, ...functionalQueryFeatures(input.requiredFeatures).filter(feature => !normalize(name).includes(normalize(feature)))])
       .join(" ").slice(0, 300).trim();
     // Relax only variant terms. Never truncate a named product to a broad category.
     let core = name;
@@ -1588,6 +1695,7 @@ function mergeCandidates(
   current: UnifiedCandidate[],
   incoming: UnifiedCandidate[]
 ): UnifiedCandidate[] {
+  const evaluatedAtMs = Date.now();
   const merged = new Map<string, UnifiedCandidate>();
   for (const candidate of [...current, ...incoming]) {
     const key = candidate.source === "AWIN_PRODUCT_FEED"
@@ -1596,20 +1704,21 @@ function mergeCandidates(
         ? `${candidate.source}:${candidate.shopifyProduct.merchantId}:${candidate.shopifyProduct.handle}`
         : `${candidate.source}:${candidate.ebayProduct.itemId}`;
     const existing = merged.get(key);
-    if (existing === undefined || compareRankedCandidates(candidate, existing) < 0) merged.set(key, candidate);
+    if (existing === undefined || compareRankedCandidates(candidate, existing, evaluatedAtMs) < 0) merged.set(key, candidate);
   }
-  return [...merged.values()].sort(compareRankedCandidates);
+  return [...merged.values()].sort((left, right) => compareRankedCandidates(left, right, evaluatedAtMs));
 }
 
 function mergeCandidatesPreservingOrder(
   current: UnifiedCandidate[],
   incoming: UnifiedCandidate[]
 ): UnifiedCandidate[] {
+  const evaluatedAtMs = Date.now();
   const merged = new Map<string, UnifiedCandidate>();
   for (const candidate of [...current, ...incoming]) {
     const key = candidateKey(candidate);
     const existing = merged.get(key);
-    if (existing === undefined || compareRankedCandidates(candidate, existing) < 0) merged.set(key, candidate);
+    if (existing === undefined || compareRankedCandidates(candidate, existing, evaluatedAtMs) < 0) merged.set(key, candidate);
   }
   return [...merged.values()];
 }
@@ -1633,7 +1742,8 @@ export async function addVerifiedCoupons(
     ...candidate, dealLookupStatus: "UNAVAILABLE" as const
   }));
   const merchants = new Map<string, string>();
-  for (const candidate of [...candidates].sort(compareRankedCandidates)) {
+  const evaluatedAtMs = Date.now();
+  for (const candidate of [...candidates].sort((left, right) => compareRankedCandidates(left, right, evaluatedAtMs))) {
     const merchant = candidateMerchant(candidate);
     const key = normalize(merchant);
     if (!merchants.has(key)) merchants.set(key, merchant);
@@ -1698,7 +1808,7 @@ function normalize(value: string): string {
 
 function evaluateConstraints(
   product: RequirementProduct,
-  input: Pick<SearchProductsInput, "requiredFeatures" | "excludedFeatures" | "preferences" | "features" | "featureMode" | "requiredSize" | "maxItemPriceCents">
+  input: Pick<SearchProductsInput, "query" | "productType" | "primaryUse" | "preferredSize" | "requiredFeatures" | "excludedFeatures" | "preferences" | "features" | "featureMode" | "requiredSize" | "maxItemPriceCents">
 ) {
   const required = unique([
     ...input.requiredFeatures,
@@ -1709,6 +1819,7 @@ function evaluateConstraints(
     ...(input.featureMode === "PREFERRED" ? input.features : [])
   ]);
   return evaluateProductRequirements(product, { requiredFeatures: required,
+    query: input.query, productType: input.productType, primaryUse: input.primaryUse,
     excludedFeatures: input.excludedFeatures, preferences, requiredSize: input.requiredSize,
     maxItemPriceCents: input.maxItemPriceCents });
 }

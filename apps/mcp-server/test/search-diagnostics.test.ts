@@ -4,6 +4,27 @@ import { SearchRun, SearchBudgetError, SearchReadTimeoutError } from "../src/sea
 import type { UnifiedSearchExecution } from "../src/search-products.js";
 
 describe("search outcome telemetry", () => {
+  it("reports a separately exhausted web lease without claiming the catalog budget was spent", () => {
+    expect(searchDiagnostics(executionFor(new SearchRun()), "BUDGET_EXHAUSTED")).toMatchObject({
+      outcome: "BUDGET_EXHAUSTED", termination: "BUDGET_EXHAUSTED", budgetExhausted: false
+    });
+  });
+  it("keeps unique product counts separate from repeated source observations and sanitizes typed failures", () => {
+    const execution = executionFor(new SearchRun());
+    execution.sourcePassDiagnostics[0]!.rawProducts.awin = 5;
+    execution.sourcePassDiagnostics[0]!.sourceQueries = { awin: "PRIVATE QUERY" };
+    execution.sourceFailures = [{ source: "AWIN", kind: "INVALID_QUERY", retryable: false }];
+    execution.retrievedProductHashes = ["a".repeat(64), "PRIVATE_URL_OR_QUERY", "b".repeat(64)];
+    execution.candidateFunnel = { sourceObservations: 5, sourceUnique: 3, previousRechecked: 2, previousRetained: 1,
+      eligibleUnique: 3, requirementsMatchedUnique: 2, recommendableUnique: 1, presentedUnique: 1 };
+    const result = searchDiagnostics(execution, "NO_CANDIDATES");
+    expect(result).toMatchObject({ termination: "INVALID_QUERY", exclusionCountsOverlap: true,
+      retrieval: { origin: "SERVER_TRACE", productHashes: ["a".repeat(64), "b".repeat(64)], truncated: false },
+      requirementFunnel: { sourceResults: 5, sourceResultsUnit: "OBSERVATIONS" },
+      candidateFunnel: { sourceUnique: 3, presentedUnique: 1 },
+      sourceFailures: [{ source: "AWIN", kind: "INVALID_QUERY", retryable: false }] });
+    expect(JSON.stringify(result)).not.toContain("PRIVATE");
+  });
   it("distinguishes a healthy empty source from a successful match without raw payloads", () => {
     const execution = executionFor(new SearchRun());
     const empty = searchDiagnostics(execution, "NO_CANDIDATES", { returned: 0 });

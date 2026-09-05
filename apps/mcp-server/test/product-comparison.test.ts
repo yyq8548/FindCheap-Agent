@@ -63,6 +63,40 @@ const identity = {
 };
 
 describe("deterministic product comparison", () => {
+  it.each([["2026-09-03T06:00:00.001Z", selectionA], ["2026-09-03T06:00:00.000Z", selectionB]])(
+    "evaluates coupon expiry at the comparison evaluation time (%s)", (validTo, recommendedSelectionId) => {
+      const result = buildProductComparison(input, [product({ itemPrice: { amountCents: 2000, currency: "USD" },
+        pricing: { deliveredPrice: { status: "UNAVAILABLE" } },
+        coupons: { verified: [{ kind: "COUPON", title: "Coupon", productApplicability: "PRODUCT_CONFIRMED", validTo,
+          assessment: { status: "CONFIRMED", recommendationEligible: true, reasonCodes: ["PRODUCT_ID_CONFIRMED"] } }],
+          estimatedItemPriceAfterCoupon: { amountCents: 100, currency: "USD" } } }),
+      product({ selectionId: selectionB, itemPrice: { amountCents: 1000, currency: "USD" }, pricing: { deliveredPrice: { status: "UNAVAILABLE" } } })], identity);
+      expect(result.recommendation?.recommendedSelectionId).toBe(recommendedSelectionId);
+    });
+  it("reports unit costs for different bottle capacities without claiming package-price savings", () => {
+    const result = buildProductComparison(input, [
+      product({ title: "Shampoo 250 mL", productType: "shampoo", sku: "250", gtins: [], variantDimensions: {},
+        itemPrice: { amountCents: 2000, currency: "USD" }, pricing: { deliveredPrice: { status: "UNAVAILABLE" } } }),
+      product({ selectionId: selectionB, title: "Shampoo 500 mL", productType: "shampoo", sku: "500", gtins: [], variantDimensions: {},
+        itemPrice: { amountCents: 3000, currency: "USD" }, pricing: { deliveredPrice: { status: "UNAVAILABLE" } } })
+    ], identity);
+    expect(result).toMatchObject({ mode: "PRODUCT_CHOICES", priceComparability: "UNIT_PRICE_ONLY",
+      recommendation: { recommendedSelectionId: selectionB, reasonCodes: ["EXACT_MATCH", "TRUSTED_MERCHANT", "LOWER_UNIT_PRICE"] } });
+    expect(result.priceDelta).toBeUndefined();
+    expect(result.entries.map(entry => entry.unitPrice?.amountCents)).toEqual([800, 600]);
+    expect(result.entries.every(entry => entry.qualityEvidence?.status === "UNKNOWN")).toBe(true);
+  });
+
+  it("does not accept a same-SKU bundle as the same single item or compute a false spread", () => {
+    const result = buildProductComparison(input, [
+      product({ title: "Shampoo 250 mL", variantDimensions: {} }),
+      product({ selectionId: selectionB, title: "Shampoo and Conditioner Kit 250 mL", variantDimensions: {} })
+    ], identity);
+    expect(result).toMatchObject({ mode: "PRODUCT_CHOICES", priceComparability: "NOT_LIKE_FOR_LIKE" });
+    expect(result.priceDelta).toBeUndefined();
+    expect(result.entries[1]?.unitPrice).toBeUndefined();
+    expect(result.recommendation?.reasonCodes).not.toContain("LOWER_PRICE");
+  });
   it("accepts 2-4 unique selections and rejects boundary violations", () => {
     for (const selectionIds of [
       [selectionA, selectionB],
@@ -214,7 +248,7 @@ describe("deterministic product comparison", () => {
       status: "OK",
       mode: "PRODUCT_CHOICES",
       priceBasis: "ITEM_PRICE",
-      priceDelta: { amountCents: 400 }
+      priceComparability: "NOT_LIKE_FOR_LIKE"
     });
     expect(result.entries[1]?.unknowns).toContain("CONDITION");
   });
@@ -341,7 +375,7 @@ describe("deterministic product comparison", () => {
     expect(result.recommendation?.conditions?.join(" ")).toContain("human hair");
     expect(result.recommendation?.limitations?.join(" ")).toContain("equivalent suitability");
     expect(result.message).toContain("conditional");
-    expect(result.priceDelta?.amountCents).toBe(400);
+    expect(result.priceDelta).toBeUndefined();
   });
 
   it("keeps same-product offers unconditional and invariant to display-group reassignment", () => {

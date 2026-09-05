@@ -224,6 +224,8 @@ describe("installed plugin stdio", () => {
         "excludedFeatures",
         "featureMode",
         "features",
+        "goalId",
+        "goalRevision",
         "limit",
         "maxItemPriceCents",
         "membershipIds",

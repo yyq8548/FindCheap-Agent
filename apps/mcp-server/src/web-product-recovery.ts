@@ -7,6 +7,7 @@ import { parseWebProductDocument } from "./generic-official-store-search.js";
 import type { SearchProductsInput } from "./search-products.js";
 import type { ShopifyProduct } from "./shopify-client.js";
 import { functionalQueryFeatures } from "./functional-requirements.js";
+import { buildVisualRetrievalQuery } from "./visual-retrieval-query.js";
 
 export const WEB_SEARCH_LIMITS = { durationMs: 60_000, merchantPages: 5, results: 3, discoveryQueries: 2 } as const;
 const blockedHosts = ["google.com", "bing.com", "duckduckgo.com", "yahoo.com", "t.co", "bit.ly", "tinyurl.com"];
@@ -95,6 +96,14 @@ export class WebRecoverySessions {
 }
 
 export function webSearchQueries(request: SearchProductsInput): string[] {
+  if (request.visualInput !== undefined) {
+    // Never include imageUrl/source bytes. This authorization covers only
+    // textual discovery and the subsequent read of explicit merchant pages.
+    return [...new Set([false, true].map(relaxed => buildVisualRetrievalQuery(request.visualInput!, {
+      ...(request.brand === undefined ? {} : { brand: request.brand }),
+      ...(request.productType === undefined ? {} : { productType: request.productType }), relaxed
+    })).filter(Boolean))].slice(0, WEB_SEARCH_LIMITS.discoveryQueries);
+  }
   const identity = [request.brand, request.query, request.productType && !request.query.toLowerCase().includes(request.productType.toLowerCase()) ? request.productType : undefined].filter(Boolean).join(" ");
   const features = functionalQueryFeatures(request.requiredFeatures);
   const secondary = request.requiredFeatures.flatMap(value => functionalQueryFeatures([value])).find(value => !features.includes(value));

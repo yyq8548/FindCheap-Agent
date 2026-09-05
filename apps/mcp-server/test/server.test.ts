@@ -106,6 +106,29 @@ async function connect(
 }
 
 describe("shopping MCP server", () => {
+  it("keeps three-tier card order and ordinal references when a value card is the primary choice", async () => {
+    const base = await shopifyPort.search({ query: "Valhalla Java", comparisonMode: "DISCOVERY", selectionMode: "MERCHANT_DIVERSE", limit: 2 });
+    const first = { ...base.products[0]!, productType: "coffee pods", condition: "NEW" as const };
+    const second = { ...first, handle: "value-offer", merchantId: "best-buy", merchant: "Best Buy", sourceHost: "bestbuy.com",
+      merchantUrl: "https://bestbuy.com/products/value-offer", itemPrice: { amountCents: 999, currency: "USD" as const },
+      merchantTrust: { level: "ESTABLISHED_RETAILER" as const, verification: "INDEPENDENT" as const, evidence: ["fixture reviewed"] } };
+    const search = vi.fn(async () => ({ ...base, products: [first, second] }));
+    const client = await connect({ search });
+    const result = await client.callTool({ name: "search_products", arguments: { query: "810063341254",
+      brand: "Death Wish Coffee", brandMode: "REQUIRED", productType: "coffee pods", comparisonMode: "SAME_PRODUCT", limit: 4 } });
+    expect(result.isError).not.toBe(true);
+    const snapshot = result.structuredContent as { renderId: string; products: Array<{ selectionId: string; handle: string; presentationGroup: string }>;
+      recommendation: { primarySelectionId: string } };
+    expect(snapshot.products.map(product => product.presentationGroup)).toEqual(["OFFICIAL_STORE", "BEST_VALUE"]);
+    expect(snapshot.products.map(product => product.handle)).toEqual([first.handle, "value-offer"]);
+    expect(snapshot.recommendation.primarySelectionId).toBe(snapshot.products[1]?.selectionId);
+    const calls = search.mock.calls.length;
+    const ordinal = await client.callTool({ name: "research_selected_product_deal", arguments: {
+      renderId: snapshot.renderId, position: 1, objective: "CURRENT_DEALS" } });
+    expect(ordinal.structuredContent).toMatchObject({ selectionId: snapshot.products[0]?.selectionId,
+      selectedProduct: { merchant: "Death Wish Coffee", merchantProductId: first.handle } });
+    expect(search).toHaveBeenCalledTimes(calls);
+  });
   it("keeps stable product selections for two hours within a bounded snapshot cache", () => {
     expect(PRODUCT_SELECTION_SNAPSHOT_TTL_MS).toBe(2 * 60 * 60_000);
     expect(MAX_PRODUCT_SELECTION_SNAPSHOTS).toBe(128);
@@ -221,6 +244,8 @@ describe("shopping MCP server", () => {
       "excludedFeatures",
       "featureMode",
       "features",
+      "goalId",
+      "goalRevision",
       "limit",
       "maxItemPriceCents",
       "membershipIds",
@@ -427,7 +452,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.17.20",
+        version: "0.17.21",
         terminalStage: "DOM_RENDERED",
         stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
       }
@@ -436,7 +461,7 @@ describe("shopping MCP server", () => {
     expect(result.structuredContent).toEqual({ status: "RECORDED" });
     expect(record).toHaveBeenCalledWith(expect.objectContaining({
       renderId,
-      version: "0.17.20",
+      version: "0.17.21",
       terminalStage: "DOM_RENDERED",
       stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
     }));
@@ -444,7 +469,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.17.20",
+        version: "0.17.21",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 14 }
       }
@@ -454,7 +479,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.17.20",
+        version: "0.17.21",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 300_001 }
       }
@@ -465,7 +490,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId: "22222222-2222-4222-8222-222222222222",
-        version: "0.17.20",
+        version: "0.17.21",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 1 }
       }

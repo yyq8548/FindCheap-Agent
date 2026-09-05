@@ -54,6 +54,27 @@ function ebay(products = [ebayProduct("1", 2100)]): EbayBrowsePort {
 }
 
 describe("unified product search", () => {
+  it.each(["AWIN", "SHOPIFY"])("excludes description-only quotation fees from %s even for a trusted merchant", async source => {
+    const description = "Custom commission for a professionally styled cosplay wig. Your quote request fee will be applied toward your final order total.";
+    const result = await searchProducts(SearchProductsInputSchema.parse({ query: "wig", productType: "wig", primaryUse: "cosplay", maxItemPriceCents: 10000 }), {
+      awin: awin(source === "AWIN" ? [awinProduct("fee", 100, { title: "Custom cosplay wig", category: "wig", requirementEvidence: description })] : []),
+      shopify: shopify(source === "SHOPIFY" ? [shopifyProduct("fee", 100, "NEW", { title: "Custom cosplay wig", productType: "wig", description })] : [])
+    });
+    expect(result.candidates).toHaveLength(0);
+  });
+
+  it("caps same-product cards at three without reducing source coverage to the display cap", async () => {
+    const source = shopify(Array.from({ length: 6 }, (_, index) => shopifyProduct(`same-${index}`, 2000 + index * 100, "NEW", {
+      title: "Fixture Shampoo 250 mL", productType: "shampoo", gtins: ["4006381333931"], brand: "Fixture", sku: "FS250"
+    })));
+    const result = await searchProducts(SearchProductsInputSchema.parse({ query: "4006381333931", comparisonMode: "SAME_PRODUCT", limit: 8 }), {
+      awin: awin([]), shopify: source
+    });
+    expect(result.candidateFunnel?.sourceUnique).toBe(6);
+    expect(result.candidates).toHaveLength(3);
+    expect(result.candidates.every(candidate => candidate.identityStatus === "EXACT")).toBe(true);
+    expect(result.searchPasses).toBe(2);
+  });
   it("does not convert a shoe size into a display requirement", async () => {
     const ports = { awin: awin([]), shopify: shopify([shopifyProduct("shoe", 9900, "UNKNOWN", {
       title: "Black ballet flats", productType: "ballet flats", variantDimensions: { Size: "US 7" }
@@ -516,7 +537,8 @@ describe("unified product search", () => {
       }] : []) }
     });
 
-    expect(result.candidates.map((candidate) => candidate.shopifyProduct?.handle)).toEqual(["coupon", "lower"]);
+    expect(result.candidates.map((candidate) => candidate.shopifyProduct?.handle)).toEqual(["lower", "coupon"]);
+    expect(result.candidates[1]).toMatchObject({ presentationGroup: "BEST_VALUE", valueEvidence: { reason: "CONFIRMED_COUPON_SAVINGS" } });
   });
 
   it("uses cross-source price order only for explicit LOWEST_PRICE", async () => {
@@ -615,11 +637,10 @@ describe("unified product search", () => {
     expect(result.candidates.map((candidate) => candidate.shopifyProduct?.handle)).toEqual([
       "expercom",
       "sva",
-      "tigertech",
-      "sixteen-cheap"
+      "tigertech"
     ]);
     expect(result.candidates[0]?.preferenceEvidence).toContain("14英寸 屏幕");
-    expect(result.candidates[3]?.presentationGroup).toBe("BEST_VALUE");
+    expect(result.candidates.some(candidate => candidate.presentationGroup === "BEST_VALUE")).toBe(false);
   });
 
   it("keeps compound ChatGPT/API use out of identity and enforces an explicitly selected size", async () => {
@@ -797,7 +818,7 @@ describe("unified product search", () => {
 
     expect(shopifySearch).toHaveBeenCalledTimes(2);
     expect(shopifySearch.mock.calls[1]?.[0]).toMatchObject({
-      query: "Apple MacBook Pro M5 Pro at least 32GB 16 inch M5 Pro",
+      query: "Apple MacBook Pro M5 Pro at least 32GB 16 inch",
       limit: 12
     });
     expect(result.searchPasses).toBe(2);
@@ -944,7 +965,7 @@ describe("unified product search", () => {
     }));
   });
 
-  it("orders trusted, qualified high-rated, then general unverified merchants", async () => {
+  it("separates trusted matches from research without treating ratings as merchant trust", async () => {
     const highRated = shopifyProduct("high-rated", 1000, "NEW", {
       merchantTrust: {
         level: "UNKNOWN",
@@ -972,13 +993,13 @@ describe("unified product search", () => {
     expect(shopifySearch).toHaveBeenCalledTimes(1);
     expect(result.candidates.map((candidate) => candidate.recommendationTier)).toEqual([
       "TRUSTED_OR_AFFILIATE",
-      "HIGH_RATED_UNVERIFIED",
-      "GENERAL_UNVERIFIED"
+      "GENERAL_UNVERIFIED",
+      "HIGH_RATED_UNVERIFIED"
     ]);
     expect(result.candidates.map((candidate) => candidate.presentationGroup)).toEqual([
       "TRUSTED_MATCH",
-      "BEST_VALUE",
-      "BEST_VALUE"
+      "RESEARCH_ONLY",
+      "RESEARCH_ONLY"
     ]);
     expect(result.chromeFallbackEligible).toBe(false);
   });
@@ -1044,13 +1065,13 @@ describe("unified product search", () => {
       "TRUSTED_MATCH",
       "TRUSTED_MATCH",
       "TRUSTED_MATCH",
-      "BEST_VALUE",
-      "BEST_VALUE",
-      "BEST_VALUE"
+      "RESEARCH_ONLY",
+      "RESEARCH_ONLY",
+      "RESEARCH_ONLY"
     ]);
   });
 
-  it("fills best-value with remaining high-rated candidates and keeps trusted merchants diverse", async () => {
+  it("folds high-rated unverified candidates instead of filling best-value slots", async () => {
     const highRated = (handle: string, amountCents: number) => shopifyProduct(handle, amountCents, "NEW", {
       merchantTrust: {
         level: "UNKNOWN",
@@ -1083,9 +1104,9 @@ describe("unified product search", () => {
       "TRUSTED_MATCH",
       "TRUSTED_MATCH",
       "TRUSTED_MATCH",
-      "BEST_VALUE",
-      "BEST_VALUE",
-      "BEST_VALUE"
+      "RESEARCH_ONLY",
+      "RESEARCH_ONLY",
+      "RESEARCH_ONLY"
     ]);
     expect(result.candidates.slice(0, 3).map((candidate) =>
       candidate.source === "AWIN_PRODUCT_FEED"
@@ -1211,11 +1232,10 @@ describe("unified product search", () => {
       ])
     });
 
-    expect(result.candidates.map((candidate) => candidate.recommendationTier)).toEqual([
-      "HIGH_RATED_UNVERIFIED",
-      "GENERAL_UNVERIFIED",
-      "GENERAL_UNVERIFIED"
+    expect(result.candidates.map((candidate) => [candidate.shopifyProduct?.handle, candidate.recommendationTier])).toEqual([
+      ["one-review", "GENERAL_UNVERIFIED"], ["qualified", "HIGH_RATED_UNVERIFIED"], ["threshold", "GENERAL_UNVERIFIED"]
     ]);
+    expect(result.candidates.every(candidate => candidate.presentationGroup === "RESEARCH_ONLY")).toBe(true);
   });
 
   it("queries Awin for every valid product category", () => {
@@ -1253,7 +1273,7 @@ describe("unified product search", () => {
     expect(result.candidates[2]).toMatchObject({
       affiliateState: "APPROVED",
       recommendationTier: "GENERAL_UNVERIFIED",
-      presentationGroup: "BEST_VALUE",
+      presentationGroup: "RESEARCH_ONLY",
       ebayProduct: { sellerName: "seller-1" }
     });
     expect(result.sourceStatus.ebay).toBe("COMPLETE");
@@ -2231,7 +2251,8 @@ describe("unified product search", () => {
     expect(result.officialStoreFallback.diagnostic?.outcome).toBe("ACCEPTED");
     expect(result.candidates).toHaveLength(1);
     expect(result.candidates[0]).toMatchObject({
-      presentationGroup: "OFFICIAL_STORE",
+      presentationGroup: "RESEARCH_ONLY",
+      identityStatus: "SIMILAR",
       shopifyProduct: { handle: "34535377404036" }
     });
   });
@@ -2391,7 +2412,7 @@ function verifiedCoupon(merchant: string) {
     sourceUrl: "https://www.awin1.com/promotion",
     checkedAt: "2026-08-24T12:00:00.000Z",
     validFrom: "2026-08-24T00:00:00.000Z",
-    validTo: "2026-08-30T00:00:00.000Z",
+    validTo: "2099-01-01T00:00:00.000Z",
     verificationStatus: "VERIFIED" as const
   };
 }

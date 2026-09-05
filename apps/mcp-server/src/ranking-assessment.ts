@@ -1,11 +1,12 @@
 import { visualReviewScore, type VisualReviewAssessment } from "./visual-review-policy.js";
+import { assessQualityEvidence, comparableUnitPrices, type QualityEvidence, type ValueProduct } from "./product-value-evidence.js";
 
 export const PRIMARY_BLOCK_REASON_CODES = [
   "VARIANT_OUT_OF_STOCK", "UNVERIFIED_MERCHANT", "UNFULFILLED_REQUIREMENTS", "SIMILAR_ONLY", "MISSING_PRICE"
 ] as const;
 export type PrimaryBlockReasonCode = typeof PRIMARY_BLOCK_REASON_CODES[number];
 
-export type RankingInput = {
+export type RankingInput = Omit<ValueProduct, "itemPrice"> & {
   title: string;
   matchStatus: "EXACT" | "DISCOVERY_MATCH" | "SIMILAR";
   recommendationTier?: "TRUSTED_OR_AFFILIATE" | "HIGH_RATED_UNVERIFIED" | "GENERAL_UNVERIFIED" | undefined;
@@ -33,7 +34,8 @@ export type RankingAssessment = {
   featureEvidence: string[];
   preferenceEvidence: string[];
   trustRank: number;
-  qualityRank: number;
+  qualityEvidence: QualityEvidence;
+  costEvidenceProduct: ValueProduct;
   availabilityRank: number;
   effectivePriceCents: number;
   itemPriceCents: number;
@@ -66,7 +68,9 @@ export function assessRanking(input: RankingInput): RankingAssessment {
     featureEvidence: evidenceKeys(input.featureEvidence),
     preferenceEvidence: evidenceKeys(input.preferenceEvidence),
     trustRank: trusted ? 0 : 1,
-    qualityRank: input.recommendationTier === "GENERAL_UNVERIFIED" ? 1 : 0,
+    qualityEvidence: assessQualityEvidence(input),
+    costEvidenceProduct: { title: input.title, productType: input.productType, condition: input.condition,
+      variantDimensions: input.variantDimensions, itemPrice: effectivePrice === Number.MAX_SAFE_INTEGER ? undefined : { amountCents: effectivePrice, currency: "USD" } },
     availabilityRank: input.availability === "IN_STOCK" ? 0 : input.availability === "UNKNOWN" ? 1 : 2,
     effectivePriceCents: effectivePrice,
     itemPriceCents: itemPrice,
@@ -83,9 +87,8 @@ export function compareRankingAssessments(left: RankingAssessment, right: Rankin
     right.featureEvidence.length - left.featureEvidence.length ||
     right.preferenceEvidence.length - left.preferenceEvidence.length ||
     left.trustRank - right.trustRank ||
-    left.qualityRank - right.qualityRank ||
     left.availabilityRank - right.availabilityRank ||
-    left.effectivePriceCents - right.effectivePriceCents ||
+    compareCost(left, right) ||
     left.itemPriceCents - right.itemPriceCents ||
     right.couponRank - left.couponRank ||
     left.title.localeCompare(right.title);
@@ -95,8 +98,13 @@ export function hasEquivalentFitEvidence(left: RankingAssessment, right: Ranking
   return left.featureEvidence.length + left.preferenceEvidence.length > 0 &&
     left.matchRank === right.matchRank && left.limitationCount === right.limitationCount &&
     left.visualReviewScore === right.visualReviewScore &&
-    left.trustRank === right.trustRank && left.qualityRank === right.qualityRank && left.availabilityRank === right.availabilityRank &&
+    left.trustRank === right.trustRank && left.availabilityRank === right.availabilityRank &&
     sameEvidence(left.featureEvidence, right.featureEvidence) && sameEvidence(left.preferenceEvidence, right.preferenceEvidence);
+}
+
+function compareCost(left: RankingAssessment, right: RankingAssessment): number {
+  const units = comparableUnitPrices(left.costEvidenceProduct, right.costEvidenceProduct);
+  return units === undefined ? left.effectivePriceCents - right.effectivePriceCents : units[0].amountCents - units[1].amountCents;
 }
 
 function evidenceKeys(values: readonly string[] | undefined): string[] {

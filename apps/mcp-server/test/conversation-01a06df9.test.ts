@@ -112,7 +112,7 @@ describe("conversation 01a06df9: original Chinese prompts -> MCP workflow regres
     expect(search).toHaveBeenCalledTimes(calls);
   });
 
-  it("可以比较我选择的两款吗 — uses UI selection, item-price delta and immutable references after topic change", async () => {
+  it("可以比较我选择的两款吗 — uses UI selection and immutable references without claiming unlike-item savings", async () => {
     const { client, search, snapshot } = await openWigs();
     const selectionIds = snapshot.products.map(({ selectionId }) => selectionId);
     const selection = await client.callTool({ name: "sync_product_card_selection", arguments: {
@@ -126,9 +126,10 @@ describe("conversation 01a06df9: original Chinese prompts -> MCP workflow regres
     expect(compared.isError).not.toBe(true);
     expect(compared.structuredContent).toMatchObject({
       renderId: snapshot.renderId, locale: "zh-CN", mode: "PRODUCT_CHOICES", priceBasis: "ITEM_PRICE",
-      priceDelta: { basis: "ITEM_PRICE", amountCents: 758 },
+      priceComparability: "NOT_LIKE_FOR_LIKE",
       entries: selectionIds.map((selectionId) => ({ selectionId, deliveredTotalStatus: "MERCHANT_CHECKOUT_ONLY" }))
     });
+    expect(compared.structuredContent).not.toHaveProperty("priceDelta");
     expect(search).toHaveBeenCalledTimes(calls);
     await client.callTool(recordedCall("shampoo-search"));
     const callsAfterShampoo = search.mock.calls.length;

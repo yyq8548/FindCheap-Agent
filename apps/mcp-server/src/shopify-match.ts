@@ -53,6 +53,7 @@ const CATEGORY_GROUPS = [
   { terms: ["bracelet", "bracelets", "bangle", "bangles"] },
   { terms: ["sheet", "sheets", "bedding"] },
   { terms: ["wig", "wigs", "hairpiece", "hairpieces", "toupee", "toupees"] },
+  { terms: ["shampoo", "shampoos"] },
   {
     terms: ["dogfood", "catfood", "petfood", "kibble"],
     candidateEvidenceTerms: ["animal", "animals", "dog", "dogs", "cat", "cats", "canine", "feline", "pet", "pets"]
@@ -102,6 +103,13 @@ export function hasSpecificProductIdentity(query: string, minimumTerms = 2): boo
   return identityTerms.size >= minimumTerms;
 }
 
+/** Shared category vocabulary for request continuity. Candidate-only evidence
+ * such as "connector" or "hair" must not become a request category. */
+export function productQueryCategoryKeys(query: string): string[] {
+  const tokens = tokenize(query);
+  return CATEGORY_GROUPS.filter(group => group.terms.some(term => tokens.includes(term))).map(group => group.terms[0]);
+}
+
 export function hasStrongProductIdentifier(query: string): boolean {
   const tokens = tokenize(query);
   return tokens.some((token) => /^\d{8,14}$/u.test(token)) ||
@@ -125,6 +133,28 @@ export function classifyShopifyCandidate(
   query: string,
   candidate: ShopifyMatchCandidate
 ): ShopifyMatchResult {
+  if (isPartialPriceListing(candidate) && !/\b(?:quote(?: request)? fee|quotation fee|deposit|down payment)\b|询价费|报价费|定金|订金|押金/iu.test(query)) {
+    return irrelevant("listed amount is a quote fee or deposit, not the complete product price");
+  }
+  // Apply only reviewed bilingual identity aliases. A translation is not a SKU
+  // match, and both character and franchise remain mandatory even for discovery.
+  const namedIdentity = namedProductIdentity(query);
+  if (namedIdentity !== undefined) {
+    const fields = [candidate.title, candidate.description, candidate.productType, ...(candidate.tags ?? [])].filter((field): field is string => field !== undefined);
+    const needsDefault = /\bdefault\b/iu.test(normalizeNamedProductIdentity(query));
+    const requirement = `${namedIdentity.franchise} ${namedIdentity.character}${needsDefault ? " default" : ""}`;
+    const statuses = fields.map(field => namedIdentityFeatureStatus(field, requirement));
+    if (statuses.includes("CONTRADICTED")) {
+      return irrelevant("requested character identity contradicted");
+    }
+    if (!statuses.includes("MATCHED")) return irrelevant(needsDefault
+      ? "requested default character appearance not verified" : "requested character and franchise not verified together");
+    query = normalizeNamedProductIdentity(query);
+    candidate = { ...candidate, title: normalizeNamedProductIdentity(candidate.title),
+      ...(candidate.description === undefined ? {} : { description: normalizeNamedProductIdentity(candidate.description) }),
+      ...(candidate.productType === undefined ? {} : { productType: normalizeNamedProductIdentity(candidate.productType) }),
+      ...(candidate.tags === undefined ? {} : { tags: candidate.tags.map(normalizeNamedProductIdentity) }) };
+  }
   const queryTokens = tokenize(query);
   if (queryTokens.length === 0) return irrelevant("query has no searchable terms");
 
@@ -208,7 +238,7 @@ export function classifyShopifyCandidate(
   const modelQueryTokens = required
     .filter((token) => !brandTokens.includes(token) && !requestedVariantTerms.has(token) && !CONDITION_TERMS.has(token));
   const candidateMpn = compact(candidate.sku ?? "");
-  const brandMpnExact = brandExact && candidateMpn !== "" && containsContiguousIdentity(modelQueryTokens, candidateMpn);
+  const brandMpnExact = (namedIdentity === undefined || hasStrongProductIdentifier(query)) && brandExact && candidateMpn !== "" && containsContiguousIdentity(modelQueryTokens, candidateMpn);
   const evidence = [
     ...(category === undefined ? [] : ["product category exact"]),
     ...(requestedVariantTerms.size > 0 && variantsExact
@@ -301,6 +331,7 @@ function tokenize(value: string): string[] {
     .replaceAll("护发", " hair care ")
     .replaceAll("角蛋白", " keratin ")
     .replaceAll("洗发水", " shampoo ")
+    .replaceAll("洗发露", " shampoo ")
     .replaceAll("护发素", " conditioner ")
     .replaceAll("发膜", " hair mask ")
     .replaceAll("拉直", " straightening ");
@@ -312,6 +343,35 @@ function tokenize(value: string): string[] {
     .map((token) => /^\d+(?:st|nd|rd|th)$/u.test(token) ? token.replace(/(?:st|nd|rd|th)$/u, "") : token)
     .map((token) => token === "generation" ? "gen" : token)
     .map((token) => token === "gray" ? "grey" : token === "onyx" ? "black" : token);
+}
+
+/** Only direct listing-level evidence of a partial payment. Custom production,
+ * commissions, generic deposit policies and low prices alone prove nothing. */
+export function isPartialPriceListing(candidate: { title: string; description?: string | undefined }): boolean {
+  const normalize = (value: string) => value.normalize("NFKC").replace(/<[^>]*>/gu, " ").replace(/[’]/gu, "'").toLowerCase();
+  const partialClaim = (raw: string, title: boolean, allowFeeCredit = true): boolean => {
+    if (/\b(?:policy|policies|other|another)\b|其他商品|另一商品|通用政策|定金政策/u.test(raw)) return false;
+    const text = raw.replace(/\b(?:no|without|not(?:\s+only)?(?:\s+a)?)\s+(?:quote(?: request)? fees?|quotation fees?|deposit|down payment)\b/gu, " ")
+      .replace(/\b(?:quote(?: request)? fees?|quotation fees?|deposit|down payment)\s+(?:(?:is|are)\s+)?not\s+(?:required|charged|payable)\b/gu, " ")
+      .replace(/(?:无需|不收取?|不是|非)(?:询价费|报价费|定金|订金|押金)/gu, " ");
+    const fee = /\b(?:quote(?: request)?|quotation|estimate)\s+fees?\b/u.test(text);
+    const depositOnly = /\b(?:deposit|down payment)[-\s]+only\b|\bonly (?:a |the )?(?:deposit|down payment)\b|(?:仅|只)(?:需|支付|付)?(?:定金|订金|押金)|(?:定金|订金|押金)(?:专拍|链接)/u.test(text);
+    if (title) return fee || depositOnly;
+    const currentListing = /\b(?:this|the listed|the displayed)\s+(?:listing|price|amount|payment|purchase)\b|本(?:链接|价格|商品)|标价/u.test(text);
+    if (currentListing && (depositOnly || /\b(?:is|covers?|pays? for)\s+(?:a |the |only )?(?:deposit|down payment|quote(?: request)? fee|quotation fee)\b/u.test(text))) return true;
+    return allowFeeCredit && fee && /\b(?:the|your)\s+quote(?: request)?\s+fee\s+(?:(?:is|will be)\s+)?(?:applied|credited|deducted)\s+(?:towards?|to|from)\s+your\s+(?:final\s+)?(?:order|purchase)\s+(?:total|balance)\b/u.test(text);
+  };
+  const titleClauses = normalize(candidate.title).split(/[.;!?。；！？\n]/u);
+  if (titleClauses.some(clause => partialClaim(clause, true))) return true;
+  const description = normalize(candidate.description ?? "");
+  const explicitlyFullPrice = /\b(?:this|the listed|the displayed)\s+(?:price|amount|listing)\s+(?:is|covers)\s+(?:the )?(?:full|complete)\s+(?:price|item|product|wig)\b/u.test(description);
+  let policyScope = false;
+  for (const clause of description.split(/[.;!?。；！？\n]/u)) {
+    if (/^\s*(?:(?:our|general|custom|order|deposit|payment|store)\s+)*(?:policy|policies)\b|^\s*(?:其他商品|通用政策|定金政策)/u.test(clause)) policyScope = true;
+    if (/\bthis\s+(?:listing|price|amount|purchase)\b|本(?:链接|价格|商品)/u.test(clause)) policyScope = false;
+    if (!policyScope && partialClaim(clause, false, !explicitlyFullPrice)) return true;
+  }
+  return false;
 }
 
 function isUnrequestedWigAccessory(queryTokens: readonly string[], title: string): boolean {
@@ -337,3 +397,5 @@ function hasPetFoodSpeciesConflict(
 function compact(value: string): string {
   return tokenize(value).join("");
 }
+import { namedProductIdentity, normalizeNamedProductIdentity } from "./named-product-identity.js";
+import { namedIdentityFeatureStatus } from "./product-constraint-matcher.js";

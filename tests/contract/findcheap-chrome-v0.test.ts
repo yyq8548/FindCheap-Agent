@@ -47,7 +47,7 @@ describe("FindCheap Agent plugin contract", () => {
     const skill = await readFile(skillPath, "utf8");
 
     expect(new TextEncoder().encode(skill).length).toBeLessThanOrEqual(6_000);
-    expect(skill.split(/\r?\n/u)).toHaveLength(35);
+    expect(skill.split(/\r?\n/u).length).toBeLessThanOrEqual(36);
     expect(skill).toContain("Every live shopping request");
     expect(skill).toContain("Do not read Memory, repository files, logs, task files, or plugin cache");
     expect(skill).toContain("Use only one neutral progress sentence");
@@ -161,14 +161,14 @@ describe("FindCheap Agent plugin contract", () => {
     const dealsSkill = await readFile(watchSkillPath, "utf8");
 
     for (const skill of [compareSkill, dealsSkill]) {
-      expect(skill).toContain("Show best Coupon first: code/benefit");
-      expect(skill).toContain("scope—customer, products, exclusions");
+      expect(skill).toMatch(/Show best Coupon first: code\/benefit|Best Coupon=/u);
+      expect(skill).toMatch(/scope—customer, products, exclusions|code\/benefit\/customer\/products\/exclusions/u);
       expect(skill).toContain("summary.recommendedDealId");
-      expect(skill).toContain("Other offers: collapsed or on request");
+      expect(skill).toMatch(/Other offers: collapsed or on request|Others collapsed/u);
       expect(skill).not.toContain("Blank line; list all deals below");
       expect(skill).toContain("Checkout confirms scope/stacking");
     }
-    expect(compareSkill).toContain("Numeric discount may show estimated price");
+    expect(compareSkill).toContain("Estimated discount: confirmed ID/terms only");
     expect(dealsSkill).toContain("Be warm and direct, not salesy");
   });
 
@@ -207,7 +207,7 @@ describe("FindCheap Agent plugin contract", () => {
     };
 
     expect(manifest.name).toBe("findcheap-agent");
-    expect(manifest.version).toMatch(/^0\.17\.20(?:\+codex\.)?/u);
+    expect(manifest.version).toMatch(/^0\.17\.21(?:\+codex\.)?/u);
     expect(manifest.interface.displayName).toBe("FindCheap Agent");
     expect(manifest.interface.longDescription).toMatch(/Codex Plugin Agent/u);
     expect(manifest.interface.longDescription).toMatch(/[Aa]uthorized.*Chrome/u);

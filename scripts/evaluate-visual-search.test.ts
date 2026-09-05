@@ -103,7 +103,128 @@ function fixture(count = 40) {
   return { manifest, load, artifacts, editCapture, editReview, editLabel, editCohort, freezeCohort };
 }
 
+type RecoveryCall = { toolName: string; startedAt?: string; finishedAt?: string; arguments: Record<string, unknown>;
+  result: { content?: Array<Record<string, unknown>>; structuredContent: Record<string, unknown>; _meta?: Record<string, unknown> } };
+
+/** Synthetic protocol fixture, not evidence that a real host granted permission. */
+function webRecoveryFixture(afterFirstReview = false) {
+  const f = fixture();
+  const pair = f.manifest.cases[0]!.runs[0]!.candidate;
+  const old = JSON.parse(Buffer.from(f.artifacts.get(pair.capture.path)!).toString()) as { calls: RecoveryCall[] };
+  const oldCard = (old.calls[1]!.result.structuredContent.products as Array<Record<string, string>>)[0]!;
+  const webCard = { ...oldCard, sourceKind: "WEB_PRODUCT_PAGE" as const };
+  const webHash = createHash("sha256").update(productReferenceKey(webCard as { sourceKind: "WEB_PRODUCT_PAGE"; merchantId: string; sourceHost: string; handle: string })).digest("hex");
+  f.editLabel(0, label => { label.expectedProductHashes = [label.expectedProductHash, webHash]; });
+  f.freezeCohort();
+  f.editCapture(capture => {
+    const calls = capture.calls as RecoveryCall[];
+    const first = calls[0]!;
+    const terminal = structuredClone(calls[1]!);
+    const firstMeta = first.result._meta!["findcheap/visualEvaluation"] as { reviewedCandidates: Array<Record<string, unknown>> };
+    const parent = "00000000-0000-4000-8000-000000000010";
+    const token = "00000000-0000-4000-8000-000000000011";
+    const visualSession = "web-visual-session";
+    const terminalFailure = { content: [], structuredContent: { status: "OK", products: [], renderId: parent,
+      visualSearchFailure: { code: "NO_CATALOG_CANDIDATES" }, recovery: { action: "REQUEST_WEB_SEARCH" } },
+      _meta: { "findcheap/visualEvaluation": { version: 1, traceId: capture.runId,
+        retrievedProductHashes: [], reviewedCandidates: [], finalProductHashes: [] } } };
+    const begin: RecoveryCall = { toolName: "begin_web_search", startedAt: "2026-09-04T12:31:00Z", finishedAt: "2026-09-04T12:31:01Z",
+      arguments: { renderId: parent }, result: { structuredContent: { status: "READY", retryable: false, attempt: 1,
+        diagnostics: { formSupported: true, hostAction: "ACCEPT_TRUE" }, webSessionId: token, expiresAt: "2026-09-04T12:32:01Z",
+        queries: ["Example dress"], limits: { durationMs: 60000, merchantPages: 5, results: 3, discoveryQueries: 2 } } } };
+    const complete: RecoveryCall = { toolName: "complete_web_search", startedAt: "2026-09-04T12:31:02Z", finishedAt: "2026-09-04T12:31:03Z",
+      arguments: { renderId: parent, webSessionId: token, urls: ["https://example.com/products/dress"] },
+      result: { content: structuredClone(first.result.content!), structuredContent: { products: [], visualReview: {
+        stage: "RELAXED_REVIEW", terminal: false, finalAnswerAllowed: false, requiredNextTool: "finalize_visual_search",
+        visualSessionId: visualSession, expiresAt: "2026-09-04T12:33:00Z", candidates: [{ candidateId: "web-candidate" }] } },
+        _meta: { "findcheap/visualEvaluation": { version: 1, traceId: capture.runId, retrievedProductHashes: [webHash],
+          reviewedCandidates: [{ ...firstMeta.reviewedCandidates[0]!, candidateId: "web-candidate", productHash: webHash }] } } } };
+    terminal.startedAt = "2026-09-04T12:31:04Z"; terminal.finishedAt = "2026-09-04T12:31:05Z";
+    terminal.arguments.visualSessionId = visualSession;
+    (terminal.arguments.verdicts as Array<{ candidateId: string }>)[0]!.candidateId = "web-candidate";
+    terminal.result.structuredContent.products = [webCard];
+    terminal.result._meta = { "findcheap/visualEvaluation": { version: 1, traceId: capture.runId,
+      retrievedProductHashes: [webHash], reviewedCandidates: [], finalProductHashes: [webHash], primaryProductHash: webHash } };
+    if (afterFirstReview) {
+      calls[1]!.result = terminalFailure;
+      capture.calls = [first, calls[1]!, begin, complete, terminal];
+    } else {
+      first.result = terminalFailure;
+      capture.calls = [first, begin, complete, terminal];
+    }
+  });
+  f.editReview(review => { review.productLabels = [{ productHash: webHash, relevant: true }]; review.expectedPrimaryProductHash = webHash; });
+  return f;
+}
+
 describe("recorded visual search evaluation gate", () => {
+  it.each([false, true])("accepts authorized, image-reviewed web recovery without a third round (prior review: %s)", async afterFirstReview => {
+    const f = webRecoveryFixture(afterFirstReview);
+    const report = await evaluateVisualSearch(f.manifest, f.load);
+    expect(report.issues).toEqual([]);
+    expect(report.decision).toBe("PASS_RECORDED_EVIDENCE");
+  });
+  it.each(["denied", "no-ready", "forged-host-action", "wrong-lease", "wrong-parent", "expired", "missing-time", "direct-card", "unreviewed", "third-round"])("rejects unsafe visual web trajectory: %s", async kind => {
+    const f = webRecoveryFixture();
+    f.editCapture(capture => {
+      const calls = capture.calls as RecoveryCall[];
+      const begin = calls[1]!; const complete = calls[2]!; const final = calls[3]!;
+      if (kind === "denied") begin.result.structuredContent.status = "PERMISSION_DENIED";
+      if (kind === "no-ready") calls.splice(1, 1);
+      if (kind === "forged-host-action") begin.result.structuredContent.diagnostics = { formSupported: true, hostAction: "ACCEPT_FALSE" };
+      if (kind === "wrong-lease") complete.arguments.webSessionId = "00000000-0000-4000-8000-000000000012";
+      if (kind === "wrong-parent") complete.arguments.renderId = "00000000-0000-4000-8000-000000000013";
+      if (kind === "expired") complete.startedAt = "2026-09-04T12:33:00Z";
+      if (kind === "missing-time") delete complete.startedAt;
+      if (kind === "direct-card") complete.result = structuredClone(final.result);
+      if (kind === "unreviewed") final.arguments.verdicts = [];
+      if (kind === "third-round") { final.result = structuredClone(complete.result); calls.push(structuredClone(final)); }
+    });
+    expect((await evaluateVisualSearch(f.manifest, f.load)).decision).toBe("INCOMPLETE");
+  });
+  it("scores a correctly stopped denied recovery as a miss, not missing evidence", async () => {
+    const f = webRecoveryFixture();
+    f.editCapture(capture => {
+      const calls = capture.calls as RecoveryCall[];
+      calls[1]!.result.structuredContent = { status: "PERMISSION_DENIED", retryable: false, attempt: 1,
+        diagnostics: { formSupported: true, hostAction: "DECLINE" } };
+      capture.calls = calls.slice(0, 2);
+    });
+    f.editReview(review => { review.productLabels = []; review.expectedPrimaryProductHash = null; });
+    const report = await evaluateVisualSearch(f.manifest, f.load);
+    expect(report.issues).toEqual([]);
+    expect(report.completeCases).toBe(40);
+    expect(report.segments.WITH_BRAND.candidate.top3HitRate).toBe(39 / 40);
+    expect(report.decision).toBe("FAIL");
+  });
+  it("accepts one typed transient consent retry without granting a second web admission", async () => {
+    const f = webRecoveryFixture(true);
+    f.editCapture(capture => {
+      const calls = capture.calls as RecoveryCall[];
+      const begin = calls[2]!;
+      const timeout = structuredClone(begin);
+      timeout.result.structuredContent = { status: "PERMISSION_TIMEOUT", retryable: true, attempt: 1,
+        diagnostics: { formSupported: true, hostAction: "ERROR" } };
+      begin.startedAt = "2026-09-04T12:31:01Z"; begin.finishedAt = "2026-09-04T12:31:01.500Z";
+      begin.result.structuredContent.attempt = 2;
+      calls.splice(2, 0, timeout);
+    });
+    expect((await evaluateVisualSearch(f.manifest, f.load)).decision).toBe("PASS_RECORDED_EVIDENCE");
+  });
+  it("records authorized recovery with no loadable images as an actual miss", async () => {
+    const f = webRecoveryFixture();
+    f.editCapture(capture => {
+      const calls = capture.calls as RecoveryCall[];
+      calls[2]!.result = { content: [], structuredContent: { products: [], visualSearchFailure: { code: "NO_LOADABLE_IMAGES" } },
+        _meta: { "findcheap/visualEvaluation": { version: 1, traceId: capture.runId, retrievedProductHashes: [], reviewedCandidates: [], finalProductHashes: [] } } };
+      capture.calls = calls.slice(0, 3);
+    });
+    f.editReview(review => { review.productLabels = []; review.expectedPrimaryProductHash = null; });
+    const report = await evaluateVisualSearch(f.manifest, f.load);
+    expect(report.issues).toEqual([]);
+    expect(report.completeCases).toBe(40);
+    expect(report.decision).toBe("FAIL");
+  });
   it("never passes an empty dataset", async () => {
     const { manifest, load } = fixture(0);
     expect((await evaluateVisualSearch(manifest, load)).decision).toBe("INCOMPLETE");

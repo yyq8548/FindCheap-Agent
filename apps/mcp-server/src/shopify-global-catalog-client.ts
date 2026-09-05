@@ -346,7 +346,10 @@ export function createShopifyGlobalCatalogPort(
             body: JSON.stringify(searchRequest(input, profileUrl, attempt.query)),
             signal
           });
-          if (!response.ok) throw new Error("catalog request failed");
+          if (!response.ok) {
+            await response.body?.cancel().catch(() => {});
+            throw new Error(`Shopify Catalog service returned HTTP ${response.status}`);
+          }
           const parsed = CatalogEnvelopeSchema.parse(JSON.parse(await readLimitedText(response, signal)));
           const catalogProducts = parseCatalogProducts(parsed.result.structuredContent.products);
           latest = buildResult(

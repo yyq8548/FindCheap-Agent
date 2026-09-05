@@ -109,7 +109,7 @@ export const PRODUCT_COMPARISON_HTML = String.raw`<!doctype html>
         NEW: "全新", USED: "二手", REFURBISHED: "翻新", OPEN_BOX: "开箱品",
         OFFICIAL: "官方", AUTHORIZED_RETAILER: "授权零售商", ESTABLISHED_RETAILER: "成熟零售商", RISKY: "风险商家",
         INDEPENDENT: "独立验证", UNVERIFIED: "未验证",
-        EXACT_MATCH: "精确匹配", BEST_FIT: "最佳匹配", TRUSTED_MERCHANT: "可信商家", LOWER_PRICE: "价格更低", VERIFIED_COUPON: "已验证优惠",
+        EXACT_MATCH: "精确匹配", BEST_FIT: "最佳匹配", TRUSTED_MERCHANT: "可信商家", LOWER_PRICE: "同款价格更低", LOWER_UNIT_PRICE: "单位价格更低", VERIFIED_COUPON: "已验证优惠",
         READY: "已生成", RESEARCH_ONLY: "仅供研究", NO_MATCH: "无匹配", NEEDS_CLARIFICATION: "需要补充信息",
         COUPON: "优惠券", PROMO_CODE: "促销码", BRAND_PROMOTION: "品牌促销",
         ITEM_PRICE: "商品价", DELIVERED_TOTAL: "到手价", CONDITION: "商品状态", AVAILABILITY: "库存", MERCHANT_TRUST: "商家信任"
@@ -131,6 +131,14 @@ export const PRODUCT_COMPARISON_HTML = String.raw`<!doctype html>
     };
     const render = (output) => {
       if (!output || typeof output !== "object") return;
+      const evaluatedAtMs = Date.now();
+      const couponValidity = (offer) => {
+        const end = Date.parse(offer?.validTo || "");
+        if (!Number.isFinite(end)) return "UNKNOWN";
+        if (end <= evaluatedAtMs) return "EXPIRED";
+        const start = offer?.validFrom === undefined ? -Infinity : Date.parse(offer.validFrom);
+        return start <= evaluatedAtMs ? "ACTIVE" : Number.isFinite(start) ? "NOT_STARTED" : "UNKNOWN";
+      };
       const locale = output.locale === "zh-CN" ? "zh-CN" : "en-US";
       app.replaceChildren();
       if (output.status !== "OK" || !Array.isArray(output.entries) || output.entries.length < 2) {
@@ -145,6 +153,10 @@ export const PRODUCT_COMPARISON_HTML = String.raw`<!doctype html>
         ? text(locale, "same-product offers", "同款报价")
         : text(locale, "different product choices", "不同商品选择");
       const summary = [output.message, mode, basis];
+      if (output.priceComparability === "UNIT_PRICE_ONLY") summary.push(text(locale,
+        "Different package sizes: compare unit prices, not package-price savings.", "包装规格不同：比较单位价格，不将包装标价差称为节省。"));
+      if (output.priceComparability === "NOT_LIKE_FOR_LIKE") summary.push(text(locale,
+        "Prices are shown for reference, not evidence of like-for-like value.", "价格仅作参考，不代表同口径的性价比优势。"));
       const evaluatedAt = dateTime(output.evaluatedAt, locale);
       const expiresAt = dateTime(output.expiresAt, locale);
       if (evaluatedAt) summary.push(text(locale, "Checked: " + evaluatedAt, "检查时间：" + evaluatedAt));
@@ -239,14 +251,18 @@ export const PRODUCT_COMPARISON_HTML = String.raw`<!doctype html>
         if (Number.isFinite(offer.discountPercent)) details.push(String(offer.discountPercent) + "%");
         const amount = money(offer.discountAmount, locale);
         if (amount) details.push(text(locale, amount + " off", "减免 " + amount));
-        details.push(offer.productApplicability === "PRODUCT_CONFIRMED" &&
-          (offer.assessment === undefined || offer.assessment.status === "CONFIRMED")
+        details.push(couponValidity(offer) === "ACTIVE" && offer.productApplicability === "PRODUCT_CONFIRMED" &&
+          offer.assessment?.status === "CONFIRMED" && offer.assessment.recommendationEligible === true
           ? text(locale, "confirmed for this product", "已确认适用于此商品")
           : offer.assessment?.status === "INELIGIBLE"
             ? text(locale, "not eligible for this product", "不适用于此商品")
           : offer.productApplicability === "MERCHANT_WIDE"
             ? text(locale, "merchant offer; product eligibility requires confirmation", "商家优惠；此商品适用性未确认")
             : text(locale, "product eligibility unconfirmed", "商品适用性未确认"));
+        const validity = couponValidity(offer);
+        if (validity !== "ACTIVE") details.push(validity === "EXPIRED" ? text(locale, "Expired", "已过期")
+          : validity === "NOT_STARTED" ? text(locale, "Not yet active", "尚未生效")
+          : text(locale, "offer validity unconfirmed", "优惠有效期未确认"));
         const validTo = dateTime(offer.validTo, locale) || offer.validTo;
         if (validTo) details.push(text(locale, "valid to " + validTo, "有效期至 " + validTo));
         return details.join(" · ");
@@ -257,9 +273,9 @@ export const PRODUCT_COMPARISON_HTML = String.raw`<!doctype html>
         const primary = entry.dealLookupStatus === "UNAVAILABLE" ? undefined
           : summary !== undefined
             ? ["CONFIRMED_DEAL", "MERCHANT_CANDIDATE"].includes(summary.status) && typeof summary.recommendedDealId === "string"
-              ? offers.find((offer) => offer.dealId === summary.recommendedDealId &&
+              ? offers.find((offer) => couponValidity(offer) === "ACTIVE" && offer.dealId === summary.recommendedDealId &&
                 offer.assessment?.status !== "INELIGIBLE" && offer.assessment?.recommendationEligible !== false) : undefined
-            : offers.find((offer) => offer.assessment?.status !== "INELIGIBLE");
+            : offers.find((offer) => couponValidity(offer) === "ACTIVE" && offer.assessment?.status !== "INELIGIBLE");
         const section = make("div");
         if (entry.dealLookupStatus === "UNAVAILABLE") section.append(make("div", "unknown", text(locale, "Coupon lookup unavailable; this does not mean no offers exist.", "优惠查询暂不可用；不代表没有优惠。")));
         if (entry.dealLookupStatus === "PARTIAL") section.append(make("div", "unknown", text(locale, "Coupon lookup only partially completed.", "优惠查询仅部分完成。")));
@@ -286,6 +302,19 @@ export const PRODUCT_COMPARISON_HTML = String.raw`<!doctype html>
         { focus: undefined, label: text(locale, "Recommendation", "推荐结论"), renderValue: recommendation },
         { focus: "PRICE", label: text(locale, "Compared price", "对比价格"), renderValue: (entry) => make("span", entry.comparedPrice ? "price" : "unknown", money(entry.comparedPrice, locale) || text(locale, "Unavailable", "不可用")) },
         { focus: "PRICE", label: text(locale, "Item price", "商品价"), renderValue: (entry) => make("span", entry.itemPrice ? "" : "unknown", money(entry.itemPrice, locale) || text(locale, "Unknown", "未知")) },
+        { focus: "PRICE", label: text(locale, "Unit item price", "单位商品价"), renderValue: (entry) => {
+          const unit = entry.unitPrice;
+          const value = money(unit, locale);
+          return make("span", value ? "" : "unknown", value && ["ML", "ITEM"].includes(unit.unit)
+            ? value + (unit.unit === "ML" ? " / 100 mL" : text(locale, " / item", " / 件")) + text(locale, " · before coupon, tax and shipping", " · 不含优惠、税费和运费")
+            : text(locale, "No unambiguous package quantity", "无明确可换算的包装数量"));
+        } },
+        { focus: undefined, label: text(locale, "Quality evidence", "质量依据"), renderValue: (entry) => {
+          const rating = entry.qualityEvidence?.rating;
+          return make("span", "unknown", rating
+            ? text(locale, "Source-reported rating: ", "来源报告的评分：") + rating.value + "/5 (" + rating.count + text(locale, " reviews). Not a quality guarantee.", " 条评价）。不构成质量保证。")
+            : text(locale, "No verified quality evidence; merchant trust is separate.", "尚无已核实质量依据；商家可信度单独判断。"));
+        } },
         { focus: "DELIVERED_TOTAL", label: text(locale, "Delivered total", "到手价"), renderValue: (entry) => {
           const value = money(entry.deliveredTotal, locale);
           const expiry = dateTime(entry.deliveredTotalExpiresAt, locale);

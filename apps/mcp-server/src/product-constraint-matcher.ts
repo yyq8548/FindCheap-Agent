@@ -1,5 +1,6 @@
 import { hairFeatureStatus } from "../../../packages/contracts/src/hair-requirements.js";
 import { functionalFeatureStatus } from "./functional-requirements.js";
+import { namedProductIdentity, normalizeNamedProductIdentity } from "./named-product-identity.js";
 
 type Comparator = "EXACT" | "MIN" | "MAX" | "APPROX";
 type QuantityKind = "LENGTH" | "MEMORY" | "STORAGE" | "DATA" | "VOLUME" | "MASS" | "COUNT" | "FREQUENCY" | "POWER";
@@ -26,10 +27,13 @@ const RESOLUTIONS: ReadonlyArray<{ name: string; patterns: RegExp[] }> = [
 ];
 
 export function evaluateFeature(searchable: string, feature: string): FeatureMatchStatus {
+  const named = namedIdentityFeatureStatus(searchable, feature);
+  if (named !== undefined) return named;
+  // Preserve field punctuation and sentence boundaries for scoped claim evidence.
+  const functional = functionalFeatureStatus(searchable, feature);
+  if (functional !== undefined) return functional;
   const normalizedSearchable = normalize(searchable);
   const normalizedFeature = normalize(feature);
-  const functional = functionalFeatureStatus(normalizedSearchable, normalizedFeature);
-  if (functional !== undefined) return functional;
 
   const alternatives = disjunctiveAlternatives(normalizedFeature);
   if (alternatives.length > 1) {
@@ -87,6 +91,44 @@ export function evaluateFeature(searchable: string, feature: string): FeatureMat
   if (requestedTokens.length === 0) return "UNKNOWN";
   const observedTokens = new Set(meaningfulTokens(normalizedSearchable));
   return requestedTokens.every((token) => observedTokens.has(token)) ? "MATCHED" : "UNKNOWN";
+}
+
+/** Reviewed bilingual identities only; every required anchor must occur in this field. */
+export function namedIdentityFeatureStatus(text: string, feature: string): FeatureMatchStatus | undefined {
+  if (namedProductIdentity(feature) === undefined) return undefined;
+  const normalizedFeature = normalizeNamedProductIdentity(feature).toLowerCase();
+  const tokens: string[] = normalizedFeature.match(/[\p{L}\p{N}]+/gu) ?? [];
+  // Do not fall through to color/quantity matching and accidentally satisfy
+  // only an extra attribute while ignoring the requested character identity.
+  if (!tokens.every(token => ["honorofkings", "libai", "default", "wig", "wigs"].includes(token))) return "UNKNOWN";
+  let matched = false;
+  let precedingIdentity = false;
+  for (const clause of text.split(/[.;!?。；！？\n]|\b(?:but|however)\b/iu)) {
+    const normalized = normalizeNamedProductIdentity(clause).toLowerCase();
+    if (normalized === "") continue;
+    const previousIdentity = precedingIdentity;
+    precedingIdentity = false;
+    // Merchant navigation, other products and conditional claims cannot lend
+    // this product a character or appearance, even within the same field.
+    if (/\b(?:other|another|separately|guide|tutorial|article|blog|when|if|may|might|could|possible)\b|另售|另一|其他|教程|指南|搭配|如果|可能/u.test(normalized)) continue;
+    const completeIdentity = namedProductIdentity(clause) !== undefined;
+    precedingIdentity = completeIdentity;
+    const implicitDefaultNegation = tokens.includes("default") && previousIdentity &&
+      /^(?:this (?:wig|item|product) (?:is )?|it (?:is )?)?(?:not|no|never) (?:the )?default\s*$/u.test(normalized);
+    if (!completeIdentity && !implicitDefaultNegation) continue;
+    if (/\b(?:not|no|never|without|excluding)\b|不是|不含|并非|非/u.test(normalized)) return "CONTRADICTED";
+    if ((!tokens.includes("default") || namedDefaultClaim(normalized)) &&
+      (!tokens.some(token => /^wigs?$/u.test(token)) || /\bwigs?\b/u.test(normalized))) matched = true;
+  }
+  return matched ? "MATCHED" : "UNKNOWN";
+}
+
+function namedDefaultClaim(normalized: string): boolean {
+  const words = normalized.match(/[\p{L}\p{N}]+/gu) ?? [];
+  const links = new Set(["honorofkings", "libai", "the", "his", "in", "with", "is", "wig", "wigs", "original", "的", "为", "是"]);
+  return words.some((word, character) => word === "libai" && words.some((variant, appearance) =>
+    variant === "default" && words.slice(Math.min(character, appearance) + 1, Math.max(character, appearance))
+      .every(link => links.has(link))));
 }
 
 

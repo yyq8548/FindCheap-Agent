@@ -4,7 +4,10 @@ import { parseOfficialStructuredProduct } from "./shopify-official-store-search.
 import { ShopifyProductJsonSchema, shopifyVariantDimensions } from "./shopify-product-json.js";
 import { evaluateProductRequirements, sizeEvidence } from "./product-requirements.js";
 
-type InspectionOptions = { signal?: AbortSignal; requirements?: { requiredFeatures: readonly string[]; requiredSize?: string | undefined } };
+type InspectionOptions = { signal?: AbortSignal; requirements?: {
+  requiredFeatures: readonly string[]; requiredSize?: string | undefined;
+  query?: string | undefined; productType?: string | undefined; primaryUse?: string | undefined;
+} };
 
 export type SelectedProductInspection = {
   productTitle: string;

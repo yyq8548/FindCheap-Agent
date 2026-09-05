@@ -77,6 +77,28 @@ function executeUi(output: Record<string, unknown>) {
 }
 
 describe("product comparison MCP Apps UI", () => {
+  it.each(["zh-CN", "en-US"])("keeps expired confirmed coupons out of the primary offer in %s", locale => {
+    const { app } = executeUi({ status: "OK", locale, entries: [
+      { selectionId: "a", title: "A", merchant: "A", verifiedDeals: [{ title: "OLD", kind: "COUPON", validTo: "2000-01-01T00:00:00Z",
+        productApplicability: "PRODUCT_CONFIRMED", assessment: { status: "CONFIRMED", recommendationEligible: true } }] },
+      { selectionId: "b", title: "B", merchant: "B", verifiedDeals: [] }
+    ] });
+    expect(text(app)).toContain(locale === "zh-CN" ? "已过期" : "Expired");
+    expect(text(app)).not.toContain(locale === "zh-CN" ? "已确认适用于此商品" : "confirmed for this product");
+    expect(text(nodes(app).find(node => node.tagName === "DETAILS")!)).toContain("OLD");
+  });
+  it.each(["zh-CN", "en-US"])("shows server unit-price and quality limits in %s", locale => {
+    const { app } = executeUi({ status: "OK", locale, message: "Comparison", mode: "PRODUCT_CHOICES", priceBasis: "ITEM_PRICE",
+      priceComparability: "UNIT_PRICE_ONLY", entries: [
+        { selectionId: "a", title: "Shampoo 250 mL", merchant: "A", unitPrice: { amountCents: 800, currency: "USD", unit: "ML" }, qualityEvidence: { status: "UNKNOWN" } },
+        { selectionId: "b", title: "Shampoo 500 mL", merchant: "B", unitPrice: { amountCents: 600, currency: "USD", unit: "ML" }, qualityEvidence: { status: "REPORTED_RATING", rating: { value: 4.7, count: 50 } } }
+      ] });
+    expect(text(app)).toContain(locale === "zh-CN" ? "单位商品价" : "Unit item price");
+    expect(text(app)).toContain(" / 100 mL");
+    expect(text(app)).toContain(locale === "zh-CN" ? "不含优惠、税费和运费" : "before coupon, tax and shipping");
+    expect(text(app)).toContain(locale === "zh-CN" ? "不构成质量保证" : "Not a quality guarantee");
+    expect(text(app)).toContain(locale === "zh-CN" ? "包装规格不同" : "Different package sizes");
+  });
   it("preserves Coupon lookup state, server summary, and ineligible assessment in comparisons", () => {
     const { app } = executeUi({
       status: "OK", locale: "zh-CN", message: "比较", mode: "PRODUCT_CHOICES", priceBasis: "ITEM_PRICE",
@@ -88,7 +110,7 @@ describe("product comparison MCP Apps UI", () => {
           verifiedDeals: [
             { dealId: "excluded", title: "SAVE50", kind: "COUPON", productApplicability: "MERCHANT_WIDE",
               assessment: { status: "INELIGIBLE", reasonCodes: ["MINIMUM_SPEND_NOT_MET"], recommendationEligible: false } },
-            { dealId: "primary", title: "TRY18", kind: "COUPON", productApplicability: "MERCHANT_WIDE",
+            { dealId: "primary", title: "TRY18", kind: "COUPON", productApplicability: "MERCHANT_WIDE", validTo: "2099-01-01T00:00:00Z",
               assessment: { status: "CONDITIONAL", reasonCodes: ["MERCHANT_ELIGIBILITY_UNCONFIRMED"], recommendationEligible: true } }
           ]
         }

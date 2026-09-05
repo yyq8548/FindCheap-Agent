@@ -3850,6 +3850,10 @@
         }
       ]
     },
+    "src/decision-constraints.ts": {
+      "format": "esm",
+      "imports": []
+    },
     "src/ebay-client.ts": {
       "format": "esm",
       "imports": [
@@ -3940,7 +3944,13 @@
     },
     "src/functional-requirements.ts": {
       "format": "esm",
-      "imports": []
+      "imports": [
+        {
+          "kind": "import-statement",
+          "original": "./named-product-identity.js",
+          "path": "src/named-product-identity.ts"
+        }
+      ]
     },
     "src/generic-official-store-search.ts": {
       "format": "esm",
@@ -3997,6 +4007,10 @@
         }
       ]
     },
+    "src/named-product-identity.ts": {
+      "format": "esm",
+      "imports": []
+    },
     "src/official-storefront-registry-client.ts": {
       "format": "esm",
       "imports": [
@@ -4029,6 +4043,11 @@
           "kind": "import-statement",
           "original": "./ranking-assessment.js",
           "path": "src/ranking-assessment.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./product-value-evidence.js",
+          "path": "src/product-value-evidence.ts"
         },
         {
           "kind": "import-statement",
@@ -4114,6 +4133,11 @@
           "kind": "import-statement",
           "original": "./product-requirements.js",
           "path": "src/product-requirements.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./product-value-evidence.js",
+          "path": "src/product-value-evidence.ts"
         }
       ]
     },
@@ -4129,6 +4153,11 @@
           "kind": "import-statement",
           "original": "./functional-requirements.js",
           "path": "src/functional-requirements.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./named-product-identity.js",
+          "path": "src/named-product-identity.ts"
         }
       ]
     },
@@ -4139,6 +4168,16 @@
           "kind": "import-statement",
           "original": "./ranking-assessment.js",
           "path": "src/ranking-assessment.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./product-value-evidence.js",
+          "path": "src/product-value-evidence.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./decision-constraints.js",
+          "path": "src/decision-constraints.ts"
         }
       ]
     },
@@ -4163,6 +4202,36 @@
           "kind": "import-statement",
           "original": "./execution/external-data-fence.js",
           "path": "src/execution/external-data-fence.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./functional-requirements.js",
+          "path": "src/functional-requirements.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./named-product-identity.js",
+          "path": "src/named-product-identity.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./decision-constraints.js",
+          "path": "src/decision-constraints.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./shopify-match.js",
+          "path": "src/shopify-match.ts"
+        }
+      ]
+    },
+    "src/product-value-evidence.ts": {
+      "format": "esm",
+      "imports": [
+        {
+          "kind": "import-statement",
+          "original": "zod",
+          "path": "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/index.js"
         }
       ]
     },
@@ -4173,6 +4242,11 @@
           "kind": "import-statement",
           "original": "./visual-review-policy.js",
           "path": "src/visual-review-policy.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./product-value-evidence.js",
+          "path": "src/product-value-evidence.ts"
         }
       ]
     },
@@ -4183,6 +4257,26 @@
           "kind": "import-statement",
           "original": "./ranking-assessment.js",
           "path": "src/ranking-assessment.ts"
+        }
+      ]
+    },
+    "src/retrieval-plan.ts": {
+      "format": "esm",
+      "imports": [
+        {
+          "kind": "import-statement",
+          "original": "../../../packages/awin-feed/src/index.js",
+          "path": "../../packages/awin-feed/src/index.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./shopify-match.js",
+          "path": "src/shopify-match.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./named-product-identity.js",
+          "path": "src/named-product-identity.ts"
         }
       ]
     },
@@ -4206,6 +4300,16 @@
           "kind": "import-statement",
           "original": "./search-run.js",
           "path": "src/search-run.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./retrieval-plan.js",
+          "path": "src/retrieval-plan.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./source-failure.js",
+          "path": "src/source-failure.ts"
         },
         {
           "kind": "import-statement",
@@ -4281,6 +4385,31 @@
           "kind": "import-statement",
           "original": "./search-products.js",
           "path": "src/search-products.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./execution/external-data-fence.js",
+          "path": "src/execution/external-data-fence.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./named-product-identity.js",
+          "path": "src/named-product-identity.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./shopify-match.js",
+          "path": "src/shopify-match.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./functional-requirements.js",
+          "path": "src/functional-requirements.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./product-constraint-matcher.js",
+          "path": "src/product-constraint-matcher.ts"
         }
       ]
     },
@@ -4326,6 +4455,11 @@
           "kind": "import-statement",
           "original": "./search-requirements-context.js",
           "path": "src/search-requirements-context.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./product-value-evidence.js",
+          "path": "src/product-value-evidence.ts"
         },
         {
           "kind": "import-statement",
@@ -4566,7 +4700,18 @@
     },
     "src/shopify-match.ts": {
       "format": "esm",
-      "imports": []
+      "imports": [
+        {
+          "kind": "import-statement",
+          "original": "./named-product-identity.js",
+          "path": "src/named-product-identity.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./product-constraint-matcher.js",
+          "path": "src/product-constraint-matcher.ts"
+        }
+      ]
     },
     "src/shopify-official-store-search.ts": {
       "format": "esm",
@@ -4640,6 +4785,16 @@
           "kind": "import-statement",
           "original": "./product-requirements.js",
           "path": "src/product-requirements.ts"
+        }
+      ]
+    },
+    "src/source-failure.ts": {
+      "format": "esm",
+      "imports": [
+        {
+          "kind": "import-statement",
+          "original": "./search-run.js",
+          "path": "src/search-run.ts"
         }
       ]
     },
@@ -4915,13 +5070,18 @@
           "kind": "import-statement",
           "original": "./functional-requirements.js",
           "path": "src/functional-requirements.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./visual-retrieval-query.js",
+          "path": "src/visual-retrieval-query.ts"
         }
       ]
     }
   },
   "outputs": {
     "../../plugins/findcheap-agent/dist/mcp-server.js": {
-      "bytes": 879644,
+      "bytes": 929851,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
@@ -4949,6 +5109,31 @@
           "external": true,
           "kind": "import-statement",
           "path": "node:crypto"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:fs/promises"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:net"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:os"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:path"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:zlib"
         },
         {
           "external": true,
@@ -5049,31 +5234,6 @@
           "external": true,
           "kind": "import-statement",
           "path": "node:path"
-        },
-        {
-          "external": true,
-          "kind": "import-statement",
-          "path": "node:fs/promises"
-        },
-        {
-          "external": true,
-          "kind": "import-statement",
-          "path": "node:net"
-        },
-        {
-          "external": true,
-          "kind": "import-statement",
-          "path": "node:os"
-        },
-        {
-          "external": true,
-          "kind": "import-statement",
-          "path": "node:path"
-        },
-        {
-          "external": true,
-          "kind": "import-statement",
-          "path": "node:zlib"
         }
       ],
       "inputs": {
@@ -5099,10 +5259,10 @@
           "bytesInOutput": 195
         },
         "../../node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/server/index.js": {
-          "bytesInOutput": 8031
+          "bytesInOutput": 8042
         },
         "../../node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/server/mcp.js": {
-          "bytesInOutput": 14776
+          "bytesInOutput": 14812
         },
         "../../node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/server/stdio.js": {
           "bytesInOutput": 1028
@@ -5114,7 +5274,7 @@
           "bytesInOutput": 574
         },
         "../../node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/shared/protocol.js": {
-          "bytesInOutput": 16040
+          "bytesInOutput": 16095
         },
         "../../node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/shared/stdio.js": {
           "bytesInOutput": 638
@@ -5123,7 +5283,7 @@
           "bytesInOutput": 1536
         },
         "../../node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/types.js": {
-          "bytesInOutput": 12534
+          "bytesInOutput": 12609
         },
         "../../node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/validation/ajv-provider.js": {
           "bytesInOutput": 450
@@ -5192,7 +5352,7 @@
           "bytesInOutput": 1980
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/core.js": {
-          "bytesInOutput": 12303
+          "bytesInOutput": 12297
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/refs/data.json": {
           "bytesInOutput": 358
@@ -5468,7 +5628,7 @@
           "bytesInOutput": 1773
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/helpers/errorUtil.js": {
-          "bytesInOutput": 129
+          "bytesInOutput": 132
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/helpers/parseUtil.js": {
           "bytesInOutput": 1468
@@ -5480,7 +5640,7 @@
           "bytesInOutput": 3029
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/types.js": {
-          "bytesInOutput": 50038
+          "bytesInOutput": 50096
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v4/classic/checks.js": {
           "bytesInOutput": 0
@@ -5498,7 +5658,7 @@
           "bytesInOutput": 44
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v4/classic/schemas.js": {
-          "bytesInOutput": 10401
+          "bytesInOutput": 10402
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v4/core/api.js": {
           "bytesInOutput": 4774
@@ -5587,6 +5747,9 @@
         "src/deal-concierge.ts": {
           "bytesInOutput": 2877
         },
+        "src/decision-constraints.ts": {
+          "bytesInOutput": 1918
+        },
         "src/ebay-client.ts": {
           "bytesInOutput": 3881
         },
@@ -5609,10 +5772,10 @@
           "bytesInOutput": 942
         },
         "src/functional-requirements.ts": {
-          "bytesInOutput": 1930
+          "bytesInOutput": 7857
         },
         "src/generic-official-store-search.ts": {
-          "bytesInOutput": 15817
+          "bytesInOutput": 15814
         },
         "src/merchant-trust-registry-client.ts": {
           "bytesInOutput": 1283
@@ -5620,59 +5783,68 @@
         "src/merchant-trust.ts": {
           "bytesInOutput": 9659
         },
+        "src/named-product-identity.ts": {
+          "bytesInOutput": 940
+        },
         "src/official-storefront-registry-client.ts": {
           "bytesInOutput": 1326
         },
         "src/product-candidate-ranking.ts": {
-          "bytesInOutput": 6183
+          "bytesInOutput": 6896
         },
         "src/product-card-telemetry.ts": {
           "bytesInOutput": 814
         },
         "src/product-card-ui.ts": {
-          "bytesInOutput": 68529
+          "bytesInOutput": 72999
         },
         "src/product-comparison-ui.ts": {
-          "bytesInOutput": 25268
+          "bytesInOutput": 27906
         },
         "src/product-comparison.ts": {
-          "bytesInOutput": 10937
+          "bytesInOutput": 10750
         },
         "src/product-constraint-matcher.ts": {
-          "bytesInOutput": 11676
+          "bytesInOutput": 12903
         },
         "src/product-recommendation.ts": {
-          "bytesInOutput": 3301
+          "bytesInOutput": 4672
         },
         "src/product-reference.ts": {
           "bytesInOutput": 128
         },
         "src/product-requirements.ts": {
-          "bytesInOutput": 3399
+          "bytesInOutput": 5528
+        },
+        "src/product-value-evidence.ts": {
+          "bytesInOutput": 4711
         },
         "src/ranking-assessment.ts": {
-          "bytesInOutput": 2512
+          "bytesInOutput": 2743
         },
         "src/recommendation-message.ts": {
           "bytesInOutput": 1528
+        },
+        "src/retrieval-plan.ts": {
+          "bytesInOutput": 779
         },
         "src/sales-tax-estimator.ts": {
           "bytesInOutput": 1784
         },
         "src/search-diagnostics.ts": {
-          "bytesInOutput": 2052
+          "bytesInOutput": 3148
         },
         "src/search-products.ts": {
-          "bytesInOutput": 34702
+          "bytesInOutput": 38766
         },
         "src/search-requirements-context.ts": {
-          "bytesInOutput": 2015
+          "bytesInOutput": 4694
         },
         "src/search-run.ts": {
           "bytesInOutput": 3966
         },
         "src/server.ts": {
-          "bytesInOutput": 145123
+          "bytesInOutput": 155390
         },
         "src/shopify-cart-quote.ts": {
           "bytesInOutput": 10343
@@ -5681,10 +5853,10 @@
           "bytesInOutput": 181
         },
         "src/shopify-global-catalog-client.ts": {
-          "bytesInOutput": 22361
+          "bytesInOutput": 22425
         },
         "src/shopify-match.ts": {
-          "bytesInOutput": 7896
+          "bytesInOutput": 10880
         },
         "src/shopify-official-store-search.ts": {
           "bytesInOutput": 14141
@@ -5693,13 +5865,16 @@
           "bytesInOutput": 1432
         },
         "src/shopify-selected-product.ts": {
-          "bytesInOutput": 4659
+          "bytesInOutput": 4658
+        },
+        "src/source-failure.ts": {
+          "bytesInOutput": 1625
         },
         "src/stdio.ts": {
           "bytesInOutput": 930
         },
         "src/text-search-recovery.ts": {
-          "bytesInOutput": 1279
+          "bytesInOutput": 1372
         },
         "src/visual-candidate-images.ts": {
           "bytesInOutput": 6366
@@ -5723,7 +5898,7 @@
           "bytesInOutput": 6942
         },
         "src/web-product-recovery.ts": {
-          "bytesInOutput": 4402
+          "bytesInOutput": 4641
         }
       }
     }
