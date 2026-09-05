@@ -287,9 +287,11 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     let lastProductOutput;
     let currentLocale = document.documentElement.lang?.toLocaleLowerCase().startsWith("zh") ? "zh-CN" : "en-US";
     const text = (english, chinese) => currentLocale === "zh-CN" ? chinese : english;
+    const requirementLabel = value => currentLocale === "zh-CN"
+      ? ({ "long hair": "长发", "short hair": "短发", "straight hair": "直发", "curly hair": "卷发" }[value] || value) : value;
     const badgeText = (value) => currentLocale !== "zh-CN" ? ({
       TRUSTED_MERCHANT: "Trusted merchant",
-      SHOPIFY_HIGH_RATED: "Shopify high-rated merchant"
+      SHOPIFY_HIGH_RATED: "Highly rated product · merchant unverified"
     })[value] || value : ({
       EXACT: "精确匹配",
       DISCOVERY_MATCH: "发现匹配",
@@ -299,7 +301,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       AUTHORIZED_RETAILER: "授权零售商",
       ESTABLISHED_RETAILER: "成熟零售商",
       TRUSTED_MERCHANT: "可信商家",
-      SHOPIFY_HIGH_RATED: "Shopify 高评分商家",
+      SHOPIFY_HIGH_RATED: "高评分商品 · 商家未核验",
       NEW: "全新",
       USED: "二手",
       REFURBISHED: "翻新",
@@ -518,7 +520,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     const extractStructuredContent = (value, depth = 0) => {
       if (!value || typeof value !== "object" || depth > 4) return undefined;
       if (Array.isArray(value.products) || Array.isArray(value.entries)) return value;
-      for (const key of ["structuredContent", "toolOutput", "result", "output", "toolResult", "mcp_tool_result", "call_tool_result"]) {
+      for (const key of ["updatedSnapshot", "structuredContent", "toolOutput", "result", "output", "toolResult", "mcp_tool_result", "call_tool_result"]) {
         const nested = extractStructuredContent(value[key], depth + 1);
         if (nested) return nested;
       }
@@ -540,7 +542,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       { tier: "TRUSTED_OR_AFFILIATE", title: text("Trusted merchants", "可信商家") },
       {
         tier: "HIGH_RATED_UNVERIFIED",
-        title: text("Highly rated Shopify merchants", "Shopify 高评分商家"),
+        title: text("Highly rated products · unverified merchants", "高评分商品 · 商家未核验"),
         notice: text("Shopify rating is above 3.8 with at least 2 reviews.", "Shopify 评分高于 3.8 且至少有 2 条评价。")
       },
       {
@@ -567,15 +569,20 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       {
         group: "TRUSTED_MATCH",
         title: text("Trusted exact and similar matches", "可信的精确与相似匹配"),
-        notice: text("High-match products from reviewed merchants, approved Awin merchants, or Shopify merchants rated above 3.8 with at least 2 reviews. Commission never changes relevance scoring.", "来自已审核商家、已批准的 Awin 商家，或评分高于 3.8 且至少有 2 条评价的 Shopify 高匹配商品。佣金不影响相关性评分。")
+        notice: text("Requirement-matched products from independently reviewed merchants, including manually verified approved Awin merchants. Product ratings do not verify merchants.", "必要要求已匹配，来自独立核验商家，包括人工验证的已批准 Awin 商家。商品评分不等于商家核验。")
       },
       {
         group: "BEST_VALUE",
         title: text("Best-value high-match options", "高性价比匹配"),
         notice: text(
-          "High-match products ordered by confirmed after-Coupon price, then item price. Merchant-only offers do not override a lower price.",
-          "高匹配商品先按已确认的优惠后价格、再按商品原价排序；仅商家级优惠不会压过更低价格。"
+          "Compare fit and evidence first, then confirmed after-Coupon or item price. Unverified merchants remain research leads, not purchase recommendations.",
+          "先比较匹配与证据，再比较已确认优惠后价格或原价。未核验商家仅供调研，不作为购买推荐。"
         )
+      },
+      {
+        group: "RESEARCH_ONLY",
+        title: text("Requirements awaiting verification", "要求待核验"),
+        notice: text("These products do not count as fulfilled matches. Check the highlighted requirements before considering purchase.", "这些商品不计入达标结果；需先核实标出的要求，不能据此直接购买。")
       }
     ];
     const visualGroupDefinitions = () => [
@@ -706,6 +713,9 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
           ? text("Quote unsupported: merchant checkout only", "不支持报价：仅商家结账页提供")
           : text("Not quoted: provide ZIP", "未报价：请提供 ZIP"));
       const rows = [
+        [text("Variant", "规格"), (entry) => comparisonList(Object.entries(entry.variantDimensions || {}).map(([key, value]) => key + ": " + value))],
+        [text("Requirements check", "要求核验"), (entry) => comparisonList(entry.requirementAssessment?.entries?.map(item => requirementLabel(item.requirement) + ": " +
+          (item.status === "MATCHED" ? text("Verified", "已核验") : item.status === "UNKNOWN" ? text("Not verified", "待核验") : text("Conflicting evidence", "证据冲突"))) ?? entry.requirementEvidence)],
         [text("Compared price", "对比价格"), (entry) => make("span", entry.comparedPrice ? "price" : "details", entry.comparedPrice ? money(entry.comparedPrice) : text("Unavailable", "不可用"))],
         [text("Item price", "商品价"), (entry) => make("span", entry.itemPrice ? "" : "details", entry.itemPrice ? money(entry.itemPrice) : text("Unknown", "未知"))],
         [text("Delivered total", "到手价"), delivered],
@@ -719,7 +729,6 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
         [text("Condition", "商品状态"), (entry) => make("span", "", comparisonLabel(entry.condition))],
         [text("Availability", "库存"), (entry) => make("span", "", comparisonLabel(entry.availability))],
         [text("Merchant trust", "商家信任"), (entry) => make("span", "", comparisonLabel(entry.merchantTrust?.level) + " · " + comparisonLabel(entry.merchantTrust?.verification))],
-        [text("Required features", "必需功能"), (entry) => comparisonList(entry.requirementEvidence)],
         [text("Limitations", "限制"), (entry) => comparisonList(entry.limitations)],
         [text("Unknowns", "未知项"), (entry) => comparisonList(entry.unknowns?.map(comparisonLabel))]
       ];
@@ -762,6 +771,18 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       markStage("RENDER_STARTED");
       app.replaceChildren();
       const products = Array.isArray(output?.products) ? output.products.slice(0, ${MAX_PRODUCT_CARDS}) : [];
+      if (output?.requirementsSummary) {
+        const requirements = output.requirementsSummary;
+        const parts = [requirements.brand, requirements.productType, requirements.requiredSize,
+          ...(requirements.requiredFeatures || []).map(requirementLabel),
+          ...(requirements.excludedFeatures || []).map(value => text("Exclude: ", "排除：") + requirementLabel(value)),
+          requirements.maxItemPriceCents === undefined ? undefined
+            : text("Budget ≤ ", "预算 ≤ ") + money({ amountCents: requirements.maxItemPriceCents, currency: "USD" })].filter(Boolean);
+        if (parts.length) app.append(make("div", "summary", text("Current requirements: ", "当前要求：") + parts.join(" · ")));
+      }
+      if (output?.retrieval?.extent === "BOUNDED") app.append(make("div", "summary", text(
+        "Bounded search; this is not complete catalog coverage. Unverified requirements do not count as fulfilled matches.",
+        "本次为有界检索，未覆盖完整目录。待核验商品不计入达标结果。")));
       const primarySelectionId = output?.recommendation?.state === "READY"
         ? output.recommendation.primarySelectionId
         : undefined;
@@ -773,7 +794,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
         return;
       }
       const usesPresentationGroups = products.some((product) =>
-        ["OFFICIAL_STORE", "TRUSTED_MATCH", "BEST_VALUE"].includes(product?.presentationGroup)
+        ["OFFICIAL_STORE", "TRUSTED_MATCH", "BEST_VALUE", "RESEARCH_ONLY"].includes(product?.presentationGroup)
       );
       const groupDefinitions = usesPresentationGroups
         ? [
@@ -957,6 +978,11 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
             .filter(Boolean).join(" / ");
           if (identity) body.append(make("div", "details", identity));
           const variants = Object.entries(product.variantDimensions || {}).map(([name, value]) => name + ": " + value).join(" / ");
+          if (product.requirementAssessment?.entries?.length > 0) {
+            const satisfied = product.requirementAssessment.status === "SATISFIED";
+            body.append(make("div", satisfied ? "evidence" : "limitations notice",
+              satisfied ? text("Required specifications verified", "必要规格已核验") : text("Required specifications not verified", "必要规格尚未核验")));
+          }
           const availabilityScope = product.availabilityScope;
           const availability = String(product.availability || cardData.availability || "UNKNOWN");
           if (variants) body.append(make("div", "details", (availabilityScope === "PRODUCT_COLOR"
@@ -1043,7 +1069,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
             }
           }
           if (Array.isArray(product.requiredFeatureLimitations) && product.requiredFeatureLimitations.length > 0) {
-            body.append(make("div", "limitations notice", text("Not verified: ", "尚未验证：") + product.requiredFeatureLimitations.join(", ") + text(". Confirm on the merchant page before purchase.", "。购买前请在商家页面确认。")));
+            body.append(make("div", "limitations notice", text("Not verified: ", "尚未验证：") + product.requiredFeatureLimitations.map(requirementLabel).join(", ") + text(". Confirm on the merchant page before purchase.", "。购买前请在商家页面确认。")));
           }
           if (Array.isArray(product.preferenceEvidence) && product.preferenceEvidence.length > 0) {
             moreContent.append(make("div", "evidence", text("Preference match: ", "偏好匹配：") + product.preferenceEvidence.join(", ")));

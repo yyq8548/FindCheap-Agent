@@ -370,9 +370,17 @@ describe("Awin Feed service", () => {
       expect(await publicSearch.json()).toMatchObject({
         source: "AWIN_PRODUCT_FEED",
         coverage: "COMPLETE",
+        supportsRequirements: true,
         diagnostics: { feedRows: 1, validRows: 1, queryMatches: 1 },
         products: [{ merchantId: "20282", merchantProductId: "sku-1" }]
       });
+      const typedSearch = await fetch(`${origin}/v1/search`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ query: "keratin mask", productType: "haircare", requiredFeatures: ["keratin"], limit: 3 })
+      });
+      expect(typedSearch.status).toBe(200);
+      expect(await typedSearch.json()).toMatchObject({ supportsRequirements: true,
+        products: [{ merchantProductId: "sku-1", requirementEvidence: expect.any(String) }] });
       const feed = await fetch(`${origin}/v1/feed`, { headers: { authorization: `Bearer ${token}` } });
       expect(feed.status).toBe(200);
       expect(feed.headers.get("x-feed-row-count")).toBe("1");

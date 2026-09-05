@@ -1,3 +1,5 @@
+import { hairFeatureStatus } from "../../../packages/contracts/src/hair-requirements.js";
+
 type Comparator = "EXACT" | "MIN" | "MAX" | "APPROX";
 type QuantityKind = "LENGTH" | "MEMORY" | "STORAGE" | "DATA" | "VOLUME" | "MASS" | "COUNT" | "FREQUENCY" | "POWER";
 type Quantity = { kind: QuantityKind; value: number; comparator: Comparator; displayContext?: boolean };
@@ -32,6 +34,9 @@ export function evaluateFeature(searchable: string, feature: string): FeatureMat
     if (statuses.includes("MATCHED")) return "MATCHED";
     return statuses.every((status) => status === "CONTRADICTED") ? "CONTRADICTED" : "UNKNOWN";
   }
+
+  const hair = hairFeatureStatus(normalizedSearchable, normalizedFeature);
+  if (hair !== undefined) return hair;
 
   const requestedResolution = resolution(normalizedFeature);
   if (requestedResolution !== undefined) {
@@ -80,6 +85,7 @@ export function evaluateFeature(searchable: string, feature: string): FeatureMat
   const observedTokens = new Set(meaningfulTokens(normalizedSearchable));
   return requestedTokens.every((token) => observedTokens.has(token)) ? "MATCHED" : "UNKNOWN";
 }
+
 
 function disjunctiveAlternatives(feature: string): string[] {
   if (!/\bor\b/u.test(feature)) return [];
@@ -341,6 +347,10 @@ function contextAround(value: string, index: number, length: number): string {
 
 function normalize(value: string): string {
   return value.normalize("NFKC").toLocaleLowerCase("en-US")
+    .replaceAll("长直发", " long hair straight hair ")
+    .replaceAll("长发", " long hair ").replaceAll("短发", " short hair ")
+    .replaceAll("直发", " straight hair ").replaceAll("卷发", " curly hair ")
+    .replaceAll("假发", " wig ")
     .replace(/\bonyx\b/gu, " black ")
     .replace(/\bheather\s+gr(?:a|e)y\b/gu, " grey ")
     .replace(/(\d+(?:\.\d+)?)\s*(?:英寸|寸)/gu, "$1 inch")

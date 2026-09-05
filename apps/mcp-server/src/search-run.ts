@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-type ReadKind = "AWIN" | "SHOPIFY" | "EBAY" | "OFFICIAL" | "IMAGE" | "DEALS" | "REGISTRY";
+type ReadKind = "AWIN" | "SHOPIFY" | "EBAY" | "OFFICIAL" | "IMAGE" | "DEALS" | "REGISTRY" | "VARIANT";
 type SearchRunOptions = { maxCatalogRequests: number; activeBudgetMs: number; readTimeoutMs: number };
 export type VisualStage = "NORMALIZED" | "ELIGIBLE" | "REVIEW_POOL" | "IMAGES_PRESENTED" |
   "IMAGES_DUPLICATED" | "REVIEW_ACCEPTED" | "REVIEW_CONFLICT" | "REVIEW_INSUFFICIENT" | "FINAL";
@@ -38,6 +38,7 @@ export class SearchRun {
   #imageRequests = 0;
   #dealRequests = 0;
   #registryRequests = 0;
+  #variantRequests = 0;
   #cacheHits = 0;
   #officialHttpRequests = 0;
   #officialHttpBytes = 0;
@@ -118,6 +119,7 @@ export class SearchRun {
   }
 
   private limitReached(kind: ReadKind): boolean {
+    if (kind === "VARIANT" && this.#variantRequests >= 4) return true;
     return kind === "IMAGE" ? this.remainingImageRequests() === 0
       : kind === "DEALS" ? this.#dealRequests >= 8
         : kind === "REGISTRY" ? this.#registryRequests >= 2
@@ -140,7 +142,7 @@ export class SearchRun {
     if (kind === "IMAGE") this.#imageRequests += 1;
     else if (kind === "DEALS") this.#dealRequests += 1;
     else if (kind === "REGISTRY") this.#registryRequests += 1;
-    else this.#catalogRequests += 1;
+    else { this.#catalogRequests += 1; if (kind === "VARIANT") this.#variantRequests += 1; }
     if (this.#active++ === 0) this.#activeSince = Date.now();
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
@@ -176,6 +178,7 @@ export class SearchRun {
       officialHttpBytes: this.#officialHttpBytes,
       officialDocumentCacheHits: this.#officialDocumentCacheHits,
       imageRequests: this.#imageRequests,
+      variantRequests: this.#variantRequests,
       dealRequests: this.#dealRequests,
       cacheHits: this.#cacheHits,
       activeDurationMs: this.activeDuration(),

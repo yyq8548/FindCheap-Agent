@@ -54,6 +54,22 @@ function ebay(products = [ebayProduct("1", 2100)]): EbayBrowsePort {
 }
 
 describe("unified product search", () => {
+  it("does not convert a shoe size into a display requirement", async () => {
+    const ports = { awin: awin([]), shopify: shopify([shopifyProduct("shoe", 9900, "UNKNOWN", {
+      title: "Black ballet flats", productType: "ballet flats", variantDimensions: { Size: "US 7" }
+    })]) };
+    const result = await searchProducts(SearchProductsInputSchema.parse({ query: "ballet flats", productType: "ballet flats", requiredSize: "US 7" }), ports);
+    expect(result.candidates[0]?.featureEvidence).toContain("US 7");
+    expect(JSON.stringify(result.candidates)).not.toContain("US 7 display");
+  });
+
+  it("does not retain explicitly short wigs for a long-hair request", async () => {
+    const result = await searchProducts(SearchProductsInputSchema.parse({ query: "wig", productType: "wig", requiredFeatures: ["long hair"] }), {
+      awin: awin([{ ...awinProduct("short", 3600), title: "Short human hair wig Finger Wave", category: "wig" }]),
+      shopify: shopify([])
+    });
+    expect(result.candidates).toHaveLength(0);
+  });
   it("keeps the original Shopify first query before the new structural continuation", async () => {
     const input = SearchProductsInputSchema.parse({ query: "cream floral dress", brand: "DÔEN", visualInput: {
       productType: "dress", colors: ["cream"], patterns: ["floral bouquets"], neckline: "scoop neck"
@@ -961,7 +977,7 @@ describe("unified product search", () => {
     ]);
     expect(result.candidates.map((candidate) => candidate.presentationGroup)).toEqual([
       "TRUSTED_MATCH",
-      "TRUSTED_MATCH",
+      "BEST_VALUE",
       "BEST_VALUE"
     ]);
     expect(result.chromeFallbackEligible).toBe(false);
@@ -986,7 +1002,7 @@ describe("unified product search", () => {
     expect(result.searchRun?.diagnostics().budgetExhausted).toBe(false);
   });
 
-  it("returns at most eight cards in the 2 official, 3 trusted, 3 best-value tiers", async () => {
+  it("hides the official tier without an explicitly requested brand and does not pad its slots", async () => {
     const official = (handle: string) => shopifyProduct(handle, 4_000, "NEW", {
       merchant: "SKIMS",
       sourceHost: "skims.com",
@@ -1023,10 +1039,8 @@ describe("unified product search", () => {
       limit: 8
     }), { awin: awin([]), shopify: shopify(products) });
 
-    expect(result.candidates).toHaveLength(8);
+    expect(result.candidates).toHaveLength(6);
     expect(result.candidates.map((candidate) => candidate.presentationGroup)).toEqual([
-      "OFFICIAL_STORE",
-      "OFFICIAL_STORE",
       "TRUSTED_MATCH",
       "TRUSTED_MATCH",
       "TRUSTED_MATCH",
@@ -1079,7 +1093,7 @@ describe("unified product search", () => {
         : candidate.source === "SHOPIFY_GLOBAL_CATALOG"
           ? candidate.shopifyProduct.merchant
           : "eBay"
-    )).toEqual(["Amazonliss (US)", "Merchant rated-1", "Merchant rated-2"]);
+    )).toEqual(["Amazonliss (US)", "Amazonliss (US)", "Amazonliss (US)"]);
     expect(result.candidates.slice(3).every((candidate) =>
       candidate.recommendationTier === "HIGH_RATED_UNVERIFIED"
     )).toBe(true);

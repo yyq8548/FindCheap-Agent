@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
 import { createGunzip, createGzip, gunzipSync, gzipSync } from "node:zlib";
+import { hairFeatureStatus } from "../../contracts/src/hair-requirements.js";
 
 export const MAX_AWIN_SOURCE_COMPRESSED_BYTES = 4 * 1024 * 1024;
 export const MAX_AWIN_COMPRESSED_BYTES = 8 * 1024 * 1024;
@@ -44,6 +45,8 @@ export type AwinSearchInput = {
   limit: number;
   maxItemPriceCents?: number | undefined;
   signal?: AbortSignal;
+  productType?: string;
+  requiredFeatures?: string[];
 };
 
 export type AwinProduct = {
@@ -52,6 +55,7 @@ export type AwinProduct = {
   merchantProductId: string;
   title: string;
   category: string;
+  requirementEvidence?: string;
   matchStatus: "DISCOVERY_MATCH";
   matchEvidence: string[];
   condition: "UNKNOWN";
@@ -66,6 +70,7 @@ export type AwinProduct = {
 export type AwinSearchResult = {
   source: "AWIN_PRODUCT_FEED";
   coverage: "COMPLETE";
+  supportsRequirements?: boolean;
   snapshotAt: string;
   diagnostics: {
     feedRows: number;
@@ -152,7 +157,10 @@ export function createAwinFeedIndex(compressed: Uint8Array, snapshotAt: string):
 
 export function searchAwinFeedIndex(index: AwinFeedIndex, rawInput: unknown): AwinSearchResult {
   const input = parseAwinSearchInput(rawInput);
-  const queryTokens = tokenizeQuery(input.query);
+  const hairRequirements = /^(?:wig|wigs|假发)$/iu.test(input.productType ?? "")
+    ? (input.requiredFeatures ?? []).filter(feature => hairFeatureStatus("wig", feature) !== undefined) : [];
+  const constrainedWords = hairRequirements.flatMap(feature => feature.toLowerCase().split(/\s+/u)).filter(word => word !== "wig" && word !== "wigs");
+  const queryTokens = tokenizeQuery(input.query).filter(token => !constrainedWords.includes(token));
   const queryMatchers = queryTokens.map(searchTokenMatcher);
   const matched = index.products.filter((product) =>
     queryMatchers.every((matcher) => matcher.test(product.searchText))
@@ -161,16 +169,20 @@ export function searchAwinFeedIndex(index: AwinFeedIndex, rawInput: unknown): Aw
     ? matched
     : matched.filter((product) => product.itemPrice.amountCents <= input.maxItemPriceCents!);
   const products = [...priceEligible]
+    .filter(product => !hairRequirements.some(feature => hairFeatureStatus(product.searchText, feature) === "CONTRADICTED"))
     .sort((left, right) =>
+      hairRequirements.filter(feature => hairFeatureStatus(right.searchText, feature) === "MATCHED").length -
+        hairRequirements.filter(feature => hairFeatureStatus(left.searchText, feature) === "MATCHED").length ||
       titleMatchScore(right, queryMatchers) - titleMatchScore(left, queryMatchers) ||
       left.itemPrice.amountCents - right.itemPrice.amountCents ||
       left.merchantProductId.localeCompare(right.merchantProductId)
     )
     .slice(0, input.limit)
-    .map(({ searchText: _searchText, ...product }) => product);
+    .map(({ searchText, ...product }) => ({ ...product, requirementEvidence: searchText.slice(0, 1200) }));
   return {
     source: "AWIN_PRODUCT_FEED",
     coverage: "COMPLETE",
+    supportsRequirements: true,
     snapshotAt: index.snapshotAt,
     diagnostics: {
       feedRows: index.feedRows,
@@ -185,7 +197,7 @@ export function searchAwinFeedIndex(index: AwinFeedIndex, rawInput: unknown): Aw
 
 export function parseAwinSearchInput(value: unknown): AwinSearchInput {
   if (!isObject(value)) throw new Error("Awin search input must be an object");
-  const allowedKeys = new Set(["query", "limit", "maxItemPriceCents"]);
+  const allowedKeys = new Set(["query", "limit", "maxItemPriceCents", "productType", "requiredFeatures"]);
   if (Object.keys(value).some((key) => !allowedKeys.has(key))) {
     throw new Error("Awin search input contains unsupported fields");
   }
@@ -212,6 +224,8 @@ export function parseAwinSearchInput(value: unknown): AwinSearchInput {
   return {
     query,
     limit: limit as number,
+    ...(value.productType === undefined ? {} : { productType: boundedString(value.productType, "productType", 1, 100) }),
+    ...(value.requiredFeatures === undefined ? {} : { requiredFeatures: parseRequiredFeatures(value.requiredFeatures) }),
     ...(maxItemPriceCents === undefined ? {} : { maxItemPriceCents: maxItemPriceCents as number })
   };
 }
@@ -267,6 +281,11 @@ export function mergeAwinFeedArchives(
   csv = "";
   if (merged.byteLength > MAX_AWIN_COMPRESSED_BYTES) throw new Error("AWIN_FEED_TOO_LARGE");
   return merged;
+}
+
+function parseRequiredFeatures(value: unknown): string[] {
+  if (!Array.isArray(value) || value.length > 10) throw new Error("Awin required features are invalid");
+  return value.map(feature => boundedString(feature, "requiredFeature", 1, 160));
 }
 
 function mergeCompactAwinFeedArchives(
@@ -961,6 +980,7 @@ export function parseAwinSearchResult(value: unknown): AwinSearchResult {
     coverage: "COMPLETE",
     snapshotAt,
     diagnostics,
+    ...(value.supportsRequirements === true ? { supportsRequirements: true } : {}),
     products: value.products.map(parsePublicAwinProduct)
   };
 }
@@ -1007,6 +1027,9 @@ function parsePublicAwinProduct(value: unknown): AwinProduct {
     merchantProductId: boundedString(value.merchantProductId, "merchantProductId", 1, 300),
     title: boundedString(value.title, "title", 1, 500),
     category: boundedString(value.category, "category", 1, 300),
+    ...(value.requirementEvidence === undefined ? {} : {
+      requirementEvidence: boundedString(value.requirementEvidence, "requirementEvidence", 1, 1200)
+    }),
     matchStatus: "DISCOVERY_MATCH",
     matchEvidence,
     condition: "UNKNOWN",

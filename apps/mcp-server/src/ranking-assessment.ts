@@ -15,6 +15,7 @@ export type RankingInput = {
   };
   availability: "IN_STOCK" | "OUT_OF_STOCK" | "UNKNOWN";
   requiredFeatureLimitations?: readonly string[] | undefined;
+  requirementAssessment?: { status: "SATISFIED" | "NEEDS_VERIFICATION" | "CONFLICT" } | undefined;
   featureEvidence?: readonly string[] | undefined;
   preferenceEvidence?: readonly string[] | undefined;
   itemPriceCents?: number | undefined;
@@ -32,6 +33,7 @@ export type RankingAssessment = {
   featureEvidence: string[];
   preferenceEvidence: string[];
   trustRank: number;
+  qualityRank: number;
   availabilityRank: number;
   effectivePriceCents: number;
   itemPriceCents: number;
@@ -43,7 +45,8 @@ export function assessRanking(input: RankingInput): RankingAssessment {
   const trusted = input.merchantTrust.verification === "INDEPENDENT" &&
     input.merchantTrust.level !== "RISKY" && input.merchantTrust.level !== "UNKNOWN" &&
     input.recommendationTier !== "GENERAL_UNVERIFIED";
-  const limitationCount = input.requiredFeatureLimitations?.length ?? 0;
+  const limitationCount = Math.max(input.requiredFeatureLimitations?.length ?? 0,
+    input.requirementAssessment !== undefined && input.requirementAssessment.status !== "SATISFIED" ? 1 : 0);
   const itemPrice = validPrice(input.itemPriceCents) ? input.itemPriceCents : Number.MAX_SAFE_INTEGER;
   const couponRank = Number.isFinite(input.couponRank) ? Math.max(-1, Math.min(2, input.couponRank!)) : -1;
   const effectivePrice = validPrice(input.itemPriceCents) && couponRank === 2 && validPrice(input.confirmedCouponPriceCents)
@@ -63,6 +66,7 @@ export function assessRanking(input: RankingInput): RankingAssessment {
     featureEvidence: evidenceKeys(input.featureEvidence),
     preferenceEvidence: evidenceKeys(input.preferenceEvidence),
     trustRank: trusted ? 0 : 1,
+    qualityRank: input.recommendationTier === "GENERAL_UNVERIFIED" ? 1 : 0,
     availabilityRank: input.availability === "IN_STOCK" ? 0 : input.availability === "UNKNOWN" ? 1 : 2,
     effectivePriceCents: effectivePrice,
     itemPriceCents: itemPrice,
@@ -79,6 +83,7 @@ export function compareRankingAssessments(left: RankingAssessment, right: Rankin
     right.featureEvidence.length - left.featureEvidence.length ||
     right.preferenceEvidence.length - left.preferenceEvidence.length ||
     left.trustRank - right.trustRank ||
+    left.qualityRank - right.qualityRank ||
     left.availabilityRank - right.availabilityRank ||
     left.effectivePriceCents - right.effectivePriceCents ||
     left.itemPriceCents - right.itemPriceCents ||
@@ -90,7 +95,7 @@ export function hasEquivalentFitEvidence(left: RankingAssessment, right: Ranking
   return left.featureEvidence.length + left.preferenceEvidence.length > 0 &&
     left.matchRank === right.matchRank && left.limitationCount === right.limitationCount &&
     left.visualReviewScore === right.visualReviewScore &&
-    left.trustRank === right.trustRank && left.availabilityRank === right.availabilityRank &&
+    left.trustRank === right.trustRank && left.qualityRank === right.qualityRank && left.availabilityRank === right.availabilityRank &&
     sameEvidence(left.featureEvidence, right.featureEvidence) && sameEvidence(left.preferenceEvidence, right.preferenceEvidence);
 }
 

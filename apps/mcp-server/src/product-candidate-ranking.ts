@@ -57,19 +57,22 @@ export function selectPresentationCandidates(
   candidates: UnifiedCandidate[],
   selectionMode: SearchProductsInput["selectionMode"],
   allowAlternatives: boolean,
-  visualDiscovery: boolean
+  visualDiscovery: boolean,
+  requestedBrand = true
 ): UnifiedCandidate[] {
-  const official = candidates
-    .filter(isOfficialCandidate)
+  const eligible = candidates.filter(candidate =>
+    candidate.requiredFeatureLimitations.length === 0 && candidate.requirementAssessment?.status !== "CONFLICT");
+  const officialInTier = (candidate: UnifiedCandidate) => requestedBrand && isOfficialCandidate(candidate);
+  const official = eligible
+    .filter(officialInTier)
     .filter((candidate) => passesVisualDisplayGate(candidate, allowAlternatives))
     .slice(0, OFFICIAL_PRODUCT_CARD_LIMIT)
     .map((candidate) => ({ ...candidate, presentationGroup: "OFFICIAL_STORE" as const }));
-  const trustedPool = candidates
-    .filter((candidate) => !isOfficialCandidate(candidate))
+  const trustedPool = eligible
+    .filter((candidate) => !officialInTier(candidate))
     .filter((candidate) => passesVisualDisplayGate(candidate, allowAlternatives))
     .filter((candidate) =>
-      candidate.recommendationTier === "TRUSTED_OR_AFFILIATE" ||
-      candidate.recommendationTier === "HIGH_RATED_UNVERIFIED"
+      candidate.recommendationTier === "TRUSTED_OR_AFFILIATE"
     );
   const rankedTrusted = trustedPool.sort(
     selectionMode === "LOWEST_PRICE" ? compareLowestPrice : compareRankedCandidates
@@ -79,9 +82,9 @@ export function selectPresentationCandidates(
     : rankedTrusted.slice(0, TRUSTED_PRODUCT_CARD_LIMIT))
     .map((candidate) => ({ ...candidate, presentationGroup: "TRUSTED_MATCH" as const }));
   const selectedKeys = new Set([...official, ...trusted].map(candidateKey));
-  const rankedBestValue = candidates
+  const rankedBestValue = eligible
     .filter((candidate) => !selectedKeys.has(candidateKey(candidate)))
-    .filter((candidate) => !isOfficialCandidate(candidate))
+    .filter((candidate) => !officialInTier(candidate))
     .filter((candidate) => passesVisualDisplayGate(candidate, allowAlternatives))
     .sort(selectionMode === "LOWEST_PRICE" ? compareLowestPrice : compareRankedCandidates);
   const usedMerchantKeys = new Set([...official, ...trusted].map(candidateMerchantKey));
@@ -89,10 +92,13 @@ export function selectPresentationCandidates(
     ? selectMerchantDiverse(rankedBestValue, BEST_VALUE_PRODUCT_CARD_LIMIT, usedMerchantKeys)
     : rankedBestValue.slice(0, BEST_VALUE_PRODUCT_CARD_LIMIT))
     .map((candidate) => ({ ...candidate, presentationGroup: "BEST_VALUE" as const }));
-  const grouped = [...official, ...trusted, ...bestValue];
+  const research = candidates.filter(candidate => !eligible.includes(candidate))
+    .filter(candidate => passesVisualDisplayGate(candidate, allowAlternatives))
+    .slice(0, 3).map(candidate => ({ ...candidate, presentationGroup: "RESEARCH_ONLY" as const }));
+  const grouped = [...official, ...trusted, ...bestValue, ...research];
   if (grouped.length > 0) return grouped.slice(0, MAX_PRODUCT_CARDS);
   if (visualDiscovery) return [];
-  return candidates.slice(0, MAX_PRODUCT_CARDS);
+  return [];
 }
 
 export function selectVisualReviewCandidates(
@@ -185,7 +191,8 @@ export function countDisplayEligibleCandidates(
   candidates: UnifiedCandidate[],
   allowAlternatives: boolean
 ): number {
-  return candidates.filter((candidate) => passesVisualDisplayGate(candidate, allowAlternatives)).length;
+  return candidates.filter((candidate) => passesVisualDisplayGate(candidate, allowAlternatives) &&
+    candidate.requiredFeatureLimitations.length === 0 && candidate.requirementAssessment?.status !== "CONFLICT").length;
 }
 
 export function compareLowestPrice(left: UnifiedCandidate, right: UnifiedCandidate): number {

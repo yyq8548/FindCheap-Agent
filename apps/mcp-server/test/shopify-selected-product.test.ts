@@ -30,6 +30,7 @@ const selected: ShopifyProduct = {
 };
 
 const productJson = {
+  currency: "USD",
   id: 123,
   title: "Nevita Dress — Noir La Maddalena Gingham",
   handle: "nevita-dress-noir-la-maddalena-gingham",
@@ -59,6 +60,45 @@ const productJson = {
 };
 
 describe("selected Shopify product inspection", () => {
+  it("selects the required US shoe size using merchant evidence and drops old variant facts", async () => {
+    const shoeJson = { ...productJson, description: "US shoe sizes", options: [{ name: "Size", position: 1, values: ["5", "7"] }],
+      variants: productJson.variants.map((variant, i) => ({ ...variant, sku: null, barcode: i ? "123456789012" : null, title: i ? "7" : "5", options: [i ? "7" : "5"], price: i ? 6500 : 5000 })) };
+    const fetchProduct = vi.fn<ProductJsonFetch>(async url => ({ response: new Response(JSON.stringify(shoeJson)), finalUrl: url }));
+    const signal = new AbortController().signal;
+    const result = await createShopifySelectedProductInspector({ fetchProduct }).inspect({ ...selected,
+      title: "Ballet flats", gtins: ["000000000001"], sku: "OLD", availableSizes: ["5"], variantDimensions: { Size: "US 5" }
+    }, {}, { signal, requirements: { requiredSize: "US 7", requiredFeatures: ["US 7"] } });
+    expect(result.variants).toHaveLength(1);
+    expect(result.variants[0]).toMatchObject({ handle: "42677111816305", variantDimensions: { Size: "US 7" },
+      itemPrice: { amountCents: 6500, currency: "USD" }, gtins: ["123456789012"], availabilityScope: "SELECTED_VARIANT" });
+    expect(result.variants[0]?.sku).toBeUndefined(); expect(result.variants[0]?.availableSizes).toBeUndefined();
+    expect(result.variants[0]?.merchantUrl).toContain("variant=42677111816305");
+    expect(fetchProduct.mock.calls[0]?.[2]).toBe(signal);
+  });
+
+  it("does not guess US size or currency from a USD catalog card", async () => {
+    const json = { ...productJson, currency: "AUD", options: [{ name: "Size", position: 1, values: ["7"] }],
+      variants: [{ ...productJson.variants[0]!, title: "7", options: ["7"] }] };
+    const inspector = createShopifySelectedProductInspector({ fetchProduct: async url => ({ response: new Response(JSON.stringify(json)), finalUrl: url }) });
+    expect((await inspector.inspect(selected, {}, { requirements: { requiredSize: "US 7", requiredFeatures: ["US 7"] } })).variants).toEqual([]);
+    const result = await inspector.inspect(selected, {});
+    expect(result.variants[0]?.itemPrice).toBeUndefined();
+  });
+
+  it("keeps a missing currency unknown when the page has no variant-specific USD offer", async () => {
+    const json = { ...productJson, currency: undefined };
+    const fetchProduct = vi.fn<ProductJsonFetch>(async url => ({ response: url.endsWith(".js")
+      ? new Response(JSON.stringify(json)) : new Response("unavailable", { status: 503 }), finalUrl: url }));
+    const result = await createShopifySelectedProductInspector({ fetchProduct }).inspect(selected, {});
+    expect(result.variants[0]?.itemPrice).toBeUndefined(); expect(fetchProduct).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not carry an old color image into a new color variant", async () => {
+    const inspector = createShopifySelectedProductInspector({ fetchProduct: async url => ({ response: new Response(JSON.stringify(productJson)), finalUrl: url }) });
+    const result = await inspector.inspect({ ...selected, imageUrl: "https://cdn.shopify.com/old-red.jpg", variantDimensions: { "Product Color": "RED", Size: "XXS" } }, { Size: "S" });
+    expect(result.variants[0]?.imageUrl).toBeUndefined();
+  });
+
   it("uses the exact prior product path and returns only the requested sibling variant", async () => {
     const fetchProduct = vi.fn<ProductJsonFetch>(async () => ({
       response: new Response(JSON.stringify(productJson), {
@@ -76,7 +116,7 @@ describe("selected Shopify product inspection", () => {
 
     expect(fetchProduct).toHaveBeenCalledWith(
       "https://www.shopdoen.com/products/nevita-dress-noir-la-maddalena-gingham.js",
-      "www.shopdoen.com"
+      "www.shopdoen.com", undefined
     );
     expect(result).toEqual({
       productTitle: "Nevita Dress — Noir La Maddalena Gingham",
@@ -165,7 +205,7 @@ describe("selected Shopify product inspection", () => {
     expect(fetchProduct).toHaveBeenNthCalledWith(
       2,
       "https://skims.com/products/cotton-jersey-cut-out-mini-dress-jasper",
-      "skims.com"
+      "skims.com", undefined
     );
     expect(result.variants).toEqual([expect.objectContaining({
       handle: "47897163792737",

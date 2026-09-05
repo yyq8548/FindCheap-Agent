@@ -271,7 +271,8 @@ describe("shared tool execution boundary", () => {
       content: [{ type: "text", text: "missing structured output" }]
     }));
     expect(missing._meta).toMatchObject({ "findcheap/errorCode": "TOOL_OUTPUT_REJECTED" });
-    expect(log).toHaveBeenCalledTimes(3);
+    expect(log).toHaveBeenCalledTimes(4);
+    expect(log.mock.calls.some(([message]) => message.startsWith("[findcheap-output-issues]"))).toBe(true);
   });
 
   it("emits parsed structured output without undeclared fields", async () => {

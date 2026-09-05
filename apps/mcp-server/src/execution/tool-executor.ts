@@ -7,7 +7,7 @@ import { normalizeToolError, ToolOutputRejectedError, toolError, type ToolFailur
 
 type ParseResult = { success: true; data: unknown } | { success: false; error?: z.ZodError };
 type InputSchema = { safeParseAsync(value: unknown): Promise<ParseResult> };
-type OutputParseResult = { success: true; data: unknown } | { success: false };
+type OutputParseResult = { success: true; data: unknown } | { success: false; error?: z.ZodError };
 type OutputSchema = { safeParseAsync(value: unknown): Promise<OutputParseResult> };
 
 export const INVALID_TOOL_INPUT = Symbol("findcheap-invalid-tool-input");
@@ -102,6 +102,8 @@ export class ToolExecutor {
       const parsedOutput = await spec.outputSchema.safeParseAsync(sanitized.structuredContent);
       if (!parsedOutput.success) {
         this.#log(`[findcheap-tool-executor] ${name} output rejected`);
+        // Schema-owned paths and reason codes only; never source text or record keys.
+        this.#log(`[findcheap-output-issues] ${JSON.stringify(safeInputIssues(parsedOutput.error, spec.outputSchema))}`);
         return toolError("TOOL_OUTPUT_REJECTED");
       }
       return {

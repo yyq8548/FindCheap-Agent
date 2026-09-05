@@ -25,7 +25,7 @@ type RecommendationProduct = {
   title: string;
   matchStatus: "EXACT" | "DISCOVERY_MATCH" | "SIMILAR";
   visualReviewAssessment?: VisualReviewAssessment | undefined;
-  presentationGroup?: "OFFICIAL_STORE" | "TRUSTED_MATCH" | "BEST_VALUE" | undefined;
+  presentationGroup?: "OFFICIAL_STORE" | "TRUSTED_MATCH" | "BEST_VALUE" | "RESEARCH_ONLY" | undefined;
   recommendationTier?: "TRUSTED_OR_AFFILIATE" | "HIGH_RATED_UNVERIFIED" | "GENERAL_UNVERIFIED" | undefined;
   merchantTrust: {
     verification: "INDEPENDENT" | "UNVERIFIED";
@@ -35,6 +35,7 @@ type RecommendationProduct = {
   featureEvidence?: string[] | undefined;
   preferenceEvidence?: string[] | undefined;
   requiredFeatureLimitations?: string[] | undefined;
+  requirementAssessment?: { status: "SATISFIED" | "NEEDS_VERIFICATION" | "CONFLICT" } | undefined;
   matchEvidence: string[];
   itemPrice?: { amountCents: number; currency: "USD" } | undefined;
   coupons: {

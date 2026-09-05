@@ -2,6 +2,8 @@ import { createHash, randomUUID } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { productReferenceKey } from "./product-reference.js";
+import { RequirementAssessmentSchema, ambiguousShoeSize, evaluateProductRequirements, normalizedSizeRequirement } from "./product-requirements.js";
+import { mergeSearchRequirements } from "./search-requirements-context.js";
 import { createFindCheapBackend, type FindCheapBackend } from "./backend.js";
 import { ToolExecutor } from "./execution/tool-executor.js";
 import { toolError } from "./execution/tool-outcome.js";
@@ -533,6 +535,7 @@ const ShopifySelectedProductOutputShape = {
   sourceHost: z.string(),
   productTitle: z.string(),
   canonicalProductUrl: z.string().url(),
+  updatedSnapshot: z.lazy(() => _ShopifyProductsOutputSchemaObject).optional(),
   variants: z.array(z.object({
     variantId: z.string().regex(/^\d{1,30}$/u),
     title: z.string(),
@@ -557,8 +560,9 @@ const ShopifyProductOutputSchema = z.object({
   featureEvidence: z.array(z.string()).optional(),
   preferenceEvidence: z.array(z.string()).optional(),
   requiredFeatureLimitations: z.array(z.string()).optional(),
+  requirementAssessment: RequirementAssessmentSchema.optional(),
   resultGroup: z.enum(["REQUESTED_PRODUCT", "DISCOVERY", "ALTERNATIVE"]).optional(),
-  presentationGroup: z.enum(["OFFICIAL_STORE", "TRUSTED_MATCH", "BEST_VALUE"]).optional(),
+  presentationGroup: z.enum(["OFFICIAL_STORE", "TRUSTED_MATCH", "BEST_VALUE", "RESEARCH_ONLY"]).optional(),
   visualMatchGroup: z.enum(["POSSIBLE_SAME_ITEM", "HIGHLY_SIMILAR", "SAME_STYLE"]).optional(),
   visualReviewAssessment: z.object({
     group: z.enum(["POSSIBLE_SAME_ITEM", "HIGHLY_SIMILAR", "SAME_STYLE"]),
@@ -724,6 +728,16 @@ const ShopifyProductOutputSchema = z.object({
 
 const ShopifyProductsOutputShape = {
   renderId: z.string().uuid().optional(),
+  requirementsVersion: z.number().int().positive().optional(),
+  retrieval: z.object({
+    extent: z.literal("BOUNDED"), satisfied: z.number().int().nonnegative(),
+    awaitingVerification: z.number().int().nonnegative(), termination: z.string().max(80)
+  }).strict().optional(),
+  requirementsSummary: z.object({
+    productType: z.string().optional(), brand: z.string().optional(),
+    maxItemPriceCents: z.number().int().positive().optional(), requiredSize: z.string().optional(),
+    requiredFeatures: z.array(z.string()), excludedFeatures: z.array(z.string())
+  }).strict().optional(),
   traceId: z.string().uuid().optional(),
   locale: z.enum(["en-US", "zh-CN"]).optional(),
   status: z.enum(["OK", "NEEDS_CLARIFICATION", "DATA_SOURCE_UNAVAILABLE"]),
@@ -1135,6 +1149,7 @@ function unifiedResult(
       featureEvidence: candidate.featureEvidence,
       preferenceEvidence: candidate.preferenceEvidence,
       requiredFeatureLimitations: candidate.requiredFeatureLimitations,
+      requirementAssessment: candidate.requirementAssessment,
       resultGroup: candidate.resultGroup,
       presentationGroup: candidate.presentationGroup,
       ...(candidate.visualMatchGroup === undefined ? {} : {
@@ -1379,6 +1394,7 @@ function awinCardProduct(candidate: UnifiedCandidate): ProductCardProduct {
     featureEvidence: candidate.featureEvidence,
     preferenceEvidence: candidate.preferenceEvidence,
     requiredFeatureLimitations: candidate.requiredFeatureLimitations,
+    requirementAssessment: candidate.requirementAssessment,
     resultGroup: candidate.resultGroup,
     presentationGroup: candidate.presentationGroup,
     ...(candidate.visualMatchGroup === undefined ? {} : {
@@ -1449,6 +1465,7 @@ function ebayCardProduct(candidate: UnifiedCandidate): ProductCardProduct {
     featureEvidence: candidate.featureEvidence,
     preferenceEvidence: candidate.preferenceEvidence,
     requiredFeatureLimitations: candidate.requiredFeatureLimitations,
+    requirementAssessment: candidate.requirementAssessment,
     resultGroup: candidate.resultGroup,
     presentationGroup: candidate.presentationGroup,
     ...(candidate.visualMatchGroup === undefined ? {} : {
@@ -2074,6 +2091,7 @@ export function createShoppingServer(
     content: ProductCardContent & { renderId: string };
     sourceResult: ShopifySearchResult;
     resolvedAwinProducts: Map<string, ShopifyProduct>;
+    request?: SearchProductsInput;
   }>();
   const visualSearchSnapshots = new Map<string, {
     expiresAt: number;
@@ -2154,7 +2172,8 @@ export function createShoppingServer(
     content: ProductCardContent,
     sourceResult: ShopifySearchResult,
     resolvedAwinProducts = new Map<string, ShopifyProduct>(),
-    primaryProductIndex?: number
+    primaryProductIndex?: number,
+    request?: SearchProductsInput
   ): ProductCardContent & { renderId: string } => {
     const renderId = randomUUID();
     let primarySelectionId: string | undefined;
@@ -2176,6 +2195,12 @@ export function createShoppingServer(
     });
     const snapshot = {
       ...content,
+      ...(request === undefined ? {} : {
+        requirementsVersion: (request.parentRenderId === undefined ? 0 : renderSnapshots.get(request.parentRenderId)?.content.requirementsVersion ?? 0) + 1,
+        requirementsSummary: { productType: request.productType, brand: request.brand,
+          maxItemPriceCents: request.maxItemPriceCents, requiredSize: request.requiredSize,
+          requiredFeatures: request.requiredFeatures, excludedFeatures: request.excludedFeatures }
+      }),
       renderId,
       products,
       ...(content.recommendation === undefined ? {} : {
@@ -2188,7 +2213,8 @@ export function createShoppingServer(
       expiresAt: now().getTime() + PRODUCT_SELECTION_SNAPSHOT_TTL_MS,
       content: snapshot,
       sourceResult,
-      resolvedAwinProducts
+      resolvedAwinProducts,
+      ...(request === undefined ? {} : { request: SearchProductsInputSchema.parse(request) })
     });
     while (renderSnapshots.size > MAX_PRODUCT_SELECTION_SNAPSHOTS) {
       const oldest = renderSnapshots.keys().next().value as string | undefined;
@@ -2248,6 +2274,7 @@ export function createShoppingServer(
   const runUnifiedSearch = (input: SearchProductsExecutionInput) => searchProducts(input, {
     awin: awinPort,
     shopify: shopifyPort,
+    ...(backend.product.selectedProducts === undefined ? {} : { selectedProducts: backend.product.selectedProducts }),
     ...(ebayPort === undefined ? {} : { ebay: ebayPort }),
     ...(toolAvailability.verifiedDeals ? { deals: dealPort } : {}),
     ...(officialShopify === undefined ? {} : { officialShopify }),
@@ -2295,10 +2322,13 @@ export function createShoppingServer(
     const returned = response.structuredContent.products.length;
     const terminalOutcome = outcome ?? (returned > 0 ? "MATCH_FOUND"
       : Object.values(execution.sourceStatus).includes("UNAVAILABLE") ? "SOURCE_UNAVAILABLE" : "NO_CANDIDATES");
+    const diagnostics = searchDiagnostics(execution, terminalOutcome);
     return { response: {
       ...response,
       _meta: searchTraceMeta(execution, terminalOutcome, { returned }),
-      structuredContent: { ...response.structuredContent, traceId: execution.searchRun?.traceId }
+      structuredContent: { ...response.structuredContent, traceId: execution.searchRun?.traceId,
+        retrieval: { extent: "BOUNDED" as const, satisfied: diagnostics.requirementFunnel.satisfiedReturned,
+          awaitingVerification: diagnostics.requirementFunnel.awaitingVerification, termination: diagnostics.termination } }
     }, enriched };
   };
   const pruneComparisonSnapshots = () => {
@@ -2521,7 +2551,7 @@ export function createShoppingServer(
     "search_products",
     {
       title: "FindCheap",
-      description: "For an initial text search, after the required Skill is loaded, match current user-message language and use exactly one progress sentence before this tool: English 'Searching for suitable products.'; Chinese '正在搜索合适商品。'. Selected-product follow-ups do not use that generic sentence. Never output a plan or read Memory, Skill files, repository files, logs, task files, or plugin caches. Text-only product-search entrypoint; call once. A tool error is not a zero-result search; report the returned safe error honestly. For a newly attached image use search_visual_candidates and then finalize_visual_search instead. Always pass responseLocale from the user's current message, even when query is translated into English for catalog retrieval. Keep query focused on product identity; pass use, budget, and size only in their typed fields. Pass family in productType, explicit brand in brand with brandMode=REQUIRED, objective must-have attributes in requiredFeatures, explicit disqualifiers in excludedFeatures, and preferences in preferences. One requiredFeatures entry may contain explicitly acceptable alternatives separated by 'or' and must stay under 160 characters. Pass primaryUse, preferredSize, requiredSize, maxItemPriceCents, or budgetFlexible only when the user states them; never infer them. A size explicitly required or selected from the clarification belongs in requiredSize; use preferredSize only when the user says it is flexible or merely preferred. Broad high-variance products return one clarification before source search when decision constraints are missing. Full-size or large-package requests exclude sample, trial-size, and tester products. Never put a brand in productType or requiredFeatures. Use CONTINUE_PREVIOUS_PRODUCT when the user adds budget, use, size, or constraints; CORRECT_PREVIOUS_PRODUCT only for changed identity; NEW_PRODUCT for a different shopping goal. Missing soft evidence remains a limitation-labeled DISCOVERY_MATCH; hard conflicts exclude. Return at most 8 cards in three display tiers: 2 verified official-store matches, 3 trusted high matches, and 3 best-value high matches. Display tier never determines the primary choice; render the backend-selected primary recommendation first. When recommendation.state is READY, recommend only recommendation.primarySelectionId; otherwise recommend none. Equivalent fit and trust prefer a confirmed after-Coupon price, then the raw item price; merchant-level or unconfirmed offers never override a lower price. Use selectionMode=LOWEST_PRICE only when requested; it never collapses the three display tiers. maxItemPriceCents is a ceiling, never a spending target. If every merchant is unverified, show research leads but recommend none for purchase. Never recommend a product absent from returned cards. Commercial relationships never affect relevance or ranking. Reuse selectionId for exact follow-ups; use renderId for UI-synced choices and renderId plus one-based position for ordinal references. Never print IDs or search a selected title again.",
+      description: "For an initial text search, after the required Skill is loaded, match current user-message language and use exactly one progress sentence before this tool: English 'Searching for suitable products.'; Chinese '正在搜索合适商品。'. Selected-product follow-ups do not use that generic sentence. Never output a plan or read Memory, Skill files, repository files, logs, task files, or plugin caches. Text-only product-search entrypoint; call once. A tool error is not a zero-result search; report the returned safe error honestly. For a newly attached image use search_visual_candidates and then finalize_visual_search instead. Always pass responseLocale from the user's current message, even when query is translated into English for catalog retrieval. Keep query focused on product identity; pass use, budget, and size only in their typed fields. Pass family in productType, explicit brand in brand with brandMode=REQUIRED, objective must-have attributes in requiredFeatures, explicit disqualifiers in excludedFeatures, and preferences in preferences. One requiredFeatures entry may contain explicitly acceptable alternatives separated by 'or' and must stay under 160 characters. Pass primaryUse, preferredSize, requiredSize, maxItemPriceCents, or budgetFlexible only when the user states them; never infer them. A size explicitly required or selected from the clarification belongs in requiredSize; use preferredSize only when the user says it is flexible or merely preferred. Broad high-variance products return one clarification before source search when decision constraints are missing. Full-size or large-package requests exclude sample, trial-size, and tester products. Never put a brand in productType or requiredFeatures. Use CONTINUE_PREVIOUS_PRODUCT when the user adds budget, use, size, or constraints; pass explicit parentRenderId. The server inherits prior typed requirements; use clearConstraints only for explicitly withdrawn requirements. CORRECT_PREVIOUS_PRODUCT also requires parentRenderId; NEW_PRODUCT starts an independent goal. Shoe size requires a stated US/UK/EU system, never display inches. Missing soft evidence remains a limitation-labeled DISCOVERY_MATCH; hard conflicts exclude. Return at most 8 cards. Official tier requires an explicitly requested brand; trusted tier requires independently reviewed merchants including manually verified approved Awin merchants. Ratings do not establish trust. Best-value follows verified fit. Missing hard evidence belongs in RESEARCH_ONLY, not fulfilled matches. COMPLETE reports a bounded source request, not exhaustive product coverage. Display tier never determines the primary choice; render the backend-selected primary recommendation first. When recommendation.state is READY, recommend only recommendation.primarySelectionId; otherwise recommend none. Equivalent fit and trust prefer a confirmed after-Coupon price, then the raw item price; merchant-level or unconfirmed offers never override a lower price. Use selectionMode=LOWEST_PRICE only when requested; it never collapses the three display tiers. maxItemPriceCents is a ceiling, never a spending target. If every merchant is unverified, show research leads but recommend none for purchase. Never recommend a product absent from returned cards. Commercial relationships never affect relevance or ranking. Reuse selectionId for exact follow-ups; use renderId for UI-synced choices and renderId plus one-based position for ordinal references. Never print IDs or search a selected title again.",
       inputSchema: SearchProductsInputSchema,
       outputSchema: ShopifyProductsOutputShape,
       annotations: {
@@ -2538,7 +2568,13 @@ export function createShoppingServer(
       }
     },
     async (rawInput) => {
-      const parsedInput = SearchProductsInputSchema.parse(rawInput);
+      let parsedInput = SearchProductsInputSchema.parse(rawInput);
+      if (["CONTINUE_PREVIOUS_PRODUCT", "CORRECT_PREVIOUS_PRODUCT"].includes(parsedInput.contextMode)) {
+        const parent = parsedInput.parentRenderId === undefined ? undefined : renderSnapshots.get(parsedInput.parentRenderId);
+        if (parent?.request === undefined || parent.expiresAt <= now().getTime()) return toolError("MISSING_REFERENCE_CONTEXT");
+        try { parsedInput = mergeSearchRequirements(parsedInput, parent.request); }
+        catch { return toolError("INVALID_ARGUMENTS"); }
+      }
       const input = parsedInput.visualInput === undefined
         ? parsedInput
         : { ...parsedInput, visualInput: enforceVisualEvidenceAuthority(parsedInput.visualInput) };
@@ -2557,11 +2593,19 @@ export function createShoppingServer(
         });
       }
       const purchaseClarification = highVarianceClarification(input);
+      if (ambiguousShoeSize(input.requiredSize, input.productType ?? input.query)) {
+        const response = shopifyClarificationResult(input.selectionMode, input, {
+          question: input.responseLocale === "zh-CN" ? "你说的尺码是美码 US、英码 UK 还是欧码 EU？" : "Is that a US, UK or EU shoe size?",
+          evidence: "shoe size system not specified", source: "UNIFIED_PRODUCT_SEARCH"
+        });
+        return { ...response, structuredContent: rememberSnapshot(response.structuredContent, emptyShopifySearchResult(input), undefined, undefined, input) };
+      }
       if (purchaseClarification !== undefined) {
-        return shopifyClarificationResult(input.selectionMode, input, {
+        const response = shopifyClarificationResult(input.selectionMode, input, {
           ...purchaseClarification,
           source: "UNIFIED_PRODUCT_SEARCH"
         });
+        return { ...response, structuredContent: rememberSnapshot(response.structuredContent, emptyShopifySearchResult(input), undefined, undefined, input) };
       }
       if (
         input.visualInput === undefined &&
@@ -2572,7 +2616,8 @@ export function createShoppingServer(
       }
       const execution = await runUnifiedSearch(input);
       const { response, enriched } = await buildUnifiedResponse(input, execution);
-      if (response.structuredContent.products.length === 0) return response;
+      if (response.structuredContent.products.length === 0) return { ...response,
+        structuredContent: rememberSnapshot(response.structuredContent, enriched.result, undefined, undefined, input) };
       const preflight = await preflightQuoteCapabilities(response.structuredContent);
       const recommendation = choosePrimaryRecommendation(preflight.content.products);
       const content = rememberSnapshot({
@@ -2581,7 +2626,7 @@ export function createShoppingServer(
           state: recommendation.state,
           reasonCodes: recommendation.reasonCodes
         }
-      }, enriched.result, preflight.resolvedAwinProducts, recommendation.primaryProductIndex);
+      }, enriched.result, preflight.resolvedAwinProducts, recommendation.primaryProductIndex, input);
       return {
         ...response,
         content: [{
@@ -2825,7 +2870,8 @@ export function createShoppingServer(
         reviewed,
         snapshot.input.allowAlternatives,
         snapshot.input.limit,
-        snapshot.input.visualInput
+        snapshot.input.visualInput,
+        snapshot.input.brand !== undefined && snapshot.input.brandMode === "REQUIRED"
       );
       const acceptedKeys = new Set<string>();
       const finalCandidates = [...snapshot.accepted, ...newlyAccepted].sort(compareRankedCandidates)
@@ -3102,6 +3148,7 @@ export function createShoppingServer(
       description: "Check size, color, other variants, or current availability for exactly one native Shopify catalog product returned by search_products. Schema requires the prior renderId plus selectionId or one-based position for a user reference such as 'the first product'. On MISSING_REFERENCE_CONTEXT, retry once with the prior search renderId; do not describe the reference as expired. Never call this when the current turn includes a newly attached image; that image starts NEW_PRODUCT through search_visual_candidates. Never scan task history, guess by title, or run another catalog search. Awin cards can be quoted when supported but cannot use this variant-inspection tool.",
       inputSchema: ShopifySelectedProductInputSchema,
       outputSchema: ShopifySelectedProductOutputShape,
+      _meta: { ui: { resourceUri: PRODUCT_CARD_UI_URI }, "openai/outputTemplate": PRODUCT_CARD_UI_URI },
       annotations: {
         readOnlyHint: true,
         destructiveHint: false,
@@ -3197,8 +3244,52 @@ export function createShoppingServer(
           { membershipIds: [] },
           affiliateLinks
         );
-        const remembered = rememberSnapshot(internalResponse.structuredContent, inspectedResult);
-        const variants = remembered.products.map((product) => ({
+        const requestedSize = Object.entries(variantDimensions).find(([key]) => /^(?:shoe )?size$/iu.test(key));
+        const verifiedSize = inspection.variants.length === 1
+          ? Object.entries(inspection.variants[0]!.variantDimensions).find(([key]) => /^(?:shoe )?size$/iu.test(key))?.[1]
+          : undefined;
+        const nextRequest = snapshot.request === undefined ? undefined : SearchProductsInputSchema.parse({
+          ...snapshot.request, parentRenderId: renderId,
+          ...(requestedSize === undefined ? {} : { requiredSize: verifiedSize ?? requestedSize[1] })
+        });
+        const inspectedKeys = new Set(inspection.variants.map(productReferenceKey));
+        // One exact sibling updates the comparison set; multiple options require a
+        // fresh user selection. Old snapshots and their selection IDs never change.
+        const derivedSource = inspection.variants.length === 1 ? {
+          ...inspectedResult,
+          products: snapshot.sourceResult.products.flatMap(product => productReferenceKey(product) === reference.productKey
+            ? inspection.variants : [product])
+        } : inspectedResult;
+        const derivedProducts = inspection.variants.length === 1
+          ? snapshot.content.products.flatMap(product => productReferenceKey(product) === reference.productKey
+            ? internalResponse.structuredContent.products : [product])
+          : internalResponse.structuredContent.products;
+        const assessedProducts = derivedProducts.map(product => {
+          if (nextRequest === undefined) return product;
+          const source = derivedSource.products.find(value => productReferenceKey(value) === productReferenceKey(product));
+          const checked = evaluateProductRequirements(source ?? product, {
+            ...nextRequest,
+            requiredFeatures: [...nextRequest.requiredFeatures,
+              ...(nextRequest.featureMode === "REQUIRED" ? nextRequest.features : []),
+              ...(nextRequest.requiredSize === undefined ? [] : [normalizedSizeRequirement(nextRequest.requiredSize, nextRequest.productType ?? nextRequest.query)])]
+          });
+          const limitations = [...checked.unknown, ...checked.contradicted];
+          if (nextRequest.maxItemPriceCents !== undefined &&
+            (product.itemPrice === undefined || product.itemPrice.amountCents > nextRequest.maxItemPriceCents)) limitations.push("maximum item price");
+          return { ...product, requirementAssessment: checked.assessment,
+            featureEvidence: checked.matched, requiredFeatureLimitations: limitations,
+            presentationGroup: limitations.length > 0 ? "RESEARCH_ONLY" as const
+              : product.merchantTrust.verification === "INDEPENDENT" ? "TRUSTED_MATCH" as const : "BEST_VALUE" as const };
+        });
+        const decision = choosePrimaryRecommendation(assessedProducts);
+        const remembered = rememberSnapshot({
+          ...internalResponse.structuredContent,
+          ...(snapshot.content.locale === undefined ? {} : { locale: snapshot.content.locale }),
+          products: assessedProducts,
+          quality: { ...internalResponse.structuredContent.quality, cardsReturned: assessedProducts.length },
+          recommendation: { state: decision.state, reasonCodes: decision.reasonCodes }
+        }, derivedSource, snapshot.resolvedAwinProducts, decision.primaryProductIndex, nextRequest);
+        const variants = remembered.products.filter(product => inspectedKeys.has(productReferenceKey(product))).map((product) => ({
           variantId: product.handle,
           title: product.title,
           ...(product.sku === undefined ? {} : { sku: product.sku }),
@@ -3209,7 +3300,9 @@ export function createShoppingServer(
           checkedAt: product.checkedAt,
           quoteReference: product.quoteReference!
         }));
-        const message = `Inspected ${variants.length} variant(s) from the exact previously returned product by stable Shopify product and variant identity; no title or catalog search was used.`;
+        const message = snapshot.content.locale === "zh-CN"
+          ? `已核验原商品的 ${variants.length} 个规格，并生成新快照。后续对比请在新卡片中重新选择；旧快照仍保留。`
+          : `Inspected ${variants.length} variant(s) from the exact previously returned product; no title or catalog search was used. Select cards in the updated snapshot for subsequent comparison; the old snapshot remains unchanged.`;
         return {
           content: [{ type: "text" as const, text: message }],
           structuredContent: {
@@ -3220,7 +3313,8 @@ export function createShoppingServer(
             sourceHost: selected.sourceHost,
             productTitle: inspection.productTitle,
             canonicalProductUrl: inspection.canonicalProductUrl,
-            variants
+            variants,
+            updatedSnapshot: remembered
           }
         };
       } catch {
@@ -3331,7 +3425,8 @@ export function createShoppingServer(
             offerCount: 1
           },
           products: [quotedProduct]
-        }, snapshot.sourceResult, snapshot.resolvedAwinProducts);
+        }, snapshot.sourceResult, snapshot.resolvedAwinProducts, undefined,
+        snapshot.request === undefined ? undefined : { ...snapshot.request, parentRenderId: renderId });
         return {
           content: [{ type: "text" as const, text: message }],
           structuredContent: content
@@ -3456,7 +3551,8 @@ export function createShoppingServer(
           comparisonId,
           renderId,
           expiresAt: new Date(comparisonExpiresAt).toISOString(),
-          evaluatedAt: comparisonAt.toISOString()
+          evaluatedAt: comparisonAt.toISOString(),
+          ...(snapshot.content.requirementsVersion === undefined ? {} : { requirementsVersion: snapshot.content.requirementsVersion })
         });
         if (content.status === "OK") {
           pruneComparisonSnapshots();
@@ -3709,7 +3805,8 @@ export function createShoppingServer(
           comparisonId,
           renderId,
           expiresAt: new Date(comparisonExpiresAt).toISOString(),
-          evaluatedAt: comparisonAt.toISOString()
+          evaluatedAt: comparisonAt.toISOString(),
+          ...(snapshot.content.requirementsVersion === undefined ? {} : { requirementsVersion: snapshot.content.requirementsVersion })
         }
       );
       if (content.status === "OK") {

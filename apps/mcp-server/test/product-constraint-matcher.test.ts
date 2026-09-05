@@ -9,6 +9,15 @@ const matchFeatures = (searchable: string, features: readonly string[]): string[
 
 describe("product constraint matcher", () => {
   it.each([
+    ["Short human hair wig Finger Wave", "long hair", "CONTRADICTED"],
+    ["Curly human hair wig", "straight hair", "CONTRADICTED"],
+    ["Wig STYLE: Straight LENGTH: 40 inches", "long hair", "MATCHED"],
+    ["Wig STYLE: Curly LENGTH: 28 inches", "long hair", "MATCHED"],
+    ["Long Straight Human Hair Wig, current length 10 inches BOB", "long hair", "CONTRADICTED"]
+  ])("conversation hair requirement: %s / %s", (text, feature, expected) => {
+    expect(evaluateFeature(text, feature)).toBe(expected);
+  });
+  it.each([
     ["MacBook Pro 14-inch M4", "14-inch display"],
     ["MacBook Pro 14\" M4", "14 inch display"],
     ["MacBook Pro 14″ M4", "14-inch display"],

@@ -3689,8 +3689,17 @@
           "external": true,
           "kind": "import-statement",
           "path": "node:zlib"
+        },
+        {
+          "kind": "import-statement",
+          "original": "../../contracts/src/hair-requirements.js",
+          "path": "../../packages/contracts/src/hair-requirements.ts"
         }
       ]
+    },
+    "../../packages/contracts/src/hair-requirements.ts": {
+      "format": "esm",
+      "imports": []
     },
     "../../packages/contracts/src/index.ts": {
       "format": "esm",
@@ -4096,12 +4105,23 @@
           "kind": "import-statement",
           "original": "./deal-client.js",
           "path": "src/deal-client.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./product-requirements.js",
+          "path": "src/product-requirements.ts"
         }
       ]
     },
     "src/product-constraint-matcher.ts": {
       "format": "esm",
-      "imports": []
+      "imports": [
+        {
+          "kind": "import-statement",
+          "original": "../../../packages/contracts/src/hair-requirements.js",
+          "path": "../../packages/contracts/src/hair-requirements.ts"
+        }
+      ]
     },
     "src/product-recommendation.ts": {
       "format": "esm",
@@ -4116,6 +4136,26 @@
     "src/product-reference.ts": {
       "format": "esm",
       "imports": []
+    },
+    "src/product-requirements.ts": {
+      "format": "esm",
+      "imports": [
+        {
+          "kind": "import-statement",
+          "original": "zod",
+          "path": "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/index.js"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./product-constraint-matcher.js",
+          "path": "src/product-constraint-matcher.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./execution/external-data-fence.js",
+          "path": "src/execution/external-data-fence.ts"
+        }
+      ]
     },
     "src/ranking-assessment.ts": {
       "format": "esm",
@@ -4180,8 +4220,8 @@
         },
         {
           "kind": "import-statement",
-          "original": "./product-constraint-matcher.js",
-          "path": "src/product-constraint-matcher.ts"
+          "original": "./product-requirements.js",
+          "path": "src/product-requirements.ts"
         },
         {
           "kind": "import-statement",
@@ -4212,6 +4252,16 @@
           "kind": "import-statement",
           "original": "./product-candidate-ranking.js",
           "path": "src/product-candidate-ranking.ts"
+        }
+      ]
+    },
+    "src/search-requirements-context.ts": {
+      "format": "esm",
+      "imports": [
+        {
+          "kind": "import-statement",
+          "original": "./search-products.js",
+          "path": "src/search-products.ts"
         }
       ]
     },
@@ -4247,6 +4297,16 @@
           "kind": "import-statement",
           "original": "./product-reference.js",
           "path": "src/product-reference.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./product-requirements.js",
+          "path": "src/product-requirements.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./search-requirements-context.js",
+          "path": "src/search-requirements-context.ts"
         },
         {
           "kind": "import-statement",
@@ -4531,6 +4591,11 @@
           "kind": "import-statement",
           "original": "./shopify-product-json.js",
           "path": "src/shopify-product-json.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./product-requirements.js",
+          "path": "src/product-requirements.ts"
         }
       ]
     },
@@ -4752,7 +4817,7 @@
   },
   "outputs": {
     "../../plugins/findcheap-agent/dist/mcp-server.js": {
-      "bytes": 833779,
+      "bytes": 854508,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
@@ -4770,6 +4835,11 @@
           "external": true,
           "kind": "import-statement",
           "path": "node:process"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:crypto"
         },
         {
           "external": true,
@@ -4864,11 +4934,6 @@
         {
           "external": true,
           "kind": "import-statement",
-          "path": "node:crypto"
-        },
-        {
-          "external": true,
-          "kind": "import-statement",
           "path": "node:fs/promises"
         },
         {
@@ -4920,10 +4985,10 @@
           "bytesInOutput": 195
         },
         "../../node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/server/index.js": {
-          "bytesInOutput": 8031
+          "bytesInOutput": 8036
         },
         "../../node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/server/mcp.js": {
-          "bytesInOutput": 14776
+          "bytesInOutput": 14794
         },
         "../../node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/server/stdio.js": {
           "bytesInOutput": 1028
@@ -4935,7 +5000,7 @@
           "bytesInOutput": 574
         },
         "../../node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/shared/protocol.js": {
-          "bytesInOutput": 16040
+          "bytesInOutput": 16065
         },
         "../../node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/shared/stdio.js": {
           "bytesInOutput": 638
@@ -4944,7 +5009,7 @@
           "bytesInOutput": 1536
         },
         "../../node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/types.js": {
-          "bytesInOutput": 12477
+          "bytesInOutput": 12482
         },
         "../../node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/validation/ajv-provider.js": {
           "bytesInOutput": 450
@@ -5004,7 +5069,7 @@
           "bytesInOutput": 682
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/compile/validate/index.js": {
-          "bytesInOutput": 10230
+          "bytesInOutput": 10289
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/compile/validate/keyword.js": {
           "bytesInOutput": 2962
@@ -5286,13 +5351,13 @@
           "bytesInOutput": 54
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/external.js": {
-          "bytesInOutput": 1772
+          "bytesInOutput": 1773
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/helpers/errorUtil.js": {
           "bytesInOutput": 129
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/helpers/parseUtil.js": {
-          "bytesInOutput": 1465
+          "bytesInOutput": 1468
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/helpers/util.js": {
           "bytesInOutput": 1705
@@ -5301,7 +5366,7 @@
           "bytesInOutput": 3029
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/types.js": {
-          "bytesInOutput": 49992
+          "bytesInOutput": 50038
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v4/classic/checks.js": {
           "bytesInOutput": 0
@@ -5322,7 +5387,7 @@
           "bytesInOutput": 10400
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v4/core/api.js": {
-          "bytesInOutput": 4725
+          "bytesInOutput": 4774
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v4/core/checks.js": {
           "bytesInOutput": 6003
@@ -5355,7 +5420,7 @@
           "bytesInOutput": 11445
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v4/core/util.js": {
-          "bytesInOutput": 7592
+          "bytesInOutput": 7594
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v4/core/versions.js": {
           "bytesInOutput": 33
@@ -5373,7 +5438,10 @@
           "bytesInOutput": 750
         },
         "../../packages/awin-feed/src/index.ts": {
-          "bytesInOutput": 15321
+          "bytesInOutput": 16281
+        },
+        "../../packages/contracts/src/hair-requirements.ts": {
+          "bytesInOutput": 1104
         },
         "../../packages/contracts/src/index.ts": {
           "bytesInOutput": 0
@@ -5418,7 +5486,7 @@
           "bytesInOutput": 2051
         },
         "src/execution/tool-executor.ts": {
-          "bytesInOutput": 2157
+          "bytesInOutput": 2240
         },
         "src/execution/tool-outcome.ts": {
           "bytesInOutput": 1561
@@ -5439,22 +5507,22 @@
           "bytesInOutput": 1326
         },
         "src/product-candidate-ranking.ts": {
-          "bytesInOutput": 5824
+          "bytesInOutput": 6085
         },
         "src/product-card-telemetry.ts": {
           "bytesInOutput": 814
         },
         "src/product-card-ui.ts": {
-          "bytesInOutput": 64628
+          "bytesInOutput": 67192
         },
         "src/product-comparison-ui.ts": {
-          "bytesInOutput": 24678
+          "bytesInOutput": 25268
         },
         "src/product-comparison.ts": {
-          "bytesInOutput": 10674
+          "bytesInOutput": 10937
         },
         "src/product-constraint-matcher.ts": {
-          "bytesInOutput": 11191
+          "bytesInOutput": 11494
         },
         "src/product-recommendation.ts": {
           "bytesInOutput": 3301
@@ -5462,8 +5530,11 @@
         "src/product-reference.ts": {
           "bytesInOutput": 128
         },
+        "src/product-requirements.ts": {
+          "bytesInOutput": 3099
+        },
         "src/ranking-assessment.ts": {
-          "bytesInOutput": 2299
+          "bytesInOutput": 2512
         },
         "src/recommendation-message.ts": {
           "bytesInOutput": 1528
@@ -5472,16 +5543,19 @@
           "bytesInOutput": 1784
         },
         "src/search-diagnostics.ts": {
-          "bytesInOutput": 1206
+          "bytesInOutput": 1948
         },
         "src/search-products.ts": {
-          "bytesInOutput": 29884
+          "bytesInOutput": 32262
+        },
+        "src/search-requirements-context.ts": {
+          "bytesInOutput": 1309
         },
         "src/search-run.ts": {
-          "bytesInOutput": 3878
+          "bytesInOutput": 3966
         },
         "src/server.ts": {
-          "bytesInOutput": 130318
+          "bytesInOutput": 135134
         },
         "src/shopify-cart-quote.ts": {
           "bytesInOutput": 10343
@@ -5502,7 +5576,7 @@
           "bytesInOutput": 1432
         },
         "src/shopify-selected-product.ts": {
-          "bytesInOutput": 2946
+          "bytesInOutput": 4689
         },
         "src/stdio.ts": {
           "bytesInOutput": 913

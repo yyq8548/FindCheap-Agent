@@ -2,6 +2,7 @@ import { z } from "zod";
 import { RECOMMENDATION_REASON_CODES, choosePrimaryRecommendation } from "./product-recommendation.js";
 import { DealAssessmentSchema, DealSummarySchema, type DealAssessment, type DealSummary } from "./deal-assessment.js";
 import { DealLookupStatusSchema } from "./deal-client.js";
+import { RequirementAssessmentSchema, type RequirementAssessment } from "./product-requirements.js";
 
 const MoneySchema = z.object({
   amountCents: z.number().int().nonnegative(),
@@ -71,6 +72,7 @@ const ComparisonEntrySchema = z.object({
   dealSummary: DealSummarySchema.optional(),
   identityEvidence: z.array(z.string()),
   requirementEvidence: z.array(z.string()),
+  requirementAssessment: RequirementAssessmentSchema.optional(),
   preferenceEvidence: z.array(z.string()),
   limitations: z.array(z.string()),
   unknowns: z.array(z.enum(["ITEM_PRICE", "DELIVERED_TOTAL", "CONDITION", "AVAILABILITY", "MERCHANT_TRUST"])),
@@ -87,6 +89,7 @@ export const ProductComparisonOutputSchema = z.object({
   message: z.string(),
   comparisonId: z.string().uuid().optional(),
   renderId: z.string().uuid().optional(),
+  requirementsVersion: z.number().int().positive().optional(),
   expiresAt: z.string().optional(),
   evaluatedAt: z.string().datetime().optional(),
   locale: z.enum(["en-US", "zh-CN"]),
@@ -126,7 +129,8 @@ export type ComparableProduct = {
   gtins: string[];
   variantDimensions: Record<string, string>;
   matchStatus: "EXACT" | "DISCOVERY_MATCH" | "SIMILAR";
-  presentationGroup?: "OFFICIAL_STORE" | "TRUSTED_MATCH" | "BEST_VALUE";
+  presentationGroup?: "OFFICIAL_STORE" | "TRUSTED_MATCH" | "BEST_VALUE" | "RESEARCH_ONLY";
+  requirementAssessment?: RequirementAssessment;
   recommendationTier?: "TRUSTED_OR_AFFILIATE" | "HIGH_RATED_UNVERIFIED" | "GENERAL_UNVERIFIED";
   itemPrice?: { amountCents: number; currency: "USD" };
   quoteCapability?: "DELIVERED_TOTAL_SUPPORTED" | "ZIP_ESTIMATE_ONLY" | "MERCHANT_CHECKOUT_ONLY";
@@ -170,7 +174,7 @@ export type ComparableProduct = {
 export function buildProductComparison(
   input: ProductComparisonInput,
   products: ComparableProduct[],
-  identity: { comparisonId: string; renderId: string; expiresAt: string; evaluatedAt: string }
+  identity: { comparisonId: string; renderId: string; expiresAt: string; evaluatedAt: string; requirementsVersion?: number }
 ): ProductComparisonOutput {
   const evaluatedAtMs = Date.parse(identity.evaluatedAt);
   const sameProduct = hasSharedStableIdentity(products) && variantsCompatible(products) && conditionsCompatible(products);
@@ -253,6 +257,7 @@ export function buildProductComparison(
       " 此推荐以已有证据的属性满足你的需求为条件，不能仅凭价格决定。") : ""}`,
     comparisonId: identity.comparisonId,
     renderId: identity.renderId,
+    ...(identity.requirementsVersion === undefined ? {} : { requirementsVersion: identity.requirementsVersion }),
     expiresAt: identity.expiresAt,
     evaluatedAt: identity.evaluatedAt,
     locale: input.responseLocale,
@@ -326,6 +331,7 @@ function comparisonEntry(
     ...(product.coupons.summary === undefined ? {} : { dealSummary: product.coupons.summary }),
     identityEvidence: product.matchEvidence,
     requirementEvidence: product.featureEvidence ?? [],
+    ...(product.requirementAssessment === undefined ? {} : { requirementAssessment: product.requirementAssessment }),
     preferenceEvidence: product.preferenceEvidence ?? [],
     limitations: product.requiredFeatureLimitations ?? [],
     unknowns,

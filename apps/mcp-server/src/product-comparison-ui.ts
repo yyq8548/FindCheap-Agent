@@ -307,13 +307,18 @@ export const PRODUCT_COMPARISON_HTML = String.raw`<!doctype html>
         ].filter(Boolean), locale) },
         { focus: "IDENTITY", label: text(locale, "Variant", "规格"), renderValue: (entry) => list(Object.entries(entry.variantDimensions || {}).map(([key, value]) => key + ": " + value), locale, "Not specified", "未提供") },
         { focus: "IDENTITY", label: text(locale, "Identity evidence", "身份依据"), renderValue: (entry) => list(entry.identityEvidence, locale) },
-        { focus: "REQUIREMENTS", label: text(locale, "Required features", "必需功能"), renderValue: (entry) => list(entry.requirementEvidence, locale, "None recorded", "无记录") },
+        { focus: "REQUIREMENTS", label: text(locale, "Requirements check", "要求核验"), renderValue: (entry) => list(
+          entry.requirementAssessment?.entries?.map(item => (locale === "zh-CN"
+            ? ({ "long hair": "长发", "short hair": "短发", "straight hair": "直发", "curly hair": "卷发" }[item.requirement] || item.requirement) : item.requirement) + ": " +
+            (item.status === "MATCHED" ? text(locale, "Verified", "已核验") : item.status === "UNKNOWN" ? text(locale, "Not verified", "待核验") : text(locale, "Conflicting evidence", "证据冲突"))) ?? entry.requirementEvidence,
+          locale, "None recorded", "无记录") },
         { focus: "PREFERENCES", label: text(locale, "Preference fit", "偏好匹配"), renderValue: (entry) => list(entry.preferenceEvidence, locale, "None recorded", "无记录") },
         { focus: "REQUIREMENTS", label: text(locale, "Limitations", "限制"), renderValue: (entry) => list(entry.limitations, locale, "None known", "暂无已知限制") },
         { focus: undefined, label: text(locale, "Unknowns", "未知项"), renderValue: (entry) => list(Array.isArray(entry.unknowns) ? entry.unknowns.map((value) => displayValue(value, locale)) : [], locale, "None", "无") },
         { focus: undefined, label: text(locale, "Checked", "检查时间"), renderValue: (entry) => make("time", "", entry.checkedAt) }
       ];
       const focusOrder = new Map((Array.isArray(output.focus) ? output.focus : []).map((value, index) => [value, index]));
+      if (focusOrder.size === 0) { focusOrder.set("REQUIREMENTS", 0); focusOrder.set("IDENTITY", 1); }
       rows.forEach((row, index) => { row.order = index; });
       rows.sort((left, right) =>
         (focusOrder.get(left.focus) ?? focusOrder.size) - (focusOrder.get(right.focus) ?? focusOrder.size) || left.order - right.order

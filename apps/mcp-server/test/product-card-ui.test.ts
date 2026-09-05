@@ -80,6 +80,17 @@ function couponFixture(coupons: Record<string, unknown>) {
 }
 
 describe("product-card MCP Apps UI", () => {
+  it("unwraps an updated snapshot and shows inherited requirements without HTML interpretation", () => {
+    const fixture = couponFixture({ verified: [] });
+    const app = renderFixture({ updatedSnapshot: { ...fixture,
+      requirementsSummary: { requiredSize: "US 7", maxItemPriceCents: 5000, requiredFeatures: ["long hair", "<script>bad()</script>"], excludedFeatures: [] },
+      retrieval: { extent: "BOUNDED" } } });
+    expect(text(app)).toContain("当前要求："); expect(text(app)).toContain("US 7");
+    expect(text(app)).toContain("长发"); expect(text(app)).toContain("US$50.00");
+    expect(text(app)).toContain("未覆盖完整目录");
+    expect(nodes(app).some(node => node.tagName === "SCRIPT")).toBe(false);
+  });
+
   it.each([
     ["zh-CN", "同色尺码库存尚未确认。", "同色可售尺码："],
     ["en-US", "Size availability for this color has not been confirmed.", "Available sizes in this color:"]
@@ -323,7 +334,7 @@ describe("product-card MCP Apps UI", () => {
       params: expect.objectContaining({
         name: "report_product_card_metrics",
         arguments: expect.objectContaining({
-          version: "0.17.16",
+          version: "0.17.17",
           terminalStage: "DOM_RENDERED",
           stages: expect.objectContaining({ DOM_RENDERED: expect.any(Number) })
         })
@@ -619,13 +630,13 @@ describe("product-card MCP Apps UI", () => {
 
     const output = text(app);
     expect(output).toContain("Trusted merchants");
-    expect(output).toContain("Highly rated Shopify merchants");
+    expect(output).toContain("Highly rated products · unverified merchants");
     expect(output).toContain("Shopify rating is above 3.8 with at least 2 reviews.");
     expect(output).toContain("Other relevant products - review merchant carefully");
     expect(output.indexOf("Exact Product")).toBeLessThan(output.indexOf("Discovery Product"));
     expect(output.indexOf("Discovery Product")).toBeLessThan(output.indexOf("Similar Product"));
     expect(output).toContain("Product rating: 3.9/5 (2 reviews)");
-    expect(output).toContain("Shopify high-rated merchant");
+    expect(output).toContain("Highly rated product · merchant unverified");
     expect(output).toContain("Verify seller identity, returns, and payment protection");
     expect(output).toContain("Sony");
     expect(output).toContain("WH1000XM5");
@@ -692,7 +703,7 @@ describe("product-card MCP Apps UI", () => {
     expect(output).toContain("Best-value high-match options");
     expect(output).toContain("Only products hosted on independently verified official brand websites");
     expect(output).toContain("approved Awin merchants");
-    expect(output).toContain("Shopify merchants rated above 3.8 with at least 2 reviews");
+    expect(output).toContain("Product ratings do not verify merchants.");
     expect(output).toContain("First to consider");
     const featured = nodes(app).filter((node) => node.className.includes("featured"));
     expect(featured).toHaveLength(1);
@@ -941,7 +952,7 @@ describe("product-card MCP Apps UI", () => {
       method: "ui/initialize",
       params: {
         protocolVersion: "2026-01-26",
-        appInfo: { name: "FindCheap Agent product cards", version: "0.17.16" },
+        appInfo: { name: "FindCheap Agent product cards", version: "0.17.17" },
         appCapabilities: { availableDisplayModes: ["inline"] }
       }
     });
