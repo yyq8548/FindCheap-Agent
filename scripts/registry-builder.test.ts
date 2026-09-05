@@ -18,7 +18,7 @@ describe("registry builder reviewed expansion", () => {
     expect(trusted.every((approval) => approval.record.level === "OFFICIAL" && approval.evidenceKind === "BRAND_DOMAIN")).toBe(true);
     expect(official.find((approval) => approval.record.officialHost === "thereformation.com")?.record)
       .toMatchObject({ storefrontHost: "www.thereformation.com", platform: "GENERIC_JSON_LD",
-        productPathPrefixes: ["/products/"], searchPathTemplate: "/search?q={query}", imageHosts: ["media.thereformation.com"] });
+        productPathPrefixes: ["/products/"], searchPathTemplate: "/search?q={query}&sz=4", imageHosts: ["media.thereformation.com"] });
     expect(official.filter((approval) => approval.record.platform === "SHOPIFY")).toHaveLength(9);
     expect(official.every((approval) => approval.record.imageHosts.every((host) => !host.includes("*")))).toBe(true);
     expect(official.flatMap((approval) => approval.record.aliases).some((alias) => ["Woman", "U26C"].includes(alias))).toBe(false);

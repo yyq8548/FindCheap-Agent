@@ -39,6 +39,25 @@ storefronts / 210 trusted merchants with no duplicate hosts or normalized aliase
 
 ## Limits
 
+### Actual adapter checks and bounded configuration correction
+
+First live `dress / limit=1` adapter pass: 8 sources returned products,
+Reformation returned zero, LoveShackFancy timed out at 15 seconds. These original
+failures remain in local evidence; successful HTTP probes were not substituted.
+
+Reformation's search HTML was 1,279,971 bytes: the outer official fetch's
+unchanged 1 MiB limit rejected it before the generic parser's 2 MiB limit.
+An independently discovered direct PDP returned correctly. The search page
+exposed a real page-size control (`start=0&sz=16`); configuring
+`/search?q={query}&sz=4` reduced HTML to 696,186 bytes. The actual adapter
+returned a verified Reformation product in two requests / 1.84 seconds, preserving
+color, stock and trust gates. No code or size-limit change was necessary.
+
+Publish the corrected configuration as immutable `registry-2026-09-05-02`;
+the prior `-01` release is retained and counts remain 110 / 210.
+LoveShackFancy's one bounded retry returned a verified product in 639 ms.
+This demonstrates recovery, not a first-pass success or reliability guarantee.
+
 Database execution completed: 20 candidates imported; 18 standard probes passed,
 the two Reformation apex records failed as described above; 20 explicit approvals
 applied atomically. Published `registry-2026-09-05-01` contains 110 / 210 records.

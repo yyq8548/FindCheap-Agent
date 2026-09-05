@@ -13,7 +13,7 @@
         "productPathPrefixes": [
           "/products/"
         ],
-        "searchPathTemplate": "/search?q={query}",
+        "searchPathTemplate": "/search?q={query}&sz=4",
         "imageHosts": [
           "media.thereformation.com"
         ],
@@ -23,7 +23,7 @@
       },
       "evidenceKind": "BRAND_DOMAIN",
       "evidenceUrl": "https://www.thereformation.com/terms-and-conditions.html",
-      "note": "LYMI Inc. d/b/a Reformation identifies www.thereformation.com in its terms; canonical www search and Product JSON-LD verified. Apex technical probe failed; canonical requests succeeded. Not Shopify."
+      "note": "LYMI Inc. d/b/a Reformation identifies www.thereformation.com in its terms; canonical www search and Product JSON-LD verified. Apex technical probe failed; canonical requests succeeded. Not Shopify. Observed public page-size control sz=4 keeps discovery below the unchanged 1 MiB outer read limit; actual adapter returned an independently discovered product."
     },
     {
       "kind": "MERCHANT_TRUST",
