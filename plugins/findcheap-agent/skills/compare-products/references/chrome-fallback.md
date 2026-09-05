@@ -10,9 +10,12 @@ responses, security rejection, exhausted budgets and explicit no-Chrome stay blo
 
 ## Contract
 
-1. Preserve the immutable `renderId` and all original requirements. Do not call
+1. Read the same result's `findcheapContext` JSON text receipt or `structuredContent`.
+   Copy its immutable `renderId` and preserve all original requirements. Do not call
    `search_products` again to reset limits or silently relax brand, category,
-   identity, variant, condition, budget or must-haves.
+   identity, variant, condition, budget or must-haves. For `MISSING_REFERENCE_CONTEXT`
+   with `REUSE_ORIGINAL_REFERENCE`, correct once from the original receipt only.
+   Never infer the latest snapshot, scan logs, or start `NEW_PRODUCT` as a workaround.
 2. Call `begin_web_search`. Host elicitation obtains explicit user consent.
    Never fabricate consent or pass a model-authored approval flag. Open Chrome
    only for READY. Only `retryable=true` permits one further authorization attempt
@@ -30,8 +33,8 @@ responses, security rejection, exhausted budgets and explicit no-Chrome stay blo
    reads them inside the same deadline. Search snippets are discovery, never
    price, efficacy, condition, identity or trust evidence. Do not submit search,
    listing, category, aggregator, shortened, login, IP-literal or redirected URLs.
-5. Call `complete_web_search` once with original `renderId`, returned
-   `webSessionId`, and `urls` only; [] if discovery found none. Never supply prices,
+5. Call `complete_web_search` once with original `renderId`, `webSessionId`
+   copied from the READY result's receipt, and `urls` only; [] if discovery found none. Never supply prices,
    descriptions, trust claims, or new constraints. Server reads at most 5 pages,
    rejects redirects and ambiguous offers, and returns at most 3 native cards for
    text requests. Image requests instead return candidates with

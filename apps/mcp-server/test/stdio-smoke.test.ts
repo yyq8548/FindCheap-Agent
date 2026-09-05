@@ -22,6 +22,33 @@ const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
 const pluginRoot = process.env.FINDCHEAP_PLUGIN_ROOT ?? path.join(repoRoot, "plugins", "findcheap-agent");
 
 describe("installed plugin stdio", () => {
+  it("continues clarification from model-visible text without reading structuredContent", async () => {
+    const client = await connectBundledClient({});
+    const context = (result: Awaited<ReturnType<Client["callTool"]>>) => {
+      for (const block of result.content as Array<{ type: string; text?: string }>) {
+        if (block.type !== "text" || !block.text?.startsWith('<findcheap-external-data>\n{"findcheapContext":')) continue;
+        return JSON.parse(block.text.split("\n")[1]!).findcheapContext;
+      }
+      throw new Error("Model-visible context missing from installed bundle");
+    };
+    try {
+      const first = context(await client.callTool({ name: "search_products", arguments: {
+        query: "MacBook Pro", brand: "Apple", productType: "laptop", responseLocale: "zh-CN"
+      } }));
+      expect(first.status).toBe("NEEDS_CLARIFICATION");
+      expect(first.goalRevision).toBe(1);
+      // Still missing use and size, so neither round can call a merchant source.
+      const second = context(await client.callTool({ name: "search_products", arguments: {
+        query: "MacBook Pro", contextMode: "CONTINUE_PREVIOUS_PRODUCT", parentRenderId: first.renderId,
+        maxItemPriceCents: 300000, responseLocale: "zh-CN"
+      } }));
+      expect(second.status).toBe("NEEDS_CLARIFICATION");
+      expect(second.goalId).toBe(first.goalId);
+      expect(second.goalRevision).toBe(2);
+      expect(second.requirementsSummary).toMatchObject({ brand: "Apple", maxItemPriceCents: 300000 });
+    } finally { await client.close(); }
+  }, 10_000);
+
   it("publishes bounded visual observations and returns safe correction details before provider execution", async () => {
     const client = await connectBundledClient({});
     try {

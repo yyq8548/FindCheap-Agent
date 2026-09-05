@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { BackendCapability } from "./capabilities.js";
 import { sanitizeToolResult } from "./external-data-fence.js";
 import { safeInputIssues } from "./input-validation.js";
+import { appendModelContext } from "./model-context.js";
 import { normalizeToolError, ToolOutputRejectedError, toolError, type ToolFailurePhase } from "./tool-outcome.js";
 
 type ParseResult = { success: true; data: unknown } | { success: false; error?: z.ZodError };
@@ -108,10 +109,10 @@ export class ToolExecutor {
         this.#log(`[findcheap-output-issues] ${JSON.stringify(safeInputIssues(parsedOutput.error, spec.outputSchema))}`);
         return toolError("TOOL_OUTPUT_REJECTED");
       }
-      return {
+      return appendModelContext(name, {
         ...sanitized,
         structuredContent: parsedOutput.data as Record<string, unknown>
-      };
+      });
     } catch (error) {
       if (error instanceof z.ZodError && phase === "INPUT_VALIDATION") {
         return toolError("INVALID_ARGUMENTS", { issues: safeInputIssues(error, spec.inputSchema) });

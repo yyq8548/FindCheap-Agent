@@ -46,7 +46,8 @@ describe("FindCheap Agent plugin contract", () => {
   it("uses a compact direct-call search path and loads Chrome rules only on demand", async () => {
     const skill = await readFile(skillPath, "utf8");
 
-    expect(new TextEncoder().encode(skill).length).toBeLessThanOrEqual(6_000);
+    // The bounded text receipt rules must survive hosts that omit structuredContent.
+    expect(new TextEncoder().encode(skill).length).toBeLessThanOrEqual(6_400);
     expect(skill.split(/\r?\n/u).length).toBeLessThanOrEqual(36);
     expect(skill).toContain("Every live shopping request");
     expect(skill).toContain("Do not read Memory, repository files, logs, task files, or plugin cache");
@@ -145,7 +146,7 @@ describe("FindCheap Agent plugin contract", () => {
     expect(skill).toContain("Call `search_products` exactly once");
     expect(skill).toContain("Use only one neutral progress sentence");
     expect(skill).toContain("Do not read Memory, repository files, logs, task files, or plugin cache");
-    expect(skillBytes).toBeLessThanOrEqual(Math.floor(19_954 * 0.3));
+    expect(skillBytes).toBeLessThanOrEqual(Math.floor(19_954 * 0.325));
   });
 
   it("keeps merchant-wide Coupon requests broader than Agent-suggested products", async () => {
@@ -183,6 +184,27 @@ describe("FindCheap Agent plugin contract", () => {
     }
   });
 
+  it("preserves model-visible receipts for continuation, selected products and web recovery", async () => {
+    for (const file of [skillPath, watchSkillPath, chromeReferencePath]) {
+      const skill = (await readFile(file, "utf8")).replace(/\s+/gu, " ");
+      expect(skill).toContain("`findcheapContext` JSON text");
+      expect(skill).toContain("`structuredContent`");
+      expect(skill).toContain("original receipt");
+      expect(skill).toContain("REUSE_ORIGINAL_REFERENCE");
+      expect(skill).toContain("NEW_PRODUCT");
+    }
+    const skill = await readFile(skillPath, "utf8");
+    expect(skill).toContain("retain receipts for calls, never show IDs");
+    expect(skill).toContain("`renderId` as `parentRenderId`");
+    expect(skill).toContain("`goalId`+`goalRevision`");
+    expect(skill).toContain("copy `selectionId` only from that receipt's products");
+    expect(skill).toContain("Never use `NEW_PRODUCT` to bypass missing context or reset budgets");
+    const schema = await readFile(path.join(root, "apps", "mcp-server", "src", "search-products.ts"), "utf8");
+    expect(schema).toContain("Copy renderId from the original result's findcheapContext text receipt or structuredContent");
+    expect(schema).toContain("including clarification replies");
+    expect(schema).toContain("Exact server-issued revision from the same receipt as goalId; never infer or increment it");
+  });
+
   it("defines one bounded, host-authorized URL intake workflow", async () => {
     const skill = (await readFile(chromeReferencePath, "utf8")).replace(/\s+/gu, " ");
     for (const term of [
@@ -207,7 +229,7 @@ describe("FindCheap Agent plugin contract", () => {
     };
 
     expect(manifest.name).toBe("findcheap-agent");
-    expect(manifest.version).toMatch(/^0\.17\.21(?:\+codex\.)?/u);
+    expect(manifest.version).toMatch(/^0\.17\.22(?:\+codex\.)?/u);
     expect(manifest.interface.displayName).toBe("FindCheap Agent");
     expect(manifest.interface.longDescription).toMatch(/Codex Plugin Agent/u);
     expect(manifest.interface.longDescription).toMatch(/[Aa]uthorized.*Chrome/u);
@@ -232,7 +254,7 @@ describe("FindCheap Agent plugin contract", () => {
   it("requires durable Codex Automation binding before Watch activation", async () => {
     const skill = await readFile(watchSkillPath, "utf8");
 
-    expect(new TextEncoder().encode(skill).length).toBeLessThanOrEqual(3_500);
+    expect(new TextEncoder().encode(skill).length).toBeLessThanOrEqual(3_700);
     expect(skill).toContain("Do not read Memory, repository files, logs, task files, or plugin cache");
     expect(skill).toContain("do not narrate the tool sequence between calls");
     expect(skill).toContain("`READY_TO_SCHEDULE`");

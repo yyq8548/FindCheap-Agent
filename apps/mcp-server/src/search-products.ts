@@ -132,11 +132,11 @@ export const SearchProductsInputSchema = z.object({
     "CONTINUE_PREVIOUS_PRODUCT",
     "CORRECT_PREVIOUS_PRODUCT",
     "AMBIGUOUS"
-  ]).describe("NEW for a different shopping goal; CONTINUE for added budget, use, size, constraints, or same-category identity refinement (pass the full refined identity in query); CORRECT for replacing prior product identity; AMBIGUOUS when unclear")
+  ]).describe("NEW for a different shopping goal, never a missing-reference workaround; CONTINUE for added budget, use, size, constraints, or same-category identity refinement (pass the full refined identity in query); CORRECT for replacing prior product identity; CONTINUE/CORRECT require parentRenderId copied from the original renderId, or goalId plus goalRevision from the same receipt; AMBIGUOUS when unclear")
     .default("NEW_PRODUCT"),
-  parentRenderId: z.string().uuid().optional().describe("Exact prior search snapshot for CONTINUE or CORRECT; never guess the latest search"),
-  goalId: z.string().uuid().optional().describe("Server-issued shopping goal binding; never infer a global latest goal"),
-  goalRevision: z.number().int().positive().optional().describe("Exact server-issued revision of the bound shopping goal"),
+  parentRenderId: z.string().uuid().optional().describe("Copy renderId from the original result's findcheapContext text receipt or structuredContent for CONTINUE or CORRECT; never guess the latest search"),
+  goalId: z.string().uuid().optional().describe("Server-issued goalId from the original result's findcheapContext text receipt or structuredContent; pair with that receipt's goalRevision when no parentRenderId exists, including clarification replies"),
+  goalRevision: z.number().int().positive().optional().describe("Exact server-issued revision from the same receipt as goalId; never infer or increment it"),
   clearConstraints: z.array(z.enum(["maxItemPriceCents", "requiredSize", "preferredSize", "requiredFeatures", "excludedFeatures", "preferences", "brand", "primaryUse", "allowAlternatives", "conditionPreference"])).max(10).default([])
     .describe("Clear only constraints the user explicitly withdrew; omitted constraints are retained on continuation"),
   removeRequiredFeatures: z.array(z.string().trim().min(1).max(160)).max(10).default([])
