@@ -1,6 +1,6 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { ElicitRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import { ElicitRequestSchema, ErrorCode, McpError, type ElicitResult } from "@modelcontextprotocol/sdk/types.js";
 import { describe, expect, it, vi } from "vitest";
 import { createShoppingServer, type ProductCardContent } from "../src/server.js";
 import { parseWebProductDocument } from "../src/generic-official-store-search.js";
@@ -75,26 +75,48 @@ describe("bounded web recovery safety", () => {
   it("requires consent, binds tokens, consumes once, and expires without renewal", async () => {
     let time = 1;
     const sessions = new WebRecoverySessions(() => time);
-    expect(await sessions.begin("denied", async () => false)).toBeUndefined();
-    const approve = vi.fn(async () => true);
-    expect(await sessions.begin("denied", approve)).toBeUndefined();
+    expect(await sessions.begin("denied", async () => "DECLINE")).toMatchObject({ status: "PERMISSION_DENIED", retryable: false });
+    const approve = vi.fn(async () => "ACCEPT" as const);
+    expect(await sessions.begin("denied", approve)).toMatchObject({ status: "PERMISSION_DENIED" });
     expect(approve).not.toHaveBeenCalled();
     const lease = (await sessions.begin("accepted", approve))!;
-    expect(sessions.consume("other", lease.token)).toBeUndefined();
+    expect(sessions.consume("other", lease.token!)).toBeUndefined();
     expect(sessions.consume("accepted", "invented")).toBeUndefined();
-    expect(sessions.consume("accepted", lease.token)).toBe(WEB_SEARCH_LIMITS.durationMs);
-    expect(sessions.consume("accepted", lease.token)).toBeUndefined();
+    expect(sessions.consume("accepted", lease.token!)).toBe(WEB_SEARCH_LIMITS.durationMs);
+    expect(sessions.consume("accepted", lease.token!)).toBeUndefined();
     const expired = (await sessions.begin("expired", approve))!;
     time += 60_001;
-    expect(sessions.consume("expired", expired.token)).toBeUndefined();
-    expect(await sessions.begin("expired", approve)).toBeUndefined();
+    expect(sessions.consume("expired", expired.token!)).toBeUndefined();
+    expect(await sessions.begin("expired", approve)).toMatchObject({ status: "EXPIRED", retryable: false });
   });
   it("does not allow concurrent approval races", async () => {
     const sessions = new WebRecoverySessions();
-    let accept!: (value: boolean) => void;
+    let accept!: (value: "ACCEPT") => void;
     const pending = sessions.begin("parent", () => new Promise(resolve => { accept = resolve; }));
-    expect(await sessions.begin("parent", async () => true)).toBeUndefined();
-    accept(true); expect(await pending).toBeDefined();
+    expect(await sessions.begin("parent", async () => "ACCEPT")).toMatchObject({ status: "APPROVAL_PENDING" });
+    accept("ACCEPT"); expect(await pending).toMatchObject({ status: "READY" });
+  });
+  it("retries a transient consent failure once without consuming web admission", async () => {
+    const sessions = new WebRecoverySessions();
+    const fail = vi.fn(async (): Promise<"ACCEPT"> => { throw new McpError(ErrorCode.RequestTimeout, "private error must not escape"); });
+    expect(await sessions.begin("parent", fail)).toEqual({ status: "PERMISSION_TIMEOUT", retryable: true, attempt: 1 });
+    expect(await sessions.begin("parent", async () => "ACCEPT")).toMatchObject({ status: "READY", attempt: 2 });
+    expect(await sessions.begin("parent", fail)).toMatchObject({ status: "ALREADY_USED", retryable: false });
+    expect(fail).toHaveBeenCalledTimes(1);
+  });
+  it("never makes unknown errors, refusal, cancellation or retry exhaustion renewable", async () => {
+    const sessions = new WebRecoverySessions();
+    for (const answer of ["DECLINE", "CANCEL"] as const) {
+      await sessions.begin(answer, async () => answer);
+      const approve = vi.fn(async () => "ACCEPT" as const);
+      expect((await sessions.begin(answer, approve)).retryable).toBe(false);
+      expect(approve).not.toHaveBeenCalled();
+    }
+    const fail = vi.fn(async (): Promise<"ACCEPT"> => { throw new McpError(ErrorCode.InternalError, "private"); });
+    await sessions.begin("transient", fail);
+    expect(await sessions.begin("transient", fail)).toEqual({ status: "PERMISSION_ERROR", retryable: false, attempt: 2 });
+    await sessions.begin("transient", fail); expect(fail).toHaveBeenCalledTimes(2);
+    expect(await sessions.begin("unknown", async () => { throw new Error("private"); })).toEqual({ status: "PERMISSION_ERROR", retryable: false, attempt: 1 });
   });
   it("limits pages, deduplicates merchants and bounds an adapter ignoring abort", async () => {
     const read = vi.fn(async () => webProduct());
@@ -108,7 +130,7 @@ describe("bounded web recovery safety", () => {
   it("keeps exact constraints and distinguishes unverified merchant from no fit", () => {
     const execution = evaluateRecoveredProducts(request, [webProduct()], false);
     expect(execution.candidates).toHaveLength(1);
-    expect(textSearchRecovery(execution)).toMatchObject({ action: "VERIFY_MERCHANT", qualified: 1, recommendable: 0 });
+    expect(textSearchRecovery(execution)).toMatchObject({ action: "REPORT_UNVERIFIED_MERCHANT", qualified: 1, recommendable: 0 });
     expect(evaluateRecoveredProducts(request, [{ ...webProduct(), title: "Running shoes", productType: "shoes" }], false).candidates).toHaveLength(0);
     expect(evaluateRecoveredProducts(request, [{ ...webProduct(), description: "Not suitable for oily scalp." }], false).candidates).toHaveLength(0);
     expect(evaluateRecoveredProducts({ ...request, brand: "Required", brandMode: "REQUIRED" }, [webProduct()], false).candidates).toHaveLength(0);
@@ -127,7 +149,7 @@ async function connect(consent: boolean | undefined) {
     source: "AWIN_PRODUCT_FEED", coverage: "COMPLETE", snapshotAt: new Date().toISOString(), products: [],
     diagnostics: { feedRows: 0, validRows: 0, rejectedRows: 0, queryMatches: 0, priceProductsExcluded: 0 } }) } });
   const client = new Client({ name: "web-recovery-test", version: "1" }, { capabilities: consent === undefined ? {} : { elicitation: { form: {} } } });
-  const approve = vi.fn(async () => ({ action: "accept" as const, content: { approved: consent === true } }));
+  const approve = vi.fn(async (): Promise<ElicitResult> => ({ action: "accept", content: { approved: consent === true } }));
   if (consent !== undefined) client.setRequestHandler(ElicitRequestSchema, approve);
   const [a, b] = InMemoryTransport.createLinkedPair();
   await Promise.all([server.connect(b), client.connect(a)]);
@@ -160,7 +182,7 @@ describe("MCP recovery contract", () => {
     const replay = await connect(consent);
     try {
       const result = await replay.client.callTool({ name: "begin_web_search", arguments: { renderId: replay.parent.renderId } });
-      expect(result.structuredContent).toMatchObject({ status: consent === undefined ? "PERMISSION_UNAVAILABLE" : "NOT_AUTHORIZED" });
+      expect(result.structuredContent).toMatchObject({ status: consent === undefined ? "PERMISSION_UNAVAILABLE" : "PERMISSION_DENIED", retryable: false });
       expect(replay.read).not.toHaveBeenCalled();
     } finally { await replay.close(); }
   });
@@ -177,7 +199,7 @@ describe("MCP recovery contract", () => {
       expect(result.isError).not.toBe(true);
       const content = result.structuredContent as ProductCardContent;
       expect(content).toMatchObject({ sources: { awin: "SKIPPED", shopify: "SKIPPED", web: "COMPLETE" },
-        requirementsSummary: { requiredFeatures: request.requiredFeatures }, recovery: { action: "VERIFY_MERCHANT", qualified: 1 } });
+        requirementsSummary: { requiredFeatures: request.requiredFeatures }, recovery: { action: "REPORT_UNVERIFIED_MERCHANT", qualified: 1 } });
       expect(content.renderId).not.toBe(replay.parent.renderId);
       expect(content.products[0]).toMatchObject({ sourceKind: "WEB_PRODUCT_PAGE", itemPrice: { amountCents: 3641 },
         quoteCapability: "MERCHANT_CHECKOUT_ONLY", selectionId: expect.any(String) });
@@ -187,6 +209,54 @@ describe("MCP recovery contract", () => {
       const old = await replay.client.callTool({ name: "render_product_cards", arguments: { renderId: replay.parent.renderId } });
       expect(old.structuredContent).toEqual(replay.parent);
       expect(replay.approve).toHaveBeenCalledTimes(1); expect(replay.read).toHaveBeenCalledTimes(1);
+    } finally { await replay.close(); }
+  });
+  it.each([
+    [ErrorCode.MethodNotFound, "PERMISSION_UNAVAILABLE", false],
+    [ErrorCode.RequestTimeout, "PERMISSION_TIMEOUT", true],
+    [ErrorCode.InternalError, "PERMISSION_ERROR", true],
+    [ErrorCode.InvalidParams, "PERMISSION_ERROR", false]
+  ] as const)("preserves host failure reason %s without leaking error content", async (code, status, retryable) => {
+    const replay = await connect(true);
+    try {
+      replay.approve.mockRejectedValueOnce(new McpError(code, "SECRET_HOST_ERROR"));
+      const begin = await replay.client.callTool({ name: "begin_web_search", arguments: { renderId: replay.parent.renderId } });
+      expect(begin.structuredContent).toMatchObject({ status, retryable, attempt: 1 });
+      expect(JSON.stringify(begin)).not.toContain("SECRET_HOST_ERROR");
+      expect(replay.read).not.toHaveBeenCalled();
+      const second = await replay.client.callTool({ name: "begin_web_search", arguments: { renderId: replay.parent.renderId } });
+      expect(second.structuredContent).toMatchObject({ status: retryable ? "READY" : status });
+      expect(replay.approve).toHaveBeenCalledTimes(retryable ? 2 : 1);
+    } finally { await replay.close(); }
+  });
+  it("keeps host cancellation distinct from refusal", async () => {
+    const replay = await connect(true);
+    try {
+      replay.approve.mockResolvedValueOnce({ action: "cancel" });
+      const result = await replay.client.callTool({ name: "begin_web_search", arguments: { renderId: replay.parent.renderId } });
+      expect(result.structuredContent).toMatchObject({ status: "PERMISSION_CANCELLED", retryable: false });
+      expect(replay.read).not.toHaveBeenCalled();
+    } finally { await replay.close(); }
+  });
+  it("cancels the consent request when its parent tool call is aborted", async () => {
+    const replay = await connect(true);
+    try {
+      let entered!: () => void;
+      const awaitingConsent = new Promise<void>(resolve => { entered = resolve; });
+      replay.approve.mockImplementationOnce(() => { entered(); return new Promise(() => {}); });
+      const controller = new AbortController();
+      const args = { name: "begin_web_search", arguments: { renderId: replay.parent.renderId } };
+      const pending = replay.client.callTool(args, undefined, { signal: controller.signal });
+      const rejected = expect(pending).rejects.toThrow();
+      await awaitingConsent;
+      controller.abort();
+      await rejected;
+      await vi.waitFor(async () => {
+        const result = await replay.client.callTool(args);
+        expect(result.structuredContent).toMatchObject({ status: "PERMISSION_CANCELLED", retryable: false });
+      });
+      expect(replay.approve).toHaveBeenCalledTimes(1);
+      expect(replay.read).not.toHaveBeenCalled();
     } finally { await replay.close(); }
   });
 });

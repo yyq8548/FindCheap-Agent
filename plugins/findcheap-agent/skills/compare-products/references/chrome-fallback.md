@@ -1,7 +1,8 @@
 # Authorized Chrome recovery
 
 Only after text `search_products` returns `recovery.action=REQUEST_WEB_SEARCH`.
-Zero verified fits can include RESEARCH_ONLY cards. COMPLETE is bounded source
+Zero verified fits can include RESEARCH_ONLY cards. Qualified fits from exclusively
+unverified merchants may also request recovery for trusted sources. COMPLETE is bounded source
 coverage, not catalog exhaustiveness. Do not use this path for images, partial
 coverage, unavailable data, malformed responses, timeouts, or explicit no-Chrome.
 
@@ -10,13 +11,16 @@ coverage, unavailable data, malformed responses, timeouts, or explicit no-Chrome
 1. Preserve the immutable `renderId` and all original requirements. Do not call
    `search_products` again to reset limits or silently relax brand, category,
    identity, variant, condition, budget or must-haves.
-2. Call `begin_web_search` once. Host elicitation obtains explicit user consent.
+2. Call `begin_web_search`. Host elicitation obtains explicit user consent.
    Never fabricate consent or pass a model-authored approval flag. Open Chrome
-   only for READY. NOT_AUTHORIZED/PERMISSION_UNAVAILABLE: explain the returned
-   limitation, stop; never claim absence or switch browsers. If Chrome capability
+   only for READY. Only `retryable=true` permits one further authorization attempt
+   with the same renderId; never reset search or lease budgets. Refusal,
+   cancellation, PERMISSION_UNAVAILABLE, non-retryable error, pending/used/expired
+   sessions: explain the returned limitation and stop. An interface error is not
+   user refusal. Never claim absence or switch browsers. If Chrome capability
    itself is unavailable, say so; do not invent installation instructions.
 3. Use installed Chrome for discovery only. Perform the first returned query;
-   if fewer than three plausible direct product URLs, use the second query once.
+   if fewer than three plausible direct product URLs and a second query was returned, use it once.
    No third search. Finish within returned `expiresAt` (60 seconds after approval).
 4. Collect at most 5 direct HTTPS merchant product URLs from distinct domains,
    one product per merchant. Do not open merchant pages in Chrome: the server

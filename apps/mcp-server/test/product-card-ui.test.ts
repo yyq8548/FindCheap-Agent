@@ -20,6 +20,7 @@ class FakeNode {
   maxLength = 0;
   placeholder = "";
   ariaPressed = "false";
+  open = false;
   private readonly listeners = new Map<string, () => void>();
   constructor(readonly tagName = "DIV") {}
 
@@ -80,6 +81,21 @@ function couponFixture(coupons: Record<string, unknown>) {
 }
 
 describe("product-card MCP Apps UI", () => {
+  it.each(["zh-CN", "en-US"])("collapses research cards but keeps their selection controls in %s", locale => {
+    const fixture = couponFixture({ verified: [] });
+    Object.assign(fixture.products[0]!, { selectionId: "selection-one", presentationGroup: "RESEARCH_ONLY", requiredFeatureLimitations: ["anti-dandruff"] });
+    fixture.products.push({ ...fixture.products[0]! });
+    Object.assign(fixture.products[1]!, { selectionId: "selection-two" });
+    const app = renderFixture({ ...fixture, locale, recovery: { qualified: 0, recommendable: 0, action: "REQUEST_WEB_SEARCH" },
+      recommendation: { state: "RESEARCH_ONLY" } });
+    const group = nodes(app).find(node => node.tagName === "DETAILS" && node.className === "group")!;
+    expect(group).toBeDefined(); expect(group.open).toBe(false);
+    expect(group.children[0]?.tagName).toBe("SUMMARY");
+    expect(nodes(group).some(node => node.tagName === "BUTTON" && /选择对比|Select for comparison/u.test(node.textContent))).toBe(true);
+    expect(text(app)).toContain(locale === "zh-CN" ? "本次未找到已核实满足全部要求" : "No verified fit");
+    expect(text(app)).toContain("anti-dandruff");
+    expect(nodes(app).some(node => node.className === "card featured")).toBe(false);
+  });
   it("unwraps an updated snapshot and shows inherited requirements without HTML interpretation", () => {
     const fixture = couponFixture({ verified: [] });
     const app = renderFixture({ updatedSnapshot: { ...fixture,
@@ -334,7 +350,7 @@ describe("product-card MCP Apps UI", () => {
       params: expect.objectContaining({
         name: "report_product_card_metrics",
         arguments: expect.objectContaining({
-          version: "0.17.19",
+          version: "0.17.20",
           terminalStage: "DOM_RENDERED",
           stages: expect.objectContaining({ DOM_RENDERED: expect.any(Number) })
         })
@@ -952,7 +968,7 @@ describe("product-card MCP Apps UI", () => {
       method: "ui/initialize",
       params: {
         protocolVersion: "2026-01-26",
-        appInfo: { name: "FindCheap Agent product cards", version: "0.17.19" },
+        appInfo: { name: "FindCheap Agent product cards", version: "0.17.20" },
         appCapabilities: { availableDisplayModes: ["inline"] }
       }
     });

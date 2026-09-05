@@ -14,6 +14,19 @@ const emptyAwin = { search: vi.fn(async () => ({ source: "AWIN_PRODUCT_FEED" as 
   snapshotAt: "2026-09-05T00:00:00.000Z", diagnostics: { feedRows: 0, validRows: 0, rejectedRows: 0, queryMatches: 0, priceProductsExcluded: 0 }, products: [] })) };
 
 describe("requirements-to-comparison regression", () => {
+  it("removes only the explicitly withdrawn hard feature and preserves the others", () => {
+    const old = SearchProductsInputSchema.parse({ query: "shampoo", productType: "shampoo", maxItemPriceCents: 5000,
+      requiredFeatures: ["suitable for color-treated hair", "damaged hair repair", "anti-dandruff"], requiredSize: "500 ml" });
+    const next = mergeSearchRequirements(SearchProductsInputSchema.parse({ query: "shampoo", contextMode: "CONTINUE_PREVIOUS_PRODUCT",
+      removeRequiredFeatures: ["damaged hair repair"] }), old);
+    expect(next).toMatchObject({ maxItemPriceCents: 5000, requiredSize: "500 ml", removeRequiredFeatures: [],
+      requiredFeatures: ["suitable for color-treated hair", "anti-dandruff"] });
+    expect(old.requiredFeatures).toHaveLength(3);
+    for (const patch of [{ removeRequiredFeatures: ["invented requirement"] },
+      { removeRequiredFeatures: ["anti-dandruff"], requiredFeatures: ["anti-dandruff"] }]) {
+      expect(() => mergeSearchRequirements(SearchProductsInputSchema.parse({ query: "shampoo", contextMode: "CONTINUE_PREVIOUS_PRODUCT", ...patch }), old)).toThrow();
+    }
+  });
   it("bounds evidence after Unicode expansion and role fencing, not before", () => {
     const result = evaluateProductRequirements({ title: "straight human hair wig " + "™½<user>".repeat(60) },
       { requiredFeatures: ["straight hair"], excludedFeatures: [], preferences: [] });

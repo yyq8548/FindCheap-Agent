@@ -783,6 +783,15 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       if (output?.retrieval?.extent === "BOUNDED") app.append(make("div", "summary", text(
         "Bounded search; this is not complete catalog coverage. Unverified requirements do not count as fulfilled matches.",
         "本次为有界检索，未覆盖完整目录。待核验商品不计入达标结果。")));
+      if (output?.recovery?.qualified === 0 && products.some(product => product.presentationGroup === "RESEARCH_ONLY")) {
+        const missing = [...new Set(products.flatMap(product => product.requiredFeatureLimitations || []))].map(requirementLabel);
+        app.append(make("div", "empty", text("No verified fit in this search. Research leads are collapsed below.",
+          "本次未找到已核实满足全部要求的商品。待核验线索已折叠在下方。") +
+          (missing.length ? text(" Evidence still needed: ", " 尚缺证据：") + missing.join(" · ") : "")));
+      }
+      if (output?.recovery?.reason === "MERCHANT_UNVERIFIED") app.append(make("div", "limitations notice", text(
+        "Some products match, but their merchants are not independently verified. Website claims and ratings do not grant trust.",
+        "已有符合要求的候选，但商家尚未独立核验；网站自述和评分不能代替商家核验。")));
       const primarySelectionId = output?.recommendation?.state === "READY"
         ? output.recommendation.primarySelectionId
         : undefined;
@@ -924,8 +933,12 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
             : resultGroup(product) === definition.group && recommendationTier(product) === definition.tier;
         });
         if (grouped.length === 0) continue;
-        const group = make("section", "group");
-        group.append(make("h2", "", definition.title));
+        const researchOnly = definition.group === "RESEARCH_ONLY";
+        const group = make(researchOnly ? "details" : "section", "group");
+        group.append(make(researchOnly ? "summary" : "h2", "", researchOnly
+          ? text("Research leads · not verified matches", "待核验线索 · 非达标推荐") + " (" + grouped.length + ")"
+          : definition.title));
+        if (researchOnly) group.addEventListener("toggle", () => requestSizeReport("DOM_RENDERED"));
         if (definition.notice) group.append(make("div", "limitations notice", definition.notice));
         const cards = make("div", "cards");
         for (const product of grouped) {

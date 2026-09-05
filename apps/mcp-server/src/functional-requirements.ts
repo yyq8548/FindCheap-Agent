@@ -29,8 +29,17 @@ export function functionalFeatureStatus(text: string, feature: string): "MATCHED
 
 export function functionalQueryFeatures(features: readonly string[]): string[] {
   const known = functions.filter(entry => features.some(value => functionalRequirement(value) === entry.name));
-  // The most discriminating function leads retrieval. All requirements still
-  // participate in final validation; long prose is never an all-token query.
-  return known.length === 0 ? [...features] : [known[0]!.name,
-    ...features.filter(value => functionalRequirement(value) === undefined)];
+  // Retrieval is deliberately broader than verification. Do not append unknown
+  // requirements or primary-use prose to an already discriminating function.
+  if (known.length > 0) return [known[0]!.name];
+  const compact = features.map(value => value.normalize("NFKC").trim()
+    .replace(/^(?:(?:suitable|safe|ideal|recommended) for )?(?:color[- ]treated hair|color[- ]safe)(?: shampoo)?$|^染发(?:适用|护理)$/iu, "color-safe")
+    .replace(/^(?:damaged hair repair|repair (?:for )?damaged hair|hair repair|受损发质修护)$/iu, "repair")
+    .replace(/^(?:(?:suitable|ideal|recommended) for|with)\s+/iu, ""))
+    .filter(value => value.length > 0 && value.length <= 80 && value.split(/\s+/u).length <= 4);
+  let words = 0;
+  return [...new Set(compact)].filter(value => {
+    words += value.split(/\s+/u).length;
+    return words <= 6;
+  }).slice(0, 2);
 }

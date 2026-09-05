@@ -4898,6 +4898,11 @@
         },
         {
           "kind": "import-statement",
+          "original": "@modelcontextprotocol/sdk/types.js",
+          "path": "../../node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/types.js"
+        },
+        {
+          "kind": "import-statement",
           "original": "../../../packages/network-safety/src/safe-fetch.js",
           "path": "../../packages/network-safety/src/safe-fetch.ts"
         },
@@ -4916,7 +4921,7 @@
   },
   "outputs": {
     "../../plugins/findcheap-agent/dist/mcp-server.js": {
-      "bytes": 872550,
+      "bytes": 879644,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
@@ -5094,10 +5099,10 @@
           "bytesInOutput": 195
         },
         "../../node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/server/index.js": {
-          "bytesInOutput": 8036
+          "bytesInOutput": 8031
         },
         "../../node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/server/mcp.js": {
-          "bytesInOutput": 14794
+          "bytesInOutput": 14776
         },
         "../../node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/server/stdio.js": {
           "bytesInOutput": 1028
@@ -5109,7 +5114,7 @@
           "bytesInOutput": 574
         },
         "../../node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/shared/protocol.js": {
-          "bytesInOutput": 16065
+          "bytesInOutput": 16040
         },
         "../../node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/shared/stdio.js": {
           "bytesInOutput": 638
@@ -5118,7 +5123,7 @@
           "bytesInOutput": 1536
         },
         "../../node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/types.js": {
-          "bytesInOutput": 12539
+          "bytesInOutput": 12534
         },
         "../../node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/validation/ajv-provider.js": {
           "bytesInOutput": 450
@@ -5604,7 +5609,7 @@
           "bytesInOutput": 942
         },
         "src/functional-requirements.ts": {
-          "bytesInOutput": 1457
+          "bytesInOutput": 1930
         },
         "src/generic-official-store-search.ts": {
           "bytesInOutput": 15817
@@ -5625,7 +5630,7 @@
           "bytesInOutput": 814
         },
         "src/product-card-ui.ts": {
-          "bytesInOutput": 67192
+          "bytesInOutput": 68529
         },
         "src/product-comparison-ui.ts": {
           "bytesInOutput": 25268
@@ -5658,16 +5663,16 @@
           "bytesInOutput": 2052
         },
         "src/search-products.ts": {
-          "bytesInOutput": 34431
+          "bytesInOutput": 34702
         },
         "src/search-requirements-context.ts": {
-          "bytesInOutput": 1309
+          "bytesInOutput": 2015
         },
         "src/search-run.ts": {
           "bytesInOutput": 3966
         },
         "src/server.ts": {
-          "bytesInOutput": 141891
+          "bytesInOutput": 145123
         },
         "src/shopify-cart-quote.ts": {
           "bytesInOutput": 10343
@@ -5694,7 +5699,7 @@
           "bytesInOutput": 930
         },
         "src/text-search-recovery.ts": {
-          "bytesInOutput": 1224
+          "bytesInOutput": 1279
         },
         "src/visual-candidate-images.ts": {
           "bytesInOutput": 6366
@@ -5718,7 +5723,7 @@
           "bytesInOutput": 6942
         },
         "src/web-product-recovery.ts": {
-          "bytesInOutput": 3329
+          "bytesInOutput": 4402
         }
       }
     }

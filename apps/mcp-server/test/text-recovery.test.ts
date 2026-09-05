@@ -3,6 +3,8 @@ import { evaluateFeature, isColorRequirement } from "../src/product-constraint-m
 import { SearchProductsInputSchema, searchProducts } from "../src/search-products.js";
 import { connectReplay, product, searchResult } from "./fixtures/conversation-replay-support.js";
 import type { ProductCardContent } from "../src/server.js";
+import { functionalQueryFeatures } from "../src/functional-requirements.js";
+import { webSearchQueries } from "../src/web-product-recovery.js";
 
 const emptyAwin = { search: vi.fn(async () => ({ source: "AWIN_PRODUCT_FEED" as const, coverage: "COMPLETE" as const,
   snapshotAt: "2026-09-05T00:00:00.000Z", diagnostics: { feedRows: 0, validRows: 0, rejectedRows: 0, queryMatches: 0, priceProductsExcluded: 0 }, products: [] })) };
@@ -10,6 +12,30 @@ const shampoo = () => product({ title: "Daily shampoo", productType: "shampoo", 
   handle: "daily-shampoo", merchantUrl: "https://ishowbeauty.com/products/daily-shampoo" });
 
 describe("text recovery", () => {
+  it("keeps combination retrieval short and verifies every inherited requirement", async () => {
+    const search = vi.fn(async () => searchResult([shampoo()]));
+    const requiredFeatures = ["suitable for color-treated hair", "damaged hair repair", "anti-dandruff"];
+    const request = SearchProductsInputSchema.parse({ query: "shampoo", productType: "shampoo", requiredFeatures,
+      primaryUse: "dandruff control on color-treated hair", budgetFlexible: true });
+    const result = await searchProducts(request, { awin: emptyAwin, shopify: { search } });
+    expect(search.mock.calls.map(call => (call as unknown as [{ query: string }])[0].query)).toEqual(["shampoo", "shampoo anti-dandruff"]);
+    expect(result.candidates[0]!.requiredFeatureLimitations).toEqual(requiredFeatures);
+    expect(webSearchQueries(request)).toEqual(["shampoo anti-dandruff", "shampoo anti-dandruff color-safe"]);
+    expect(functionalQueryFeatures(requiredFeatures.slice(0, 2))).toEqual(["color-safe", "repair"]);
+  });
+  it("bounds unknown query prose without deleting verification requirements", () => {
+    expect(functionalQueryFeatures(["cotton", "long sleeves", "for a very specific use that should not become an all-token query"])).toEqual(["cotton", "long sleeves"]);
+    expect(webSearchQueries(SearchProductsInputSchema.parse({ query: "shampoo", requiredFeatures: ["anti-dandruff"] }))).toEqual(["shampoo anti-dandruff"]);
+  });
+  it("offers one recovery when all qualified merchants remain unverified", async () => {
+    const unverified = { ...shampoo(), description: "Anti-dandruff shampoo.", merchantTrust: {
+      level: "UNKNOWN" as const, verification: "UNVERIFIED" as const, evidence: [] }, recommendationTier: "GENERAL_UNVERIFIED" as const };
+    const replay = await connectReplay(async () => searchResult([unverified]), { awin: emptyAwin });
+    try {
+      const result = await replay.client.callTool({ name: "search_products", arguments: { query: "shampoo", productType: "shampoo", requiredFeatures: ["anti-dandruff"] } });
+      expect(result.structuredContent).toMatchObject({ recovery: { action: "REQUEST_WEB_SEARCH", reason: "MERCHANT_UNVERIFIED", qualified: 1, recommendable: 0 } });
+    } finally { await replay.close(); }
+  });
   it("does not classify non-color requirements as color selectors", () => {
     for (const value of ["suitable for oily scalp", "anti-dandruff", "cotton", "long sleeves"]) expect(isColorRequirement(value)).toBe(false);
     for (const value of ["black", "color: black", "black or red"]) expect(isColorRequirement(value)).toBe(true);

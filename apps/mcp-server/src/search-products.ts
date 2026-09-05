@@ -132,6 +132,8 @@ export const SearchProductsInputSchema = z.object({
   parentRenderId: z.string().uuid().optional().describe("Exact prior search snapshot for CONTINUE or CORRECT; never guess the latest search"),
   clearConstraints: z.array(z.enum(["maxItemPriceCents", "requiredSize", "preferredSize", "requiredFeatures", "excludedFeatures", "preferences", "brand", "primaryUse", "allowAlternatives", "conditionPreference"])).max(10).default([])
     .describe("Clear only constraints the user explicitly withdrew; omitted constraints are retained on continuation"),
+  removeRequiredFeatures: z.array(z.string().trim().min(1).max(160)).max(10).default([])
+    .describe("Exact prior requiredFeatures explicitly withdrawn by the user; CONTINUE with parentRenderId only. Never infer withdrawal from a symptom or a negative answer to another question"),
   visualInput: VisualProductInputSchema.optional(),
   // Backward-compatible input for clients installed before v0.9.5.
   features: z.array(z.string().trim().min(1).max(160)).max(10)
@@ -763,7 +765,7 @@ export async function searchProducts(
     shopifyStatus !== "PARTIAL" &&
     officialStoreFallback.status !== "PARTIAL" && officialStoreFallback.status !== "UNAVAILABLE";
   const chromeFallbackEligible =
-    (input.visualInput === undefined ? countDisplayEligibleCandidates(candidates, input.allowAlternatives) === 0 : candidates.length === 0) &&
+    (input.visualInput === undefined ? countRecommendationEligibleCandidates(candidates) === 0 : candidates.length === 0) &&
     !searchRun.diagnostics().budgetExhausted &&
     queriedSourcesComplete &&
     searchPasses === 2;
@@ -1278,7 +1280,7 @@ function buildExpandedQuery(
     ...input.preferences,
     ...(input.featureMode === "PREFERRED" ? input.features : [])
   ]);
-  const parts = [buildSourceQuery(input), ...functionalQueryFeatures(requiredFeatures), ...preferences]
+  const parts = [buildSourceQuery(input), ...functionalQueryFeatures(requiredFeatures.length > 0 ? requiredFeatures : preferences)]
     .map((part) => part.normalize("NFKC").trim())
     .filter((part, index, values) => part !== "" && values.indexOf(part) === index);
   return parts.join(" ").slice(0, 300).trim();

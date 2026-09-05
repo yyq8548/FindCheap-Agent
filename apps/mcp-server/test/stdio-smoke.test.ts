@@ -233,6 +233,7 @@ describe("installed plugin stdio", () => {
         "primaryUse",
         "productType",
         "query",
+        "removeRequiredFeatures",
         "requiredFeatures",
         "requiredSize",
         "responseLocale",

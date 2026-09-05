@@ -97,7 +97,10 @@ describe("FindCheap Agent plugin contract", () => {
     expect(skill).toContain("repeat every card field");
     expect(skill).toContain("Every live shopping request is self-contained");
     expect(skill).toContain("Added budget/use/size/constraints");
-    expect(skill).toContain("Different goal or explicit “no”: `NEW_PRODUCT`");
+    expect(skill).toContain("Different shopping goal: `NEW_PRODUCT`");
+    expect(skill).toContain("Symptoms/question answers aren't withdrawal");
+    expect(skill).toContain("`removeRequiredFeatures`=named prior entries");
+    expect(skill).toContain("`REPORT_UNVERIFIED_MERCHANT`");
     expect(skill).toContain("New image: `NEW_PRODUCT`");
     expect(skill).toContain("selected-product tools forbidden that turn");
     expect(skill).toContain("ceiling, not a spending target");
@@ -204,7 +207,7 @@ describe("FindCheap Agent plugin contract", () => {
     };
 
     expect(manifest.name).toBe("findcheap-agent");
-    expect(manifest.version).toMatch(/^0\.17\.19(?:\+codex\.)?/u);
+    expect(manifest.version).toMatch(/^0\.17\.20(?:\+codex\.)?/u);
     expect(manifest.interface.displayName).toBe("FindCheap Agent");
     expect(manifest.interface.longDescription).toMatch(/Codex Plugin Agent/u);
     expect(manifest.interface.longDescription).toMatch(/[Aa]uthorized.*Chrome/u);

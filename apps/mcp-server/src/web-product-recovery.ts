@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { isIP } from "node:net";
 import { z } from "zod";
+import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
 import { safeFetchWithProvenance } from "../../../packages/network-safety/src/safe-fetch.js";
 import { parseWebProductDocument } from "./generic-official-store-search.js";
 import type { SearchProductsInput } from "./search-products.js";
@@ -47,39 +48,58 @@ export function createWebProductPagePort(fetchPage = safeFetchWithProvenance): W
   } };
 }
 
-type Lease = { token: string; deadline: number; state: "PENDING" | "DENIED" | "READY" | "USED" };
-/** One consent and one admission per immutable snapshot. Never accept a
+export const WebConsentStatusSchema = z.enum(["READY", "PERMISSION_DENIED", "PERMISSION_CANCELLED",
+  "PERMISSION_UNAVAILABLE", "PERMISSION_TIMEOUT", "PERMISSION_ERROR", "APPROVAL_PENDING", "ALREADY_USED", "EXPIRED", "RETRY_LIMIT_REACHED"]);
+type ConsentStatus = z.infer<typeof WebConsentStatusSchema>;
+type ConsentResult = { status: ConsentStatus; retryable: boolean; attempt: number; token?: string; deadline?: number };
+type Lease = { token: string; deadline: number; status: ConsentStatus; attempt: number; retryable: boolean };
+/** One admission per immutable snapshot, at most two consent attempts after
+ * classified transient errors. Never accept a
  * model-supplied boolean as permission; approval comes from the host UI. */
 export class WebRecoverySessions {
   readonly #leases = new Map<string, Lease>();
   constructor(private readonly now: () => number = Date.now) {}
   forget(renderId: string): void { this.#leases.delete(renderId); }
-  async begin(renderId: string, approve: () => Promise<boolean>): Promise<Lease | undefined> {
-    if (this.#leases.has(renderId) || this.#leases.size >= 64) return undefined;
-    const lease: Lease = { token: randomUUID(), deadline: 0, state: "PENDING" };
+  async begin(renderId: string, approve: () => Promise<"ACCEPT" | "DECLINE" | "CANCEL">): Promise<ConsentResult> {
+    const previous = this.#leases.get(renderId);
+    if (previous !== undefined && !previous.retryable) {
+      const status = previous.status === "READY" ? previous.deadline <= this.now() ? "EXPIRED" : "ALREADY_USED" : previous.status;
+      return { status, retryable: false, attempt: previous.attempt };
+    }
+    if ((previous?.attempt ?? 0) >= 2 || (previous === undefined && this.#leases.size >= 64)) {
+      return { status: "RETRY_LIMIT_REACHED", retryable: false, attempt: previous?.attempt ?? 0 };
+    }
+    const lease: Lease = { token: randomUUID(), deadline: 0, status: "APPROVAL_PENDING", attempt: (previous?.attempt ?? 0) + 1, retryable: false };
     this.#leases.set(renderId, lease);
-    let approved = false;
-    try { approved = await approve(); } catch { /* Missing host permission fails closed. */ }
-    if (!approved) { lease.state = "DENIED"; return undefined; }
-    if (this.#leases.get(renderId) !== lease) return undefined;
-    lease.state = "READY";
+    try {
+      const answer = await approve();
+      lease.status = answer === "ACCEPT" ? "READY" : answer === "DECLINE" ? "PERMISSION_DENIED" : "PERMISSION_CANCELLED";
+    } catch (error) {
+      const code = error instanceof McpError ? error.code : undefined;
+      lease.status = code === ErrorCode.RequestTimeout ? "PERMISSION_TIMEOUT"
+        : code === ErrorCode.MethodNotFound ? "PERMISSION_UNAVAILABLE" : "PERMISSION_ERROR";
+      lease.retryable = lease.attempt < 2 && (code === ErrorCode.RequestTimeout || code === ErrorCode.ConnectionClosed || code === ErrorCode.InternalError);
+    }
+    if (this.#leases.get(renderId) !== lease) return { status: "EXPIRED", retryable: false, attempt: lease.attempt };
+    if (lease.status !== "READY") return { status: lease.status, retryable: lease.retryable, attempt: lease.attempt };
     lease.deadline = this.now() + WEB_SEARCH_LIMITS.durationMs;
     return { ...lease };
   }
   consume(renderId: string, token: string): number | undefined {
     const lease = this.#leases.get(renderId);
-    if (lease?.state !== "READY" || lease.token !== token) return undefined;
-    lease.state = "USED";
+    if (lease?.status !== "READY" || lease.token !== token) return undefined;
     const remaining = lease.deadline - this.now();
+    lease.status = remaining > 0 ? "ALREADY_USED" : "EXPIRED";
     return remaining > 0 ? remaining : undefined;
   }
 }
 
 export function webSearchQueries(request: SearchProductsInput): string[] {
-  const identity = [request.brand, request.query].filter(Boolean).join(" ");
+  const identity = [request.brand, request.query, request.productType && !request.query.toLowerCase().includes(request.productType.toLowerCase()) ? request.productType : undefined].filter(Boolean).join(" ");
   const features = functionalQueryFeatures(request.requiredFeatures);
-  return [...new Set([`${identity} ${features.join(" ")}`, `${identity} ${request.requiredFeatures.map(value =>
-    functionalQueryFeatures([value])[0] ?? value).join(" ")}`].map(value => value.replace(/\s+/gu, " ").trim().slice(0, 300)))];
+  const secondary = request.requiredFeatures.flatMap(value => functionalQueryFeatures([value])).find(value => !features.includes(value));
+  return [...new Set([`${identity} ${features.join(" ")}`, `${identity} ${[...features, secondary].filter(Boolean).join(" ")}`]
+    .map(value => value.replace(/\s+/gu, " ").trim().slice(0, 300)))];
 }
 
 export async function readWebCandidates(urls: readonly string[], request: SearchProductsInput, port: WebProductPagePort,

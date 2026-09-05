@@ -13,7 +13,7 @@ import { assessVisualVerdict, hasAdmissibleVisualConflict } from "./visual-revie
 import { researchRecommendationMessage } from "./recommendation-message.js";
 import { searchDiagnostics, type SearchOutcome } from "./search-diagnostics.js";
 import { textSearchRecovery, TextSearchRecoverySchema } from "./text-search-recovery.js";
-import { WebRecoverySessions, WebProductUrlSchema, WEB_SEARCH_LIMITS, webSearchQueries, readWebCandidates, type WebProductPagePort } from "./web-product-recovery.js";
+import { WebRecoverySessions, WebConsentStatusSchema, WebProductUrlSchema, WEB_SEARCH_LIMITS, webSearchQueries, readWebCandidates, type WebProductPagePort } from "./web-product-recovery.js";
 import { evaluateRecoveredProducts } from "./search-products.js";
 import { createExecutedToolRegistrar } from "./execution/tool-registry.js";
 import {
@@ -2585,6 +2585,7 @@ export function createShoppingServer(
     },
     async (rawInput) => {
       let parsedInput = SearchProductsInputSchema.parse(rawInput);
+      if (parsedInput.removeRequiredFeatures.length > 0 && parsedInput.contextMode !== "CONTINUE_PREVIOUS_PRODUCT") return toolError("INVALID_ARGUMENTS");
       if (["CONTINUE_PREVIOUS_PRODUCT", "CORRECT_PREVIOUS_PRODUCT"].includes(parsedInput.contextMode)) {
         const parent = parsedInput.parentRenderId === undefined ? undefined : renderSnapshots.get(parsedInput.parentRenderId);
         if (parent?.request === undefined || parent.expiresAt <= now().getTime()) return toolError("MISSING_REFERENCE_CONTEXT");
@@ -2595,8 +2596,15 @@ export function createShoppingServer(
         ? parsedInput
         : { ...parsedInput, visualInput: enforceVisualEvidenceAuthority(parsedInput.visualInput) };
       if (input.contextMode === "AMBIGUOUS") {
+        const previous = input.parentRenderId === undefined ? undefined : renderSnapshots.get(input.parentRenderId);
+        const requirements = previous !== undefined && previous.expiresAt > now().getTime()
+          ? previous.request?.requiredFeatures.join(", ") : undefined;
         return shopifyClarificationResult(input.selectionMode, input, {
-          question: "Is this a new product, or a follow-up about the previous product?",
+          question: input.parentRenderId === undefined ? input.responseLocale === "zh-CN"
+            ? "这是新商品，还是继续讨论之前的商品？" : "Is this a new product, or a follow-up about the previous product?"
+            : input.responseLocale === "zh-CN"
+            ? `是继续保留之前的要求，还是替换购买用途？请说明哪些要求不再需要。${requirements ? `之前的必要要求：${requirements}。` : ""}`
+            : `Keep the previous requirements, or replace the shopping use? Which requirements are no longer needed?${requirements ? ` Previous required features: ${requirements}.` : ""}`,
           evidence: "product context is ambiguous",
           source: "UNIFIED_PRODUCT_SEARCH"
         });
@@ -2659,21 +2667,41 @@ export function createShoppingServer(
       title: "Authorize bounded web recovery",
       description: "Only after search_products returns recovery.action=REQUEST_WEB_SEARCH. Pass that immutable renderId. The host asks the user for permission; no model boolean can grant it. Do not open Chrome until READY. Follow returned queries and limits; never reset the budget with another search_products call. Images keep the visual workflow.",
       inputSchema: z.object({ renderId: z.string().uuid() }).strict(),
-      outputSchema: z.object({ status: z.enum(["READY", "NOT_AUTHORIZED", "PERMISSION_UNAVAILABLE"]), message: z.string(),
+      outputSchema: z.object({ status: WebConsentStatusSchema, message: z.string(), retryable: z.boolean(), attempt: z.number().int().min(0).max(2),
         webSessionId: z.string().uuid().optional(), expiresAt: z.string().datetime().optional(), queries: z.array(z.string()).max(2).optional(),
         limits: z.object({ durationMs: z.literal(60000), merchantPages: z.literal(5), results: z.literal(3), discoveryQueries: z.literal(2) }).optional() }).strict(),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }
-    }, async ({ renderId }) => {
+    }, async ({ renderId }, extra) => {
       const parent = renderSnapshots.get(renderId);
       if (parent?.request === undefined || parent.expiresAt <= now().getTime()) return toolError("MISSING_REFERENCE_CONTEXT");
       if (parent.request.visualInput !== undefined || parent.content.recovery?.action !== "REQUEST_WEB_SEARCH") return toolError("TOOL_REQUEST_REJECTED");
       const zh = parent.content.locale === "zh-CN";
-      const reply = (status: "NOT_AUTHORIZED" | "PERMISSION_UNAVAILABLE", message: string) => ({
-        content: [{ type: "text" as const, text: message }], structuredContent: { status, message } });
+      const startedAt = Date.now();
       const elicitation = server.server.getClientCapabilities()?.elicitation;
-      if (elicitation === undefined || (Object.keys(elicitation).length > 0 && elicitation.form === undefined)) {
-        return reply("PERMISSION_UNAVAILABLE", zh ? "当前宿主未提供用户授权接口，未启动全网补搜。现有结果不代表商品不存在。"
-          : "Host user-consent interface unavailable. Web recovery was not started; existing results do not prove absence.");
+      const formSupported = elicitation !== undefined && (Object.keys(elicitation).length === 0 || elicitation.form !== undefined);
+      const logConsent = (status: z.infer<typeof WebConsentStatusSchema>, retryable: boolean, attempt: number) =>
+        process.stderr.write(`[findcheap-web-consent] ${JSON.stringify({ renderId, status, retryable, attempt, formSupported, durationMs: Date.now() - startedAt })}\n`);
+      const reply = (status: z.infer<typeof WebConsentStatusSchema>, retryable = false, attempt = 0) => {
+        const messages: Record<z.infer<typeof WebConsentStatusSchema>, [string, string]> = {
+          READY: ["Authorized.", "已获授权。"],
+          PERMISSION_DENIED: ["The host did not grant permission. No recovery started; do not request again for these results.", "宿主未授予本次授权。未启动补搜；不再为这批结果重复申请。"],
+          PERMISSION_CANCELLED: ["The authorization request was cancelled. No recovery started.", "授权请求已取消，未启动补搜。"],
+          PERMISSION_UNAVAILABLE: ["Host consent is unavailable. No recovery started; this does not prove product absence.", "当前宿主不支持本次授权请求，未启动补搜；这不代表商品不存在。"],
+          PERMISSION_TIMEOUT: ["The authorization request timed out. No recovery started.", "授权请求超时，未启动补搜。"],
+          PERMISSION_ERROR: ["The authorization interface failed. This is not evidence of user refusal; no recovery started.", "授权接口异常，不能据此判断用户拒绝；未启动补搜。"],
+          APPROVAL_PENDING: ["An authorization request is already pending. Do not create another.", "已有授权请求正在等待处理，请勿重复申请。"],
+          ALREADY_USED: ["This recovery was already authorized or used. Do not create another session.", "本次补搜已授权或已使用，不得创建新的补搜会话。"],
+          EXPIRED: ["This recovery has expired. Do not renew its budget.", "本次补搜已过期，不得重置预算。"],
+          RETRY_LIMIT_REACHED: ["The authorization attempt limit was reached. No recovery started.", "授权申请已达次数上限，未启动补搜。"]
+        };
+        const message = messages[status][zh ? 1 : 0] + (retryable
+          ? zh ? " 可在同一结果上重试授权一次；在 READY 前不得打开浏览器。" : " One consent retry is available on the same results; do not open a browser before READY."
+          : "");
+        logConsent(status, retryable, attempt);
+        return { content: [{ type: "text" as const, text: message }], structuredContent: { status, message, retryable, attempt } };
+      };
+      if (!formSupported) {
+        return reply("PERMISSION_UNAVAILABLE");
       }
       const queries = webSearchQueries(parent.request);
       const lease = await webSessions.begin(renderId, async () => {
@@ -2681,18 +2709,25 @@ export function createShoppingServer(
           message: zh ? `现有来源未找到已核实符合要求的商品。允许一次 Chrome 全网补搜吗？授权后最多 60 秒、2 次检索、5 个商家商品页；只读、不购买。检索：${queries.join(" / ")}`
             : `Allow one Chrome web recovery? Up to 60 seconds after approval, 2 discovery queries and 5 merchant product pages. Read-only; no purchases. Queries: ${queries.join(" / ")}`,
           requestedSchema: { type: "object", properties: { approved: { type: "boolean", title: zh ? "允许本次补搜" : "Allow this recovery", default: false } }, required: ["approved"] }
-        }, { timeout: 25_000 });
-        return answer.action === "accept" && answer.content?.approved === true;
+        }, { timeout: 25_000, relatedRequestId: extra.requestId, signal: extra.signal }).catch((error: unknown) => {
+          if (extra.signal.aborted) return { action: "cancel" as const };
+          throw error;
+        });
+        if (extra.signal.aborted || answer.action === "cancel") return "CANCEL";
+        if (answer.action === "decline") return "DECLINE";
+        const content = z.object({ approved: z.boolean() }).strict().parse(answer.content);
+        return content.approved ? "ACCEPT" : "DECLINE";
       });
-      if (lease === undefined) return reply("NOT_AUTHORIZED", zh ? "未获授权，或本次补搜已使用。没有启动新的检索。"
-        : "Not authorized, or this recovery was already used. No new search was started.");
+      if (lease.status !== "READY") return reply(lease.status, lease.retryable, lease.attempt);
       if (renderSnapshots.get(renderId) !== parent || parent.expiresAt <= now().getTime()) {
         webSessions.forget(renderId); return toolError("MISSING_REFERENCE_CONTEXT");
       }
       const message = zh ? "已获授权。用 Chrome 搜索所给查询；提交最多 5 个不同商家的直接商品链接给 complete_web_search。不得把摘要当作价格或功效证据；到期即停。"
         : "Authorized. Discover with Chrome using the supplied queries; submit up to 5 direct product URLs from distinct merchants to complete_web_search. Snippets are not price or efficacy evidence. Stop at expiry.";
+      logConsent("READY", false, lease.attempt);
       return { content: [{ type: "text" as const, text: message }], structuredContent: { status: "READY" as const, message,
-        webSessionId: lease.token, expiresAt: new Date(lease.deadline).toISOString(), queries, limits: WEB_SEARCH_LIMITS } };
+        retryable: false, attempt: lease.attempt,
+        webSessionId: lease.token!, expiresAt: new Date(lease.deadline!).toISOString(), queries, limits: WEB_SEARCH_LIMITS } };
     });
     toolRegistrar.registerTool("complete_web_search", {
       title: "Verify recovered products",
