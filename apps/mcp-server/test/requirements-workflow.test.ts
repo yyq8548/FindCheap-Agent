@@ -14,6 +14,19 @@ const emptyAwin = { search: vi.fn(async () => ({ source: "AWIN_PRODUCT_FEED" as 
   snapshotAt: "2026-09-05T00:00:00.000Z", diagnostics: { feedRows: 0, validRows: 0, rejectedRows: 0, queryMatches: 0, priceProductsExcluded: 0 }, products: [] })) };
 
 describe("requirements-to-comparison regression", () => {
+  it("does not recommend a source's other photographed color as the selected black variant", async () => {
+    const replay = await connectReplay(async () => searchResult([product({ title: "Synthetic wig", description: "Color shown: black",
+      variantDimensions: { Color: "613" } })]));
+    try {
+      const result = await replay.client.callTool({ name: "search_products", arguments: {
+        query: "black wig", productType: "wig", requiredFeatures: ["black color"]
+      } });
+      expect(result.isError).not.toBe(true);
+      const snapshot = result.structuredContent as ProductCardContent;
+      expect(snapshot.recommendation?.state).not.toBe("READY");
+      expect(snapshot.products.every(item => item.requirementAssessment?.status !== "SATISFIED")).toBe(true);
+    } finally { await replay.close(); }
+  });
   it("removes only the explicitly withdrawn hard feature and preserves the others", () => {
     const old = SearchProductsInputSchema.parse({ query: "shampoo", productType: "shampoo", maxItemPriceCents: 5000,
       requiredFeatures: ["suitable for color-treated hair", "damaged hair repair", "anti-dandruff"], requiredSize: "500 ml" });

@@ -175,8 +175,12 @@ export function classifyShopifyCandidate(
     ...tokenize(variantValues.join(" ")),
     ...variantValues.map(compact).filter((value) => value !== "")
   ]);
-  const variantTermMatches = (term: string): boolean => variantTokens.has(term) ||
-    (VARIANT_COLORS.has(term) && candidateTokens.has(term));
+  // A displayed/model color in shared copy is not this offer's selected color.
+  const selectedColors = Object.entries(candidate.variantDimensions ?? {})
+    .filter(([name]) => /^(?:product )?colou?r$/iu.test(name)).map(([, value]) => value);
+  const colorTokens = new Set(tokenize(selectedColors.length > 0 ? selectedColors.join(" ") : candidate.title));
+  const variantTermMatches = (term: string): boolean => VARIANT_COLORS.has(term)
+    ? colorTokens.has(term) : variantTokens.has(term);
   const variantsExact = [...requestedVariantTerms].every(variantTermMatches);
   const primaryIdentityTokens = new Set(tokenize([
     candidate.title,

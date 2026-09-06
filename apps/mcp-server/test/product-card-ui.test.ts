@@ -81,6 +81,20 @@ function couponFixture(coupons: Record<string, unknown>) {
 }
 
 describe("product-card MCP Apps UI", () => {
+  it.each([2, 3, 4])("renders exactly nine inline comparison rows for %i products", count => {
+    const app = renderFixture({ status: "OK", locale: "zh-CN", entries: Array.from({ length: count }, (_, i) => ({
+      selectionId: String(i), title: `Product ${i}`, condition: "NEW", availability: "OUT_OF_STOCK",
+      variantDimensions: { Color: "Red" }, requirementAssessment: { entries: [{ requirement: "black", status: "CONTRADICTED" }] },
+      limitations: ["Only selected size verified"], comparedPrice: { amountCents: 12345, currency: "USD" }
+    })) });
+    const rows = nodes(app).filter(node => node.tagName === "TR");
+    expect(rows.map(row => text(row.children[0]!))).toEqual(["商品", "规格", "对比价格", "商品价", "质量依据", "到手价", "优惠", "商品状态", "商家信任"]);
+    expect(rows.every(row => row.children.length === count + 1)).toBe(true);
+    expect(text(app)).toContain("全新 · 缺货");
+    expect(text(app)).toContain("证据冲突");
+    expect(text(app)).toContain("Only selected size verified");
+    expect(text(app)).toContain("123.45");
+  });
   it.each(["zh-CN", "en-US"])("renders unchecked capability without unsupported claims or inline comparison quote controls (%s)", locale => {
     const fixture = couponFixture({ verified: [] });
     Object.assign(fixture.products[0]!, { quoteCapability: "NOT_CHECKED" });
@@ -342,7 +356,7 @@ describe("product-card MCP Apps UI", () => {
   });
 
   it("uses an embedded Codex-native surface with responsive cards", () => {
-    expect(PRODUCT_CARD_UI_URI).toBe("ui://findcheap/product-cards/v34.html");
+    expect(PRODUCT_CARD_UI_URI).toBe("ui://findcheap/product-cards/v35.html");
     expect(PRODUCT_CARD_HTML).toContain("--fc-surface:");
     expect(PRODUCT_CARD_HTML).toContain("background: var(--fc-action);");
     expect(PRODUCT_CARD_HTML).toContain("@media (max-width: 640px)");
@@ -450,7 +464,7 @@ describe("product-card MCP Apps UI", () => {
       params: expect.objectContaining({
         name: "report_product_card_metrics",
         arguments: expect.objectContaining({
-          version: "0.17.26",
+          version: "0.17.27",
           terminalStage: "DOM_RENDERED",
           stages: expect.objectContaining({ DOM_RENDERED: expect.any(Number) })
         })
@@ -1069,7 +1083,7 @@ describe("product-card MCP Apps UI", () => {
       method: "ui/initialize",
       params: {
         protocolVersion: "2026-01-26",
-        appInfo: { name: "FindCheap Agent product cards", version: "0.17.26" },
+        appInfo: { name: "FindCheap Agent product cards", version: "0.17.27" },
         appCapabilities: { availableDisplayModes: ["inline"] }
       }
     });

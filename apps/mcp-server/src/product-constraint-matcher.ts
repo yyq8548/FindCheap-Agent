@@ -316,7 +316,7 @@ function resolution(value: string): string | undefined {
 
 /** Only a standalone color requirement, not a phrase such as "red leather shoes". */
 export function isColorRequirement(value: string): boolean {
-  const normalized = normalize(value).replace(/^(?:colou?r\s*[:=]?\s*)/u, "").trim();
+  const normalized = normalize(value).replace(/^(?:colou?r\s*[:=]?\s*)/u, "").replace(/\s+colou?r$/u, "").trim();
   const alternatives = disjunctiveAlternatives(normalized);
   return (alternatives.length > 0 ? alternatives : [normalized]).every(part =>
     [...COMPOUND_COLORS, ...SIMPLE_COLORS].some(color => part === color));

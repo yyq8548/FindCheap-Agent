@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { productReferenceKey } from "./product-reference.js";
 import { RequirementAssessmentSchema, ambiguousShoeSize, evaluateProductRequirements, normalizedSizeRequirement } from "./product-requirements.js";
@@ -476,6 +477,7 @@ const DealConciergeOptionsShape = {
   objective: z.enum(["CURRENT_DEALS", "CHEAPEST_PATH"]).default("CURRENT_DEALS")
 };
 const DealConciergeInputSchema = z.object({
+  responseLocale: z.enum(["en-US", "zh-CN"]).optional(),
   renderId: RenderIdSchema,
   selectionId: SelectionIdSchema.optional(),
   position: ProductPositionSchema.optional(),
@@ -483,6 +485,8 @@ const DealConciergeInputSchema = z.object({
 }).strict().superRefine(validateSingleProductSelector);
 
 const DealConciergeOutputShape = {
+  locale: z.enum(["en-US", "zh-CN"]).optional(),
+  renderId: RenderIdSchema.optional(),
   status: z.enum(["OK", "SELECTION_UNAVAILABLE"]),
   message: z.string(),
   selectionId: SelectionIdSchema.optional(),
@@ -770,7 +774,12 @@ const ShopifyProductOutputSchema = z.object({
   }).strict().optional()
 });
 
+const QuoteOperationSchema = z.object({
+  renderId: z.string().uuid(), selectionId: SelectionIdSchema,
+  selectionSource: z.enum(["UI", "EXPLICIT"]), selectionRevision: z.number().int().positive().optional()
+}).strict();
 const ShopifyProductsOutputShape = {
+  quoteOperation: QuoteOperationSchema.optional(),
   recovery: TextSearchRecoverySchema.optional(),
   sourceFailures: z.array(z.object({
     source: z.enum(["AWIN", "SHOPIFY", "EBAY", "OFFICIAL"]),
@@ -2255,11 +2264,18 @@ export function createShoppingServer(
       .map(snapshot => snapshot.content.goalRevision ?? 0)) + 1;
     let primarySelectionId: string | undefined;
     const products = content.products.map((product, index) => {
+      // Every snapshot entry point uses the same static target checks as execution.
+      const quoteCapability = cartQuotes === undefined ? "MERCHANT_CHECKOUT_ONLY" as const
+        : ["DELIVERED_TOTAL_SUPPORTED", "ZIP_ESTIMATE_ONLY"].includes(product.quoteCapability) &&
+          verifiedQuoteTarget({ sourceResult, resolvedAwinProducts }, product) === undefined
+          ? "NOT_CHECKED" as const : product.quoteCapability;
       const selectionId = randomUUID();
       if (primaryProductIndex !== undefined && index === primaryProductIndex) primarySelectionId = selectionId;
       selections.set(selectionId, { renderId, variantId: product.handle, productKey: productReferenceKey(product) });
       return {
         ...product,
+        quoteCapability,
+        card: { ...product.card, quoteCapability },
         selectionId,
         quoteReference: { selectionId, renderId, variantId: product.handle }
       };
@@ -2406,10 +2422,9 @@ export function createShoppingServer(
       : "The request was cancelled or its original selection changed; the late quote was not saved. An already authorized temporary anonymous Cart may have been created, but no order or payment. Do not automatically retry.") }]
   });
   type QuoteSnapshot = typeof renderSnapshots extends Map<string, infer T> ? T : never;
-  const selectedQuoteTarget = (snapshot: QuoteSnapshot, card: ProductCardContent["products"][number]) => {
+  const verifiedQuoteTarget = (snapshot: Pick<QuoteSnapshot, "sourceResult" | "resolvedAwinProducts">, card: ProductCardProduct) => {
     if (!isTrustedMerchant({ level: card.merchantTrust.level, verification: card.merchantTrust.verification,
-      evidence: card.merchantTrust.evidence }) ||
-      !["DELIVERED_TOTAL_SUPPORTED", "ZIP_ESTIMATE_ONLY"].includes(card.quoteCapability)) return undefined;
+      evidence: card.merchantTrust.evidence })) return undefined;
     const key = productReferenceKey(card);
     const target = card.sourceKind === "AWIN_PRODUCT_FEED"
       ? snapshot.resolvedAwinProducts.get(key)
@@ -2427,6 +2442,9 @@ export function createShoppingServer(
       return target;
     } catch { return undefined; }
   };
+  const selectedQuoteTarget = (snapshot: QuoteSnapshot, card: ProductCardProduct) =>
+    ["DELIVERED_TOTAL_SUPPORTED", "ZIP_ESTIMATE_ONLY"].includes(card.quoteCapability)
+      ? verifiedQuoteTarget(snapshot, card) : undefined;
   const authorizeQuote = async (
     targets: ShopifyProduct[], zipCode: string, locale: string,
     extra: { signal: AbortSignal; requestId: string | number }, revalidate: () => boolean
@@ -3911,28 +3929,42 @@ export function createShoppingServer(
           "Selected product does not belong to that search result. No quote was requested.",
           "所选商品不属于原搜索快照；未请求报价。");
       }
-      if (selectedCard.quoteCapability === "NOT_CHECKED") return quoteAuthorizationFailure("QUOTE_CAPABILITY_NOT_CHECKED", parsed.responseLocale ?? snapshot.content.locale ?? "en-US");
+      // Capture only the resolved server-owned target, before consent can change UI state.
+      const uiSelection = parsed.selectionId === undefined && parsed.position === undefined && parsed.variantId === undefined;
+      const operation = QuoteOperationSchema.parse({ renderId, selectionId: selectedCard.selectionId,
+        selectionSource: uiSelection ? "UI" : "EXPLICIT",
+        ...(uiSelection ? { selectionRevision: cardSelections.get(renderId)?.revision } : {}) });
+      const withTarget = (result: CallToolResult) => ({
+        ...result,
+        _meta: { ...result._meta, "findcheap/quoteOperation": operation },
+        ...(result.structuredContent === undefined ? {} : {
+          structuredContent: { ...result.structuredContent, quoteOperation: operation }
+        }),
+        // Error results do not get the ordinary snapshot context projection.
+        content: [...result.content, { type: "text" as const, text: JSON.stringify({ quoteOperation: operation }) }]
+      });
+      if (selectedCard.quoteCapability === "NOT_CHECKED") return withTarget(quoteAuthorizationFailure("QUOTE_CAPABILITY_NOT_CHECKED", locale));
       if (selectedCard.quoteCapability === "MERCHANT_CHECKOUT_ONLY") {
-        return recoverableQuoteResult(
+        return withTarget(recoverableQuoteResult(
           snapshot,
           locale === "zh-CN"
             ? "[MERCHANT_CHECKOUT_ONLY] 不支持报价：该商品无法提供按 ZIP 预估的到手价。请在商家结账页确认，或选择其他现有卡片；无需重新搜索。"
             : "[MERCHANT_CHECKOUT_ONLY] Quote unsupported: this product cannot provide a ZIP delivered-total estimate. Continue at merchant checkout or choose another existing card; no new search is required.",
           locale
-        );
+        ));
       }
       if (cartQuotes === undefined) {
-        return recoverableQuoteResult(
+        return withTarget(recoverableQuoteResult(
           snapshot,
           quoteFailureMessage("MERCHANT_CART_UNAVAILABLE", locale),
           locale
-        );
+        ));
       }
       let quoteContextIsCurrent = () => true;
       try {
         const selected = selectedQuoteTarget(snapshot, selectedCard);
         if (selected === undefined) {
-          return quoteAuthorizationFailure("QUOTE_TARGET_UNVERIFIED", locale);
+          return withTarget(quoteAuthorizationFailure("QUOTE_TARGET_UNVERIFIED", locale));
         }
         const originalSelection = cardSelections.get(renderId);
         const revalidate = () => renderSnapshots.get(renderId) === snapshot && snapshot.expiresAt > now().getTime() &&
@@ -3940,9 +3972,9 @@ export function createShoppingServer(
           selectedQuoteTarget(snapshot, selectedCard) === selected;
         quoteContextIsCurrent = revalidate;
         const authorization = await authorizeQuote([selected], zipCode, locale, extra, revalidate);
-        if ("error" in authorization) return authorization.error;
+        if ("error" in authorization) return withTarget(authorization.error);
         const cartQuote = await cartQuotes.quote(selected, zipCode, authorization.permit);
-        if (extra.signal.aborted || !revalidate()) return discardedQuoteResult(locale);
+        if (extra.signal.aborted || !revalidate()) return withTarget(discardedQuoteResult(locale));
         const quotedProduct = withCartQuote(selectedCard, cartQuote);
         const { renderId: _previousRenderId, ...previousContent } = snapshot.content;
         const message = locale === "zh-CN"
@@ -3970,16 +4002,16 @@ export function createShoppingServer(
           products: [quotedProduct]
         }, snapshot.sourceResult, snapshot.resolvedAwinProducts, undefined,
         snapshot.request === undefined ? undefined : { ...snapshot.request, parentRenderId: renderId });
-        return {
+        return withTarget({
           content: [{ type: "text" as const, text: message }],
           structuredContent: content
-        };
+        });
       } catch (error) {
         const failure = error instanceof ShopifyCartQuoteError
           ? error
           : new ShopifyCartQuoteError("MERCHANT_CART_UNAVAILABLE", { cause: error });
-        if (extra.signal.aborted || !quoteContextIsCurrent()) return discardedQuoteResult(locale);
-        return recoverableQuoteResult(snapshot, quoteFailureMessage(failure.code, locale), locale);
+        if (extra.signal.aborted || !quoteContextIsCurrent()) return withTarget(discardedQuoteResult(locale));
+        return withTarget(recoverableQuoteResult(snapshot, quoteFailureMessage(failure.code, locale), locale));
       }
     }
   );
@@ -4136,7 +4168,7 @@ export function createShoppingServer(
     "research_selected_product_deal",
     {
       title: "Check current price and deals",
-      description: "Check one exact prior product for current verified merchant deals, current price, optional delivered-price evidence, and inventory. Schema requires the prior renderId plus selectionId or one-based position for a user reference such as 'the first product'. On MISSING_REFERENCE_CONTEXT, retry once with the prior search renderId; do not describe the reference as expired. Never call this when the current turn includes a newly attached image; that image starts NEW_PRODUCT through search_visual_candidates. Never search or guess by title. Return current evidence only; do not make historical or buy-or-wait claims. Monitoring is created only after an explicit Watch request.",
+      description: "Check one exact prior product for current verified merchant deals, current item price, and inventory; this does not request a Cart quote. Use responseLocale for the current message language. Schema requires the prior renderId plus selectionId or one-based position for a user reference such as 'the first product'. On MISSING_REFERENCE_CONTEXT, retry once with the prior search renderId; do not describe the reference as expired. Never call this when the current turn includes a newly attached image; that image starts NEW_PRODUCT through search_visual_candidates. Never search or guess by title. Return current evidence only; do not make historical or buy-or-wait claims. Monitoring is created only after an explicit Watch request.",
       inputSchema: DealConciergeInputSchema,
       outputSchema: DealConciergeOutputShape,
       annotations: {
@@ -4148,16 +4180,19 @@ export function createShoppingServer(
     },
     async (input) => {
       const parsed = DealConciergeInputSchema.parse(input);
+      const locale = parsed.responseLocale ?? renderSnapshots.get(parsed.renderId)?.content.locale ?? "en-US";
+      const text = (english: string, chinese: string) => locale === "zh-CN" ? chinese : english;
       const reference = resolveSelectionReference(parsed);
       if (reference === undefined) {
-        const message = "Selected product does not belong to the referenced immutable search snapshot.";
+        const message = text("Selected product does not belong to the referenced immutable search snapshot.", "所选商品不属于引用的原搜索快照。");
         return {
           content: [{ type: "text" as const, text: message }],
           structuredContent: {
             status: "SELECTION_UNAVAILABLE" as const,
+            locale,
             message,
             quoteStatus: "NOT_REQUESTED" as const,
-            limitations: ["No product title fallback search was performed."],
+            limitations: [text("No product title fallback search was performed.", "未按商品标题猜测或重新搜索。")],
             deals: []
           }
         };
@@ -4165,28 +4200,30 @@ export function createShoppingServer(
       const snapshot = renderSnapshots.get(reference.renderId);
       if (snapshot === undefined || snapshot.expiresAt <= now().getTime()) {
         deleteSnapshot(reference.renderId);
-        const message = "Selected product snapshot expired or is no longer available. Run one new product search, then select a card.";
+        const message = text("Selected product snapshot expired or is no longer available. Run one new product search, then select a card.", "所选商品快照已过期或不可用；请重新搜索后选择商品卡。");
         return {
           content: [{ type: "text" as const, text: message }],
           structuredContent: {
             status: "SELECTION_UNAVAILABLE" as const,
+            locale,
             message,
             quoteStatus: "NOT_REQUESTED" as const,
-            limitations: ["No product title fallback search was performed."],
+            limitations: [text("No product title fallback search was performed.", "未按商品标题猜测或重新搜索。")],
             deals: []
           }
         };
       }
       const selectedCard = snapshot.content.products.find((product) => productReferenceKey(product) === reference.productKey);
       if (selectedCard === undefined) {
-        const message = "Selected product does not belong to the immutable prior result.";
+        const message = text("Selected product does not belong to the immutable prior result.", "所选商品不属于原搜索快照。");
         return {
           content: [{ type: "text" as const, text: message }],
           structuredContent: {
             status: "SELECTION_UNAVAILABLE" as const,
+            locale,
             message,
             quoteStatus: "NOT_REQUESTED" as const,
-            limitations: ["No product title fallback search was performed."],
+            limitations: [text("No product title fallback search was performed.", "未按商品标题猜测或重新搜索。")],
             deals: []
           }
         };
@@ -4196,6 +4233,7 @@ export function createShoppingServer(
         ? snapshot.resolvedAwinProducts.get(reference.productKey)
         : snapshot.sourceResult.products.find((product) => productReferenceKey(product) === reference.productKey);
       const research = await researchSelectedProductDeal({
+        responseLocale: locale,
         selected: {
           merchantProductId: selectedCard.handle,
           merchant: selectedCard.merchant,
@@ -4213,30 +4251,34 @@ export function createShoppingServer(
         now: now()
       });
       const priceEvidence = research.currentPrice === undefined
-        ? "Current price: unavailable."
-        : `Current ${research.currentPrice.basis === "DELIVERED_TOTAL" ? "estimated delivered total" : "item price"}: USD ${(research.currentPrice.amount.amountCents / 100).toFixed(2)}; checked at ${research.currentPrice.checkedAt}.`;
+        ? text("Current price: unavailable.", "当前价格不可用。")
+        : text(`Current ${research.currentPrice.basis === "DELIVERED_TOTAL" ? "estimated delivered total" : "item price"}: USD ${(research.currentPrice.amount.amountCents / 100).toFixed(2)}; checked at ${research.currentPrice.checkedAt}.`,
+          `当前${research.currentPrice.basis === "DELIVERED_TOTAL" ? "预估到手价" : "商品价"}：USD ${(research.currentPrice.amount.amountCents / 100).toFixed(2)}；核验时间：${research.currentPrice.checkedAt}。`);
       const dealEvidence = research.dealLookupStatus !== "COMPLETE" && research.deals.length === 0
-        ? "Deal source unavailable or incomplete; coupon availability cannot be determined."
-        : research.deals.length === 0 ? "Verified deals: none found in the completed lookup."
-        : `Verified deals: ${research.deals.map((deal) => [
+        ? text("Deal source unavailable or incomplete; coupon availability cannot be determined.", "优惠来源不可用或查询尚不完整；不能判断是否有优惠。")
+        : research.deals.length === 0 ? text("Verified deals: none found in the completed lookup.", "本次已完成查询，未找到已验证的优惠。")
+        : text("Verified deals: ", "已验证的商家优惠：") + research.deals.map((deal) => [
             deal.title,
-            deal.code === undefined ? undefined : `code ${deal.code}`,
-            `eligibility: ${deal.eligibility.join(", ") || "merchant confirmation required"}`,
-            `valid through ${deal.validTo}`,
-            `checked at ${deal.checkedAt}`,
-            `source ${deal.sourceUrl}`
-          ].filter((part): part is string => part !== undefined).join("; ")).join(" | ")}.`;
+            deal.code === undefined ? undefined : text("code ", "优惠码：") + deal.code,
+            text("eligibility: ", "适用条件：") + (deal.eligibility.join(", ") || text("merchant confirmation required", "需商家确认")),
+            text("valid through ", "有效期至：") + deal.validTo,
+            text("checked at ", "核验时间：") + deal.checkedAt,
+            text("source ", "来源：") + deal.sourceUrl
+          ].filter((part): part is string => part !== undefined).join("; ")).join(" | ");
       const message = [
-        `Selected product: ${selectedCard.title}; merchant: ${selectedCard.merchant}; availability: ${selectedCard.availability}.`,
+        text(`Selected product: ${selectedCard.title}; merchant: ${selectedCard.merchant}; availability: ${selectedCard.availability}.`,
+          `所选商品：${selectedCard.title}；商家：${selectedCard.merchant}；库存：${({ IN_STOCK: "有货", OUT_OF_STOCK: "缺货", UNKNOWN: "未知" })[selectedCard.availability]}。`),
         priceEvidence,
         dealEvidence,
-        ...research.limitations.map((limitation) => `Limit: ${limitation}`)
+        ...research.limitations.map((limitation) => text("Limit: ", "限制：") + limitation)
       ].join(" ");
       return {
         content: [{ type: "text" as const, text: message }],
         _meta: { "findcheap/referenceTrace": { traceId: snapshot.content.traceId, renderId: reference.renderId, operation: "DEAL_RESEARCH" } },
         structuredContent: {
           status: "OK" as const,
+          locale,
+          renderId: reference.renderId,
           message,
           selectionId: selectedCard.selectionId,
           selectedProduct: {

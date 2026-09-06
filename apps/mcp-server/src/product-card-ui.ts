@@ -1,7 +1,7 @@
 import { FINDCHEAP_VERSION } from "../../../config/version.js";
 import { MAX_PRODUCT_CARDS } from "./product-candidate-ranking.js";
 
-export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v34.html";
+export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v35.html";
 
 export const PRODUCT_CARD_RESOURCE_DOMAINS = [
   "https://cdn.shopify.com",
@@ -729,6 +729,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       output.entries.forEach((entry) => {
         const cell = make("th");
         const head = make("div", "comparison-head" + (output.recommendation?.recommendedSelectionId === entry.selectionId ? " recommended" : ""));
+        if (output.recommendation?.state === "RESEARCH_ONLY") head.append(make("span", "details", text("Research only", "仅供研究")));
         if (output.recommendation?.recommendedSelectionId === entry.selectionId) head.append(make("span", "rank-label",
           output.recommendation.scope === "SIMILAR" ? text("First among similar choices", "相似款中值得先看") : text("Recommended", "推荐")));
         head.append(make("div", "merchant", entry.sellerName ? entry.merchant + " · " + entry.sellerName : entry.merchant));
@@ -746,40 +747,42 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
           : entry.deliveredTotalStatus === "NOT_CHECKED" ? text("Quote capability not verified", "报价能力尚未核验")
           : text("Not quoted: provide ZIP", "未报价：请提供 ZIP"));
       const rows = [
-        ...(output.entries.some(entry => entry.visualMatchEvidence?.length || entry.visualReviewRequired) ? [
-          [text("Visual evidence and differences", "视觉依据与差异"), (entry) => comparisonList(entry.visualReviewRequired
-            ? [text("Visual matching for the selected variant needs review", "所选变体的图片匹配尚未复核")]
-            : entry.visualMatchEvidence)]
-        ] : []),
-        [text("Variant", "规格"), (entry) => comparisonList(Object.entries(entry.variantDimensions || {}).map(([key, value]) => key + ": " + value))],
-        [text("Requirements check", "要求核验"), (entry) => comparisonList(entry.requirementAssessment?.entries?.map(item => requirementLabel(item.requirement) + ": " +
-          (item.status === "MATCHED" ? text("Verified", "已核验") : item.status === "UNKNOWN" ? text("Not verified", "待核验") : text("Conflicting evidence", "证据冲突"))) ?? entry.requirementEvidence)],
-        [text("Compared price", "对比价格"), (entry) => make("span", entry.comparedPrice ? "price" : "details", entry.comparedPrice ? money(entry.comparedPrice) : text("Unavailable", "不可用"))],
-        [text("Item price", "商品价"), (entry) => make("span", entry.itemPrice ? "" : "details", entry.itemPrice ? money(entry.itemPrice) : text("Unknown", "未知"))],
-        [text("Unit item price", "单位商品价"), (entry) => {
-          const unit = entry.unitPrice;
-          return make("span", "details", unit && Number.isSafeInteger(unit.amountCents) && unit.currency === "USD" && ["ML", "ITEM"].includes(unit.unit)
-            ? money(unit) + (unit.unit === "ML" ? " / 100 mL" : text(" / item", " / 件")) + text(" · before coupon, tax and shipping", " · 不含优惠、税费和运费")
-            : text("No unambiguous package quantity", "无明确可换算的包装数量"));
+        [text("Variant", "规格"), (entry) => {
+          const section = make("div");
+          section.append(comparisonList(Object.entries(entry.variantDimensions || {}).map(([key, value]) => key + ": " + value)));
+          const warnings = [
+            ...(entry.requirementAssessment?.entries || []).filter(item => item.status !== "MATCHED").map(item => requirementLabel(item.requirement) + ": " +
+              (item.status === "UNKNOWN" ? text("Not verified", "待核验") : text("Conflicting evidence", "证据冲突"))),
+            ...(entry.visualMatchEvidence || []), ...(entry.visualReviewRequired ? [text("Visual matching for the selected variant needs review", "所选变体的图片匹配尚未复核")] : []),
+            ...(entry.limitations || [])
+          ];
+          if (warnings.length) section.append(comparisonList(warnings));
+          return section;
         }],
+        [text("Compared price", "对比价格"), (entry) => {
+          const section = make("div");
+          section.append(make("span", entry.comparedPrice ? "price" : "details", entry.comparedPrice ? money(entry.comparedPrice) : text("Unavailable", "不可用")));
+          const unit = entry.unitPrice;
+          if (unit && Number.isSafeInteger(unit.amountCents) && unit.currency === "USD" && ["ML", "ITEM"].includes(unit.unit)) section.append(make("div", "details",
+            text("Unit item price: ", "单位商品价：") + money(unit) + (unit.unit === "ML" ? " / 100 mL" : text(" / item", " / 件")) + text(" · before coupon, tax and shipping", " · 不含优惠、税费和运费")));
+          return section;
+        }],
+        [text("Item price", "商品价"), (entry) => make("span", entry.itemPrice ? "" : "details", entry.itemPrice ? money(entry.itemPrice) : text("Unknown", "未知"))],
         [text("Quality evidence", "质量依据"), (entry) => {
           const rating = entry.qualityEvidence?.rating;
           return make("span", "details", rating ? text("Source-reported rating: ", "来源报告的评分：") + rating.value + "/5 (" + rating.count +
             text(" reviews). Not a quality guarantee.", " 条评价）。不构成质量保证。") : text("Quality evidence not verified; merchant trust is separate.", "质量依据尚未核实；商家可信度单独判断。"));
         }],
         [text("Delivered total", "到手价"), delivered],
-        [text("Verified deals", "已验证优惠"), (entry) => {
+        [text("Deals", "优惠"), (entry) => {
           const section = make("div");
           appendCouponSummary(section, { coupons: {
             verified: entry.verifiedDeals, lookupStatus: entry.dealLookupStatus, summary: entry.dealSummary
           } });
           return section.children.length > 0 ? section : make("span", "details", text("No verified deal", "暂无已验证优惠"));
         }],
-        [text("Condition", "商品状态"), (entry) => make("span", "", comparisonLabel(entry.condition))],
-        [text("Availability", "库存"), (entry) => make("span", "", comparisonLabel(entry.availability))],
-        [text("Merchant trust", "商家信任"), (entry) => make("span", "", comparisonLabel(entry.merchantTrust?.level) + " · " + comparisonLabel(entry.merchantTrust?.verification))],
-        [text("Limitations", "限制"), (entry) => comparisonList(entry.limitations)],
-        [text("Unknowns", "未知项"), (entry) => comparisonList(entry.unknowns?.map(comparisonLabel))]
+        [text("Condition", "商品状态"), (entry) => make("span", "", comparisonLabel(entry.condition || "UNKNOWN") + " · " + comparisonLabel(entry.availability || "UNKNOWN"))],
+        [text("Merchant trust", "商家信任"), (entry) => make("span", "", comparisonLabel(entry.merchantTrust?.level || "UNKNOWN") + " · " + comparisonLabel(entry.merchantTrust?.verification || "UNVERIFIED"))]
       ];
       rows.forEach(([label, value]) => {
         const row = make("tr");

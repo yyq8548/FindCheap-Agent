@@ -186,6 +186,7 @@ describe("interactive Cart quote authorization", () => {
       { cartQuotes: { quote } }, approve);
     try {
       const snapshot = await find(replay);
+      expect(snapshot.products[0]!.quoteCapability).toBe("NOT_CHECKED");
       const result = await replay.client.callTool({ name: "quote_selected_shopify_product", arguments: {
         renderId: snapshot.renderId, position: 1, zipCode: "33433"
       } });
@@ -262,6 +263,9 @@ describe("interactive Cart quote authorization", () => {
       expect(result.isError).toBe(true);
       expect(result.structuredContent).toBeUndefined();
       expect(JSON.stringify(result.content)).toContain("QUOTE_RESULT_DISCARDED");
+      if (mode === "single") expect(result._meta).toMatchObject({ "findcheap/quoteOperation": {
+        renderId: snapshot.renderId, selectionId: snapshot.products[0]!.selectionId, selectionSource: "EXPLICIT"
+      } });
       expect(JSON.stringify(result.content)).not.toContain("No quote Cart was created");
       const rendered = await replay.client.callTool({ name: "render_product_cards", arguments: { renderId: snapshot.renderId } });
       expect((rendered.structuredContent as Snapshot).products.map(item => item.quoteCapability))

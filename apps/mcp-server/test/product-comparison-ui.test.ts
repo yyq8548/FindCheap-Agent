@@ -77,6 +77,20 @@ function executeUi(output: Record<string, unknown>) {
 }
 
 describe("product comparison MCP Apps UI", () => {
+  it.each([2, 3, 4])("shows exactly nine ordered rows for %i products regardless of focus", count => {
+    const { app } = executeUi({ status: "OK", locale: "zh-CN", focus: ["DEALS", "PRICE"], entries: Array.from({ length: count }, (_, i) => ({
+      selectionId: String(i), title: `Product ${i}`, condition: "NEW", availability: "OUT_OF_STOCK",
+      variantDimensions: { Color: "Red" }, requirementAssessment: { entries: [{ requirement: "black", status: "CONTRADICTED" }] },
+      limitations: ["Only selected size verified"], comparedPrice: { amountCents: 12345, currency: "USD" }
+    })) });
+    const rows = nodes(app).filter(node => node.tagName === "TR");
+    expect(rows.map(row => text(row.children[0]!))).toEqual(["商品", "规格", "对比价格", "商品价", "质量依据", "到手价", "优惠", "商品状态", "商家信任"]);
+    expect(rows.every(row => row.children.length === count + 1)).toBe(true);
+    expect(text(app)).toContain("全新 · 缺货");
+    expect(text(app)).toContain("证据冲突");
+    expect(text(app)).toContain("Only selected size verified");
+    expect(text(app)).toContain("123.45");
+  });
   it.each(["zh-CN", "en-US"])("does not offer quote controls for an unchecked comparison (%s)", locale => {
     const { app } = executeUi({ status: "OK", locale, entries: [
       { selectionId: "a", title: "A", deliveredTotalStatus: "NOT_CHECKED" },
@@ -258,10 +272,10 @@ describe("product comparison MCP Apps UI", () => {
     expect(renderedText).toContain("SKU: MODEL-1");
     expect(renderedText).toContain("GTIN: 100000000001");
     expect(renderedText).toContain("Size: Standard");
-    expect(renderedText).toContain("DELIVERED_TOTAL");
+    expect(renderedText).not.toContain("DELIVERED_TOTAL");
     expect(renderedText).toContain("EXACT");
     expect(renderedText).toContain("same-product offers");
-    expect(renderedText).toContain("EXACT_MATCH, LOWER_PRICE");
+    expect(renderedText).toContain("Recommended");
     expect(renderedText).toContain("COUPON · Fixture offer");
     expect(renderedText).toContain("SAVE10");
     expect(renderedText).toContain("10%");
@@ -274,7 +288,7 @@ describe("product comparison MCP Apps UI", () => {
       .filter((node) => node.tagName === "TR")
       .slice(1)
       .map((row) => text(row.children[0]!));
-    expect(rowLabels.indexOf("Match status")).toBeLessThan(rowLabels.indexOf("Compared price"));
+    expect(rowLabels[0]).toBe("Variant");
     expect(messages.length).toBeGreaterThan(0);
     const zipInput = nodes(app).find((node) => node.tagName === "INPUT");
     expect(zipInput).toBeDefined();
@@ -372,14 +386,14 @@ describe("product comparison MCP Apps UI", () => {
       ]
     });
     expect(text(app)).toContain("不同商品选择");
-    expect(text(app)).toContain("推荐结论");
+    expect(text(app)).not.toContain("推荐结论");
     expect(text(app)).toContain("商品价口径");
     expect(text(app)).toContain("发现匹配");
     expect(text(app)).toContain("有货");
     expect(text(app)).toContain("全新");
     expect(text(app)).toContain("仅供研究");
     expect(text(app)).toContain("暂无已验证优惠");
-    expect(text(app)).toContain("暂无已知限制");
+    expect(text(app)).not.toContain("暂无已知限制");
     expect(text(app)).toContain("到手价");
     expect(text(app)).toContain("未报价：请提供 ZIP");
     expect(text(app)).toContain("不支持报价：仅商家结账页提供");

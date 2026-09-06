@@ -54,6 +54,8 @@ describe("selected quote cardinality and failure contract", () => {
       } });
       expect(result.isError, JSON.stringify(result.content)).not.toBe(true);
       expect((result.structuredContent as Snapshot).products.map(item => item.handle)).toEqual(["456"]);
+      expect(result.structuredContent).toMatchObject({ quoteOperation: { renderId: snapshot.renderId,
+        selectionId: requested.selectionId, selectionSource: "EXPLICIT" } });
     } finally { await replay.close(); }
   });
   it("rejects a foreign one-item batch ID before issuing single-item routing guidance", async () => {
@@ -170,6 +172,8 @@ describe("selected quote cardinality and failure contract", () => {
       } });
       expect(JSON.stringify(result.content)).toContain("[MERCHANT_CHECKOUT_ONLY] 不支持报价");
       expect((result.structuredContent as Snapshot).products).toEqual(snapshot.products);
+      expect(result.structuredContent).toMatchObject({ quoteOperation: { renderId: snapshot.renderId,
+        selectionId: snapshot.products[0]!.selectionId, selectionSource: "UI", selectionRevision: 1 } });
       expect(approve).not.toHaveBeenCalled();
       expect(quote).not.toHaveBeenCalled();
     } finally { await replay.close(); }
@@ -188,6 +192,7 @@ describe("selected quote cardinality and failure contract", () => {
       expect(result.isError).toBe(true);
       expect(JSON.stringify(result.content)).toContain("[QUOTE_REFERENCE_UNAVAILABLE]");
       expect(JSON.stringify(result.content)).toContain("不属于原搜索快照");
+      expect(JSON.stringify(result.content)).not.toContain("quoteOperation");
       expect(approve).not.toHaveBeenCalled();
       expect(quote).not.toHaveBeenCalled();
     } finally { await replay.close(); }
@@ -208,6 +213,9 @@ describe("selected quote cardinality and failure contract", () => {
       expect(JSON.stringify(result.content)).toContain(mode === "missing capability" ? "QUOTE_AUTHORIZATION_UNAVAILABLE" : "QUOTE_AUTHORIZATION_DECLINED");
       expect(JSON.stringify(result.content)).toContain("无法确认授权弹窗是否显示");
       expect(JSON.stringify(result.content)).not.toContain("用户拒绝");
+      expect(result._meta).toMatchObject({ "findcheap/quoteOperation": { renderId: snapshot.renderId,
+        selectionId: snapshot.products[0]!.selectionId, selectionSource: "UI", selectionRevision: 1 } });
+      expect(JSON.stringify(result.content)).toContain(snapshot.products[0]!.selectionId);
       expect(quote).not.toHaveBeenCalled();
       expect(approve).toHaveBeenCalledTimes(mode === "missing capability" ? 0 : 1);
       const rendered = await replay.client.callTool({ name: "render_product_cards", arguments: { renderId: snapshot.renderId } });
@@ -244,6 +252,8 @@ describe("selected quote cardinality and failure contract", () => {
       expect(JSON.stringify(result.content)).toContain("报价超时");
       if (mode === "single") {
         expect((result.structuredContent as Snapshot).products).toEqual(snapshot.products);
+        expect(result.structuredContent).toMatchObject({ quoteOperation: { renderId: snapshot.renderId,
+          selectionId: ids[0], selectionSource: "UI", selectionRevision: 1 } });
       }
       const rendered = await replay.client.callTool({ name: "render_product_cards", arguments: { renderId: snapshot.renderId } });
       expect((rendered.structuredContent as Snapshot).products).toEqual(snapshot.products);

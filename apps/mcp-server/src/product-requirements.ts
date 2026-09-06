@@ -79,6 +79,8 @@ export function evaluateProductRequirements(product: RequirementProduct, input: 
   const dimensions = Object.entries(product.variantDimensions ?? {});
   const text = [product.title, product.productType, product.description, product.brand, product.sku,
     ...dimensions.flat()].filter(Boolean).join(" ");
+  const colorDimension = dimensions.find(([name]) => /^(?:product )?colou?r$/iu.test(name));
+  const colorText = colorDimension === undefined ? product.title : `color ${colorDimension[1]}`;
   const entries: RequirementAssessment["entries"] = [];
   const requirements = [...new Set([...input.requiredFeatures, ...requiredPrimaryUseFeatures(input.primaryUse)])];
   for (const requirement of requirements) {
@@ -119,6 +121,11 @@ export function evaluateProductRequirements(product: RequirementProduct, input: 
         ? `wig hair length: ${dimension[1]}${/^\d+(?:\.\d+)?$/u.test(dimension[1]) ? " inches" : ""}`
         : isColor ? `color ${dimension[1]}` : `wig hair ${dimension[1]}`;
       status = evaluateFeature(observed, requirement);
+    } else if (isColor) {
+      // Shared copy may describe another selectable or photographed colorway.
+      observed = colorText;
+      status = evaluateFeature(observed, requirement);
+      if (status === "UNKNOWN") source = "MISSING";
     } else {
       status = evaluateFeature(observed, requirement);
       const titleStatus = evaluateFeature(product.title, requirement);
@@ -140,7 +147,7 @@ export function evaluateProductRequirements(product: RequirementProduct, input: 
       ...(verified ? { observed: `USD ${(price.amountCents / 100).toFixed(2)}` } : {}) });
   }
   for (const excluded of input.excludedFeatures) {
-    if ((namedProductAssessment(product, excluded)?.status ?? productClaimAssessment(product, excluded)?.status ?? evaluateFeature(text, excluded)) === "MATCHED") entries.push({
+    if ((namedProductAssessment(product, excluded)?.status ?? productClaimAssessment(product, excluded)?.status ?? evaluateFeature(isColorRequirement(excluded) ? colorText : text, excluded)) === "MATCHED") entries.push({
       requirement: sanitizeExternalText(`excluded: ${excluded}`, 200), status: "CONTRADICTED", source: product.evidenceSource ?? "PRODUCT"
     });
   }
@@ -155,7 +162,7 @@ export function evaluateProductRequirements(product: RequirementProduct, input: 
       : unknown.length > 0 ? "NEEDS_VERIFICATION" : "SATISFIED" };
   return { matched, contradicted, unknown,
     preferences: input.preferences.filter(feature =>
-      (namedProductAssessment(product, feature)?.status ?? productClaimAssessment(product, feature)?.status ?? evaluateFeature(text, feature)) === "MATCHED"), assessment };
+      (namedProductAssessment(product, feature)?.status ?? productClaimAssessment(product, feature)?.status ?? evaluateFeature(isColorRequirement(feature) ? colorText : text, feature)) === "MATCHED"), assessment };
 }
 
 function namedProductAssessment(product: RequirementProduct, requirement: string) {

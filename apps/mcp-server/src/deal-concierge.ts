@@ -45,7 +45,9 @@ export async function researchSelectedProductDeal(input: {
   dealPort: DealPort;
   cartQuotes?: ShopifyCartQuotePort;
   now: Date;
+  responseLocale?: "en-US" | "zh-CN";
 }): Promise<CurrentDealResearchResult> {
+  const text = (english: string, chinese: string) => input.responseLocale === "zh-CN" ? chinese : english;
   const timestamp = input.now.getTime();
   const lookup = await searchDealsWithStatus(input.dealPort, {
     merchant: input.selected.merchant,
@@ -69,7 +71,8 @@ export async function researchSelectedProductDeal(input: {
 
   const limitations: string[] = [];
   if (input.zipCode !== undefined) {
-    limitations.push("Coupon research did not request a delivered-total quote. An explicit quote request is required; a ZIP alone does not authorize an anonymous cart.");
+    limitations.push(text("Coupon research did not request a delivered-total quote. An explicit quote request is required; a ZIP alone does not authorize an anonymous cart.",
+      "优惠查询未请求到手价报价。需要明确请求报价；提供 ZIP 不等于授权创建匿名购物车。"));
   }
 
   const currentAmount = input.selected.itemPrice;
@@ -95,16 +98,16 @@ export async function researchSelectedProductDeal(input: {
         };
   if (lookup.status !== "COMPLETE") {
     limitations.push(lookup.status === "UNAVAILABLE"
-      ? "Current merchant deals could not be verified because the source is unavailable; this does not mean no coupon exists."
-      : "Only part of the merchant deal evidence was usable; the offer list may be incomplete.");
+      ? text("Current merchant deals could not be verified because the source is unavailable; this does not mean no coupon exists.", "优惠来源暂不可用，当前商家优惠尚未核实；不代表没有优惠。")
+      : text("Only part of the merchant deal evidence was usable; the offer list may be incomplete.", "仅部分商家优惠证据可用；优惠列表可能不完整。"));
   }
   limitations.push(...(verifiedDeals.length === 0 && lookup.status !== "COMPLETE"
     ? []
     : verifiedDeals.length === 0
-    ? ["No current verified merchant deal was found."]
+    ? [text("No current verified merchant deal was found.", "本次未找到当前已验证的商家优惠。")]
     : verifiedDeals.every((deal) => deal.applicability === "PRODUCT_CONFIRMED")
-      ? ["Verified deals are confirmed for this selected product; stacking and the final amount require checkout confirmation."]
-      : ["Verified merchant deals are candidates only; product eligibility and stacking require merchant confirmation."]));
+      ? [text("Verified deals are confirmed for this selected product; stacking and the final amount require checkout confirmation.", "优惠已确认适用于所选商品；能否叠加及最终金额需在结账页确认。")]
+      : [text("Verified merchant deals are candidates only; product eligibility and stacking require merchant confirmation.", "已验证的商家优惠仅为候选；所选商品是否适用及能否叠加仍需商家确认。")]));
 
   const dealStatus: CurrentDealStatus = input.selected.availability === "OUT_OF_STOCK"
     ? "OUT_OF_STOCK"

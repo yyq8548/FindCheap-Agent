@@ -21,6 +21,13 @@ const sitewide = {
 };
 
 describe("current selected-product deal research", () => {
+  it("localizes source failure and Cart limits without changing deal states", async () => {
+    const result = await researchSelectedProductDeal({ selected, responseLocale: "zh-CN", zipCode: "10001", membershipIds: [],
+      dealPort: { search: async () => { throw new Error("SOURCE_TIMEOUT"); } }, now: current });
+    expect(result.limitations.join(" ")).toContain("不代表没有优惠");
+    expect(result.limitations.join(" ")).toContain("ZIP 不等于");
+    expect(result).toMatchObject({ quoteStatus: "NOT_REQUESTED", dealLookupStatus: "UNAVAILABLE" });
+  });
   it("does not treat a ZIP in coupon research as permission to create a cart", async () => {
     const quote = vi.fn(async () => { throw new Error("UNEXPECTED_CART_WRITE"); });
     const result = await researchSelectedProductDeal({

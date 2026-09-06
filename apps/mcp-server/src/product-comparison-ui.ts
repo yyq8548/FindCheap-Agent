@@ -1,6 +1,6 @@
 import { FINDCHEAP_VERSION } from "../../../config/version.js";
 
-export const PRODUCT_COMPARISON_UI_URI = "ui://findcheap/product-comparison/v4.html";
+export const PRODUCT_COMPARISON_UI_URI = "ui://findcheap/product-comparison/v5.html";
 
 export const PRODUCT_COMPARISON_HTML = String.raw`<!doctype html>
 <html>
@@ -236,6 +236,7 @@ export const PRODUCT_COMPARISON_HTML = String.raw`<!doctype html>
       output.entries.forEach((entry) => {
         const cell = make("th");
         const head = make("div", "product-head" + (output.recommendation?.recommendedSelectionId === entry.selectionId ? " recommended" : ""));
+        if (output.recommendation?.state === "RESEARCH_ONLY") head.append(make("span", "unknown", text(locale, "Research only", "仅供研究")));
         if (output.recommendation?.recommendedSelectionId === entry.selectionId) head.append(make("span", "badge",
           output.recommendation.scope === "SIMILAR" ? text(locale, "First among similar choices", "相似款中值得先看") : text(locale, "Recommended", "推荐")));
         const imageUrl = safeHttps(entry.imageUrl);
@@ -292,29 +293,32 @@ export const PRODUCT_COMPARISON_HTML = String.raw`<!doctype html>
         }
         return section.children.length > 0 ? section : list([], locale, "No verified deal", "暂无已验证优惠");
       };
-      const recommendation = (entry) => {
-        const decision = output.recommendation;
-        if (!decision) return make("span", "unknown", text(locale, "Unavailable", "不可用"));
-        if (decision.recommendedSelectionId !== entry.selectionId) {
-          return make("span", "unknown", decision.state === "READY" ? text(locale, "Not selected", "未选中") : displayValue(decision.state, locale));
-        }
-        const reasons = Array.isArray(decision.reasonCodes) ? decision.reasonCodes.map((reason) => displayValue(reason, locale)).join(", ") : "";
-        return make("span", "", (decision.scope === "SIMILAR" ? text(locale, "First among similar choices", "相似款中值得先看") : text(locale, "Recommended", "推荐")) + (reasons ? " · " + reasons : ""));
-      };
       const rows = [
-        ...(output.entries.some(entry => entry.visualMatchEvidence?.length || entry.visualReviewRequired) ? [{ focus: undefined,
-          label: text(locale, "Visual evidence and differences", "视觉依据与差异"), renderValue: entry => list(entry.visualReviewRequired
-            ? [displayValue("VISUAL_REVIEW_REQUIRED", locale)] : entry.visualMatchEvidence, locale) }] : []),
-        { focus: undefined, label: text(locale, "Recommendation", "推荐结论"), renderValue: recommendation },
-        { focus: "PRICE", label: text(locale, "Compared price", "对比价格"), renderValue: (entry) => make("span", entry.comparedPrice ? "price" : "unknown", money(entry.comparedPrice, locale) || text(locale, "Unavailable", "不可用")) },
-        { focus: "PRICE", label: text(locale, "Item price", "商品价"), renderValue: (entry) => make("span", entry.itemPrice ? "" : "unknown", money(entry.itemPrice, locale) || text(locale, "Unknown", "未知")) },
-        { focus: "PRICE", label: text(locale, "Unit item price", "单位商品价"), renderValue: (entry) => {
-          const unit = entry.unitPrice;
-          const value = money(unit, locale);
-          return make("span", value ? "" : "unknown", value && ["ML", "ITEM"].includes(unit.unit)
-            ? value + (unit.unit === "ML" ? " / 100 mL" : text(locale, " / item", " / 件")) + text(locale, " · before coupon, tax and shipping", " · 不含优惠、税费和运费")
-            : text(locale, "No unambiguous package quantity", "无明确可换算的包装数量"));
+        { label: text(locale, "Variant", "规格"), renderValue: (entry) => {
+          const section = make("div");
+          section.append(list(Object.entries(entry.variantDimensions || {}).map(([key, value]) => key + ": " + value), locale, "Not specified", "未提供"));
+          const warnings = [
+            ...(entry.requirementAssessment?.entries || []).filter(item => item.status !== "MATCHED").map(item => item.requirement + ": " +
+              (item.status === "UNKNOWN" ? text(locale, "Not verified", "待核验") : text(locale, "Conflicting evidence", "证据冲突"))),
+            ...(entry.visualMatchEvidence || []), ...(entry.visualReviewRequired ? [displayValue("VISUAL_REVIEW_REQUIRED", locale)] : []),
+            ...(entry.limitations || [])
+          ];
+          if (warnings.length) section.append(list(warnings, locale));
+          const evidence = [displayValue(entry.matchStatus, locale), entry.brand, entry.sku && "SKU: " + entry.sku,
+            ...(entry.gtins || []).map(gtin => "GTIN: " + gtin), ...(entry.identityEvidence || [])].filter(Boolean);
+          if (evidence.length) { const more = make("details"); more.append(make("summary", "", text(locale, "Matching evidence", "匹配依据")), list(evidence, locale)); section.append(more); }
+          return section;
         } },
+        { label: text(locale, "Compared price", "对比价格"), renderValue: (entry) => {
+          const section = make("div");
+          section.append(make("span", entry.comparedPrice ? "price" : "unknown", money(entry.comparedPrice, locale) || text(locale, "Unavailable", "不可用")));
+          const unit = entry.unitPrice;
+          if (money(unit, locale) && ["ML", "ITEM"].includes(unit.unit)) section.append(make("div", "unknown",
+            text(locale, "Unit item price: ", "单位商品价：") + money(unit, locale) + (unit.unit === "ML" ? " / 100 mL" : text(locale, " / item", " / 件")) +
+            text(locale, " · before coupon, tax and shipping", " · 不含优惠、税费和运费")));
+          return section;
+        } },
+        { focus: "PRICE", label: text(locale, "Item price", "商品价"), renderValue: (entry) => make("span", entry.itemPrice ? "" : "unknown", money(entry.itemPrice, locale) || text(locale, "Unknown", "未知")) },
         { focus: undefined, label: text(locale, "Quality evidence", "质量依据"), renderValue: (entry) => {
           const rating = entry.qualityEvidence?.rating;
           return make("span", "unknown", rating
@@ -332,34 +336,10 @@ export const PRODUCT_COMPARISON_HTML = String.raw`<!doctype html>
                 ? text(locale, "Quote capability not verified", "报价能力尚未核验")
               : text(locale, "Not quoted: provide ZIP", "未报价：请提供 ZIP"));
         } },
-        { focus: "DEALS", label: text(locale, "Verified deals", "已验证优惠"), renderValue: deal },
-        { focus: "AVAILABILITY", label: text(locale, "Availability", "库存"), renderValue: (entry) => make("span", entry.availability === "UNKNOWN" ? "unknown" : "", displayValue(entry.availability, locale)) },
-        { focus: "CONDITION", label: text(locale, "Condition", "商品状态"), renderValue: (entry) => make("span", entry.condition === "UNKNOWN" ? "unknown" : "", displayValue(entry.condition, locale)) },
-        { focus: "MERCHANT_TRUST", label: text(locale, "Merchant trust", "商家信任"), renderValue: (entry) => make("span", entry.merchantTrust?.verification === "UNVERIFIED" ? "unknown" : "", displayValue(entry.merchantTrust?.level || "UNKNOWN", locale) + " · " + displayValue(entry.merchantTrust?.verification || "UNVERIFIED", locale)) },
-        { focus: "IDENTITY", label: text(locale, "Match status", "匹配状态"), renderValue: (entry) => make("span", "", displayValue(entry.matchStatus, locale)) },
-        { focus: "IDENTITY", label: text(locale, "Product identity", "商品身份"), renderValue: (entry) => list([
-          entry.brand && text(locale, "Brand: ", "品牌：") + entry.brand,
-          entry.sku && "SKU: " + entry.sku,
-          ...(Array.isArray(entry.gtins) ? entry.gtins.map((gtin) => "GTIN: " + gtin) : [])
-        ].filter(Boolean), locale) },
-        { focus: "IDENTITY", label: text(locale, "Variant", "规格"), renderValue: (entry) => list(Object.entries(entry.variantDimensions || {}).map(([key, value]) => key + ": " + value), locale, "Not specified", "未提供") },
-        { focus: "IDENTITY", label: text(locale, "Identity evidence", "身份依据"), renderValue: (entry) => list(entry.identityEvidence, locale) },
-        { focus: "REQUIREMENTS", label: text(locale, "Requirements check", "要求核验"), renderValue: (entry) => list(
-          entry.requirementAssessment?.entries?.map(item => (locale === "zh-CN"
-            ? ({ "long hair": "长发", "short hair": "短发", "straight hair": "直发", "curly hair": "卷发" }[item.requirement] || item.requirement) : item.requirement) + ": " +
-            (item.status === "MATCHED" ? text(locale, "Verified", "已核验") : item.status === "UNKNOWN" ? text(locale, "Not verified", "待核验") : text(locale, "Conflicting evidence", "证据冲突"))) ?? entry.requirementEvidence,
-          locale, "None recorded", "无记录") },
-        { focus: "PREFERENCES", label: text(locale, "Preference fit", "偏好匹配"), renderValue: (entry) => list(entry.preferenceEvidence, locale, "None recorded", "无记录") },
-        { focus: "REQUIREMENTS", label: text(locale, "Limitations", "限制"), renderValue: (entry) => list(entry.limitations, locale, "None known", "暂无已知限制") },
-        { focus: undefined, label: text(locale, "Unknowns", "未知项"), renderValue: (entry) => list(Array.isArray(entry.unknowns) ? entry.unknowns.map((value) => displayValue(value, locale)) : [], locale, "None", "无") },
-        { focus: undefined, label: text(locale, "Checked", "检查时间"), renderValue: (entry) => make("time", "", entry.checkedAt) }
+        { label: text(locale, "Deals", "优惠"), renderValue: deal },
+        { label: text(locale, "Condition", "商品状态"), renderValue: (entry) => make("span", "", displayValue(entry.condition || "UNKNOWN", locale) + " · " + displayValue(entry.availability || "UNKNOWN", locale)) },
+        { label: text(locale, "Merchant trust", "商家信任"), renderValue: (entry) => make("span", entry.merchantTrust?.verification === "UNVERIFIED" ? "unknown" : "", displayValue(entry.merchantTrust?.level || "UNKNOWN", locale) + " · " + displayValue(entry.merchantTrust?.verification || "UNVERIFIED", locale)) }
       ];
-      const focusOrder = new Map((Array.isArray(output.focus) ? output.focus : []).map((value, index) => [value, index]));
-      if (focusOrder.size === 0) { focusOrder.set("REQUIREMENTS", 0); focusOrder.set("IDENTITY", 1); }
-      rows.forEach((row, index) => { row.order = index; });
-      rows.sort((left, right) =>
-        (focusOrder.get(left.focus) ?? focusOrder.size) - (focusOrder.get(right.focus) ?? focusOrder.size) || left.order - right.order
-      );
       rows.forEach(({ label, renderValue }) => {
         const row = make("tr");
         row.append(make("th", "", label));
