@@ -15,9 +15,9 @@ selection, comparison and authorized recovery bound to the original goal. See th
 
 FindCheap Agent is a read-only Codex plugin for product search, offer matching, price checks, product cards, evidence-backed comparison views, verified deals, and shopping watches. It returns up to eight products in three tiers: 2 official-store matches, 3 trusted matches, and 3 best-value high-match options.
 
-Codex starts text product discovery with `search_products` through a local stdio MCP server; image, comparison and follow-up operations have their own tools. Eligible Awin, Shopify, configured eBay and official-store sources can run in parallel. Insufficient recommendable results may trigger bounded complementary retrieval; the card limit is not a quota. Public-web recovery requires a server-issued recovery action and host authorization, not merely an empty result.
+Codex starts text product discovery with `search_products` through a local stdio MCP server; image, comparison and follow-up operations have their own tools. Eligible Awin, Shopify, configured eBay and official-store sources can run in parallel. Insufficient recommendable results may trigger bounded complementary retrieval; the card limit is not a quota. An authorized bounded Chrome search requires a server-issued recovery action and host authorization, not merely an empty result.
 
-Ordering, checkout, payment and inventory reservation are outside the permitted product scope. Anonymous-cart quotes have separate approval and side-effect requirements; their target rules and verification gaps are recorded in the Agent design.
+The plugin does not order, check out, or submit payment. Inventory reservation is outside the permitted product scope. Anonymous-cart quotes have separate approval and side-effect requirements; their target rules and verification gaps are recorded in the Agent design.
 
 ## Usage
 
