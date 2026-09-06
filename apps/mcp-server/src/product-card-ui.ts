@@ -285,6 +285,8 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     let hydrationRenderId;
     let currentRenderId;
     let lastProductOutput;
+    const cardSelections = new Map();
+    let viewRevision = 0;
     let currentLocale = document.documentElement.lang?.toLocaleLowerCase().startsWith("zh") ? "zh-CN" : "en-US";
     const text = (english, chinese) => currentLocale === "zh-CN" ? chinese : english;
     const requirementLabel = value => currentLocale === "zh-CN"
@@ -644,12 +646,13 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       INDEPENDENT: "独立验证", UNVERIFIED: "未验证"
     })[value] || String(value || "");
     const renderComparison = (output) => {
+      const renderedRevision = ++viewRevision;
       couponEvaluatedAtMs = Date.now();
       if (output.locale === "zh-CN" || output.locale === "en-US") currentLocale = output.locale;
       app.replaceChildren();
       const back = make("button", "compare-toggle", text("Back to results", "返回商品卡"));
       back.type = "button";
-      back.addEventListener("click", () => { if (lastProductOutput) render(lastProductOutput); });
+      back.addEventListener("click", () => { if (lastProductOutput && renderedRevision === viewRevision) render(lastProductOutput); });
       app.append(back);
       if (output.status !== "OK" || !Array.isArray(output.entries) || output.entries.length < 2) {
         app.append(make("div", "empty error", output.message || text("Comparison unavailable.", "对比不可用。")));
@@ -686,6 +689,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
         quoteButton.type = "button";
         const quoteStatus = make("span", "compare-status", text("Uses these same compared products.", "使用当前对比中的同一批商品。"));
         quoteButton.addEventListener("click", () => {
+          if (renderedRevision !== viewRevision) return;
           const zipCode = String(zipInput.value || "").trim();
           if (!/^\d{5}(?:-\d{4})?$/u.test(zipCode)) {
             quoteStatus.textContent = text("Enter a valid US ZIP.", "请输入有效的美国 ZIP。");
@@ -704,10 +708,12 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
               responseLocale: currentLocale
             }
           }, 8000).then((result) => {
+            if (renderedRevision !== viewRevision) return;
             const comparison = extractStructuredContent(result);
-            if (!comparison || !Array.isArray(comparison.entries)) throw new Error("quote result unavailable");
+            if (!comparison || !Array.isArray(comparison.entries) || (comparison.status === "OK" && comparison.renderId !== output.renderId)) throw new Error("quote result unavailable");
             renderComparison(comparison);
           }).catch(() => {
+            if (renderedRevision !== viewRevision) return;
             quoteButton.disabled = false;
             quoteStatus.textContent = text("Quote failed. Try once more.", "报价加载失败，请重试一次。");
           });
@@ -790,6 +796,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
         : product?.matchStatus === "EXACT" ? "REQUESTED_PRODUCT" : "DISCOVERY";
     };
     function render(output) {
+      const renderedRevision = ++viewRevision;
       couponEvaluatedAtMs = Date.now();
       currentLocale = output?.locale === "zh-CN"
         ? "zh-CN"
@@ -803,7 +810,8 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       }
       lastProductOutput = output;
       hasResult = true;
-      if (typeof output?.renderId === "string") currentRenderId = output.renderId;
+      const renderId = typeof output?.renderId === "string" && output.renderId ? output.renderId : undefined;
+      currentRenderId = renderId;
       markStage("RENDER_STARTED");
       app.replaceChildren();
       const products = Array.isArray(output?.products) ? output.products.slice(0, ${MAX_PRODUCT_CARDS}) : [];
@@ -858,18 +866,25 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
         ? products.length + " 张商品卡 / 身份标签 / " + priceSummary
         : products.length + " product card" + (products.length === 1 ? "" : "s") + " / identity labels / " + priceSummary));
       const comparable = products.filter((product) => typeof product?.selectionId === "string");
-      const selected = new Set();
-      let selectionRevision = 0;
+      let selectionState = cardSelections.get(renderId);
+      if (!selectionState) {
+        selectionState = { selected: new Set(), revision: 0 };
+        if (renderId) cardSelections.set(renderId, selectionState);
+      }
+      while (cardSelections.size > 128) cardSelections.delete(cardSelections.keys().next().value);
+      const selected = selectionState.selected;
+      const validSelectionIds = new Set(comparable.map(product => product.selectionId));
+      for (const selectionId of selected) if (!validSelectionIds.has(selectionId)) selected.delete(selectionId);
       const selectionButtons = new Map();
       let compareButton;
       let compareStatus;
       const syncSelection = () => {
-        if (!currentRenderId) return;
-        const revision = ++selectionRevision;
+        if (!renderId || currentRenderId !== renderId || renderedRevision !== viewRevision) return;
+        const revision = ++selectionState.revision;
         void request("tools/call", {
           name: "sync_product_card_selection",
           arguments: {
-            renderId: currentRenderId,
+            renderId,
             selectionIds: [...selected],
             revision
           }
@@ -877,7 +892,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
           const synced = extractStructuredContent(result);
           if (!synced || !["RECORDED", "IGNORED"].includes(synced.status)) throw new Error("selection sync failed");
         }).catch(() => {
-          if (compareStatus && revision === selectionRevision) {
+          if (compareStatus && renderedRevision === viewRevision && revision === selectionState.revision) {
             compareStatus.textContent = text(
               "Selection could not be synced. Use Compare selected now.",
               "选择状态未能同步，请直接点击“对比已选商品”。"
@@ -890,11 +905,11 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
           const active = selected.has(selectionId);
           button.className = "compare-toggle" + (active ? " selected" : "");
           button.textContent = active ? text("Selected", "已选择") : text("Select for comparison", "选择对比");
-          button.disabled = !active && selected.size >= 4;
+          button.disabled = !renderId || (!active && selected.size >= 4);
           button.ariaPressed = String(active);
         }
         if (compareButton) {
-          compareButton.disabled = selected.size < 2 || selected.size > 4;
+          compareButton.disabled = !renderId || selected.size < 2 || selected.size > 4;
           compareButton.textContent = text("Compare selected", "对比已选商品") + " (" + selected.size + ")";
         }
         if (compareStatus) compareStatus.textContent = selected.size === 0
@@ -910,23 +925,25 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
         compareButton.type = "button";
         compareButton.disabled = true;
         compareButton.addEventListener("click", () => {
-          if (selected.size < 2 || selected.size > 4) return;
+          if (!renderId || currentRenderId !== renderId || renderedRevision !== viewRevision || selected.size < 2 || selected.size > 4) return;
           compareButton.disabled = true;
           compareButton.textContent = text("Comparing…", "正在对比…");
           compareStatus.textContent = text("Building server-verified comparison.", "正在生成服务器验证的对比。" );
           void request("tools/call", {
             name: "compare_selected_products",
             arguments: {
-              renderId: currentRenderId,
+              renderId,
               selectionIds: [...selected],
               mode: "AUTO",
               responseLocale: currentLocale
             }
           }, 8000).then((result) => {
+            if (renderedRevision !== viewRevision || currentRenderId !== renderId) return;
             const comparison = extractStructuredContent(result);
-            if (!comparison || !Array.isArray(comparison.entries)) throw new Error("comparison result unavailable");
+            if (!comparison || !Array.isArray(comparison.entries) || (comparison.status === "OK" && comparison.renderId !== renderId)) throw new Error("comparison result unavailable");
             renderComparison(comparison);
           }).catch(() => {
+            if (renderedRevision !== viewRevision || currentRenderId !== renderId) return;
             compareButton.disabled = false;
             compareButton.textContent = text("Compare selected", "对比已选商品") + " (" + selected.size + ")";
             compareStatus.textContent = text("Comparison failed. Try once more or run a new search if cards expired.", "对比失败。请重试一次；若商品卡已过期，请重新搜索。" );
@@ -1152,6 +1169,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
             toggle.type = "button";
             toggle.ariaPressed = "false";
             toggle.addEventListener("click", () => {
+              if (!renderId || currentRenderId !== renderId || renderedRevision !== viewRevision) return;
               if (selected.has(product.selectionId)) selected.delete(product.selectionId);
               else if (selected.size < 4) selected.add(product.selectionId);
               updateCompareControls();
@@ -1181,19 +1199,21 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     }
     const hydrateFromInput = async (input) => {
       const renderId = typeof input?.renderId === "string" ? input.renderId : undefined;
-      if (renderId) currentRenderId = renderId;
       if (hasResult || !initialized || !renderId || hydrationRenderId === renderId) return;
+      currentRenderId = renderId;
       hydrationRenderId = renderId;
       try {
         const result = await request("tools/call", {
           name: "render_product_cards",
           arguments: { renderId }
         }, 4000);
+        if (hasResult || hydrationRenderId !== renderId) return;
         const output = extractStructuredContent(result);
         if (!output) throw new Error("snapshot missing");
         markStage("TOOL_OUTPUT_RECEIVED");
         render(output);
       } catch (error) {
+        if (hasResult || hydrationRenderId !== renderId) return;
         const terminalStage = error instanceof Error && error.message === "tools/call timed out"
           ? "TOOL_OUTPUT_TIMEOUT"
           : "TOOL_OUTPUT_FAILED";

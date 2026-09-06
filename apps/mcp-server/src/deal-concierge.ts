@@ -1,7 +1,7 @@
 import { dealAppliesToProduct, searchDealsWithStatus, type DealPort, type DealLookupResult, type VerifiedDeal } from "./deal-client.js";
 import { assessSelectedProductDeal, rankAssessedDeals, type DealAssessment, type DealSummary } from "./deal-assessment.js";
 import type { ShopifyProduct } from "./shopify-client.js";
-import type { ShopifyCartEstimate, ShopifyCartQuotePort } from "./shopify-cart-quote.js";
+import type { ShopifyCartQuotePort } from "./shopify-cart-quote.js";
 
 export type CurrentDealStatus =
   | "CURRENT_DEAL_FOUND"
@@ -67,28 +67,12 @@ export async function researchSelectedProductDeal(input: {
     lookup.reasonCodes = [...new Set([...lookup.reasonCodes, "STALE_EVIDENCE" as const])];
   }
 
-  let quoteStatus: CurrentDealResearchResult["quoteStatus"] = "NOT_REQUESTED";
-  let quote: ShopifyCartEstimate | undefined;
   const limitations: string[] = [];
   if (input.zipCode !== undefined) {
-    if (
-      input.cartQuotes === undefined || input.selected.quoteProduct === undefined ||
-      input.selected.quoteCapability === "MERCHANT_CHECKOUT_ONLY"
-    ) {
-      quoteStatus = "UNAVAILABLE";
-      limitations.push("The selected merchant cannot provide a ZIP delivered-total estimate; final shipping and tax require merchant checkout.");
-    } else {
-      try {
-        quote = await input.cartQuotes.quote(input.selected.quoteProduct, input.zipCode);
-        quoteStatus = "ESTIMATED";
-      } catch {
-        quoteStatus = "UNAVAILABLE";
-        limitations.push("The selected merchant did not return a usable ZIP delivered-total estimate.");
-      }
-    }
+    limitations.push("Coupon research did not request a delivered-total quote. An explicit quote request is required; a ZIP alone does not authorize an anonymous cart.");
   }
 
-  const currentAmount = quote?.deliveredPrice ?? input.selected.itemPrice;
+  const currentAmount = input.selected.itemPrice;
   const verifiedDeals = rankAssessedDeals(deals.map((deal) => {
     const assessment = assessSelectedProductDeal(deal, input.selected);
     return {
@@ -139,12 +123,12 @@ export async function researchSelectedProductDeal(input: {
     dealSummary,
     ...(currentAmount === undefined ? {} : {
       currentPrice: {
-        basis: quote === undefined ? "ITEM_PRICE" as const : "DELIVERED_TOTAL" as const,
+        basis: "ITEM_PRICE" as const,
         amount: currentAmount,
-        checkedAt: quote?.checkedAt ?? input.selected.checkedAt
+        checkedAt: input.selected.checkedAt
       }
     }),
-    quoteStatus,
+    quoteStatus: "NOT_REQUESTED",
     limitations,
     deals: verifiedDeals
   };

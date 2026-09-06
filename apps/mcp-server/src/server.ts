@@ -1878,35 +1878,6 @@ export type ShoppingServerDependencies = {
   };
 };
 
-async function enrichShopifyCartQuotes(
-  result: ShopifySearchResult,
-  zipCode: string | undefined,
-  cartQuotes: ShopifyCartQuotePort | undefined
-): Promise<{ result: ShopifySearchResult; attempted: number; succeeded: number }> {
-  if (zipCode === undefined || cartQuotes === undefined || result.products.length === 0) {
-    return { result, attempted: 0, succeeded: 0 };
-  }
-  const attempts = result.products.map(async (product) => product.sourceKind === "WEB_PRODUCT_PAGE" ? product : ({
-    ...product,
-    cartQuote: await cartQuotes.quote(product, zipCode)
-  }));
-  const settled = await Promise.allSettled(attempts);
-  const products = settled.map((outcome, index) =>
-    outcome.status === "fulfilled" ? outcome.value : result.products[index]!
-  );
-  const succeeded = settled.filter((outcome, index) => outcome.status === "fulfilled" && result.products[index]?.sourceKind !== "WEB_PRODUCT_PAGE").length;
-  if (
-    succeeded === products.length &&
-    result.diagnostics.selectionPolicy === "EXACT_THEN_DISCOVERY_THEN_SIMILAR_THEN_PRICE"
-  ) {
-    products.sort((left, right) =>
-      left.cartQuote!.deliveredPrice.amountCents - right.cartQuote!.deliveredPrice.amountCents ||
-      (left.merchantUrl < right.merchantUrl ? -1 : left.merchantUrl > right.merchantUrl ? 1 : 0)
-    );
-  }
-  return { result: { ...result, products }, attempted: result.products.filter(product => product.sourceKind !== "WEB_PRODUCT_PAGE").length, succeeded };
-}
-
 function emptyShopifyQuality() {
   return {
     status: "PASS_WITH_LIMITATIONS" as const,
@@ -2362,9 +2333,8 @@ export function createShoppingServer(
           // last source response is diagnostic context, not the selected set.
           products: selectedShopifyProducts
         };
-    const enriched = selectedShopifyProducts.length === 0 && execution.shopifyResult === undefined
-      ? { result: initialShopify, attempted: 0, succeeded: 0 }
-      : await enrichShopifyCartQuotes(initialShopify, input.zipCode, cartQuotes);
+    // A delivery location constrains discovery; it does not authorize a cart mutation.
+    const enriched = { result: initialShopify, attempted: 0, succeeded: 0 };
     if (enriched.result.products.length > 0) {
       const enrichedByReference = new Map(enriched.result.products.map((product) => [productReferenceKey(product), product]));
       execution.shopifyResult = enriched.result;
@@ -3382,7 +3352,7 @@ export function createShoppingServer(
       }
       try {
         const searched = await shopifyPort.search(validatedInput);
-        const enriched = await enrichShopifyCartQuotes(searched, validatedInput.zipCode, cartQuotes);
+        const enriched = { result: searched, attempted: 0, succeeded: 0 };
         const response = shopifyResult(enriched.result, {
           ...(validatedInput.zipCode === undefined ? {} : { zipCode: validatedInput.zipCode }),
           membershipIds: validatedInput.membershipIds ?? []

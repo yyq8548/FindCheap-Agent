@@ -328,9 +328,16 @@ export function finalizeCodexVisualCandidates(
     const visualDifferences = review.conflicts.map((entry) =>
       `Codex visual difference ${entry.attribute}: ${entry.referenceEvidence} | ${entry.candidateEvidence}`
     );
-    const stableExact = candidate.identityStatus === "EXACT";
+    const confirmedVisualDifference = review.conflicts.length > 0;
+    const stableExact = candidate.identityStatus === "EXACT" && !confirmedVisualDifference;
+    // Only Shopify/official-page sources can carry EXACT. Cards also consume
+    // their matchStatus; preserve identity and variant facts in the source object.
+    const reviewedCandidate = confirmedVisualDifference && candidate.source === "SHOPIFY_GLOBAL_CATALOG" &&
+      candidate.shopifyProduct.matchStatus === "EXACT"
+      ? { ...candidate, shopifyProduct: { ...candidate.shopifyProduct, matchStatus: "DISCOVERY_MATCH" as const } }
+      : candidate;
     return [{
-      ...candidate,
+      ...reviewedCandidate,
       visualMatchGroup: group,
       visualMatchEvidence: unique([...(candidate.visualMatchEvidence ?? []), ...visualEvidence, ...visualDifferences]),
       visualMatchScore: review.score,

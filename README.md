@@ -9,9 +9,9 @@ English | [简体中文](README.zh-CN.md)
 
 Product form: **Codex Plugin Agent**.
 
-Current package: **v0.17.22** — model-visible context receipts keep clarification,
-selection, comparison and authorized recovery bound to the original goal. See the
-[release scope and known limits](docs/releases/v0.17.22.md).
+Current package: **v0.17.23** — visual identity labels, same-snapshot card choices,
+read-only research and reliable restock/deadline handling are aligned with the
+[approved design; release scope and known limits](docs/releases/v0.17.23.md).
 
 FindCheap Agent is a read-only Codex plugin for product search, offer matching, price checks, product cards, evidence-backed comparison views, verified deals, and shopping watches. It returns up to eight products in three tiers: 2 official-store matches, 3 trusted matches, and 3 best-value high-match options.
 
@@ -120,7 +120,7 @@ Each result can include:
 - model, SKU, GTIN, or variant evidence
 - observation time and source status
 
-Without a ZIP code, prices are public item prices. With a US ZIP, the plugin may create a short-lived anonymous Shopify cart and display item price, selected shipping, tax, and estimated total separately. Free delivery appears as `$0.00`.
+Search and Coupon research use public item prices; providing a ZIP alone does not create a cart or request a delivered-total quote. The separate selected-product quote tools may create a short-lived anonymous Shopify cart and display item price, selected shipping, tax, and estimated total separately. Use them only for an explicit quote request with a US ZIP. Free delivery appears as `$0.00` only when supported by quote evidence. The approved authorization and no-inventory-reservation requirements, including remaining implementation gaps, are tracked in the [Agent design](docs/architecture/agent-design.md#11-v01722-基线与本地实现差距).
 
 Shopify tax is used only when the merchant returns `totalTaxAmount`. Otherwise, the card can show a ZIP-based state and average local tax estimate. That estimate is not checkout tax. Some merchants require a full address or checkout before they return shipping or tax. Merchants that do not support Cart quoting remain item-price-only.
 
@@ -182,7 +182,7 @@ and falls back to that Feed's last valid cache. Newly joined programmes become s
 adding another source URL or product-category rule.
 Only links that carry this publisher ID and the row's merchant ID are returned, with an affiliate disclosure.
 
-Feed rows always provide item price, availability, and merchant product ID; GTIN, MPN, brand, and condition may be absent. Results remain `DISCOVERY_MATCH`, `DISCOVERY_ONLY`, and `condition: UNKNOWN`; they are not exact or same-product comparisons. When an exact prior merchant product path safely resolves to one supported Shopify Variant, a ZIP follow-up can show selected shipping, tax, and estimated total. Otherwise the result remains item-price-only. Coupons and member price remain unavailable unless separately verified. Other product sources keep canonical merchant links unless their own approved relationship is configured. Commission never affects ranking.
+Feed rows always provide item price, availability, and merchant product ID; GTIN, MPN, brand, and condition may be absent. Results remain `DISCOVERY_MATCH`, `DISCOVERY_ONLY`, and `condition: UNKNOWN`; they are not exact or same-product comparisons. When an exact prior merchant product path safely resolves to one supported Shopify Variant, an explicit selected-product quote request with a ZIP can show selected shipping, tax, and estimated total. Otherwise the result remains item-price-only. Coupons and member price remain unavailable unless separately verified. Other product sources keep canonical merchant links unless their own approved relationship is configured. Commission never affects ranking.
 
 See [Awin Product Feed production deployment](docs/product/awin-feed-deployment.md) for the scheduled downloader, persistent volume, authenticated endpoint, and required secrets.
 

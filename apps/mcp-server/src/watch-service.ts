@@ -1,4 +1,5 @@
 import { VerifiedDealsSchema, type DealPort, type VerifiedDeal } from "./deal-client.js";
+import { z } from "zod";
 import type { ShopifyPort, ShopifyProduct } from "./shopify-client.js";
 import { ShopifyCartQuoteError, type ShopifyCartQuotePort } from "./shopify-cart-quote.js";
 import { productWatchClarificationQuestions, type WatchRecord, type WatchStore } from "./watch-store.js";
@@ -90,8 +91,12 @@ async function observeProducts(
   });
   const products = result.products.filter((product) => {
     const checkedAt = Date.parse(product.checkedAt);
+    const previous = watch.spec.condition === "RESTOCKED" ? matchingInventoryObservation(watch, product, now) : undefined;
     return watchIdentityEvidenceMatches(product, watch) && identityMatches(product, watch) && merchantMatches(product, watch) &&
       conditionMatches(product, watch) &&
+      (watch.spec.condition !== "RESTOCKED" || (product.availability !== "UNKNOWN" &&
+        product.availabilityScope !== "PRODUCT_COLOR" && checkedAt <= now.getTime())) &&
+      (previous === undefined || checkedAt >= Date.parse(previous.checkedAt)) &&
       checkedAt <= now.getTime() + 120_000 && checkedAt >= now.getTime() - 900_000;
   });
   if (products.length === 0) throw new Error("DATA_SOURCE_UNAVAILABLE");
@@ -108,11 +113,14 @@ async function observeProducts(
       data: { ...productObservation(product), priceBasis: "ITEM_PRICE" }
     };
   }
-  const product = products.find((candidate) => candidate.availability === "IN_STOCK") ?? products[0];
+  const trackedProduct = watch.spec.condition === "RESTOCKED"
+    ? products.find((candidate) => matchingInventoryObservation(watch, candidate, now) !== undefined)
+    : undefined;
+  const product = trackedProduct ?? products.find((candidate) => candidate.availability === "IN_STOCK") ?? products[0];
   if (product === undefined) throw new Error("DATA_SOURCE_UNAVAILABLE");
   const inStock = product.availability === "IN_STOCK";
   const satisfied = watch.spec.condition === "RESTOCKED"
-    ? watch.lastObservation?.availability !== undefined && watch.lastObservation.availability !== "IN_STOCK" && inStock
+    ? inStock && matchingInventoryObservation(watch, product, now)?.availability === "OUT_OF_STOCK"
     : inStock;
   return {
     satisfied,
@@ -120,6 +128,31 @@ async function observeProducts(
     statusMessage: inStock ? `${product.title} is in stock; no new transition to alert.` : `${product.title} is not currently in stock.`,
     data: productObservation(product)
   };
+}
+
+const InventoryObservationSchema = z.object({
+  merchantId: z.string().min(1),
+  sourceHost: z.string().min(1),
+  handle: z.string().min(1),
+  variantDimensions: z.record(z.string(), z.string()),
+  condition: z.enum(["NEW", "USED", "REFURBISHED", "OPEN_BOX", "UNKNOWN"]),
+  availability: z.enum(["OUT_OF_STOCK", "IN_STOCK"]),
+  checkedAt: z.string().datetime({ offset: true })
+});
+
+function matchingInventoryObservation(
+  watch: WatchRecord, product: ShopifyProduct, now: Date
+): z.infer<typeof InventoryObservationSchema> | undefined {
+  const parsed = InventoryObservationSchema.safeParse(watch.lastObservation);
+  if (!parsed.success) return undefined;
+  const previous = parsed.data;
+  const previousTime = Date.parse(previous.checkedAt);
+  return previousTime <= now.getTime() &&
+    previous.merchantId === product.merchantId && previous.sourceHost === product.sourceHost &&
+    previous.handle === product.handle && previous.condition === product.condition &&
+    Object.keys(previous.variantDimensions).length === Object.keys(product.variantDimensions).length &&
+    Object.entries(previous.variantDimensions).every(([key, value]) => product.variantDimensions[key] === value)
+    ? previous : undefined;
 }
 
 async function observeDeliveredTotal(
@@ -251,6 +284,11 @@ function lowestPriced(products: ShopifyProduct[]) {
 
 function productObservation(product: ShopifyProduct): Record<string, unknown> {
   return {
+    merchantId: product.merchantId,
+    sourceHost: product.sourceHost,
+    handle: product.handle,
+    variantDimensions: { ...product.variantDimensions },
+    condition: product.condition,
     title: product.title,
     merchant: product.merchant,
     merchantUrl: product.merchantUrl,

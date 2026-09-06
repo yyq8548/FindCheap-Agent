@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
@@ -7,6 +7,7 @@ const WatchIdSchema = z.string().uuid();
 export const WatchAutomationIdSchema = z.string().trim().min(1).max(128)
   .regex(/^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/u);
 const MAX_WATCHES = 500;
+const DEFAULT_WATCH_DURATION_MS = 30 * 24 * 60 * 60_000;
 
 export const WatchConditionSchema = z.enum([
   "PRICE_BELOW",
@@ -170,20 +171,25 @@ export interface WatchStore {
   delete(watchId: string): Promise<boolean>;
 }
 
+function matchesActiveWatch(record: WatchRecord, requested: WatchSpec, now: string): boolean {
+  const previous = requested.expiresAt === undefined ? { ...record.spec, expiresAt: undefined } : record.spec;
+  return record.status !== "EXPIRED" &&
+    (record.spec.expiresAt === undefined || Date.parse(record.spec.expiresAt) > Date.parse(now)) &&
+    JSON.stringify(previous) === JSON.stringify(requested);
+}
+
 export function createMemoryWatchStore(): WatchStore {
   const records = new Map<string, WatchRecord>();
   return {
     async create(spec, now) {
       const normalized = WatchSpecSchema.parse(spec);
-      const key = createHash("sha256").update(JSON.stringify(normalized)).digest("hex");
-      const existing = [...records.values()].find((record) =>
-        createHash("sha256").update(JSON.stringify(record.spec)).digest("hex") === key && record.status !== "EXPIRED");
+      const existing = [...records.values()].find((record) => matchesActiveWatch(record, normalized, now));
       if (existing !== undefined) return existing;
       if (records.size >= MAX_WATCHES) throw new Error("watch limit reached");
       const record = WatchRecordSchema.parse({
         watchId: randomUUID(),
         schedulingState: "PENDING",
-        spec: normalized,
+        spec: { ...normalized, expiresAt: normalized.expiresAt ?? new Date(Date.parse(now) + DEFAULT_WATCH_DURATION_MS).toISOString() },
         status: "ACTIVE",
         createdAt: now,
         updatedAt: now
@@ -219,14 +225,13 @@ export function createJsonWatchStore(directory: string): WatchStore {
       await ensure();
       const normalized = WatchSpecSchema.parse(spec);
       const existingRecords = await listRecords();
-      const existing = existingRecords.find((record) =>
-        JSON.stringify(record.spec) === JSON.stringify(normalized) && record.status !== "EXPIRED");
+      const existing = existingRecords.find((record) => matchesActiveWatch(record, normalized, now));
       if (existing !== undefined) return existing;
       if (existingRecords.length >= MAX_WATCHES) throw new Error("watch limit reached");
       const record = WatchRecordSchema.parse({
         watchId: randomUUID(),
         schedulingState: "PENDING",
-        spec: normalized,
+        spec: { ...normalized, expiresAt: normalized.expiresAt ?? new Date(Date.parse(now) + DEFAULT_WATCH_DURATION_MS).toISOString() },
         status: "ACTIVE",
         createdAt: now,
         updatedAt: now

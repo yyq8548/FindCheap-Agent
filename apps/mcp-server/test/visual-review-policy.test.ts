@@ -24,6 +24,76 @@ const strongMatches = [pair("PRODUCT_TYPE"), pair("NECKLINE"), pair("LENGTH")];
 const visual = VisualProductInputSchema.parse({ productType: "dress", colors: ["black"], neckline: "boat neck", length: "mini" });
 
 describe("server visual verdict policy", () => {
+  it.each(["COLOR", "PATTERN"] as const)("downgrades exact metadata after a verified %s conflict without changing source facts", (attribute) => {
+    const original = { ...candidate, identityStatus: "EXACT" as const, resultGroup: "REQUESTED_PRODUCT" as const,
+      shopifyProduct: { ...candidate.shopifyProduct!, matchStatus: "EXACT" as const,
+        gtins: ["0123456789012"], variantDimensions: { color: "ivory", size: "M" } } };
+    const before = structuredClone(original);
+    const reference = VisualProductInputSchema.parse({ ...visual, sleeveType: "cap sleeve", patterns: ["floral"] });
+    const difference = attribute === "COLOR" ? { referenceEvidence: "black", candidateEvidence: "ivory" }
+      : { referenceEvidence: "floral", candidateEvidence: "striped" };
+    const reviewed = finalizeCodexVisualCandidates([{ candidate: original, verdict: {
+      classification: "POSSIBLE_SAME_ITEM", matches: [pair("NECKLINE"), pair("SLEEVE"), pair("LENGTH")],
+      conflicts: [{ attribute, ...difference }]
+    } }], false, 3, reference);
+    expect(reviewed).toHaveLength(1);
+    expect(reviewed[0]).toMatchObject({ identityStatus: "DISCOVERY_MATCH", resultGroup: "DISCOVERY",
+      visualMatchGroup: "HIGHLY_SIMILAR", shopifyProduct: { ...before.shopifyProduct, matchStatus: "DISCOVERY_MATCH" } });
+    expect(reviewed[0]!.visualMatchEvidence).toContain(attribute === "COLOR"
+      ? "Codex visual difference COLOR: black | ivory" : "Codex visual difference PATTERN: floral | striped");
+    expect(original).toEqual(before);
+  });
+
+  it.each(["NONE", "UNCERTAIN", "OCCLUDED"] as const)("retains exact metadata when a color conflict is %s", (conflict) => {
+    const original = { ...candidate, identityStatus: "EXACT" as const, resultGroup: "REQUESTED_PRODUCT" as const,
+      shopifyProduct: { ...candidate.shopifyProduct!, matchStatus: "EXACT" as const } };
+    const reference = VisualProductInputSchema.parse({ ...visual, sleeveType: "cap sleeve", observations: conflict === "NONE" ? [] : [
+      { attribute: "COLOR", value: "black", confidence: conflict === "UNCERTAIN" ? 0.2 : 0.99,
+        visibility: conflict === "OCCLUDED" ? "OCCLUDED" : "VISIBLE" }
+    ] });
+    const reviewed = finalizeCodexVisualCandidates([{ candidate: original, verdict: {
+      classification: "HIGHLY_SIMILAR", matches: [pair("NECKLINE"), pair("SLEEVE"), pair("LENGTH")],
+      conflicts: conflict === "NONE" ? [] : [pair("COLOR")]
+    } }], false, 3, reference);
+    expect(reviewed[0]).toMatchObject({ identityStatus: "EXACT", resultGroup: "REQUESTED_PRODUCT",
+      shopifyProduct: { matchStatus: "EXACT" } });
+    expect(reviewed[0]!.visualMatchEvidence?.join(" ")).not.toContain("visual difference");
+  });
+
+  it("does not keep exact metadata after a verified structural conflict", () => {
+    const original = { ...candidate, identityStatus: "EXACT" as const,
+      shopifyProduct: { ...candidate.shopifyProduct!, matchStatus: "EXACT" as const } };
+    expect(finalizeCodexVisualCandidates([{ candidate: original, verdict: {
+      classification: "POSSIBLE_SAME_ITEM", matches: [pair("PRODUCT_TYPE"), pair("COLOR")], conflicts: [pair("LENGTH")]
+    } }], false, 3, visual)).toEqual([]);
+    expect(original.identityStatus).toBe("EXACT");
+    expect(original.shopifyProduct.matchStatus).toBe("EXACT");
+  });
+
+  it.each(["AWIN_PRODUCT_FEED", "EBAY_BROWSE"] as const)("downgrades %s candidate identity without promoting or rewriting its discovery-only source", source => {
+    const { shopifyProduct: _shopifyProduct, ...base } = candidate;
+    const facts = { title: "Ivory boat neck cap sleeve mini dress", category: "dress", matchStatus: "DISCOVERY_MATCH" as const,
+      matchEvidence: ["source category evidence"], condition: "NEW" as const, itemPrice: { amountCents: 10_000, currency: "USD" as const },
+      checkedAt: "2026-09-04T00:00:00.000Z" };
+    const original: UnifiedCandidate = source === "AWIN_PRODUCT_FEED"
+      ? { ...base, source, identityStatus: "EXACT", awinProduct: { ...facts, condition: "UNKNOWN", merchantId: "123", merchant: "Fixture",
+        merchantProductId: "dress", availability: "IN_STOCK", merchantUrl: "https://example.com/products/dress",
+        affiliateUrl: "https://www.awin1.com/cread.php?awinmid=123" } }
+      : { ...base, source, identityStatus: "EXACT", ebayProduct: { ...facts, environment: "PRODUCTION", itemId: "v1|123|0",
+        productRef: "ebay-00000000000000000000000000000001", attributes: [], sellerName: "Fixture seller",
+        availability: "UNKNOWN", merchantUrl: "https://www.ebay.com/itm/123" } };
+    const before = structuredClone(original);
+    const reference = VisualProductInputSchema.parse({ ...visual, sleeveType: "cap sleeve" });
+    const reviewed = finalizeCodexVisualCandidates([{ candidate: original, verdict: {
+      classification: "HIGHLY_SIMILAR", matches: [pair("NECKLINE"), pair("SLEEVE"), pair("LENGTH")],
+      conflicts: [{ attribute: "COLOR", referenceEvidence: "black", candidateEvidence: "ivory" }]
+    } }], false, 3, reference);
+    expect(reviewed).toHaveLength(1);
+    expect(reviewed[0]).toMatchObject({ identityStatus: "DISCOVERY_MATCH", visualMatchGroup: "HIGHLY_SIMILAR" });
+    expect(reviewed[0]!.awinProduct ?? reviewed[0]!.ebayProduct).toEqual(before.awinProduct ?? before.ebayProduct);
+    expect(original).toEqual(before);
+  });
+
   it("keeps explicit visible sleeves through nonspecific hair and bag-strap occlusions", () => {
     const reference = VisualProductInputSchema.parse({ productType: "dress", neckline: "scoop neck", silhouette: "fit and flare",
       colors: ["ivory"], patterns: ["red floral"], sleeveType: "short loose puffed sleeves",

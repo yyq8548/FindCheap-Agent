@@ -3,7 +3,7 @@ name: compare-products
 description: Live shopping. Initial search: load, localized line, tool. No plan/files.
 ---
 
-# FindCheap Agent v0.17.22
+# FindCheap Agent v0.17.23
 
 Search/Chrome: R0; ZIP quote: R1. Never checkout/reserve/buy/pay/persist/request address.
 

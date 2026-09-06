@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { researchSelectedProductDeal } from "../src/deal-concierge.js";
+import { product } from "./fixtures/conversation-replay-support.js";
 
 const current = new Date("2026-08-26T12:00:00.000Z");
 const selected = {
@@ -20,6 +21,19 @@ const sitewide = {
 };
 
 describe("current selected-product deal research", () => {
+  it("does not treat a ZIP in coupon research as permission to create a cart", async () => {
+    const quote = vi.fn(async () => { throw new Error("UNEXPECTED_CART_WRITE"); });
+    const result = await researchSelectedProductDeal({
+      selected: { ...selected, quoteCapability: "DELIVERED_TOTAL_SUPPORTED", quoteProduct: product() },
+      zipCode: "10001", membershipIds: [], dealPort: { search: async () => [sitewide] },
+      cartQuotes: { quote }, now: current
+    });
+    expect(quote).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ quoteStatus: "NOT_REQUESTED", dealStatus: "CURRENT_DEAL_FOUND",
+      currentPrice: { basis: "ITEM_PRICE", amount: { amountCents: 9_999 }, checkedAt: selected.checkedAt } });
+    expect(result.deals).toHaveLength(1);
+  });
+
   it("provides a server-selected merchant candidate without promoting unrelated offers", async () => {
     const search = vi.fn(async () => [
       { ...sitewide, dealId: "minimum", title: "$40 off orders over $199", description: "Spend $199 to save $40" },

@@ -452,7 +452,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.17.22",
+        version: "0.17.23",
         terminalStage: "DOM_RENDERED",
         stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
       }
@@ -461,7 +461,7 @@ describe("shopping MCP server", () => {
     expect(result.structuredContent).toEqual({ status: "RECORDED" });
     expect(record).toHaveBeenCalledWith(expect.objectContaining({
       renderId,
-      version: "0.17.22",
+      version: "0.17.23",
       terminalStage: "DOM_RENDERED",
       stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
     }));
@@ -469,7 +469,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.17.22",
+        version: "0.17.23",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 14 }
       }
@@ -479,7 +479,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.17.22",
+        version: "0.17.23",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 300_001 }
       }
@@ -490,7 +490,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId: "22222222-2222-4222-8222-222222222222",
-        version: "0.17.22",
+        version: "0.17.23",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 1 }
       }
@@ -596,7 +596,7 @@ describe("shopping MCP server", () => {
     ]));
   });
 
-  it("enriches returned variants with ZIP-specific Shopify Cart estimates", async () => {
+  it("quotes returned variants only after an explicit selected-product quote", async () => {
     const quoteCart = vi.fn(async () => ({
       status: "ESTIMATED" as const,
       subtotal: { amountCents: 1_499, currency: "USD" as const },
@@ -620,7 +620,7 @@ describe("shopping MCP server", () => {
       { cartQuotes: { quote: quoteCart } }
     );
 
-    const result = await client.callTool({
+    const discovery = await client.callTool({
       name: "search_shopify_products",
       arguments: {
         query: "Valhalla Java",
@@ -631,6 +631,10 @@ describe("shopping MCP server", () => {
       }
     });
 
+    expect(quoteCart).not.toHaveBeenCalled();
+    const result = await client.callTool({ name: "quote_selected_shopify_product", arguments: {
+      renderId: (discovery.structuredContent as { renderId: string }).renderId, position: 1, zipCode: "33433"
+    } });
     expect(quoteCart).toHaveBeenCalledWith(expect.objectContaining({ merchant: "Death Wish Coffee" }), "33433");
     expect(result.structuredContent).toMatchObject({
       priceScope: "SHOPIFY_CART_ESTIMATE",
@@ -663,9 +667,9 @@ describe("shopping MCP server", () => {
         }
       }]
     });
-    expect(JSON.stringify(result.content)).toContain("estimated total: USD 21.04");
-    expect(JSON.stringify(result.content)).toContain("ZIP state-average estimate");
-    expect(JSON.stringify(result.content)).toContain("full address or checkout");
+    expect(JSON.stringify(result.content)).toContain("USD 21.04");
+    expect(JSON.stringify(result.content)).toContain("ZIP state-average estimated tax");
+    expect(JSON.stringify(result.content)).toContain("final checkout may change");
   });
 
   it("quotes a previously returned variant from its stable reference without searching by title", async () => {
@@ -923,7 +927,7 @@ describe("shopping MCP server", () => {
     expect(search).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps item-price output when one merchant Cart quote fails", async () => {
+  it("keeps every search result item-price-only without attempting merchant Cart quotes", async () => {
     const second = {
       ...(await shopifyPort.search({ query: "coffee", limit: 3 })).products[0]!,
       merchantId: "shopify-456",
@@ -969,13 +973,14 @@ describe("shopping MCP server", () => {
     });
 
     expect(result.structuredContent).toMatchObject({
-      priceScope: "MIXED",
-      cartQuoteCoverage: { attempted: 2, succeeded: 1 },
+      priceScope: "ITEM_PRICE_ONLY",
+      cartQuoteCoverage: { attempted: 0, succeeded: 0 },
       products: [
-        { pricing: { deliveredPrice: { status: "ESTIMATED" } } },
+        { pricing: { deliveredPrice: { status: "UNAVAILABLE" } } },
         { pricing: { deliveredPrice: { status: "UNAVAILABLE" } } }
       ]
     });
+    expect(quoteCart).not.toHaveBeenCalled();
   });
 
   it("forwards an exact item-price ceiling and reports it in the response", async () => {
