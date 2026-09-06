@@ -1,5 +1,7 @@
 # FindCheap Agent
 
+This is the product summary. The maintained [Agent design](docs/architecture/agent-design.md) defines approved behavior, architecture, implementation gaps and acceptance; target rules are not claims of current capability.
+
 FindCheap helps people find relevant, trustworthy, good-value products without buying on their behalf.
 
 ## Product promise

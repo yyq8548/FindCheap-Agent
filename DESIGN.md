@@ -1,5 +1,7 @@
 # FindCheap response design
 
+This file covers response and card presentation. System behavior, architecture and acceptance belong to the maintained [Agent design](docs/architecture/agent-design.md), which distinguishes approved targets from implemented capability.
+
 FindCheap should feel like a capable friend who is actively helping the user find a good product at a good price. The interface stays restrained, evidence-first, and native to Codex.
 
 ## Response hierarchy

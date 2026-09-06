@@ -5,6 +5,8 @@
 
 English | [简体中文](README.zh-CN.md)
 
+[Agent design](docs/architecture/agent-design.md) is the maintained architecture and approved-behavior reference. It separates implemented behavior from targets and outstanding acceptance. Contributor entry: [AGENTS.md](AGENTS.md).
+
 Product form: **Codex Plugin Agent**.
 
 Current package: **v0.17.22** — model-visible context receipts keep clarification,
@@ -13,9 +15,9 @@ selection, comparison and authorized recovery bound to the original goal. See th
 
 FindCheap Agent is a read-only Codex plugin for product search, offer matching, price checks, product cards, evidence-backed comparison views, verified deals, and shopping watches. It returns up to eight products in three tiers: 2 official-store matches, 3 trusted matches, and 3 best-value high-match options.
 
-Codex calls one public `search_products` tool through a local stdio MCP server. The router searches eligible Awin, Shopify, eBay, and verified official-store sources, then ranks qualifying products by product relevance and merchant tier. It automatically runs one broader internal search when the first pass cannot fill the requested cards. It offers an authorized bounded Chrome search only after both API passes return no usable verified product.
+Codex starts text product discovery with `search_products` through a local stdio MCP server; image, comparison and follow-up operations have their own tools. Eligible Awin, Shopify, configured eBay and official-store sources can run in parallel. Insufficient recommendable results may trigger bounded complementary retrieval; the card limit is not a quota. Public-web recovery requires a server-issued recovery action and host authorization, not merely an empty result.
 
-The plugin does not order, check out, or submit payment. It also does not reserve inventory.
+Ordering, checkout, payment and inventory reservation are outside the permitted product scope. Anonymous-cart quotes have separate approval and side-effect requirements; their target rules and verification gaps are recorded in the Agent design.
 
 ## Usage
 
@@ -218,4 +220,4 @@ See [sharing and installation](docs/product/findcheap-agent-share-package.md) fo
 
 Registry expansion never turns an Awin relationship or technical storefront response into merchant trust. See [Registry Builder](docs/product/registry-builder.md).
 
-The unified router uses approved affiliate sources and Shopify Global Catalog, while authorized Chrome remains a complete-zero-result fallback.
+The unified router uses eligible configured sources; bounded Chrome recovery follows server eligibility and host consent. See the Agent design for target behavior and current gaps.
