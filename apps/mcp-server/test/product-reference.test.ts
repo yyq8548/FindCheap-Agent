@@ -88,8 +88,8 @@ describe("merchant-qualified product reference", () => {
         checkedAt: "2026-09-04T19:51:00.000Z", expiresAt: "2026-09-04T20:01:00.000Z"
       };
     });
-    const replay = await connectReplay(async () => searchResult(collidingProducts().map((entry) => ({ ...entry, checkoutPlatform: "SHOPIFY" as const }))),
-      { cartQuotes: { quote } });
+    const replay = await connectReplay(async () => searchResult(collidingProducts().map((entry) => ({ ...entry, handle: "456", checkoutPlatform: "SHOPIFY" as const }))),
+      { cartQuotes: { quote } }, async () => ({ action: "accept", content: { approved: true } }));
     try {
       const response = await replay.client.callTool({ name: "search_products", arguments: { query: "wig", productType: "wig", comparisonMode: "DISCOVERY" } });
       const snapshot = response.structuredContent as Snapshot;

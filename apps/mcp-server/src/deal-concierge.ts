@@ -37,7 +37,7 @@ export async function researchSelectedProductDeal(input: {
     availability: "IN_STOCK" | "OUT_OF_STOCK" | "UNKNOWN";
     itemPrice?: { amountCents: number; currency: "USD" };
     checkedAt: string;
-    quoteCapability: "DELIVERED_TOTAL_SUPPORTED" | "ZIP_ESTIMATE_ONLY" | "MERCHANT_CHECKOUT_ONLY";
+    quoteCapability: "DELIVERED_TOTAL_SUPPORTED" | "ZIP_ESTIMATE_ONLY" | "MERCHANT_CHECKOUT_ONLY" | "NOT_CHECKED";
     quoteProduct?: ShopifyProduct;
   };
   zipCode?: string;

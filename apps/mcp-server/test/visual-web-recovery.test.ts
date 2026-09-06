@@ -1,6 +1,6 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { ElicitRequestSchema, type ElicitResult } from "@modelcontextprotocol/sdk/types.js";
+import { CallToolResultSchema, ElicitRequestSchema, type ElicitResult } from "@modelcontextprotocol/sdk/types.js";
 import { describe, expect, it, vi } from "vitest";
 import { createShoppingServer, type ProductCardContent } from "../src/server.js";
 import { product, searchResult } from "./fixtures/conversation-replay-support.js";
@@ -25,12 +25,13 @@ const conflict = { classification: "CONFLICT", matches: [], conflicts: [
 ] };
 
 async function connect(options: { consent?: boolean; candidates?: number; malformedConsent?: boolean; imagesFail?: boolean;
-  now?: () => Date; readAdvance?: () => void; wrongCategory?: boolean } = {}) {
+  now?: () => Date; readAdvance?: () => void; wrongCategory?: boolean; webBrand?: string } = {}) {
   const network = vi.fn(async () => { throw new Error("NETWORK_FORBIDDEN_IN_CONVERSATION_REPLAY"); });
   vi.stubGlobal("fetch", network);
   const candidates = Array.from({ length: options.candidates ?? 0 }, (_, index) => { const candidate = dress(String(index)); delete candidate.sourceKind; return candidate; });
   const read = vi.fn(async () => { options.readAdvance?.(); return options.wrongCategory
-    ? { ...dress(), title: "Black lace shoes", productType: "shoes", description: "Black lace shoes." } : dress(); });
+    ? { ...dress(), title: "Black lace shoes", productType: "shoes", description: "Black lace shoes." }
+    : { ...dress(), ...(options.webBrand === undefined ? {} : { brand: options.webBrand }) }; });
   const load = vi.fn(async (value: string) => { if (options.imagesFail) throw new Error("REQUEST_FAILED");
     return { data: Buffer.from(`synthetic image ${value}`).toString("base64"), mimeType: "image/jpeg" as const }; });
   const server = createShoppingServer({ search: async () => searchResult(candidates) }, undefined, {
@@ -48,10 +49,37 @@ async function connect(options: { consent?: boolean; candidates?: number; malfor
 }
 
 describe("descriptor-only visual web recovery MCP contract", () => {
-  it.each([0, 1])("keeps a failed visual goal after %i initial candidates, requiring authorization and review before cards", async candidates => {
+  it.each(["Ishow", "OtherBrand"])("keeps the original brand and truthful colorway acceptance after web recovery: %s", async webBrand => {
+    const replay = await connect({ webBrand });
+    try {
+      const initial = await replay.client.callTool({ name: "search_visual_candidates", arguments: {
+        ...imageRequest, brand: "Ishow", brandMode: "OBSERVED"
+      } });
+      const parent = initial.structuredContent as ProductCardContent;
+      const begin = await replay.client.callTool({ name: "begin_web_search", arguments: { renderId: parent.renderId } });
+      expect(begin.structuredContent).toMatchObject({ status: "READY" });
+      const recovered = await replay.client.callTool({ name: "complete_web_search", arguments: {
+        renderId: parent.renderId, webSessionId: (begin.structuredContent as { webSessionId: string }).webSessionId, urls: [url]
+      } });
+      expect(recovered.isError).not.toBe(true);
+      const review = (recovered.structuredContent as ProductCardContent).visualReview as Review;
+      expect(review.candidates).toHaveLength(1);
+      const result = await replay.client.callTool({ name: "finalize_visual_search", arguments: { visualSessionId: review.visualSessionId,
+        verdicts: review.candidates.map(({ candidateId }) => ({ candidateId, verdict: { ...match,
+          conflicts: [{ attribute: "COLOR", referenceEvidence: "black", candidateEvidence: "white" }] } }))
+      } });
+      expect(result.isError).not.toBe(true);
+      expect((result.structuredContent as ProductCardContent).products).toHaveLength(webBrand === "Ishow" ? 1 : 0);
+      expect(result._meta?.["findcheap/searchTrace"]).toMatchObject({ reviewConflicts: webBrand === "Ishow" ? 0 : 1, reviewInsufficient: 0 });
+    } finally { await replay.close(); }
+  });
+  it.each([
+    { candidates: 0, responseLocale: "zh-CN" }, { candidates: 1, responseLocale: "zh-CN" },
+    { candidates: 0, responseLocale: "en-US" }, { candidates: 1, responseLocale: "en-US" }
+  ])("keeps a failed visual goal after $candidates initial candidates in $responseLocale, requiring authorization and review before cards", async ({ candidates, responseLocale }) => {
     const replay = await connect({ candidates });
     try {
-      let initial = await replay.client.callTool({ name: "search_visual_candidates", arguments: imageRequest });
+      let initial = await replay.client.callTool({ name: "search_visual_candidates", arguments: { ...imageRequest, responseLocale } });
       if (candidates > 0) {
         const review = initial.structuredContent as Review;
         initial = await replay.client.callTool({ name: "finalize_visual_search", arguments: { visualSessionId: review.visualSessionId,
@@ -59,12 +87,29 @@ describe("descriptor-only visual web recovery MCP contract", () => {
       }
       const parent = initial.structuredContent as ProductCardContent;
       expect(parent).toMatchObject({ renderId: expect.any(String), goalId: expect.any(String), recovery: { action: "REQUEST_WEB_SEARCH" } });
+      expect(parent.visualSearchOutcome).toMatchObject({ sameItemStatus: "NOT_CONFIRMED", outOfStockStatus: "NONE", incomplete: true });
+      const emptyMessage = responseLocale === "zh-CN" ? "未返回符合条件的视觉候选。" : "No eligible visual candidates were returned.";
+      const incompleteMessage = responseLocale === "zh-CN" ? "检索尚不完整，不能据此判断商品不存在。" : "Retrieval is incomplete, not proof that the product is absent.";
+      expect(parent.visualSearchOutcome?.message).toContain(emptyMessage);
+      expect(parent.visualSearchOutcome?.message).toContain(incompleteMessage);
+      expect(parent.message).toContain(emptyMessage);
+      expect(parent.message).toContain(incompleteMessage);
+      expect(parent.message).toContain(parent.visualSearchFailure!.message);
+      expect(parent.message).not.toMatch(/当前展示已复核|reviewed similar choices.*shown/);
+      const modelText = CallToolResultSchema.parse(initial).content.filter(block => block.type === "text").map(block => block.text).join("\n");
+      expect(modelText).toContain(parent.message);
+      expect(modelText).toContain(incompleteMessage);
+      const remembered = await replay.client.callTool({ name: "render_product_cards", arguments: { renderId: parent.renderId } });
+      expect(remembered.isError).not.toBe(true);
+      expect(remembered.structuredContent).toMatchObject({ message: parent.message,
+        visualSearchOutcome: parent.visualSearchOutcome, visualSearchFailure: parent.visualSearchFailure, recovery: parent.recovery });
       const begin = await replay.client.callTool({ name: "begin_web_search", arguments: { renderId: parent.renderId } });
       expect(begin.structuredContent).toMatchObject({ status: "READY", diagnostics: { hostAction: "ACCEPT_TRUE" } });
       expect(JSON.stringify(begin.structuredContent)).not.toContain("imageUrl");
       const args = { renderId: parent.renderId, webSessionId: (begin.structuredContent as { webSessionId: string }).webSessionId, urls: [url] };
       const recovered = await replay.client.callTool({ name: "complete_web_search", arguments: args });
       expect(recovered.structuredContent).toMatchObject({ products: [], visualReview: { finalAnswerAllowed: false, requiredNextTool: "finalize_visual_search" } });
+      expect(recovered.structuredContent).not.toHaveProperty("visualSearchOutcome");
       expect(recovered._meta?.["findcheap/visualEvaluation"]).toMatchObject({ reviewedCandidates: [expect.objectContaining({ candidateId: expect.any(String) })] });
       const review = (recovered.structuredContent as ProductCardContent).visualReview as Review;
       const result = await replay.client.callTool({ name: "finalize_visual_search", arguments: { visualSessionId: review.visualSessionId,
@@ -91,9 +136,39 @@ describe("descriptor-only visual web recovery MCP contract", () => {
       const result = await replay.client.callTool({ name: "complete_web_search", arguments: { renderId: parent.renderId,
         webSessionId: (begin.structuredContent as { webSessionId: string }).webSessionId, urls: [url] } });
       expect(result.structuredContent).toMatchObject({ products: [], goalId: parent.goalId,
-        visualSearchFailure: { code: "SEARCH_BUDGET_EXHAUSTED" }, recovery: { action: "REPORT_INCOMPLETE" } });
+        visualSearchFailure: { code: "SEARCH_BUDGET_EXHAUSTED" }, recovery: { action: "REPORT_INCOMPLETE" },
+        visualSearchOutcome: { sameItemStatus: "NOT_CONFIRMED", outOfStockStatus: "NONE", incomplete: true } });
       expect(result._meta?.["findcheap/visualEvaluation"]).toMatchObject({ reviewedCandidates: [], finalProductHashes: [] });
       expect(replay.read).toHaveBeenCalledTimes(1); expect(replay.load).not.toHaveBeenCalled();
+    } finally { await replay.close(); }
+  });
+
+  it("retains one truthful incomplete outcome when a recovered candidate image cannot load", async () => {
+    const replay = await connect({ imagesFail: true });
+    try {
+      const initial = await replay.client.callTool({ name: "search_visual_candidates", arguments: imageRequest });
+      const parent = initial.structuredContent as ProductCardContent;
+      const begin = await replay.client.callTool({ name: "begin_web_search", arguments: { renderId: parent.renderId } });
+      expect(begin.structuredContent).toMatchObject({ status: "READY" });
+      const result = await replay.client.callTool({ name: "complete_web_search", arguments: { renderId: parent.renderId,
+        webSessionId: (begin.structuredContent as { webSessionId: string }).webSessionId, urls: [url] } });
+      expect(result.isError).not.toBe(true);
+      const content = result.structuredContent as ProductCardContent;
+      expect(content).toMatchObject({ products: [], goalId: parent.goalId,
+        visualSearchFailure: { code: "NO_LOADABLE_IMAGES" }, recovery: { action: "REPORT_INCOMPLETE" },
+        visualSearchOutcome: { sameItemStatus: "NOT_CONFIRMED", outOfStockStatus: "NONE", incomplete: true } });
+      expect(content.message).toContain("未返回符合条件的视觉候选。");
+      expect(content.message).toContain("检索尚不完整，不能据此判断商品不存在。");
+      expect(content.message).toContain(content.visualSearchFailure!.message);
+      expect(content.message).not.toContain("当前展示已复核");
+      expect(CallToolResultSchema.parse(result).content.filter(block => block.type === "text").map(block => block.text).join("\n")).toContain(content.message);
+      const remembered = await replay.client.callTool({ name: "render_product_cards", arguments: { renderId: content.renderId } });
+      expect(remembered.isError).not.toBe(true);
+      expect(remembered.structuredContent).toMatchObject({ visualSearchOutcome: content.visualSearchOutcome,
+        visualSearchFailure: content.visualSearchFailure, message: content.message, recovery: content.recovery });
+      expect((await replay.client.callTool({ name: "begin_web_search", arguments: { renderId: content.renderId } })).isError).toBe(true);
+      expect(replay.approve).toHaveBeenCalledTimes(1); expect(replay.read).toHaveBeenCalledTimes(1);
+      expect(replay.load).toHaveBeenCalledTimes(1);
     } finally { await replay.close(); }
   });
 
@@ -116,7 +191,8 @@ describe("descriptor-only visual web recovery MCP contract", () => {
       const begin = await replay.client.callTool({ name: "begin_web_search", arguments: { renderId: parent.renderId } });
       const result = await replay.client.callTool({ name: "complete_web_search", arguments: { renderId: parent.renderId,
         webSessionId: (begin.structuredContent as { webSessionId: string }).webSessionId, urls: [url] } });
-      expect(result.structuredContent).toMatchObject({ products: [], recovery: { action: "REPORT_INCOMPLETE" } });
+      expect(result.structuredContent).toMatchObject({ products: [], recovery: { action: "REPORT_INCOMPLETE" },
+        visualSearchOutcome: { sameItemStatus: "NOT_CONFIRMED", incomplete: true } });
       expect((result.structuredContent as ProductCardContent).visualReview).toBeUndefined();
       expect(replay.load).not.toHaveBeenCalled();
     } finally { await replay.close(); }
@@ -127,7 +203,9 @@ describe("descriptor-only visual web recovery MCP contract", () => {
     try {
       const initial = await replay.client.callTool({ name: "search_visual_candidates", arguments: imageRequest });
       const content = initial.structuredContent as ProductCardContent;
-      expect(content).toMatchObject({ recovery: { action: "REPORT_INCOMPLETE", reason: "BUDGET_EXHAUSTED" } });
+      expect(content).toMatchObject({ recovery: { action: "REPORT_INCOMPLETE", reason: "BUDGET_EXHAUSTED" },
+        visualSearchFailure: { code: "SEARCH_BUDGET_EXHAUSTED" },
+        visualSearchOutcome: { sameItemStatus: "NOT_CONFIRMED", incomplete: true } });
       expect((await replay.client.callTool({ name: "begin_web_search", arguments: { renderId: content.renderId } })).isError).toBe(true);
       expect(replay.approve).not.toHaveBeenCalled(); expect(replay.read).not.toHaveBeenCalled();
       expect(replay.load).toHaveBeenCalledTimes(12);
@@ -157,7 +235,9 @@ describe("descriptor-only visual web recovery MCP contract", () => {
       result = await replay.client.callTool({ name: "finalize_visual_search", arguments: { visualSessionId: review.visualSessionId,
         verdicts: review.candidates.map(candidate => ({ candidateId: candidate.candidateId, verdict: conflict })) } });
       const content = result.structuredContent as ProductCardContent;
-      expect(content).toMatchObject({ renderId: expect.any(String), goalId: expect.any(String), products: [], recovery: { action: "REPORT_INCOMPLETE" } });
+      expect(content).toMatchObject({ renderId: expect.any(String), goalId: expect.any(String), products: [], recovery: { action: "REPORT_INCOMPLETE" },
+        visualSearchFailure: { code: "CANDIDATES_CONFLICTED" },
+        visualSearchOutcome: { sameItemStatus: "NOT_CONFIRMED", incomplete: true } });
       expect((await replay.client.callTool({ name: "begin_web_search", arguments: { renderId: content.renderId } })).isError).toBe(true);
       expect(replay.approve).not.toHaveBeenCalled(); expect(replay.read).not.toHaveBeenCalled();
       expect(replay.load.mock.calls.length).toBeLessThanOrEqual(12);

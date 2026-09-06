@@ -7,10 +7,13 @@ import { z } from "zod";
 import { isForbiddenIp } from "../../../packages/network-safety/src/safe-fetch.js";
 import type { ShopifyProduct } from "./shopify-client.js";
 import { estimateSalesTax } from "./sales-tax-estimator.js";
+import { consumeQuoteAuthorization, type QuoteAuthorization } from "./quote-authorization.js";
 
 const API_VERSION = "2026-07";
 const MAX_RESPONSE_BYTES = 512 * 1024;
 const QUOTE_TTL_MS = 10 * 60_000;
+// Reviewed fixed 2026-07 operations; re-review before this API qualification expires.
+const API_REVIEW_EXPIRES_AT = Date.parse("2027-07-01T00:00:00.000Z");
 
 const MoneySchema = z.object({
   amount: z.string().regex(/^\d+(?:\.\d{1,2})?$/u).max(20),
@@ -35,6 +38,16 @@ const DeliveryGroupSchema = z.object({
 }).passthrough();
 const CartSchema = z.object({
   id: z.string().startsWith("gid://shopify/Cart/").max(2_048),
+  lines: z.object({
+    nodes: z.array(z.object({
+      __typename: z.string(),
+      quantity: z.number().int(),
+      merchandise: z.object({ __typename: z.string(), id: z.string() }).passthrough(),
+      sellingPlanAllocation: z.object({ __typename: z.string() }).passthrough().nullable(),
+      parentRelationship: z.object({ __typename: z.string() }).passthrough().nullable().optional()
+    }).passthrough()).max(2),
+    pageInfo: z.object({ hasNextPage: z.boolean() }).passthrough()
+  }).passthrough(),
   cost: CostSchema,
   deliveryGroups: z.object({ nodes: z.array(DeliveryGroupSchema).max(20) }).passthrough()
 }).passthrough();
@@ -65,6 +78,16 @@ const UpdateResponseSchema = z.object({
 
 const CART_FIELDS = `
   id
+  lines(first: 2) {
+    nodes {
+      __typename
+      quantity
+      merchandise { __typename ... on ProductVariant { id } }
+      sellingPlanAllocation { __typename }
+      ... on CartLine { parentRelationship { __typename } }
+    }
+    pageInfo { hasNextPage }
+  }
   cost {
     subtotalAmount { amount currencyCode }
     totalAmount { amount currencyCode }
@@ -114,6 +137,7 @@ export type ShopifyCartRequest = {
   query: string;
   variables: Record<string, unknown>;
   timeoutMs: number;
+  signal?: AbortSignal;
 };
 
 export type ShopifyCartEstimate = {
@@ -139,6 +163,7 @@ export type ShopifyCartEstimate = {
 };
 
 export const ShopifyQuoteFailureCodes = [
+  "QUOTE_POLICY_UNVERIFIED",
   "FULL_ADDRESS_REQUIRED",
   "NO_DELIVERY_OPTIONS",
   "MERCHANT_CART_UNAVAILABLE",
@@ -166,7 +191,8 @@ export type ShopifyCartQuoteProduct = Pick<
 export interface ShopifyCartQuotePort {
   quote(
     product: ShopifyCartQuoteProduct,
-    zipCode: string
+    zipCode: string,
+    authorization?: QuoteAuthorization
   ): Promise<ShopifyCartEstimate>;
 }
 
@@ -187,12 +213,28 @@ export function createShopifyCartQuotePort(
   const clock = dependencies.clock ?? { now: () => new Date() };
 
   return {
-    async quote(product, zipCode) {
-      const target = quoteTarget(product);
+    async quote(product, zipCode, authorization) {
+      const { url: target, variantId } = validateShopifyCartQuoteTarget(product);
       const zip = parseZip(zipCode);
-      const variantId = parseVariantId(product.handle);
+      const reviewTime = clock.now().getTime();
+      const lease = consumeQuoteAuthorization(authorization, product, zip);
+      if (!Number.isFinite(reviewTime) || reviewTime >= API_REVIEW_EXPIRES_AT ||
+        lease === undefined) {
+        throw new ShopifyCartQuoteError("QUOTE_POLICY_UNVERIFIED");
+      }
+      const authorizedRequest = async (input: ShopifyCartRequest) => {
+        const remaining = Math.min(timeoutMs, lease.remainingMs());
+        if (remaining <= 0 || clock.now().getTime() >= API_REVIEW_EXPIRES_AT) {
+          throw new ShopifyCartQuoteError("QUOTE_TIMEOUT");
+        }
+        const signal = AbortSignal.any([lease.signal, AbortSignal.timeout(remaining)]);
+        const result = await withDeadline(request({ ...input, timeoutMs: remaining, signal }),
+          remaining, "Shopify Cart request timed out", signal);
+        if (lease.remainingMs() <= 0) throw new ShopifyCartQuoteError("QUOTE_TIMEOUT");
+        return result;
+      };
       try {
-      const create = parseCreate(await request({
+      const create = parseCreate(await authorizedRequest({
         url: target,
         query: CREATE_CART,
         variables: {
@@ -212,6 +254,7 @@ export function createShopifyCartQuotePort(
         },
         timeoutMs
       }));
+      verifyCartLine(create, variantId);
       if (create.deliveryGroups.nodes.length === 0) {
         throw new ShopifyCartQuoteError("FULL_ADDRESS_REQUIRED");
       }
@@ -228,7 +271,7 @@ export function createShopifyCartQuotePort(
           option: selected
         };
       });
-      const updated = parseUpdate(await request({
+      const updated = parseUpdate(await authorizedRequest({
         url: target,
         query: SELECT_DELIVERY,
         variables: {
@@ -240,6 +283,7 @@ export function createShopifyCartQuotePort(
         },
         timeoutMs
       }));
+      verifyCartLine(updated, variantId);
       if (updated.id !== create.id) throw new Error("Shopify Cart response identity changed");
       const selectedOptions = selections.map((selection) => {
         const updatedGroup = updated.deliveryGroups.nodes.find((group) => group.id === selection.deliveryGroupId);
@@ -307,8 +351,22 @@ function unavailablePort(): ShopifyCartQuotePort {
   return { async quote() { throw new Error("DATA_SOURCE_UNAVAILABLE"); } };
 }
 
-function quoteTarget(product: ShopifyCartQuoteProduct): string {
+function verifyCartLine(cart: z.infer<typeof CartSchema>, variantId: string): void {
+  const line = cart.lines.nodes[0];
+  if (cart.lines.nodes.length !== 1 || cart.lines.pageInfo.hasNextPage ||
+    line?.__typename !== "CartLine" || line.quantity !== 1 ||
+    line.merchandise.__typename !== "ProductVariant" ||
+    line.merchandise.id !== `gid://shopify/ProductVariant/${variantId}` ||
+    line.sellingPlanAllocation !== null || line.parentRelationship !== null) {
+    throw new ShopifyCartQuoteError("VARIANT_REJECTED");
+  }
+}
+
+export function validateShopifyCartQuoteTarget(product: ShopifyCartQuoteProduct): {
+  url: string; sourceHost: string; variantId: string;
+} {
   const sourceHost = normalizeHost(product.sourceHost);
+  const variantId = parseVariantId(product.handle);
   let merchant: URL;
   try {
     merchant = new URL(product.merchantUrl);
@@ -322,7 +380,11 @@ function quoteTarget(product: ShopifyCartQuoteProduct): string {
   ) {
     throw new Error("Shopify merchant host does not match Catalog evidence");
   }
-  return `https://${sourceHost}/api/${API_VERSION}/graphql.json`;
+  const explicitVariants = merchant.searchParams.getAll("variant");
+  if (explicitVariants.length > 1 || (explicitVariants.length === 1 && explicitVariants[0] !== variantId)) {
+    throw new Error("Shopify merchant variant contradicts the selected identity");
+  }
+  return { url: `https://${sourceHost}/api/${API_VERSION}/graphql.json`, sourceHost, variantId };
 }
 
 function parseVariantId(value: string): string {
@@ -443,12 +505,17 @@ async function requestJson(
   requestImpl: typeof httpsRequest
 ): Promise<unknown> {
   const url = new URL(input.url);
-  const deadline = Date.now() + input.timeoutMs;
+  input.signal?.throwIfAborted();
+  const deadline = performance.now() + input.timeoutMs;
+  const timeoutSignal = AbortSignal.timeout(input.timeoutMs);
+  const signal = input.signal === undefined ? timeoutSignal : AbortSignal.any([input.signal, timeoutSignal]);
   const addresses = await withDeadline(
     resolve(url.hostname, { all: true, verbatim: true }),
     input.timeoutMs,
-    "Shopify Cart DNS timed out"
+    "Shopify Cart DNS timed out",
+    signal
   );
+  signal.throwIfAborted();
   if (
     addresses.length === 0 ||
     addresses.some(({ address, family }) =>
@@ -457,11 +524,10 @@ async function requestJson(
   ) throw new Error("Shopify Cart DNS is unsafe");
   const body = JSON.stringify({ query: input.query, variables: input.variables });
   if (Buffer.byteLength(body, "utf8") > 32 * 1024) throw new Error("Shopify Cart request is too large");
-  const remainingMs = deadline - Date.now();
+  const remainingMs = Math.floor(deadline - performance.now());
   if (remainingMs <= 0) throw new Error("Shopify Cart request timed out");
-  const signal = AbortSignal.timeout(remainingMs);
 
-  return new Promise<unknown>((resolve, reject) => {
+  return withDeadline(new Promise<unknown>((resolve, reject) => {
     const options: RequestOptions = {
       protocol: "https:",
       hostname: url.hostname,
@@ -497,6 +563,7 @@ async function requestJson(
       const contentType = response.headers["content-type"];
       if (
         response.statusCode !== 200 ||
+        response.headers["x-shopify-api-version"] !== API_VERSION ||
         typeof contentType !== "string" ||
         !/^application\/json(?:\s*;|$)/iu.test(contentType)
       ) {
@@ -535,19 +602,24 @@ async function requestJson(
     });
     request.once("error", reject);
     request.end(body);
-  });
+  }), remainingMs, "Shopify Cart body timed out", signal);
 }
 
-async function withDeadline<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+async function withDeadline<T>(promise: Promise<T>, timeoutMs: number, message: string, signal?: AbortSignal): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let abort: (() => void) | undefined;
   try {
     return await Promise.race([
       promise,
       new Promise<T>((_resolve, reject) => {
         timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+        abort = () => reject(new ShopifyCartQuoteError("QUOTE_TIMEOUT"));
+        if (signal?.aborted === true) abort();
+        else signal?.addEventListener("abort", abort, { once: true });
       })
     ]);
   } finally {
     if (timer !== undefined) clearTimeout(timer);
+    if (abort !== undefined) signal?.removeEventListener("abort", abort);
   }
 }

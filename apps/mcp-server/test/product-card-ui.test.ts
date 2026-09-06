@@ -81,6 +81,40 @@ function couponFixture(coupons: Record<string, unknown>) {
 }
 
 describe("product-card MCP Apps UI", () => {
+  it.each(["zh-CN", "en-US"])("renders unchecked capability without unsupported claims or inline comparison quote controls (%s)", locale => {
+    const fixture = couponFixture({ verified: [] });
+    Object.assign(fixture.products[0]!, { quoteCapability: "NOT_CHECKED" });
+    const expected = locale === "zh-CN" ? "报价能力尚未核验" : "Quote capability not verified";
+    expect(text(renderFixture({ ...fixture, locale }))).toContain(expected);
+    const comparison = renderFixture({ status: "OK", locale, entries: [
+      { selectionId: "a", title: "A", deliveredTotalStatus: "NOT_CHECKED" },
+      { selectionId: "b", title: "B", deliveredTotalStatus: "NOT_QUOTED" }
+    ] });
+    expect(text(comparison)).toContain(expected);
+    expect(nodes(comparison).filter(node => node.tagName === "INPUT")).toHaveLength(0);
+  });
+
+  it.each(["zh-CN", "en-US"])("renders visual outcome and scoped similar recommendation without hiding changed-variant review (%s)", locale => {
+    const fixture = couponFixture({ verified: [] });
+    Object.assign(fixture.products[0]!, { visualMatchGroup: "SAME_STYLE", matchStatus: "SIMILAR",
+      visualReviewAssessment: { recommendationScope: "SIMILAR" } });
+    const message = locale === "zh-CN" ? "可能同款候选缺货；检索尚不完整。" : "A possible same item is out of stock; retrieval is incomplete.";
+    const result = text(renderFixture({ ...fixture, locale, visualSearchOutcome: { message },
+      recommendation: { state: "READY", primarySelectionId: "fixture" } }));
+    expect(result).toContain(message);
+    expect(result).toContain(locale === "zh-CN" ? "相似款中值得先看" : "First among similar choices");
+    Object.assign(fixture.products[0]!, { visualReviewRequired: true });
+    expect(text(renderFixture({ ...fixture, locale }))).toContain(locale === "zh-CN" ? "所选变体的图片匹配尚未复核" : "Visual matching for the selected variant needs review");
+  });
+  it.each(["zh-CN", "en-US"])("renders inline comparison's similar scope and visual differences (%s)", locale => {
+    const result = text(renderFixture({ status: "OK", locale, entries: [
+      { selectionId: "a", title: "Dress", merchant: "A", visualMatchEvidence: ["Color: ivory, not black"] },
+      { selectionId: "b", title: "Dress B", merchant: "B", visualReviewRequired: true }
+    ], recommendation: { state: "READY", scope: "SIMILAR", recommendedSelectionId: "a" } }));
+    expect(result).toContain(locale === "zh-CN" ? "相似款中值得先看" : "First among similar choices");
+    expect(result).toContain("Color: ivory, not black");
+    expect(result).toContain(locale === "zh-CN" ? "所选变体的图片匹配尚未复核" : "Visual matching for the selected variant needs review");
+  });
   it.each([false, true])("keeps interleaved legacy cards in snapshot ordinal order (visual=%s)", visual => {
     const base = couponFixture({ verified: [] }).products[0]!;
     const products = ["ordinal-one", "ordinal-two", "ordinal-three"].map((title, index) => ({ ...base, title,
@@ -406,7 +440,7 @@ describe("product-card MCP Apps UI", () => {
       params: expect.objectContaining({
         name: "report_product_card_metrics",
         arguments: expect.objectContaining({
-          version: "0.17.23",
+          version: "0.17.24",
           terminalStage: "DOM_RENDERED",
           stages: expect.objectContaining({ DOM_RENDERED: expect.any(Number) })
         })
@@ -1025,7 +1059,7 @@ describe("product-card MCP Apps UI", () => {
       method: "ui/initialize",
       params: {
         protocolVersion: "2026-01-26",
-        appInfo: { name: "FindCheap Agent product cards", version: "0.17.23" },
+        appInfo: { name: "FindCheap Agent product cards", version: "0.17.24" },
         appCapabilities: { availableDisplayModes: ["inline"] }
       }
     });

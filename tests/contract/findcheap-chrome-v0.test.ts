@@ -43,6 +43,24 @@ const marketplacePath = path.join(root, ".agents", "plugins", "marketplace.json"
 const matchingGoldenPath = path.join(root, "tests", "evals", "shopify-match-golden.json");
 
 describe("FindCheap Agent plugin contract", () => {
+  it("limits visual colorway alternatives to source-proven same-brand choices", async () => {
+    const skill = await readFile(skillPath, "utf8");
+    const prompt = await readFile(path.join(root, "plugins/findcheap-agent/skills/compare-products/agents/openai.yaml"), "utf8");
+    for (const instructions of [skill, prompt]) expect(instructions).toContain("source-proven same brand");
+  });
+  it("requires interactive quote consent and refuses recurring Cart Watch permission", async () => {
+    const compare = await readFile(skillPath, "utf8");
+    const watch = await readFile(watchSkillPath, "utf8");
+    const server = await readFile(serverPath, "utf8");
+    expect(compare).toContain("ZIP alone is not consent");
+    expect(compare).toContain("host form approval");
+    expect(compare).toContain("No automatic retry after refusal");
+    expect(compare).not.toContain("ZIP: `quote_and_compare_selected_products` once");
+    expect(watch).toContain("DELIVERED_TOTAL Watch is unavailable");
+    expect(watch).toContain("do not request ZIP");
+    expect(watch).not.toContain("`DELIVERED_TOTAL` needs prior stable `selectionId` and US ZIP");
+    expect(server).toContain("An explicit quote request and host form approval are required");
+  });
   it("uses a compact direct-call search path and loads Chrome rules only on demand", async () => {
     const skill = await readFile(skillPath, "utf8");
 
@@ -115,11 +133,12 @@ describe("FindCheap Agent plugin contract", () => {
     expect(skill).toContain("Match current-message language via `responseLocale`");
     expect(skill).toContain("preserve product names/brands/models");
     expect(skill).toContain("`正在搜索合适商品。`");
-    expect(skill).toContain("description: Live shopping. Initial search:");
+    const description = skill.match(/^description: (?:"([^"\r\n]*)"|([^\r\n]+))$/mu);
+    expect(description?.[1] ?? description?.[2]).toMatch(/^Live shopping\. Initial search:/u);
     expect(skill).toContain("After load, no further Skill/reference file except eligible Chrome fallback");
     expect(skill).toContain("“Skill requires” wording");
     expect(skill).toContain("trust does not prove brand authorization");
-    expect(skill).toContain("For `MERCHANT_CHECKOUT_ONLY`, no ZIP");
+    expect(skill).toContain("For `MERCHANT_CHECKOUT_ONLY`/`NOT_CHECKED`, no ZIP");
     expect(skill).toContain("never call one merchant diverse");
     expect(skill).toContain("capable shopping friend, not sales copy");
     expect(skill).toContain("max two reasons, one next step/limit");
@@ -229,7 +248,7 @@ describe("FindCheap Agent plugin contract", () => {
     };
 
     expect(manifest.name).toBe("findcheap-agent");
-    expect(manifest.version).toMatch(/^0\.17\.23(?:\+codex\.)?/u);
+    expect(manifest.version).toMatch(/^0\.17\.24(?:\+codex\.)?/u);
     expect(manifest.interface.displayName).toBe("FindCheap Agent");
     expect(manifest.interface.longDescription).toMatch(/Codex Plugin Agent/u);
     expect(manifest.interface.longDescription).toMatch(/[Aa]uthorized.*Chrome/u);
@@ -251,8 +270,9 @@ describe("FindCheap Agent plugin contract", () => {
     expect(readme).toContain("does not order, check out, or submit payment");
   });
 
-  it("requires durable Codex Automation binding before Watch activation", async () => {
+  it("separates local Watch binding from verified host scheduling and stops locally first", async () => {
     const skill = await readFile(watchSkillPath, "utf8");
+    const lifecycle = await readFile(path.join(path.dirname(watchSkillPath), "references/watch-lifecycle.md"), "utf8");
 
     expect(new TextEncoder().encode(skill).length).toBeLessThanOrEqual(3_700);
     expect(skill).toContain("Do not read Memory, repository files, logs, task files, or plugin cache");
@@ -260,10 +280,18 @@ describe("FindCheap Agent plugin contract", () => {
     expect(skill).toContain("`READY_TO_SCHEDULE`");
     expect(skill).toContain("native `automation_update` tool");
     expect(skill).toContain("`bind_watch_automation`");
-    expect(skill).toContain("Never claim monitoring is active until binding succeeds");
+    expect(skill).toContain("BOUND is only a local reference");
+    expect(skill).not.toContain("Never claim monitoring is active until binding succeeds");
+    expect(skill).toContain("completionEventId");
+    expect(skill).toContain("STOP_REQUIRED");
     expect(skill).toContain("delete the newly created Automation");
     expect(skill).toContain("`LEGACY_UNVERIFIED`");
     expect(skill).toContain("Automated Watch checks never use Chrome");
+    expect(lifecycle).toContain("local pause/delete first");
+    expect(lifecycle).toContain("STOP_REQUIRED is not a host ACK");
+    expect(lifecycle).toContain("COMPLETED/EXPIRED cannot resume");
+    expect(lifecycle).toContain("ownership and scope");
+    expect(lifecycle).not.toContain("update bound Automation first");
   });
 
   it("ships one collision-safe GitHub marketplace identity", async () => {

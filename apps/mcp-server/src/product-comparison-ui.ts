@@ -102,6 +102,8 @@ export const PRODUCT_COMPARISON_HTML = String.raw`<!doctype html>
       : undefined;
     const text = (locale, english, chinese) => locale === "zh-CN" ? chinese : english;
     const displayValue = (value, locale) => {
+      if (value === "VISUAL_REVIEW_REQUIRED") return text(locale,
+        "Visual matching for the selected variant needs review", "所选变体的图片匹配尚未复核");
       if (locale !== "zh-CN") return String(value || "");
       const labels = {
         EXACT: "精确匹配", DISCOVERY_MATCH: "发现匹配", SIMILAR: "相似商品",
@@ -183,7 +185,7 @@ export const PRODUCT_COMPARISON_HTML = String.raw`<!doctype html>
       }
       const canQuote = output.entries.length <= 4 &&
         output.entries.some((entry) => entry.deliveredTotalStatus === "NOT_QUOTED") &&
-        output.entries.every((entry) => entry.deliveredTotalStatus !== "MERCHANT_CHECKOUT_ONLY" && typeof entry.selectionId === "string");
+        output.entries.every((entry) => ["QUOTED", "NOT_QUOTED"].includes(entry.deliveredTotalStatus) && typeof entry.selectionId === "string");
       if (canQuote) {
         const quoteAction = make("section", "quote-action");
         const field = make("label", "quote-field", text(locale, "US delivery ZIP", "美国配送 ZIP"));
@@ -234,7 +236,8 @@ export const PRODUCT_COMPARISON_HTML = String.raw`<!doctype html>
       output.entries.forEach((entry) => {
         const cell = make("th");
         const head = make("div", "product-head" + (output.recommendation?.recommendedSelectionId === entry.selectionId ? " recommended" : ""));
-        if (output.recommendation?.recommendedSelectionId === entry.selectionId) head.append(make("span", "badge", text(locale, "Recommended", "推荐")));
+        if (output.recommendation?.recommendedSelectionId === entry.selectionId) head.append(make("span", "badge",
+          output.recommendation.scope === "SIMILAR" ? text(locale, "First among similar choices", "相似款中值得先看") : text(locale, "Recommended", "推荐")));
         const imageUrl = safeHttps(entry.imageUrl);
         if (imageUrl) { const image = make("img", "image"); image.src = imageUrl; image.alt = entry.title; image.loading = "lazy"; head.append(image); }
         const merchant = entry.sellerName ? entry.merchant + " · " + entry.sellerName : entry.merchant;
@@ -296,9 +299,12 @@ export const PRODUCT_COMPARISON_HTML = String.raw`<!doctype html>
           return make("span", "unknown", decision.state === "READY" ? text(locale, "Not selected", "未选中") : displayValue(decision.state, locale));
         }
         const reasons = Array.isArray(decision.reasonCodes) ? decision.reasonCodes.map((reason) => displayValue(reason, locale)).join(", ") : "";
-        return make("span", "", text(locale, "Recommended", "推荐") + (reasons ? " · " + reasons : ""));
+        return make("span", "", (decision.scope === "SIMILAR" ? text(locale, "First among similar choices", "相似款中值得先看") : text(locale, "Recommended", "推荐")) + (reasons ? " · " + reasons : ""));
       };
       const rows = [
+        ...(output.entries.some(entry => entry.visualMatchEvidence?.length || entry.visualReviewRequired) ? [{ focus: undefined,
+          label: text(locale, "Visual evidence and differences", "视觉依据与差异"), renderValue: entry => list(entry.visualReviewRequired
+            ? [displayValue("VISUAL_REVIEW_REQUIRED", locale)] : entry.visualMatchEvidence, locale) }] : []),
         { focus: undefined, label: text(locale, "Recommendation", "推荐结论"), renderValue: recommendation },
         { focus: "PRICE", label: text(locale, "Compared price", "对比价格"), renderValue: (entry) => make("span", entry.comparedPrice ? "price" : "unknown", money(entry.comparedPrice, locale) || text(locale, "Unavailable", "不可用")) },
         { focus: "PRICE", label: text(locale, "Item price", "商品价"), renderValue: (entry) => make("span", entry.itemPrice ? "" : "unknown", money(entry.itemPrice, locale) || text(locale, "Unknown", "未知")) },
@@ -322,6 +328,8 @@ export const PRODUCT_COMPARISON_HTML = String.raw`<!doctype html>
             ? value + (expiry ? text(locale, " · valid until " + expiry, " · 有效期至 " + expiry) : "")
             : entry.deliveredTotalStatus === "MERCHANT_CHECKOUT_ONLY"
               ? text(locale, "Quote unsupported: merchant checkout only", "不支持报价：仅商家结账页提供")
+              : entry.deliveredTotalStatus === "NOT_CHECKED"
+                ? text(locale, "Quote capability not verified", "报价能力尚未核验")
               : text(locale, "Not quoted: provide ZIP", "未报价：请提供 ZIP"));
         } },
         { focus: "DEALS", label: text(locale, "Verified deals", "已验证优惠"), renderValue: deal },

@@ -675,7 +675,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       }
       const canQuote = output.entries.length <= 4 &&
         output.entries.some((entry) => entry.deliveredTotalStatus === "NOT_QUOTED") &&
-        output.entries.every((entry) => entry.deliveredTotalStatus !== "MERCHANT_CHECKOUT_ONLY" && typeof entry.selectionId === "string");
+        output.entries.every((entry) => ["QUOTED", "NOT_QUOTED"].includes(entry.deliveredTotalStatus) && typeof entry.selectionId === "string");
       if (canQuote) {
         const quoteAction = make("section", "quote-action");
         const field = make("label", "quote-field", text("US delivery ZIP", "美国配送 ZIP"));
@@ -728,7 +728,8 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       output.entries.forEach((entry) => {
         const cell = make("th");
         const head = make("div", "comparison-head" + (output.recommendation?.recommendedSelectionId === entry.selectionId ? " recommended" : ""));
-        if (output.recommendation?.recommendedSelectionId === entry.selectionId) head.append(make("span", "rank-label", text("Recommended", "推荐")));
+        if (output.recommendation?.recommendedSelectionId === entry.selectionId) head.append(make("span", "rank-label",
+          output.recommendation.scope === "SIMILAR" ? text("First among similar choices", "相似款中值得先看") : text("Recommended", "推荐")));
         head.append(make("div", "merchant", entry.sellerName ? entry.merchant + " · " + entry.sellerName : entry.merchant));
         head.append(make("div", "comparison-title", entry.title));
         const url = safeHttps(entry.purchaseUrl);
@@ -741,8 +742,14 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
         ? make("span", "price", money(entry.deliveredTotal))
         : make("span", "details", entry.deliveredTotalStatus === "MERCHANT_CHECKOUT_ONLY"
           ? text("Quote unsupported: merchant checkout only", "不支持报价：仅商家结账页提供")
+          : entry.deliveredTotalStatus === "NOT_CHECKED" ? text("Quote capability not verified", "报价能力尚未核验")
           : text("Not quoted: provide ZIP", "未报价：请提供 ZIP"));
       const rows = [
+        ...(output.entries.some(entry => entry.visualMatchEvidence?.length || entry.visualReviewRequired) ? [
+          [text("Visual evidence and differences", "视觉依据与差异"), (entry) => comparisonList(entry.visualReviewRequired
+            ? [text("Visual matching for the selected variant needs review", "所选变体的图片匹配尚未复核")]
+            : entry.visualMatchEvidence)]
+        ] : []),
         [text("Variant", "规格"), (entry) => comparisonList(Object.entries(entry.variantDimensions || {}).map(([key, value]) => key + ": " + value))],
         [text("Requirements check", "要求核验"), (entry) => comparisonList(entry.requirementAssessment?.entries?.map(item => requirementLabel(item.requirement) + ": " +
           (item.status === "MATCHED" ? text("Verified", "已核验") : item.status === "UNKNOWN" ? text("Not verified", "待核验") : text("Conflicting evidence", "证据冲突"))) ?? entry.requirementEvidence)],
@@ -815,6 +822,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       markStage("RENDER_STARTED");
       app.replaceChildren();
       const products = Array.isArray(output?.products) ? output.products.slice(0, ${MAX_PRODUCT_CARDS}) : [];
+      if (typeof output?.visualSearchOutcome?.message === "string") app.append(make("div", "summary", output.visualSearchOutcome.message));
       if (output?.requirementsSummary) {
         const requirements = output.requirementsSummary;
         const parts = [requirements.brand, requirements.productType, requirements.requiredSize,
@@ -1023,12 +1031,16 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
           const body = make("div", "body");
           const merchantRow = make("div", "merchant-row");
           merchantRow.append(make("div", "merchant", cardData.merchant || product.merchant || text("Merchant", "商家")));
-          if (isFirstSupported) merchantRow.append(make("span", "rank-label", text("First recommendation", "首选推荐")));
+          if (isFirstSupported) merchantRow.append(make("span", "rank-label",
+            product.visualReviewAssessment?.recommendationScope === "SIMILAR"
+              ? text("First among similar choices", "相似款中值得先看") : text("First recommendation", "首选推荐")));
           body.append(merchantRow);
           if (cardData.sellerName || product.sellerName) {
             body.append(make("div", "details", text("Seller: ", "卖家：") + String(cardData.sellerName || product.sellerName)));
           }
           body.append(make("h3", "", cardData.title || product.title || text("Product", "商品")));
+          if (product.visualReviewRequired === true) body.append(make("div", "limitations notice",
+            text("Visual matching for the selected variant needs review", "所选变体的图片匹配尚未复核")));
           const identity = [product.brand, product.sku ? text("Model/SKU: ", "型号/SKU：") + product.sku : undefined, product.gtins?.[0] ? "GTIN: " + product.gtins[0] : undefined]
             .filter(Boolean).join(" / ");
           if (identity) body.append(make("div", "details", identity));
@@ -1129,6 +1141,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
             ? text("ZIP delivered-total estimate available.", "可按 ZIP 查询预估到手价。")
             : quoteCapability === "ZIP_ESTIMATE_ONLY"
               ? text("ZIP estimate available; some merchants may require checkout for the final total.", "可按 ZIP 估价；部分商家仍需在结账页确认最终总价。")
+              : quoteCapability === "NOT_CHECKED" ? text("Quote capability not verified.", "报价能力尚未核验。")
               : text("Quote unsupported: shipping, tax, and final total require merchant checkout.", "不支持报价：运费、税费和最终总价需在商家结账页确认。")));
           const more = make("details", "more");
           more.append(make("summary", "", text("Why this matches", "为什么匹配")));

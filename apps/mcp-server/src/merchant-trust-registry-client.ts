@@ -1,11 +1,12 @@
 import { ManagedMerchantTrustRegistrySchema } from "../../../packages/contracts/src/index.js";
 import { replaceManagedMerchantTrustRecords } from "./merchant-trust.js";
+import { awaitWithSignal } from "./await-with-signal.js";
 
 const MAX_REGISTRY_BYTES = 512 * 1024;
 const DEFAULT_CACHE_MS = 24 * 60 * 60 * 1_000;
 
 export type MerchantTrustRegistryPort = {
-  refresh(): Promise<void>;
+  refresh(options?: { signal?: AbortSignal }): Promise<void>;
 };
 
 type Dependencies = {
@@ -46,19 +47,21 @@ export function createMerchantTrustRegistryPortFromEnvironment(
   let etag: string | undefined;
   let active: Promise<void> | undefined;
 
-  const refresh = async (): Promise<void> => {
+  const refresh = async (options?: { signal?: AbortSignal }): Promise<void> => {
+    options?.signal?.throwIfAborted();
     if (now() < expiresAt) return;
     active ??= (async () => {
+      const signal = AbortSignal.timeout(5_000);
       try {
-        const response = await fetchRequest(registryUrl.href, {
+        const response = await awaitWithSignal(fetchRequest(registryUrl.href, {
           method: "GET",
           redirect: "error",
           headers: {
             accept: "application/json",
             ...(etag === undefined ? {} : { "if-none-match": etag })
           },
-          signal: AbortSignal.timeout(5_000)
-        });
+          signal
+        }), signal);
         if (response.status === 304) {
           expiresAt = now() + cacheMs;
           return;
@@ -68,11 +71,12 @@ export function createMerchantTrustRegistryPortFromEnvironment(
         }
         const contentLength = response.headers.get("content-length");
         if (contentLength !== null && (!/^\d+$/u.test(contentLength) || Number(contentLength) > MAX_REGISTRY_BYTES)) return;
-        const body = new Uint8Array(await response.arrayBuffer());
+        const body = new Uint8Array(await awaitWithSignal(response.arrayBuffer(), signal));
         if (body.byteLength === 0 || body.byteLength > MAX_REGISTRY_BYTES) return;
         const registry = ManagedMerchantTrustRegistrySchema.parse(
           JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(body))
         );
+        signal.throwIfAborted();
         replaceManagedMerchantTrustRecords(registry.merchants, registry.version);
         const nextEtag = response.headers.get("etag");
         etag = nextEtag !== null && nextEtag.length <= 200 ? nextEtag : undefined;
@@ -83,7 +87,7 @@ export function createMerchantTrustRegistryPortFromEnvironment(
     })().finally(() => {
       active = undefined;
     });
-    await active;
+    await awaitWithSignal(active, options?.signal);
   };
 
   return { refresh };

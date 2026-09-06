@@ -33,7 +33,7 @@ Open the Plugins Directory and confirm:
 - marketplace: `FindCheap Agent`
 - plugin: `FindCheap Agent`
 - plugin ID: `findcheap-agent`
-- version: `0.17.22`
+- version: `0.17.24` (with a versioned Codex package suffix)
 
 Test prompt:
 
@@ -74,9 +74,11 @@ Restart Codex and test in a new task.
 
 ## Current limits
 
-- Without a ZIP, Shopify results are item-price-only. With a US ZIP, supported merchants may
-  return a short-lived Shopify Cart shipping and total estimate; unsupported merchants fail back
-  to item-price-only.
+- Search and Coupon research do not create carts, even with a ZIP. A separate quote requires a
+  current accepted host form for the selected offer, variant and US ZIP. Eligible merchants may
+  return a short-lived anonymous-cart estimate; unavailable consent or unsupported quotes fail
+  closed to item-price-only. Real desktop consent and merchant side-effect acceptance remain
+  outstanding; see [the release limits](../releases/v0.17.24.md).
 - Shopify tax is used only when explicitly returned. Otherwise tax is a labeled ZIP-inferred 2026
   state-average estimate; some merchants need a full address or checkout for final tax.
 - Coupon and Cashback require a configured approved Deals API.

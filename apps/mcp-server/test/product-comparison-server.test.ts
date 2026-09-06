@@ -1,5 +1,6 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { ElicitRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { Script } from "node:vm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -109,12 +110,14 @@ const shopify: ShopifyPort = {
   })
 };
 
-async function connect(now?: () => Date, dependencies: ShoppingServerDependencies = {}) {
-  const server = createShoppingServer(shopify, undefined, {
+async function connect(now?: () => Date, dependencies: ShoppingServerDependencies = {}, quoteFixture?: ShopifyPort) {
+  const server = createShoppingServer(quoteFixture ?? shopify, undefined, {
     ...dependencies,
     ...(now === undefined ? {} : { now })
   });
-  const client = new Client({ name: "comparison-test", version: "0.0.0" });
+  const client = new Client({ name: "comparison-test", version: "0.0.0" },
+    quoteFixture === undefined ? {} : { capabilities: { elicitation: { form: {} } } });
+  if (quoteFixture !== undefined) client.setRequestHandler(ElicitRequestSchema, async () => ({ action: "accept", content: { approved: true } }));
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
   closers.push(async () => {
@@ -247,14 +250,14 @@ describe("product comparison MCP flow", () => {
     const checkedAt = "2026-09-03T06:05:00.000Z";
     const expiresAt = "2026-09-03T06:15:00.000Z";
     const quote = vi.fn(async (product: { handle: string }) => {
-      const amountCents = product.handle === "offer-a" ? 2_000 : 1_800;
+      const amountCents = product.handle === "101" ? 2_000 : 1_800;
       return {
         status: "ESTIMATED" as const,
-        subtotal: { amountCents: product.handle === "offer-a" ? 1_499 : 1_599, currency: "USD" as const },
+        subtotal: { amountCents: product.handle === "101" ? 1_499 : 1_599, currency: "USD" as const },
         shipping: { amountCents: 100, currency: "USD" as const, label: "Standard" },
         tax: {
           status: "SHOPIFY_REPORTED" as const,
-          amount: { amountCents: amountCents - (product.handle === "offer-a" ? 1_599 : 1_699), currency: "USD" as const },
+          amount: { amountCents: amountCents - (product.handle === "101" ? 1_599 : 1_699), currency: "USD" as const },
           shopifyEstimated: true,
           source: "SHOPIFY_CART" as const
         },
@@ -266,7 +269,12 @@ describe("product comparison MCP flow", () => {
     });
     const client = await connect(
       () => new Date("2026-09-03T06:05:00.000Z"),
-      { cartQuotes: { quote } }
+      { cartQuotes: { quote } },
+      { search: async input => {
+        const result = await shopify.search(input);
+        return { ...result, products: result.products.map((item, index) => ({ ...item, handle: String(101 + index),
+          merchantUrl: item.merchantUrl.replace("/product/", "/products/") })) };
+      } }
     );
     const found = await client.callTool({
       name: "search_products",

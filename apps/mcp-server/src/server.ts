@@ -6,6 +6,7 @@ import { RequirementAssessmentSchema, ambiguousShoeSize, evaluateProductRequirem
 import { mergeSearchRequirements, shoppingRequirementLedger } from "./search-requirements-context.js";
 import { assessQualityEvidence, unitPriceEvidence, QualityEvidenceSchema, UnitPriceSchema, ValueEvidenceSchema } from "./product-value-evidence.js";
 import { createFindCheapBackend, type FindCheapBackend } from "./backend.js";
+import { describeVisualOutcome, needsMoreVisualReview, selectVisualResults, VisualSearchOutcomeSchema } from "./visual-search-outcome.js";
 import { ToolExecutor } from "./execution/tool-executor.js";
 import { toolError } from "./execution/tool-outcome.js";
 import { SearchRun, SearchBudgetError, SearchReadTimeoutError } from "./search-run.js";
@@ -15,6 +16,7 @@ import { researchRecommendationMessage } from "./recommendation-message.js";
 import { searchDiagnostics, type SearchOutcome } from "./search-diagnostics.js";
 import { textSearchRecovery, TextSearchRecoverySchema } from "./text-search-recovery.js";
 import { WebRecoverySessions, WebConsentStatusSchema, WebProductUrlSchema, WEB_SEARCH_LIMITS, webSearchQueries, readWebCandidates, type WebProductPagePort } from "./web-product-recovery.js";
+import { awaitWithSignal } from "./await-with-signal.js";
 import { evaluateRecoveredProducts } from "./search-products.js";
 import { createExecutedToolRegistrar } from "./execution/tool-registry.js";
 import {
@@ -43,10 +45,12 @@ import {
 import { hasSpecificProductIdentity } from "./shopify-match.js";
 import {
   ShopifyCartQuoteError,
+  validateShopifyCartQuoteTarget,
   type ShopifyCartQuotePort,
   type ShopifyCartEstimate,
   type ShopifyQuoteFailureCode
 } from "./shopify-cart-quote.js";
+import { issueQuoteAuthorization } from "./quote-authorization.js";
 import type { ShopifySelectedProductInspector } from "./shopify-selected-product.js";
 import type { OfficialShopifySearchPort } from "./shopify-official-store-search.js";
 import type { OfficialStorefrontRegistryPort } from "./official-storefront-registry-client.js";
@@ -90,6 +94,8 @@ import {
   WatchSpecSchema,
   WatchSpecInputSchema,
   WatchAutomationIdSchema,
+  WatchStopIntentSchema,
+  watchStopIntent,
   productWatchClarificationQuestions,
   createMemoryWatchStore,
   type WatchStore
@@ -97,6 +103,7 @@ import {
 import { evaluateWatch, type WatchEvaluation } from "./watch-service.js";
 import {
   currentMerchantTrustRegistryVersion,
+  isTrustedMerchant,
   resolveMerchantTrust
 } from "./merchant-trust.js";
 import {
@@ -107,6 +114,7 @@ import {
   candidateTitle,
   addVerifiedCoupons,
   finalizeCodexVisualCandidates,
+  assessCodexVisualCandidate,
   searchProducts,
   type CodexVisualVerdict,
   type SearchProductsExecutionInput,
@@ -391,7 +399,8 @@ const ShopifySelectedQuoteInputSchema = z.object({
   selectionId: SelectionIdSchema.optional(),
   position: ProductPositionSchema.optional(),
   variantId: z.string().regex(/^[A-Za-z0-9._:-]{1,100}$/u).optional(),
-  zipCode: ZipCodeSchema
+  zipCode: ZipCodeSchema,
+  responseLocale: z.enum(["en-US", "zh-CN"]).optional()
 }).strict().superRefine(validateSingleProductSelector);
 
 const ProductComparisonOptionsSchema = ProductComparisonInputSchema.omit({ selectionIds: true });
@@ -427,6 +436,7 @@ const VisualCandidateOutputShape = {
   goalId: z.string().uuid().optional(),
   goalRevision: z.number().int().positive().optional(),
   recovery: TextSearchRecoverySchema.optional(),
+  visualSearchOutcome: VisualSearchOutcomeSchema.optional(),
   candidates: z.array(VisualCandidateDescriptorShape).max(MAX_VISUAL_CANDIDATES),
   workflow: z.object({
     state: z.literal("REVIEW_REQUIRED"),
@@ -503,6 +513,8 @@ const DealConciergeOutputShape = {
 
 function quoteFailureMessage(code: ShopifyQuoteFailureCode): string {
   switch (code) {
+    case "QUOTE_POLICY_UNVERIFIED":
+      return "[QUOTE_POLICY_UNVERIFIED] Quote unsupported without current user authorization and a reviewed anonymous Cart interface. No new Cart request was authorized; use merchant checkout. Do not retry without a new explicit user request.";
     case "FULL_ADDRESS_REQUIRED":
       return "[FULL_ADDRESS_REQUIRED] ZIP-only quoting is unavailable for this merchant. Do not ask for or send a street address in chat. Use merchant checkout for the final total or choose another existing card.";
     case "NO_DELIVERY_OPTIONS":
@@ -575,10 +587,12 @@ const ShopifyProductOutputSchema = z.object({
   resultGroup: z.enum(["REQUESTED_PRODUCT", "DISCOVERY", "ALTERNATIVE"]).optional(),
   presentationGroup: z.enum(["OFFICIAL_STORE", "TRUSTED_MATCH", "BEST_VALUE", "RESEARCH_ONLY"]).optional(),
   visualMatchGroup: z.enum(["POSSIBLE_SAME_ITEM", "HIGHLY_SIMILAR", "SAME_STYLE"]).optional(),
+  visualReviewRequired: z.boolean().optional(),
   visualReviewAssessment: z.object({
     group: z.enum(["POSSIBLE_SAME_ITEM", "HIGHLY_SIMILAR", "SAME_STYLE"]),
     structuralMatchCount: z.number().int().min(0).max(16),
-    matchCount: z.number().int().min(0).max(16)
+    matchCount: z.number().int().min(0).max(16),
+    recommendationScope: z.literal("SIMILAR").optional()
   }).strict().optional(),
   visualMatchEvidence: z.array(z.string()).optional(),
   merchantId: z.string(),
@@ -725,11 +739,11 @@ const ShopifyProductOutputSchema = z.object({
       "SHOPIFY_HIGH_RATED",
       "MERCHANT_UNVERIFIED"
     ]),
-    quoteCapability: z.enum(["DELIVERED_TOTAL_SUPPORTED", "ZIP_ESTIMATE_ONLY", "MERCHANT_CHECKOUT_ONLY"]),
+    quoteCapability: z.enum(["DELIVERED_TOTAL_SUPPORTED", "ZIP_ESTIMATE_ONLY", "MERCHANT_CHECKOUT_ONLY", "NOT_CHECKED"]),
     actionLabel: z.literal("View at merchant")
   }),
   selectionId: SelectionIdSchema.optional(),
-  quoteCapability: z.enum(["DELIVERED_TOTAL_SUPPORTED", "ZIP_ESTIMATE_ONLY", "MERCHANT_CHECKOUT_ONLY"]),
+  quoteCapability: z.enum(["DELIVERED_TOTAL_SUPPORTED", "ZIP_ESTIMATE_ONLY", "MERCHANT_CHECKOUT_ONLY", "NOT_CHECKED"]),
   quoteReference: z.object({
     selectionId: SelectionIdSchema,
     renderId: z.string().uuid(),
@@ -850,6 +864,7 @@ const ShopifyProductsOutputShape = {
   }),
   questions: z.array(z.string()),
   products: z.array(ShopifyProductOutputSchema).max(MAX_PRODUCT_CARDS),
+  visualSearchOutcome: VisualSearchOutcomeSchema.optional(),
   visualReview: z.object({
     stage: z.enum(["POOL_REVIEW", "RELAXED_REVIEW"]),
     terminal: z.literal(false),
@@ -1212,7 +1227,7 @@ function unifiedResult(
   const recommendation = choosePrimaryRecommendation(products);
   const locale = input.responseLocale ?? (/\p{Script=Han}/u.test(input.query) ? "zh-CN" as const : "en-US" as const);
   const localized = (english: string, chinese: string) => locale === "zh-CN" ? chinese : english;
-  const chromeAdvice = execution.chromeFallbackEligible
+  const chromeAdvice = execution.searchIntent !== "VISUAL_DISCOVERY" && execution.chromeFallbackEligible
     ? execution.searchIntent === "EXACT_PRODUCT"
       ? localized(
           "No configured source returned a qualifying match for the requested product; unrelated alternatives were not substituted. The user may authorize one bounded Chrome whole-web fallback.",
@@ -2119,6 +2134,7 @@ export function createShoppingServer(
     resolvedAwinProducts: Map<string, ShopifyProduct>;
     request?: SearchProductsInput;
     candidates?: UnifiedCandidate[];
+    searchRun?: SearchRun;
     visualRecovery?: VisualSearchSnapshot;
     chargingClarificationAsked: boolean;
   }>();
@@ -2139,24 +2155,36 @@ export function createShoppingServer(
     cardSelections.delete(renderId);
     renderSnapshots.delete(renderId);
   };
-  const preflightQuoteCapabilities = async (content: ProductCardContent) => {
+  const preflightQuoteCapabilities = async (content: ProductCardContent, searchRun: SearchRun) => {
     const resolvedAwinProducts = new Map<string, ShopifyProduct>();
+    const diagnostics = { attempted: 0, succeeded: 0, skippedBudget: 0, failed: 0, unsupported: 0 };
+    const unchecked = (product: ProductCardProduct): ProductCardProduct => ({ ...product, quoteCapability: "NOT_CHECKED",
+      card: { ...product.card, quoteCapability: "NOT_CHECKED" } });
     const products = await Promise.all(content.products.map(async (product) => {
-      if (product.checkoutPlatform === "MERCHANT") return product;
-      if (product.sourceKind === "EBAY_BROWSE") return product;
+      searchRun.throwIfCancelled();
+      if (product.checkoutPlatform === "MERCHANT" || product.sourceKind === "EBAY_BROWSE") {
+        diagnostics.unsupported++; return product;
+      }
       if (product.sourceKind === "SHOPIFY_GLOBAL_CATALOG" || product.sourceKind === undefined) {
         const quoteCapability = cartQuotes === undefined
           ? "MERCHANT_CHECKOUT_ONLY" as const
           : "DELIVERED_TOTAL_SUPPORTED" as const;
+        if (cartQuotes === undefined) diagnostics.unsupported++;
         return { ...product, quoteCapability, card: { ...product.card, quoteCapability } };
       }
       if (cartQuotes === undefined || awinShopifyQuotes === undefined || product.itemPrice === undefined) {
+        diagnostics.unsupported++;
         return product;
       }
       const seed = awinQuoteSeed(product);
-      if (!awinShopifyQuotes.supports(seed)) return product;
+      if (!awinShopifyQuotes.supports(seed)) { diagnostics.unsupported++; return product; }
+      if (!searchRun.canRead("VARIANT")) { diagnostics.skippedBudget++; return unchecked(product); }
       try {
-        const resolved = await awinShopifyQuotes.resolve(seed);
+        diagnostics.attempted++;
+        const resolved = await searchRun.read("VARIANT", `awin-preflight:${productReferenceKey(product)}`,
+          signal => awinShopifyQuotes.resolve(seed, { signal }));
+        searchRun.throwIfCancelled();
+        diagnostics.succeeded++;
         const quoteCapability = resolved.availability === "IN_STOCK"
           ? "ZIP_ESTIMATE_ONLY" as const
           : "MERCHANT_CHECKOUT_ONLY" as const;
@@ -2179,10 +2207,15 @@ export function createShoppingServer(
           }
         };
       } catch {
-        return product;
+        searchRun.throwIfCancelled();
+        diagnostics.failed++;
+        return unchecked(product);
       }
     }));
-    return { content: { ...content, products }, resolvedAwinProducts };
+    searchRun.throwIfCancelled();
+    return { content: { ...content, products,
+      ...(content.retrieval === undefined ? {} : { retrieval: { ...content.retrieval,
+        ...(searchRun.diagnostics().budgetExhausted ? { termination: "BUDGET_EXHAUSTED" as const } : {}) } }) }, resolvedAwinProducts, diagnostics };
   };
   const rememberSnapshot = (
     content: ProductCardContent,
@@ -2191,7 +2224,8 @@ export function createShoppingServer(
     primaryProductIndex?: number,
     request?: SearchProductsInput,
     candidates?: UnifiedCandidate[],
-    askedChargingCompatibility = false
+    askedChargingCompatibility = false,
+    searchRun?: SearchRun
   ): ProductCardContent & { renderId: string } => {
     const renderId = randomUUID();
     const parent = request?.parentRenderId === undefined ? undefined : renderSnapshots.get(request.parentRenderId);
@@ -2235,6 +2269,7 @@ export function createShoppingServer(
       content: snapshot,
       sourceResult,
       resolvedAwinProducts,
+      ...(searchRun === undefined ? {} : { searchRun }),
       chargingClarificationAsked: askedChargingCompatibility || parent?.chargingClarificationAsked === true,
       ...(candidates === undefined ? {} : { candidates: structuredClone(candidates.slice(0, 18)) }),
       ...(request === undefined ? {} : { request: SearchProductsInputSchema.parse(request) })
@@ -2307,6 +2342,71 @@ export function createShoppingServer(
         : product)
     }
   });
+  const quoteAuthorizationFailure = (code: string, locale: string) => ({
+    isError: true as const,
+    content: [{ type: "text" as const, text: `[${code}] ` + (locale === "zh-CN"
+      ? "本次报价未获有效宿主授权，或商品引用未通过安全复核；未创建报价购物车。现有商品和选择保持不变。不要自动重试，也不要索取完整地址。"
+      : "This quote has no valid host authorization or its product reference failed safety revalidation. No quote Cart was created. Existing products and selections are unchanged. Do not automatically retry or ask for a street address.") }]
+  });
+  const discardedQuoteResult = (locale: string) => ({
+    isError: true as const,
+    content: [{ type: "text" as const, text: "[QUOTE_RESULT_DISCARDED] " + (locale === "zh-CN"
+      ? "请求已取消或原商品选择已改变；迟到的报价结果未写入。先前授权的临时匿名购物车可能已创建，但未下单或付款。不要自动重试。"
+      : "The request was cancelled or its original selection changed; the late quote was not saved. An already authorized temporary anonymous Cart may have been created, but no order or payment. Do not automatically retry.") }]
+  });
+  type QuoteSnapshot = typeof renderSnapshots extends Map<string, infer T> ? T : never;
+  const selectedQuoteTarget = (snapshot: QuoteSnapshot, card: ProductCardContent["products"][number]) => {
+    if (!isTrustedMerchant({ level: card.merchantTrust.level, verification: card.merchantTrust.verification,
+      evidence: card.merchantTrust.evidence }) ||
+      !["DELIVERED_TOTAL_SUPPORTED", "ZIP_ESTIMATE_ONLY"].includes(card.quoteCapability)) return undefined;
+    const key = productReferenceKey(card);
+    const target = card.sourceKind === "AWIN_PRODUCT_FEED"
+      ? snapshot.resolvedAwinProducts.get(key)
+      : snapshot.sourceResult.products.find(product => productReferenceKey(product) === key);
+    if (target === undefined || target.merchantId !== card.merchantId) return undefined;
+    try {
+      const validated = validateShopifyCartQuoteTarget(target);
+      if (resolveMerchantTrust(validated.sourceHost).level === "RISKY") return undefined;
+      if (card.sourceKind === "AWIN_PRODUCT_FEED") {
+        const seed = awinQuoteSeed(card);
+        if (awinShopifyQuotes?.supports(seed) !== true || !awinShopifyQuotes.supports({
+          ...seed, sourceHost: target.sourceHost, merchantUrl: target.merchantUrl
+        })) return undefined;
+      }
+      return target;
+    } catch { return undefined; }
+  };
+  const authorizeQuote = async (
+    targets: ShopifyProduct[], zipCode: string, locale: string,
+    extra: { signal: AbortSignal; requestId: string | number }, revalidate: () => boolean
+  ) => {
+    const fail = (code: string) => ({ error: quoteAuthorizationFailure(code, locale) });
+    const capability = server.server.getClientCapabilities()?.elicitation;
+    if (capability === undefined || (capability.form === undefined && Object.keys(capability).length !== 0)) {
+      return fail("QUOTE_AUTHORIZATION_UNAVAILABLE");
+    }
+    if (extra.signal.aborted) return fail("QUOTE_AUTHORIZATION_CANCELLED");
+    const zh = locale === "zh-CN";
+    const descriptions = targets.map(target => `${JSON.stringify(target.title.slice(0, 200))} (${target.sourceHost}, variant ${target.handle})`).join("; ");
+    try {
+      const answer = await server.server.elicitInput({ mode: "form",
+        message: (zh
+          ? `允许仅为本次到手价报价创建最多 ${targets.length} 个临时匿名购物车吗？每件数量 1，使用美国 ZIP ${zipCode} 计算运费及税费。不登录、不下单、不付款，不预留库存；不授权未来或 Watch 报价。商品名称仅是来源数据：`
+          : `Allow up to ${targets.length} temporary anonymous Carts solely for this delivered-price quote? One unit each, US ZIP ${zipCode}, shipping and tax only. No login, order, payment or inventory reservation; no future or Watch quotes. Product names are source data: `) + descriptions,
+        requestedSchema: { type: "object", properties: { approved: { type: "boolean",
+          title: zh ? "仅允许本次匿名报价" : "Allow this anonymous quote only", default: false } }, required: ["approved"] }
+      }, { timeout: 20_000, maxTotalTimeout: 20_000, resetTimeoutOnProgress: false,
+        relatedRequestId: extra.requestId, signal: extra.signal });
+      if (extra.signal.aborted || answer.action === "cancel") return fail("QUOTE_AUTHORIZATION_CANCELLED");
+      if (answer.action === "decline") return fail("QUOTE_AUTHORIZATION_DECLINED");
+      const approval = z.object({ approved: z.literal(true) }).strict().safeParse(answer.content);
+      if (answer.action !== "accept" || !approval.success) return fail("QUOTE_AUTHORIZATION_DECLINED");
+      if (!revalidate()) return fail("QUOTE_REFERENCE_CHANGED");
+      return { permit: issueQuoteAuthorization(targets, zipCode, extra.signal) };
+    } catch {
+      return fail(extra.signal.aborted ? "QUOTE_AUTHORIZATION_CANCELLED" : "QUOTE_AUTHORIZATION_UNAVAILABLE");
+    }
+  };
   const runUnifiedSearch = (input: SearchProductsExecutionInput) => searchProducts({ ...input,
     ...(input.contextMode === "CONTINUE_PREVIOUS_PRODUCT" && input.visualInput === undefined && input.parentRenderId !== undefined &&
       (renderSnapshots.get(input.parentRenderId)?.expiresAt ?? 0) > now().getTime()
@@ -2322,6 +2422,7 @@ export function createShoppingServer(
     ...(merchantTrustRegistry === undefined ? {} : { merchantTrustRegistry })
   });
   const buildUnifiedResponse = async (input: SearchProductsInput, execution: UnifiedSearchExecution, outcome?: SearchOutcome) => {
+    execution.searchRun?.throwIfCancelled();
     const selectedShopifyProducts = execution.candidates.flatMap((candidate) =>
       candidate.shopifyProduct === undefined ? [] : [candidate.shopifyProduct]
     );
@@ -2397,21 +2498,23 @@ export function createShoppingServer(
     }
   };
   const rememberVisualFailure = (content: ProductCardContent, sourceResult: ShopifySearchResult, snapshot: VisualSearchSnapshot) => {
+    snapshot.execution.searchRun?.throwIfCancelled();
     const canRecover = backend.capabilities.has("WEB_RECOVERY") && visualCandidateImages !== undefined &&
       snapshot.attempt === 1 && snapshot.execution.webRecovery === undefined &&
       snapshot.execution.searchRun?.canRead("IMAGE") === true &&
       !snapshot.execution.sourceFailures?.some(failure => !failure.retryable);
     const blockedByBudget = snapshot.attempt === 2 || snapshot.execution.searchRun?.canRead("IMAGE") === false;
-    const message = `${content.message} ${snapshot.input.responseLocale === "zh-CN"
+    const visualSearchOutcome = describeVisualOutcome([], true, snapshot.input.responseLocale ?? "en-US");
+    const message = `${content.message} ${visualSearchOutcome.message} ${snapshot.input.responseLocale === "zh-CN"
       ? canRecover ? "可申请一次仅发送商品描述的网页补搜；不会上传参考图，找到候选后仍须看图核验。"
         : blockedByBudget ? "剩余图片读取或复核轮次不足，不能再启动需要看图核验的补搜。" : "本次未启动网页补搜。"
       : canRecover ? "A descriptor-only web recovery may be authorized. The reference image is not uploaded; recovered candidates still require image review."
         : blockedByBudget ? "No image-read or review-round budget remains for a visually verified web recovery." : "No web recovery started."}`;
-    const remembered = rememberSnapshot({ ...content, message, recovery: {
+    const remembered = rememberSnapshot({ ...content, message, visualSearchOutcome, recovery: {
       action: canRecover ? "REQUEST_WEB_SEARCH" : "REPORT_INCOMPLETE",
       reason: canRecover ? "NO_QUALIFIED_MATCH" : blockedByBudget ? "BUDGET_EXHAUSTED" : "SOURCE_UNAVAILABLE",
       qualified: 0, recommendable: 0, awaitingVerification: 0
-    } }, sourceResult, undefined, undefined, snapshot.input, []);
+    } }, sourceResult, undefined, undefined, snapshot.input, [], false, snapshot.execution.searchRun);
     if (canRecover) renderSnapshots.get(remembered.renderId)!.visualRecovery = snapshot;
     return remembered;
   };
@@ -2474,6 +2577,7 @@ export function createShoppingServer(
           return undefined;
         }
       }));
+      execution.searchRun?.throwIfCancelled();
       for (const entry of loaded) {
         if (entry === undefined) continue;
         downloaded += 1;
@@ -2499,6 +2603,7 @@ export function createShoppingServer(
         encodedChars += entry.image.data.length;
       }
     }
+    execution.searchRun?.throwIfCancelled();
     execution.searchRun?.noteUnattemptedImages(eligiblePool.filter((candidate) =>
       !attemptedKeys.has(visualCandidateKey(candidate))).length);
     const failureCounts = new Map<string, { code: VisualCandidateImageFailureCode; sourceHost?: string; count: number }>();
@@ -2629,7 +2734,7 @@ export function createShoppingServer(
         "openai/toolInvocation/invoked": "FindCheap"
       }
     },
-    async (rawInput) => {
+    async (rawInput, extra) => {
       let parsedInput = SearchProductsInputSchema.parse(rawInput);
       if (parsedInput.contextMode === "NEW_PRODUCT" && (parsedInput.parentRenderId !== undefined ||
         parsedInput.goalId !== undefined || parsedInput.goalRevision !== undefined)) return toolError("INVALID_ARGUMENTS");
@@ -2690,27 +2795,35 @@ export function createShoppingServer(
       ) {
         return shopifyClarificationResult(input.selectionMode, input);
       }
-      const execution = await runUnifiedSearch(input);
-      const { response, enriched } = await buildUnifiedResponse(input, execution);
-      if (response.structuredContent.products.length === 0) return { ...response,
-        structuredContent: rememberSnapshot(response.structuredContent, enriched.result, undefined, undefined, input, execution.candidates) };
-      const preflight = await preflightQuoteCapabilities(response.structuredContent);
-      const recommendation = choosePrimaryRecommendation(preflight.content.products, now().getTime());
-      const content = rememberSnapshot({
-        ...preflight.content,
-        recommendation: {
-          state: recommendation.state,
-          reasonCodes: recommendation.reasonCodes
-        }
-      }, enriched.result, preflight.resolvedAwinProducts, recommendation.primaryProductIndex, input, execution.candidates);
-      return {
-        ...response,
-        content: [{
-          type: "text" as const,
-          text: `${response.content[0]!.text}\n${recommendationInstruction(content)}\nUse structured selection references for follow-ups; never print them or search titles.`
-        }],
-        structuredContent: content
-      };
+      const searchRun = new SearchRun();
+      return searchRun.withRequestSignal(extra.signal, async () => {
+        const execution = await runUnifiedSearch({ ...input, searchRun });
+        searchRun.throwIfCancelled();
+        const { response, enriched } = await buildUnifiedResponse(input, execution);
+        searchRun.throwIfCancelled();
+        if (response.structuredContent.products.length === 0) return { ...response,
+          structuredContent: rememberSnapshot(response.structuredContent, enriched.result, undefined, undefined, input, execution.candidates, false, searchRun) };
+        const preflight = await preflightQuoteCapabilities(response.structuredContent, searchRun);
+        searchRun.throwIfCancelled();
+        const recommendation = choosePrimaryRecommendation(preflight.content.products, now().getTime());
+        const content = rememberSnapshot({
+          ...preflight.content,
+          recommendation: {
+            state: recommendation.state,
+            reasonCodes: recommendation.reasonCodes
+          }
+        }, enriched.result, preflight.resolvedAwinProducts, recommendation.primaryProductIndex, input, execution.candidates, false, searchRun);
+        return {
+          ...response,
+          _meta: { ...searchTraceMeta(execution, response._meta["findcheap/searchTrace"].outcome, { returned: content.products.length }),
+            "findcheap/quotePreflight": preflight.diagnostics },
+          content: [{
+            type: "text" as const,
+            text: `${response.content[0]!.text}\n${recommendationInstruction(content)}\nUse structured selection references for follow-ups; never print them or search titles.`
+          }],
+          structuredContent: content
+        };
+      });
     }
   );
 
@@ -2723,15 +2836,14 @@ export function createShoppingServer(
         diagnostics: z.object({ formSupported: z.boolean(), durationMs: z.number().int().nonnegative(),
           hostAction: z.enum(["NOT_REQUESTED", "ACCEPT_TRUE", "ACCEPT_FALSE", "DECLINE", "CANCEL", "ERROR"]) }).strict().optional(),
         webSessionId: z.string().uuid().optional(), expiresAt: z.string().datetime().optional(), queries: z.array(z.string()).max(2).optional(),
-        limits: z.object({ durationMs: z.literal(60000), merchantPages: z.literal(5), results: z.literal(3), discoveryQueries: z.literal(2) }).optional() }).strict(),
+        limits: z.object({ durationMs: z.number().int().min(1).max(60000), merchantPages: z.literal(5), results: z.literal(3), discoveryQueries: z.literal(2) }).optional() }).strict(),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }
     }, async ({ renderId }, extra) => {
       const parent = renderSnapshots.get(renderId);
       if (parent?.request === undefined || parent.expiresAt <= now().getTime()) return toolError("MISSING_REFERENCE_CONTEXT");
       if (parent.content.recovery?.action !== "REQUEST_WEB_SEARCH") return toolError("TOOL_REQUEST_REJECTED");
-      if (parent.request.visualInput !== undefined && (parent.visualRecovery === undefined ||
-        parent.visualRecovery.expiresAt <= now().getTime() || parent.visualRecovery.attempt !== 1 ||
-        parent.visualRecovery.execution.searchRun?.canRead("IMAGE") !== true)) return toolError("TOOL_REQUEST_REJECTED");
+      const searchRun = parent.searchRun;
+      if (searchRun === undefined) return toolError("TOOL_REQUEST_REJECTED");
       const zh = parent.content.locale === "zh-CN";
       const startedAt = Date.now();
       const elicitation = server.server.getClientCapabilities()?.elicitation;
@@ -2759,39 +2871,49 @@ export function createShoppingServer(
         logConsent(status, retryable, attempt);
         return { content: [{ type: "text" as const, text: message }], structuredContent: { status, message, retryable, attempt, diagnostics: consentDiagnostics() } };
       };
+      if (searchRun.signal.aborted) return reply("PERMISSION_CANCELLED");
+      if (searchRun.remainingServiceMs() <= 0) return reply("EXPIRED");
+      if (parent.request.visualInput !== undefined && (parent.visualRecovery === undefined ||
+        parent.visualRecovery.expiresAt <= now().getTime() || parent.visualRecovery.attempt !== 1 ||
+        !searchRun.canRead("IMAGE"))) return toolError("TOOL_REQUEST_REJECTED");
       if (!formSupported) {
         return reply("PERMISSION_UNAVAILABLE");
       }
-      const queries = webSearchQueries(parent.request);
-      const lease = await webSessions.begin(renderId, async () => {
-        const answer = await server.server.elicitInput({ mode: "form",
-          message: (zh ? `现有来源未找到已核实符合要求的商品。允许一次 Chrome 全网补搜吗？授权后最多 60 秒、2 次检索、5 个商家商品页；只读、不购买。检索：${queries.join(" / ")}`
-            : `Allow one Chrome web recovery? Up to 60 seconds after approval, 2 discovery queries and 5 merchant product pages. Read-only; no purchases. Queries: ${queries.join(" / ")}`) +
-            (parent.request!.visualInput === undefined ? "" : zh ? " 仅发送商品描述，不上传参考图片；商品仍需图片复核。" : " Descriptions only; do not upload the reference image. Candidates still require visual review."),
-          requestedSchema: { type: "object", properties: { approved: { type: "boolean", title: zh ? "允许本次补搜" : "Allow this recovery", default: false } }, required: ["approved"] }
-        }, { timeout: 25_000, relatedRequestId: extra.requestId, signal: extra.signal }).catch((error: unknown) => {
+      return searchRun.withRequestSignal(extra.signal, async () => {
+        const queries = webSearchQueries(parent.request!);
+        const lease = await webSessions.begin(renderId, async () => {
+          const answer = await searchRun.withVerifiedUserWait(() => server.server.elicitInput({ mode: "form",
+            message: (zh ? `现有来源未找到已核实符合要求的商品。允许一次 Chrome 全网补搜吗？授权后最多 60 秒、2 次检索、5 个商家商品页；只读、不购买。检索：${queries.join(" / ")}`
+              : `Allow one Chrome web recovery? Up to 60 seconds after approval, 2 discovery queries and 5 merchant product pages. Read-only; no purchases. Queries: ${queries.join(" / ")}`) +
+              (parent.request!.visualInput === undefined ? "" : zh ? " 仅发送商品描述，不上传参考图片；商品仍需图片复核。" : " Descriptions only; do not upload the reference image. Candidates still require visual review."),
+            requestedSchema: { type: "object", properties: { approved: { type: "boolean", title: zh ? "允许本次补搜" : "Allow this recovery", default: false } }, required: ["approved"] }
+          }, { timeout: 25_000, maxTotalTimeout: 25_000, resetTimeoutOnProgress: false,
+            relatedRequestId: extra.requestId, signal: extra.signal })).catch((error: unknown) => {
+            hostAction = "ERROR";
+            if (extra.signal.aborted) return { action: "cancel" as const };
+            throw error;
+          });
+          if (extra.signal.aborted || answer.action === "cancel") { hostAction = "CANCEL"; return "CANCEL"; }
+          if (answer.action === "decline") { hostAction = "DECLINE"; return "DECLINE"; }
           hostAction = "ERROR";
-          if (extra.signal.aborted) return { action: "cancel" as const };
-          throw error;
-        });
-        if (extra.signal.aborted || answer.action === "cancel") { hostAction = "CANCEL"; return "CANCEL"; }
-        if (answer.action === "decline") { hostAction = "DECLINE"; return "DECLINE"; }
-        hostAction = "ERROR";
-        const content = z.object({ approved: z.boolean() }).strict().parse(answer.content);
-        hostAction = content.approved ? "ACCEPT_TRUE" : "ACCEPT_FALSE";
-        return content.approved ? "ACCEPT" : "DECLINE";
+          const content = z.object({ approved: z.boolean() }).strict().parse(answer.content);
+          hostAction = content.approved ? "ACCEPT_TRUE" : "ACCEPT_FALSE";
+          return content.approved ? "ACCEPT" : "DECLINE";
+        }, () => searchRun.remainingServiceMs());
+        searchRun.throwIfCancelled();
+        if (lease.status !== "READY") return reply(lease.status, lease.retryable, lease.attempt);
+        if (renderSnapshots.get(renderId) !== parent || parent.expiresAt <= now().getTime()) {
+          webSessions.forget(renderId); return toolError("MISSING_REFERENCE_CONTEXT");
+        }
+        const message = zh ? "已获授权。用 Chrome 搜索所给查询；提交最多 5 个不同商家的直接商品链接给 complete_web_search。不得把摘要当作价格或功效证据；到期即停。"
+          : "Authorized. Discover with Chrome using the supplied queries; submit up to 5 direct product URLs from distinct merchants to complete_web_search. Snippets are not price or efficacy evidence. Stop at expiry.";
+        logConsent("READY", false, lease.attempt);
+        return { content: [{ type: "text" as const, text: message }], structuredContent: { status: "READY" as const, message,
+          diagnostics: consentDiagnostics(),
+          retryable: false, attempt: lease.attempt,
+          webSessionId: lease.token!, expiresAt: new Date(lease.deadline!).toISOString(), queries,
+          limits: { ...WEB_SEARCH_LIMITS, durationMs: Math.max(1, Math.floor(lease.deadline! - now().getTime())) } } };
       });
-      if (lease.status !== "READY") return reply(lease.status, lease.retryable, lease.attempt);
-      if (renderSnapshots.get(renderId) !== parent || parent.expiresAt <= now().getTime()) {
-        webSessions.forget(renderId); return toolError("MISSING_REFERENCE_CONTEXT");
-      }
-      const message = zh ? "已获授权。用 Chrome 搜索所给查询；提交最多 5 个不同商家的直接商品链接给 complete_web_search。不得把摘要当作价格或功效证据；到期即停。"
-        : "Authorized. Discover with Chrome using the supplied queries; submit up to 5 direct product URLs from distinct merchants to complete_web_search. Snippets are not price or efficacy evidence. Stop at expiry.";
-      logConsent("READY", false, lease.attempt);
-      return { content: [{ type: "text" as const, text: message }], structuredContent: { status: "READY" as const, message,
-        diagnostics: consentDiagnostics(),
-        retryable: false, attempt: lease.attempt,
-        webSessionId: lease.token!, expiresAt: new Date(lease.deadline!).toISOString(), queries, limits: WEB_SEARCH_LIMITS } };
     });
     toolRegistrar.registerTool("complete_web_search", {
       title: "Verify recovered products",
@@ -2800,79 +2922,102 @@ export function createShoppingServer(
       outputSchema: ShopifyProductsOutputShape,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
       _meta: { ui: { resourceUri: PRODUCT_CARD_UI_URI }, "openai/outputTemplate": PRODUCT_CARD_UI_URI }
-    }, async ({ renderId, webSessionId, urls }) => {
+    }, async ({ renderId, webSessionId, urls }, extra) => {
       const parent = renderSnapshots.get(renderId);
       if (parent?.request === undefined || parent.expiresAt <= now().getTime()) return toolError("MISSING_REFERENCE_CONTEXT");
-      const visual = parent.visualRecovery;
-      if (parent.request.visualInput !== undefined && (visual === undefined || visual.expiresAt <= now().getTime() ||
-        visual.attempt !== 1 || visual.execution.searchRun?.canRead("IMAGE") !== true)) return toolError("TOOL_REQUEST_REJECTED");
-      const remaining = webSessions.consume(renderId, webSessionId);
-      if (remaining === undefined) return toolError("TOOL_REQUEST_REJECTED");
-      const webDeadline = now().getTime() + remaining;
-      const request = SearchProductsInputSchema.parse({ ...parent.request, contextMode: "CONTINUE_PREVIOUS_PRODUCT", parentRenderId: renderId });
-      const found = await readWebCandidates(urls, request, backend.product.webProducts!, visual === undefined ? remaining : Math.min(remaining, 15_000));
-      if (visual !== undefined) {
-        delete parent.visualRecovery;
-        const execution = evaluateRecoveredProducts(request, found.products, found.unavailable > 0, { deferVisualFiltering: true });
-        execution.searchRun = visual.execution.searchRun!;
-        execution.sourceStatus = { ...visual.execution.sourceStatus, web: found.unavailable > 0 ? "PARTIAL" : "COMPLETE" };
-        if (visual.execution.sourceFailures !== undefined) execution.sourceFailures = visual.execution.sourceFailures;
-        execution.webRecovery = { submitted: urls.length, verified: found.products.length, rejected: found.rejected, unavailable: found.unavailable };
-        for (const candidate of execution.candidates) visual.retrievedProductHashes.add(visualProductHash(candidate));
-        // One batch of at most three image reads uses the existing 10-second
-        // per-read cap. Do not start it without room inside the original lease.
-        const imageBudgetAvailable = webDeadline - now().getTime() >= 10_500;
-        const loaded = await loadVisualCandidates(execution, visual.imageAttemptedKeys, MAX_RELAXED_VISUAL_CANDIDATES,
-          { contentKeys: visual.imageContentKeys, round: 2, maxAttempts: imageBudgetAvailable ? MAX_RELAXED_VISUAL_CANDIDATES : 0 });
-        const leaseExhausted = !imageBudgetAvailable || now().getTime() >= webDeadline;
-        if (leaseExhausted) loaded.entries = [];
-        const imageAttemptedKeys = new Set([...visual.imageAttemptedKeys, ...loaded.attemptedKeys]);
-        const { response, enriched } = await buildUnifiedResponse(request, { ...execution, candidates: [] },
-          loaded.entries.length > 0 ? "REVIEW_REQUIRED" : "NO_LOADABLE_IMAGES");
-        if (loaded.entries.length === 0) {
-          const failure = leaseExhausted ? { code: "SEARCH_BUDGET_EXHAUSTED" as const,
-            message: request.responseLocale === "zh-CN" ? "网页补搜剩余时间不足以完成图片核验，未生成推荐；这不代表商品不存在。"
-              : "The web recovery lease has insufficient time for image verification. No recommendation was generated; this does not prove absence." }
-            : visualSearchFailure(execution, imageFailureCode(loaded.diagnostics), request.responseLocale ?? "en-US");
-          const content = rememberVisualFailure({ ...response.structuredContent, message: failure.message, visualSearchFailure: failure }, enriched.result,
-            { ...visual, input: request, execution, attempt: 2, candidates: new Map(), imageAttemptedKeys });
-          return { ...response, structuredContent: content, content: [{ type: "text" as const, text: content.message }],
-            _meta: { ...searchTraceMeta(execution, leaseExhausted ? "BUDGET_EXHAUSTED" : "NO_LOADABLE_IMAGES"), "findcheap/visualImageLoadDiagnostics": loaded.diagnostics,
-              ...visualEvaluationMeta(execution, visual.retrievedProductHashes, [], []) } };
+      const searchRun = parent.searchRun;
+      if (searchRun === undefined) return toolError("TOOL_REQUEST_REJECTED");
+      return searchRun.withRequestSignal(extra.signal, async () => {
+        if (searchRun.remainingServiceMs() <= 0) {
+          const failure = toolError("TOOL_REQUEST_REJECTED");
+          const message = parent.content.locale === "zh-CN"
+            ? "本次检索预算已用尽，检索尚不完整；保留原有商品信息，不能据此判断商品不存在。"
+            : "This search budget is exhausted and retrieval is incomplete. Previous product information is retained; this does not prove product absence.";
+          return { ...failure, content: [{ type: "text" as const, text: message }],
+            _meta: { ...failure._meta, "findcheap/searchTrace": searchRun.diagnostics() } };
         }
-        pruneVisualSearchSnapshots();
-        const visualSessionId = randomUUID();
-        const expiresAt = Math.min(visual.expiresAt, now().getTime() + VISUAL_SEARCH_SNAPSHOT_TTL_MS);
-        const entries = loaded.entries.map(entry => ({ ...entry, candidateId: randomUUID() }));
-        visualSearchSnapshots.set(visualSessionId, { ...visual, expiresAt, input: request,
-          execution: { ...execution, candidates: entries.map(entry => entry.candidate) },
-          candidates: new Map(entries.map(entry => [entry.candidateId, entry.candidate])), attempt: 2,
-          reviewedCandidateKeys: new Set([...visual.reviewedCandidateKeys, ...entries.map(entry => visualCandidateKey(entry.candidate))]),
-          imageAttemptedKeys });
-        const message = request.responseLocale === "zh-CN"
-          ? `网页补搜找到 ${entries.length} 个可看图候选，尚未生成推荐。必须复核全部图片，再调用 finalize_visual_search；这是最后一次图片复核。`
-          : `Web recovery found ${entries.length} loadable candidates, not recommendations. Review every image and call finalize_visual_search. This is the final visual review round.`;
-        return { ...response, content: visualCandidateContent(message, entries),
-          _meta: { ...searchTraceMeta(execution, "REVIEW_REQUIRED"), "findcheap/visualImageLoadDiagnostics": loaded.diagnostics,
-            ...visualEvaluationMeta(execution, visual.retrievedProductHashes, entries) },
-          structuredContent: { ...response.structuredContent, message,
-            goalId: parent.content.goalId, goalRevision: parent.content.goalRevision,
-            visualReview: { stage: "RELAXED_REVIEW" as const, terminal: false as const, finalAnswerAllowed: false as const,
-              requiredNextTool: "finalize_visual_search" as const, visualSessionId, expiresAt: new Date(expiresAt).toISOString(),
-              candidates: visualCandidateDescriptors(entries) } } };
-      }
-      const execution = evaluateRecoveredProducts(request, found.products, found.unavailable > 0);
-      execution.webRecovery = { submitted: urls.length, verified: found.products.length, rejected: found.rejected, unavailable: found.unavailable };
-      const { response, enriched } = await buildUnifiedResponse(request, execution);
-      const zh = parent.content.locale === "zh-CN";
-      const message = (zh ? `本次补搜提交 ${urls.length} 个商品链接，核验读取成功 ${found.products.length} 个，未能核验 ${found.unavailable} 个。仅代表本次有限搜索，不代表全网无货。`
-        : `This recovery submitted ${urls.length} product URLs; ${found.products.length} pages verified, ${found.unavailable} unavailable. This bounded search does not establish web-wide absence.`)
-        + " " + response.structuredContent.message;
-      const recommendation = choosePrimaryRecommendation(response.structuredContent.products, now().getTime());
-      const content = rememberSnapshot({ ...response.structuredContent, message }, enriched.result, undefined,
-        recommendation.primaryProductIndex, request, execution.candidates);
-      return { ...response, structuredContent: content, content: [{ type: "text" as const,
-        text: `${message}\n${recommendationInstruction(content)}\nRecovery finished. Preserve previous renderId and selectionIds; do not start another recovery automatically.` }] };
+        const visual = parent.visualRecovery;
+        if (parent.request!.visualInput !== undefined && (visual === undefined || visual.expiresAt <= now().getTime() ||
+          visual.attempt !== 1 || visual.execution.searchRun?.canRead("IMAGE") !== true)) return toolError("TOOL_REQUEST_REJECTED");
+        const leaseRemaining = webSessions.consume(renderId, webSessionId);
+        if (leaseRemaining === undefined) return toolError("TOOL_REQUEST_REJECTED");
+        const remaining = Math.min(leaseRemaining, searchRun.remainingServiceMs());
+        const webDeadline = now().getTime() + remaining;
+        const request = SearchProductsInputSchema.parse({ ...parent.request, contextMode: "CONTINUE_PREVIOUS_PRODUCT", parentRenderId: renderId });
+        const pages: WebProductPagePort = { read: (url, pageRequest, pageSignal) => searchRun.read("OFFICIAL", `web-recovery:${url}`, signal => {
+          const combined = AbortSignal.any([signal, pageSignal]);
+          combined.throwIfAborted();
+          return awaitWithSignal(backend.product.webProducts!.read(url, pageRequest, combined), combined);
+        }) };
+        const found = await readWebCandidates(urls, request, pages, visual === undefined ? remaining : Math.min(remaining, 15_000), { signal: searchRun.signal });
+        searchRun.throwIfCancelled();
+        if (visual !== undefined) {
+          delete parent.visualRecovery;
+          const execution = evaluateRecoveredProducts(request, found.products, found.unavailable > 0, { deferVisualFiltering: true });
+          execution.searchRun = visual.execution.searchRun!;
+          execution.sourceStatus = { ...visual.execution.sourceStatus, web: found.unavailable > 0 ? "PARTIAL" : "COMPLETE" };
+          if (visual.execution.sourceFailures !== undefined) execution.sourceFailures = visual.execution.sourceFailures;
+          execution.webRecovery = { submitted: urls.length, verified: found.products.length, rejected: found.rejected, unavailable: found.unavailable };
+          for (const candidate of execution.candidates) visual.retrievedProductHashes.add(visualProductHash(candidate));
+          // One batch of at most three image reads uses the existing 10-second
+          // per-read cap. Do not start it without room inside the original lease.
+          const imageBudgetAvailable = webDeadline - now().getTime() >= 10_500;
+          const loaded = await loadVisualCandidates(execution, visual.imageAttemptedKeys, MAX_RELAXED_VISUAL_CANDIDATES,
+            { contentKeys: visual.imageContentKeys, round: 2, maxAttempts: imageBudgetAvailable ? MAX_RELAXED_VISUAL_CANDIDATES : 0 });
+          searchRun.throwIfCancelled();
+          const leaseExhausted = !imageBudgetAvailable || now().getTime() >= webDeadline;
+          if (leaseExhausted) loaded.entries = [];
+          const imageAttemptedKeys = new Set([...visual.imageAttemptedKeys, ...loaded.attemptedKeys]);
+          const { response, enriched } = await buildUnifiedResponse(request, { ...execution, candidates: [] },
+            loaded.entries.length > 0 ? "REVIEW_REQUIRED" : "NO_LOADABLE_IMAGES");
+          if (loaded.entries.length === 0) {
+            const failure = leaseExhausted ? { code: "SEARCH_BUDGET_EXHAUSTED" as const,
+              message: request.responseLocale === "zh-CN" ? "网页补搜剩余时间不足以完成图片核验，未生成推荐；这不代表商品不存在。"
+                : "The web recovery lease has insufficient time for image verification. No recommendation was generated; this does not prove absence." }
+              : visualSearchFailure(execution, imageFailureCode(loaded.diagnostics), request.responseLocale ?? "en-US");
+            const content = rememberVisualFailure({ ...response.structuredContent, message: failure.message, visualSearchFailure: failure }, enriched.result,
+              { ...visual, input: request, execution, attempt: 2, candidates: new Map(), imageAttemptedKeys });
+            return { ...response, structuredContent: content, content: [{ type: "text" as const, text: content.message }],
+              _meta: { ...searchTraceMeta(execution, leaseExhausted ? "BUDGET_EXHAUSTED" : "NO_LOADABLE_IMAGES"), "findcheap/visualImageLoadDiagnostics": loaded.diagnostics,
+                ...visualEvaluationMeta(execution, visual.retrievedProductHashes, [], []) } };
+          }
+          pruneVisualSearchSnapshots();
+          const visualSessionId = randomUUID();
+          const expiresAt = Math.min(visual.expiresAt, now().getTime() + VISUAL_SEARCH_SNAPSHOT_TTL_MS);
+          const entries = loaded.entries.map(entry => ({ ...entry, candidateId: randomUUID() }));
+          searchRun.throwIfCancelled();
+          visualSearchSnapshots.set(visualSessionId, { ...visual, expiresAt, input: request,
+            execution: { ...execution, candidates: entries.map(entry => entry.candidate) },
+            candidates: new Map(entries.map(entry => [entry.candidateId, entry.candidate])), attempt: 2,
+            reviewedCandidateKeys: new Set([...visual.reviewedCandidateKeys, ...entries.map(entry => visualCandidateKey(entry.candidate))]),
+            imageAttemptedKeys });
+          const message = request.responseLocale === "zh-CN"
+            ? `网页补搜找到 ${entries.length} 个可看图候选，尚未生成推荐。必须复核全部图片，再调用 finalize_visual_search；这是最后一次图片复核。`
+            : `Web recovery found ${entries.length} loadable candidates, not recommendations. Review every image and call finalize_visual_search. This is the final visual review round.`;
+          return { ...response, content: visualCandidateContent(message, entries),
+            _meta: { ...searchTraceMeta(execution, "REVIEW_REQUIRED"), "findcheap/visualImageLoadDiagnostics": loaded.diagnostics,
+              ...visualEvaluationMeta(execution, visual.retrievedProductHashes, entries) },
+            structuredContent: { ...response.structuredContent, message,
+              goalId: parent.content.goalId, goalRevision: parent.content.goalRevision,
+              visualReview: { stage: "RELAXED_REVIEW" as const, terminal: false as const, finalAnswerAllowed: false as const,
+                requiredNextTool: "finalize_visual_search" as const, visualSessionId, expiresAt: new Date(expiresAt).toISOString(),
+                candidates: visualCandidateDescriptors(entries) } } };
+        }
+        const execution = evaluateRecoveredProducts(request, found.products, found.unavailable > 0);
+        execution.searchRun = searchRun;
+        execution.webRecovery = { submitted: urls.length, verified: found.products.length, rejected: found.rejected, unavailable: found.unavailable };
+        const { response, enriched } = await buildUnifiedResponse(request, execution);
+        searchRun.throwIfCancelled();
+        const zh = parent.content.locale === "zh-CN";
+        const message = (zh ? `本次补搜提交 ${urls.length} 个商品链接，核验读取成功 ${found.products.length} 个，未能核验 ${found.unavailable} 个。仅代表本次有限搜索，不代表全网无货。`
+          : `This recovery submitted ${urls.length} product URLs; ${found.products.length} pages verified, ${found.unavailable} unavailable. This bounded search does not establish web-wide absence.`)
+          + " " + response.structuredContent.message;
+        const recommendation = choosePrimaryRecommendation(response.structuredContent.products, now().getTime());
+        const content = rememberSnapshot({ ...response.structuredContent, message }, enriched.result, undefined,
+          recommendation.primaryProductIndex, request, execution.candidates, false, searchRun);
+        return { ...response, structuredContent: content, content: [{ type: "text" as const,
+          text: `${message}\n${recommendationInstruction(content)}\nRecovery finished. Preserve previous renderId and selectionIds; do not start another recovery automatically.` }] };
+      });
     });
   }
 
@@ -2920,7 +3065,7 @@ export function createShoppingServer(
         "openai/toolInvocation/invoked": "Visual candidates ready for review."
       }
     },
-    async (rawInput) => {
+    async (rawInput, extra) => {
       let parsedInput = VisualCandidateSearchInputSchema.parse(rawInput);
       if (parsedInput.contextMode === "NEW_PRODUCT" && (parsedInput.parentRenderId !== undefined ||
         parsedInput.goalId !== undefined || parsedInput.goalRevision !== undefined)) return toolError("INVALID_ARGUMENTS");
@@ -2958,114 +3103,119 @@ export function createShoppingServer(
         limit: 3,
         allowAlternatives: parsed.allowAlternatives
       };
-      const searchRun = new SearchRun();
-      const searchInput = visualRetrievalSearchInput(finalInput, false, searchRun);
-      let execution = await runUnifiedSearch(searchInput);
-      const retrievedProductHashes = new Set((execution.reviewPool ?? execution.candidates).map(visualProductHash));
-      const imageContentKeys = new Set<string>();
-      // Preserve three of the shared twelve image requests for the second review.
-      let imageLoad = await loadVisualCandidates(execution, new Set(), MAX_VISUAL_CANDIDATES, {
-        maxAttempts: 12 - MAX_RELAXED_VISUAL_CANDIDATES, contentKeys: imageContentKeys, round: 1
-      });
-      let available = imageLoad.entries;
-      let attempt: 1 | 2 = 1;
-      const reviewedCandidateKeys = new Set(available.map((entry) => visualCandidateKey(entry.candidate)));
-      const imageAttemptedKeys = new Set(imageLoad.attemptedKeys);
-      if (available.length === 0) {
-        // Zero loaded images and zero visual matches share the same recovery order:
-        // inspect the retained original tail before spending a relaxed retrieval.
-        let relaxedExecution = execution;
-        let relaxedImageLoad = await loadVisualCandidates(
-          execution,
-          imageAttemptedKeys,
-          MAX_RELAXED_VISUAL_CANDIDATES,
-          { contentKeys: imageContentKeys, round: 2 }
-        );
-        for (const key of relaxedImageLoad.attemptedKeys) imageAttemptedKeys.add(key);
-        if (relaxedImageLoad.entries.length === 0 && searchRun.canRead("IMAGE")) {
-          relaxedExecution = await runUnifiedSearch(visualRetrievalSearchInput(finalInput, true, searchRun));
-          for (const candidate of relaxedExecution.reviewPool ?? relaxedExecution.candidates) retrievedProductHashes.add(visualProductHash(candidate));
-          const supplemental = await loadVisualCandidates(relaxedExecution, imageAttemptedKeys, MAX_RELAXED_VISUAL_CANDIDATES,
-            { contentKeys: imageContentKeys, round: 2 });
-          relaxedImageLoad = { ...supplemental,
-            diagnostics: mergeVisualImageLoadDiagnostics(relaxedImageLoad.diagnostics, supplemental.diagnostics) };
-        }
-        for (const entry of relaxedImageLoad.entries) reviewedCandidateKeys.add(visualCandidateKey(entry.candidate));
-        for (const key of relaxedImageLoad.attemptedKeys) imageAttemptedKeys.add(key);
-        const diagnostics = mergeVisualImageLoadDiagnostics(imageLoad.diagnostics, relaxedImageLoad.diagnostics);
-        if (relaxedImageLoad.entries.length === 0) {
-          relaxedExecution.searchRun?.recordVisualStage("FINAL", [], { round: 2 });
-          const fallbackCode = imageFailureCode(diagnostics);
-          const failure = visualSearchFailure(relaxedExecution, fallbackCode, parsed.responseLocale ?? "en-US");
-          const message = `${failure.message} ${parsed.responseLocale === "zh-CN" ? "未生成视觉推荐。" : "No visual recommendation was produced."}`;
-          const { response, enriched } = await buildUnifiedResponse(finalInput, { ...relaxedExecution, candidates: [] }, "NO_CANDIDATES");
-          const remembered = rememberVisualFailure({ ...response.structuredContent, message, visualSearchFailure: failure }, enriched.result, {
-            expiresAt: now().getTime() + VISUAL_SEARCH_SNAPSHOT_TTL_MS, input: finalInput, execution: relaxedExecution,
-            candidates: new Map(), attempt: 1, reviewedCandidateKeys, imageAttemptedKeys, imageContentKeys,
-            reviewedCount: 0, reviewConflictCount: 0, reviewInsufficientCount: 0, accepted: [], retrievedProductHashes
-          });
-          return {
-            content: [{ type: "text" as const, text: remembered.message }],
-            _meta: { ...searchTraceMeta(relaxedExecution, fallbackCode === "NO_LOADABLE_IMAGES" ? "NO_LOADABLE_IMAGES" : "NO_CANDIDATES",
-              { imageAttempts: diagnostics.attempted, imagesLoaded: diagnostics.loaded, returned: 0 }),
-              "findcheap/visualImageLoadDiagnostics": diagnostics,
-              ...visualEvaluationMeta(relaxedExecution, retrievedProductHashes, [], []) },
-            structuredContent: {
-              status: "NO_IMAGE_CANDIDATES" as const,
-              message: remembered.message,
-              renderId: remembered.renderId, goalId: remembered.goalId, goalRevision: remembered.goalRevision, recovery: remembered.recovery,
-              candidates: [],
-              visualSearchFailure: failure
-            }
-          };
-        }
-        execution = relaxedExecution;
-        imageLoad = { entries: relaxedImageLoad.entries, diagnostics, attemptedKeys: imageAttemptedKeys };
-        available = relaxedImageLoad.entries;
-        attempt = 2;
-      }
-      pruneVisualSearchSnapshots();
-      const visualSessionId = randomUUID();
-      const expiresAtMs = now().getTime() + VISUAL_SEARCH_SNAPSHOT_TTL_MS;
-      const candidateEntries = available.map(({ candidate, image }) => ({
-        candidateId: randomUUID(),
-        candidate,
-        image
-      }));
-      const candidateMap = new Map(candidateEntries.map((entry) => [entry.candidateId, entry.candidate]));
-      visualSearchSnapshots.set(visualSessionId, {
-        expiresAt: expiresAtMs,
-        input: finalInput,
-        execution: { ...execution, candidates: candidateEntries.map((entry) => entry.candidate) },
-        candidates: candidateMap,
-        attempt,
-        reviewedCandidateKeys,
-        imageAttemptedKeys,
-        imageContentKeys,
-        reviewedCount: 0, reviewConflictCount: 0, reviewInsufficientCount: 0,
-        accepted: [], retrievedProductHashes
-      });
-      pruneVisualSearchSnapshots();
-      const message = `Review all ${candidateEntries.length} labeled candidate images against the user's reference image. Then call finalize_visual_search once with visualSessionId ${visualSessionId}.`;
-      return {
-        content: visualCandidateContent(message, candidateEntries),
-        _meta: { ...searchTraceMeta(execution, "REVIEW_REQUIRED", {
-          imageAttempts: imageLoad.diagnostics.attempted, imagesLoaded: available.length }),
-          "findcheap/visualImageLoadDiagnostics": imageLoad.diagnostics,
-          ...visualEvaluationMeta(execution, retrievedProductHashes, candidateEntries) },
-        structuredContent: {
-          status: "OK" as const,
-          message,
-          visualSessionId,
-          expiresAt: new Date(expiresAtMs).toISOString(),
-          candidates: visualCandidateDescriptors(candidateEntries),
-          workflow: {
-            state: "REVIEW_REQUIRED" as const,
-            finalAnswerAllowed: false as const,
-            requiredNextTool: "finalize_visual_search" as const
+      const searchRun = new SearchRun({ serviceBudgetMs: 180_000 });
+      return searchRun.withRequestSignal(extra.signal, async () => {
+        const searchInput = visualRetrievalSearchInput(finalInput, false, searchRun);
+        let execution = await runUnifiedSearch(searchInput);
+        searchRun.throwIfCancelled();
+        const retrievedProductHashes = new Set((execution.reviewPool ?? execution.candidates).map(visualProductHash));
+        const imageContentKeys = new Set<string>();
+        // Preserve three of the shared twelve image requests for the second review.
+        let imageLoad = await loadVisualCandidates(execution, new Set(), MAX_VISUAL_CANDIDATES, {
+          maxAttempts: 12 - MAX_RELAXED_VISUAL_CANDIDATES, contentKeys: imageContentKeys, round: 1
+        });
+        let available = imageLoad.entries;
+        let attempt: 1 | 2 = 1;
+        const reviewedCandidateKeys = new Set(available.map((entry) => visualCandidateKey(entry.candidate)));
+        const imageAttemptedKeys = new Set(imageLoad.attemptedKeys);
+        if (available.length === 0) {
+          // Zero loaded images and zero visual matches share the same recovery order:
+          // inspect the retained original tail before spending a relaxed retrieval.
+          let relaxedExecution = execution;
+          let relaxedImageLoad = await loadVisualCandidates(
+            execution,
+            imageAttemptedKeys,
+            MAX_RELAXED_VISUAL_CANDIDATES,
+            { contentKeys: imageContentKeys, round: 2 }
+          );
+          for (const key of relaxedImageLoad.attemptedKeys) imageAttemptedKeys.add(key);
+          if (relaxedImageLoad.entries.length === 0 && searchRun.canRead("IMAGE")) {
+            relaxedExecution = await runUnifiedSearch(visualRetrievalSearchInput(finalInput, true, searchRun));
+            for (const candidate of relaxedExecution.reviewPool ?? relaxedExecution.candidates) retrievedProductHashes.add(visualProductHash(candidate));
+            const supplemental = await loadVisualCandidates(relaxedExecution, imageAttemptedKeys, MAX_RELAXED_VISUAL_CANDIDATES,
+              { contentKeys: imageContentKeys, round: 2 });
+            relaxedImageLoad = { ...supplemental,
+              diagnostics: mergeVisualImageLoadDiagnostics(relaxedImageLoad.diagnostics, supplemental.diagnostics) };
           }
+          for (const entry of relaxedImageLoad.entries) reviewedCandidateKeys.add(visualCandidateKey(entry.candidate));
+          for (const key of relaxedImageLoad.attemptedKeys) imageAttemptedKeys.add(key);
+          const diagnostics = mergeVisualImageLoadDiagnostics(imageLoad.diagnostics, relaxedImageLoad.diagnostics);
+          if (relaxedImageLoad.entries.length === 0) {
+            relaxedExecution.searchRun?.recordVisualStage("FINAL", [], { round: 2 });
+            const fallbackCode = imageFailureCode(diagnostics);
+            const failure = visualSearchFailure(relaxedExecution, fallbackCode, parsed.responseLocale ?? "en-US");
+            const message = `${failure.message} ${parsed.responseLocale === "zh-CN" ? "未生成视觉推荐。" : "No visual recommendation was produced."}`;
+            const { response, enriched } = await buildUnifiedResponse(finalInput, { ...relaxedExecution, candidates: [] }, "NO_CANDIDATES");
+            const remembered = rememberVisualFailure({ ...response.structuredContent, message, visualSearchFailure: failure }, enriched.result, {
+              expiresAt: now().getTime() + VISUAL_SEARCH_SNAPSHOT_TTL_MS, input: finalInput, execution: relaxedExecution,
+              candidates: new Map(), attempt: 1, reviewedCandidateKeys, imageAttemptedKeys, imageContentKeys,
+              reviewedCount: 0, reviewConflictCount: 0, reviewInsufficientCount: 0, accepted: [], retrievedProductHashes
+            });
+            return {
+              content: [{ type: "text" as const, text: remembered.message }],
+              _meta: { ...searchTraceMeta(relaxedExecution, fallbackCode === "NO_LOADABLE_IMAGES" ? "NO_LOADABLE_IMAGES" : "NO_CANDIDATES",
+                { imageAttempts: diagnostics.attempted, imagesLoaded: diagnostics.loaded, returned: 0 }),
+                "findcheap/visualImageLoadDiagnostics": diagnostics,
+                ...visualEvaluationMeta(relaxedExecution, retrievedProductHashes, [], []) },
+              structuredContent: {
+                status: "NO_IMAGE_CANDIDATES" as const,
+                message: remembered.message,
+                renderId: remembered.renderId, goalId: remembered.goalId, goalRevision: remembered.goalRevision, recovery: remembered.recovery,
+                candidates: [],
+                visualSearchOutcome: remembered.visualSearchOutcome,
+                visualSearchFailure: failure
+              }
+            };
+          }
+          execution = relaxedExecution;
+          imageLoad = { entries: relaxedImageLoad.entries, diagnostics, attemptedKeys: imageAttemptedKeys };
+          available = relaxedImageLoad.entries;
+          attempt = 2;
         }
-      };
+        pruneVisualSearchSnapshots();
+        const visualSessionId = randomUUID();
+        const expiresAtMs = now().getTime() + VISUAL_SEARCH_SNAPSHOT_TTL_MS;
+        const candidateEntries = available.map(({ candidate, image }) => ({
+          candidateId: randomUUID(),
+          candidate,
+          image
+        }));
+        const candidateMap = new Map(candidateEntries.map((entry) => [entry.candidateId, entry.candidate]));
+        searchRun.throwIfCancelled();
+        visualSearchSnapshots.set(visualSessionId, {
+          expiresAt: expiresAtMs,
+          input: finalInput,
+          execution: { ...execution, candidates: candidateEntries.map((entry) => entry.candidate) },
+          candidates: candidateMap,
+          attempt,
+          reviewedCandidateKeys,
+          imageAttemptedKeys,
+          imageContentKeys,
+          reviewedCount: 0, reviewConflictCount: 0, reviewInsufficientCount: 0,
+          accepted: [], retrievedProductHashes
+        });
+        pruneVisualSearchSnapshots();
+        const message = `Review all ${candidateEntries.length} labeled candidate images against the user's reference image. Then call finalize_visual_search once with visualSessionId ${visualSessionId}.`;
+        return {
+          content: visualCandidateContent(message, candidateEntries),
+          _meta: { ...searchTraceMeta(execution, "REVIEW_REQUIRED", {
+            imageAttempts: imageLoad.diagnostics.attempted, imagesLoaded: available.length }),
+            "findcheap/visualImageLoadDiagnostics": imageLoad.diagnostics,
+            ...visualEvaluationMeta(execution, retrievedProductHashes, candidateEntries) },
+          structuredContent: {
+            status: "OK" as const,
+            message,
+            visualSessionId,
+            expiresAt: new Date(expiresAtMs).toISOString(),
+            candidates: visualCandidateDescriptors(candidateEntries),
+            workflow: {
+              state: "REVIEW_REQUIRED" as const,
+              finalAnswerAllowed: false as const,
+              requiredNextTool: "finalize_visual_search" as const
+            }
+          }
+        };
+      });
     }
   );
 
@@ -3073,7 +3223,7 @@ export function createShoppingServer(
     "finalize_visual_search",
     {
       title: "Finalize visual search",
-      description: "Visual-review stage for interactive image search. Use only candidate IDs and images returned by the latest tool result. Report directly visible matching and conflicting attributes. Obscured or low-confidence attributes cannot match or conflict. Clearly visible family, sleeve, neckline, and length conflicts exclude. Color or pattern difference alone may remain HIGHLY_SIMILAR only when at least three independent structural attributes match; disclose the difference. POSSIBLE_SAME_ITEM additionally needs a distinguishing visible pattern, detail or mark; generic cut, color or name hints are insufficient. A visual verdict can exclude or rerank candidates, but cannot create EXACT identity. Each visual session is immutable and single-use. If the result has visualReview.finalAnswerAllowed=false, a final answer is forbidden: review every returned relaxed candidate and immediately call visualReview.requiredNextTool with its new visualSessionId. Never retry more than once.",
+      description: "Visual-review stage for interactive image search. Use only candidate IDs and images returned by the latest tool result. Report directly visible matching and conflicting attributes. Obscured or low-confidence attributes cannot match or conflict. Clearly visible family, sleeve, neckline, and length conflicts exclude. Color or pattern difference alone may remain HIGHLY_SIMILAR only with a source-proven same brand and at least three independent structural matches; disclose the difference. Unknown brand cannot authorize colorway changes; merchant names and titles do not prove product brand. Same-color cross-brand structural alternatives remain allowed. POSSIBLE_SAME_ITEM additionally needs a distinguishing visible pattern, detail or mark; generic cut, color or name hints are insufficient. A visual verdict can exclude or rerank candidates, but cannot create EXACT identity. Each visual session is immutable and single-use. If the result has visualReview.finalAnswerAllowed=false, a final answer is forbidden: review every returned relaxed candidate and immediately call visualReview.requiredNextTool with its new visualSessionId. At most two visual review rounds. Reviewed HIGHLY_SIMILAR or SAME_STYLE alternatives are automatic for image searches when no confirmed purchasable same item is found; keep the returned recommendation scope and disclose differences. User-required features, excluded features, brand and budget remain hard constraints. Preserve unavailable same-item evidence without recommending purchase. Follow visualSearchOutcome: POSSIBLE is not confirmed, incomplete is not absence. Offer an opt-in restock Watch only; do not create one automatically. Changed variants marked visualReviewRequired need fresh visual review.",
       inputSchema: FinalizeVisualSearchInputSchema,
       outputSchema: ShopifyProductsOutputShape,
       annotations: {
@@ -3089,7 +3239,7 @@ export function createShoppingServer(
         "openai/toolInvocation/invoked": "Verified visual matches ready."
       }
     },
-    async (rawInput) => {
+    async (rawInput, extra) => {
       const input = FinalizeVisualSearchInputSchema.parse(rawInput);
       pruneVisualSearchSnapshots();
       const snapshot = visualSearchSnapshots.get(input.visualSessionId);
@@ -3097,229 +3247,251 @@ export function createShoppingServer(
         visualSearchSnapshots.delete(input.visualSessionId);
         throw new Error("VISUAL_SESSION_EXPIRED");
       }
-      const reviewed: Array<{ candidate: UnifiedCandidate; verdict: CodexVisualVerdict }> = [];
-      for (const entry of input.verdicts) {
-        const candidate = snapshot.candidates.get(entry.candidateId);
-        if (candidate === undefined) throw new Error("VISUAL_CANDIDATE_NOT_IN_SESSION");
-        reviewed.push({ candidate, verdict: entry.verdict });
-      }
-      if (reviewed.length !== snapshot.candidates.size) return toolError("INVALID_ARGUMENTS", {
-        issues: [{ path: "verdicts", code: "REQUIRED", action: "SUPPLY_REQUIRED_FIELD", minimum: snapshot.candidates.size }]
-      });
-      visualSearchSnapshots.delete(input.visualSessionId);
-      const reviewGroups = { REVIEW_ACCEPTED: [] as UnifiedCandidate[], REVIEW_CONFLICT: [] as UnifiedCandidate[],
-        REVIEW_INSUFFICIENT: [] as UnifiedCandidate[] };
-      for (const entry of reviewed) {
-        const accepted = assessVisualVerdict(entry.verdict, snapshot.input.visualInput, snapshot.input.allowAlternatives);
-        const group = accepted !== undefined ? "REVIEW_ACCEPTED"
-          : hasAdmissibleVisualConflict(entry.verdict, snapshot.input.visualInput!) ? "REVIEW_CONFLICT" : "REVIEW_INSUFFICIENT";
-        reviewGroups[group].push(entry.candidate);
-      }
-      snapshot.reviewedCount += reviewed.length;
-      snapshot.reviewConflictCount += reviewGroups.REVIEW_CONFLICT.length;
-      snapshot.reviewInsufficientCount += reviewGroups.REVIEW_INSUFFICIENT.length;
-      for (const stage of ["REVIEW_ACCEPTED", "REVIEW_CONFLICT", "REVIEW_INSUFFICIENT"] as const) {
-        snapshot.execution.searchRun?.recordVisualStage(stage, reviewGroups[stage].map((candidate) => ({
-          productHash: visualProductHash(candidate)
-        })), { round: snapshot.attempt });
-      }
-      const evaluatedAtMs = now().getTime();
-      const newlyAccepted = finalizeCodexVisualCandidates(
-        reviewed,
-        snapshot.input.allowAlternatives,
-        snapshot.input.limit,
-        snapshot.input.visualInput,
-        snapshot.input.brand !== undefined && snapshot.input.brandMode === "REQUIRED",
-        evaluatedAtMs
-      );
-      const acceptedKeys = new Set<string>();
-      const finalCandidates = [...snapshot.accepted, ...newlyAccepted].sort((left, right) => compareRankedCandidates(left, right, evaluatedAtMs))
-        .filter((candidate) => {
-          const key = candidateKey(candidate);
-          if (acceptedKeys.has(key)) return false;
-          acceptedKeys.add(key);
-          return true;
-        }).slice(0, snapshot.input.limit);
-      const unreviewedPool = (snapshot.execution.reviewPool ?? snapshot.execution.candidates).some((candidate) =>
-        candidateImageUrl(candidate) !== undefined && !snapshot.imageAttemptedKeys.has(visualCandidateKey(candidate)));
-      const needsReview = finalCandidates.length === 0 || (unreviewedPool &&
-        !finalCandidates.some((candidate) => candidate.visualMatchGroup === "POSSIBLE_SAME_ITEM"));
-      if (needsReview && snapshot.attempt === 1 && snapshot.execution.searchRun?.canRead("IMAGE") !== false) {
-        // A recalled seventh result must not disappear when the first six conflict.
-        // A full same-run tail must not starve official continuation either. Reserve
-        // one output slot, request, and byte share; unused capacity returns to the tail.
-        const reserveContinuation = finalCandidates.length === 0 &&
-          snapshot.execution.officialStoreFallback.status === "COMPLETE" &&
-          snapshot.execution.searchRun?.canRead("OFFICIAL") === true;
-        let secondExecution = snapshot.execution;
-        let secondImageLoad = await loadVisualCandidates(
-          secondExecution,
-          snapshot.imageAttemptedKeys,
-          MAX_RELAXED_VISUAL_CANDIDATES - (reserveContinuation ? 1 : 0),
-          { contentKeys: snapshot.imageContentKeys, round: 2,
-            ...(reserveContinuation ? {
-              maxAttempts: Math.max(0, secondExecution.searchRun!.remainingImageRequests() - 1),
-              maxDataChars: Math.floor(MAX_VISUAL_CANDIDATE_OUTPUT_DATA_CHARS * 2 / 3)
-            } : {}) }
+      const searchRun = snapshot.execution.searchRun;
+      if (searchRun === undefined) return toolError("TOOL_REQUEST_REJECTED");
+      return searchRun.withRequestSignal(extra.signal, async () => {
+        const reviewed: Array<{ candidate: UnifiedCandidate; verdict: CodexVisualVerdict }> = [];
+        for (const entry of input.verdicts) {
+          const candidate = snapshot.candidates.get(entry.candidateId);
+          if (candidate === undefined) throw new Error("VISUAL_CANDIDATE_NOT_IN_SESSION");
+          reviewed.push({ candidate, verdict: entry.verdict });
+        }
+        if (reviewed.length !== snapshot.candidates.size) return toolError("INVALID_ARGUMENTS", {
+          issues: [{ path: "verdicts", code: "REQUIRED", action: "SUPPLY_REQUIRED_FIELD", minimum: snapshot.candidates.size }]
+        });
+        visualSearchSnapshots.delete(input.visualSessionId);
+        const reviewRequirements = {
+          requiredFeatures: [...snapshot.input.requiredFeatures,
+            ...(snapshot.input.featureMode === "REQUIRED" ? snapshot.input.features : [])],
+          excludedFeatures: snapshot.input.excludedFeatures
+        };
+        const referenceBrand = snapshot.input.brand ?? snapshot.input.visualInput?.brand;
+        const reviewGroups = { REVIEW_ACCEPTED: [] as UnifiedCandidate[], REVIEW_CONFLICT: [] as UnifiedCandidate[],
+          REVIEW_INSUFFICIENT: [] as UnifiedCandidate[] };
+        for (const entry of reviewed) {
+          const accepted = assessCodexVisualCandidate(entry.candidate, entry.verdict, snapshot.input.visualInput, true, reviewRequirements, referenceBrand);
+          const group = accepted !== undefined ? "REVIEW_ACCEPTED"
+            : assessVisualVerdict(entry.verdict, snapshot.input.visualInput, true) !== undefined ||
+              hasAdmissibleVisualConflict(entry.verdict, snapshot.input.visualInput!) ? "REVIEW_CONFLICT" : "REVIEW_INSUFFICIENT";
+          reviewGroups[group].push(entry.candidate);
+        }
+        snapshot.reviewedCount += reviewed.length;
+        snapshot.reviewConflictCount += reviewGroups.REVIEW_CONFLICT.length;
+        snapshot.reviewInsufficientCount += reviewGroups.REVIEW_INSUFFICIENT.length;
+        for (const stage of ["REVIEW_ACCEPTED", "REVIEW_CONFLICT", "REVIEW_INSUFFICIENT"] as const) {
+          snapshot.execution.searchRun?.recordVisualStage(stage, reviewGroups[stage].map((candidate) => ({
+            productHash: visualProductHash(candidate)
+          })), { round: snapshot.attempt });
+        }
+        const evaluatedAtMs = now().getTime();
+        const newlyAccepted = finalizeCodexVisualCandidates(
+          reviewed,
+          snapshot.input.allowAlternatives,
+          snapshot.input.limit,
+          snapshot.input.visualInput,
+          snapshot.input.brand !== undefined && snapshot.input.brandMode === "REQUIRED",
+          evaluatedAtMs,
+          reviewRequirements,
+          referenceBrand
         );
-        const imageAttemptedKeys = new Set([...snapshot.imageAttemptedKeys, ...secondImageLoad.attemptedKeys]);
-        let stage: "POOL_REVIEW" | "RELAXED_REVIEW" = "POOL_REVIEW";
-        const remainingDataChars = MAX_VISUAL_CANDIDATE_OUTPUT_DATA_CHARS -
-          secondImageLoad.entries.reduce((total, entry) => total + entry.image.data.length, 0);
-        if (secondImageLoad.entries.length < MAX_RELAXED_VISUAL_CANDIDATES && remainingDataChars > 0 &&
-            snapshot.execution.searchRun?.canRead("IMAGE") !== false) {
-          stage = "RELAXED_REVIEW";
-          secondExecution = await runUnifiedSearch(visualRetrievalSearchInput(snapshot.input, true, snapshot.execution.searchRun));
-          for (const candidate of secondExecution.reviewPool ?? secondExecution.candidates) snapshot.retrievedProductHashes.add(visualProductHash(candidate));
-          const excludedKeys = reserveContinuation ? new Set([...imageAttemptedKeys,
-            ...(snapshot.execution.reviewPool ?? snapshot.execution.candidates).map(visualCandidateKey)]) : imageAttemptedKeys;
-          const supplemental = await loadVisualCandidates(secondExecution, excludedKeys,
-            MAX_RELAXED_VISUAL_CANDIDATES - secondImageLoad.entries.length, { maxDataChars: remainingDataChars,
-              contentKeys: snapshot.imageContentKeys, round: 2 });
-          for (const key of supplemental.attemptedKeys) imageAttemptedKeys.add(key);
-          secondImageLoad = {
-            entries: [...secondImageLoad.entries, ...supplemental.entries],
-            diagnostics: mergeVisualImageLoadDiagnostics(secondImageLoad.diagnostics, supplemental.diagnostics),
-            attemptedKeys: imageAttemptedKeys
-          };
-        }
-        if (reserveContinuation && secondImageLoad.entries.length < MAX_RELAXED_VISUAL_CANDIDATES &&
-            snapshot.execution.searchRun?.canRead("IMAGE")) {
-          const tail = await loadVisualCandidates(snapshot.execution, imageAttemptedKeys,
-            MAX_RELAXED_VISUAL_CANDIDATES - secondImageLoad.entries.length, {
-              maxDataChars: MAX_VISUAL_CANDIDATE_OUTPUT_DATA_CHARS - secondImageLoad.entries.reduce((sum, entry) => sum + entry.image.data.length, 0),
-              contentKeys: snapshot.imageContentKeys, round: 2
+        const acceptedKeys = new Set<string>();
+        const finalCandidates = selectVisualResults([...snapshot.accepted, ...newlyAccepted].sort((left, right) => compareRankedCandidates(left, right, evaluatedAtMs))
+          .filter((candidate) => {
+            const key = candidateKey(candidate);
+            if (acceptedKeys.has(key)) return false;
+            acceptedKeys.add(key);
+            return true;
+          }), snapshot.input.limit);
+        const unreviewedPool = (snapshot.execution.reviewPool ?? snapshot.execution.candidates).some((candidate) =>
+          candidateImageUrl(candidate) !== undefined && !snapshot.imageAttemptedKeys.has(visualCandidateKey(candidate)));
+        const needsReview = needsMoreVisualReview(finalCandidates, unreviewedPool);
+        if (needsReview && snapshot.attempt === 1 && snapshot.execution.searchRun?.canRead("IMAGE") !== false) {
+          // A recalled seventh result must not disappear when the first six conflict.
+          // A full same-run tail must not starve official continuation either. Reserve
+          // one output slot, request, and byte share; unused capacity returns to the tail.
+          const reserveContinuation = finalCandidates.length === 0 &&
+            snapshot.execution.officialStoreFallback.status === "COMPLETE" &&
+            snapshot.execution.searchRun?.canRead("OFFICIAL") === true;
+          let secondExecution = snapshot.execution;
+          let secondImageLoad = await loadVisualCandidates(
+            secondExecution,
+            snapshot.imageAttemptedKeys,
+            MAX_RELAXED_VISUAL_CANDIDATES - (reserveContinuation ? 1 : 0),
+            { contentKeys: snapshot.imageContentKeys, round: 2,
+              ...(reserveContinuation ? {
+                maxAttempts: Math.max(0, secondExecution.searchRun!.remainingImageRequests() - 1),
+                maxDataChars: Math.floor(MAX_VISUAL_CANDIDATE_OUTPUT_DATA_CHARS * 2 / 3)
+              } : {}) }
+          );
+          const imageAttemptedKeys = new Set([...snapshot.imageAttemptedKeys, ...secondImageLoad.attemptedKeys]);
+          let stage: "POOL_REVIEW" | "RELAXED_REVIEW" = "POOL_REVIEW";
+          const remainingDataChars = MAX_VISUAL_CANDIDATE_OUTPUT_DATA_CHARS -
+            secondImageLoad.entries.reduce((total, entry) => total + entry.image.data.length, 0);
+          if (secondImageLoad.entries.length < MAX_RELAXED_VISUAL_CANDIDATES && remainingDataChars > 0 &&
+              snapshot.execution.searchRun?.canRead("IMAGE") !== false) {
+            stage = "RELAXED_REVIEW";
+            secondExecution = await runUnifiedSearch(visualRetrievalSearchInput(snapshot.input, true, snapshot.execution.searchRun));
+            for (const candidate of secondExecution.reviewPool ?? secondExecution.candidates) snapshot.retrievedProductHashes.add(visualProductHash(candidate));
+            const excludedKeys = reserveContinuation ? new Set([...imageAttemptedKeys,
+              ...(snapshot.execution.reviewPool ?? snapshot.execution.candidates).map(visualCandidateKey)]) : imageAttemptedKeys;
+            const supplemental = await loadVisualCandidates(secondExecution, excludedKeys,
+              MAX_RELAXED_VISUAL_CANDIDATES - secondImageLoad.entries.length, { maxDataChars: remainingDataChars,
+                contentKeys: snapshot.imageContentKeys, round: 2 });
+            for (const key of supplemental.attemptedKeys) imageAttemptedKeys.add(key);
+            secondImageLoad = {
+              entries: [...secondImageLoad.entries, ...supplemental.entries],
+              diagnostics: mergeVisualImageLoadDiagnostics(secondImageLoad.diagnostics, supplemental.diagnostics),
+              attemptedKeys: imageAttemptedKeys
+            };
+          }
+          if (reserveContinuation && secondImageLoad.entries.length < MAX_RELAXED_VISUAL_CANDIDATES &&
+              snapshot.execution.searchRun?.canRead("IMAGE")) {
+            const tail = await loadVisualCandidates(snapshot.execution, imageAttemptedKeys,
+              MAX_RELAXED_VISUAL_CANDIDATES - secondImageLoad.entries.length, {
+                maxDataChars: MAX_VISUAL_CANDIDATE_OUTPUT_DATA_CHARS - secondImageLoad.entries.reduce((sum, entry) => sum + entry.image.data.length, 0),
+                contentKeys: snapshot.imageContentKeys, round: 2
+              });
+            for (const key of tail.attemptedKeys) imageAttemptedKeys.add(key);
+            secondImageLoad = { entries: [...secondImageLoad.entries, ...tail.entries],
+              diagnostics: mergeVisualImageLoadDiagnostics(secondImageLoad.diagnostics, tail.diagnostics),
+              attemptedKeys: imageAttemptedKeys };
+          }
+          const available = secondImageLoad.entries;
+          snapshot.execution = secondExecution;
+          if (available.length > 0) {
+            pruneVisualSearchSnapshots();
+            const visualSessionId = randomUUID();
+            const expiresAtMs = now().getTime() + VISUAL_SEARCH_SNAPSHOT_TTL_MS;
+            const candidateEntries = available.map(({ candidate, image }) => ({
+              candidateId: randomUUID(),
+              candidate,
+              image
+            }));
+            searchRun.throwIfCancelled();
+            visualSearchSnapshots.set(visualSessionId, {
+              expiresAt: expiresAtMs,
+              input: snapshot.input,
+              execution: {
+                ...secondExecution,
+                candidates: candidateEntries.map((entry) => entry.candidate)
+              },
+              candidates: new Map(candidateEntries.map((entry) => [entry.candidateId, entry.candidate])),
+              attempt: 2,
+              reviewedCandidateKeys: new Set([
+                ...snapshot.reviewedCandidateKeys,
+                ...candidateEntries.map((entry) => visualCandidateKey(entry.candidate))
+              ]),
+              imageAttemptedKeys,
+              imageContentKeys: snapshot.imageContentKeys,
+              reviewedCount: snapshot.reviewedCount,
+              reviewConflictCount: snapshot.reviewConflictCount,
+              reviewInsufficientCount: snapshot.reviewInsufficientCount,
+              accepted: finalCandidates,
+              retrievedProductHashes: snapshot.retrievedProductHashes
             });
-          for (const key of tail.attemptedKeys) imageAttemptedKeys.add(key);
-          secondImageLoad = { entries: [...secondImageLoad.entries, ...tail.entries],
-            diagnostics: mergeVisualImageLoadDiagnostics(secondImageLoad.diagnostics, tail.diagnostics),
-            attemptedKeys: imageAttemptedKeys };
-        }
-        const available = secondImageLoad.entries;
-        snapshot.execution = secondExecution;
-        if (available.length > 0) {
-          pruneVisualSearchSnapshots();
-          const visualSessionId = randomUUID();
-          const expiresAtMs = now().getTime() + VISUAL_SEARCH_SNAPSHOT_TTL_MS;
-          const candidateEntries = available.map(({ candidate, image }) => ({
-            candidateId: randomUUID(),
-            candidate,
-            image
-          }));
-          visualSearchSnapshots.set(visualSessionId, {
-            expiresAt: expiresAtMs,
-            input: snapshot.input,
-            execution: {
-              ...secondExecution,
-              candidates: candidateEntries.map((entry) => entry.candidate)
-            },
-            candidates: new Map(candidateEntries.map((entry) => [entry.candidateId, entry.candidate])),
-            attempt: 2,
-            reviewedCandidateKeys: new Set([
-              ...snapshot.reviewedCandidateKeys,
-              ...candidateEntries.map((entry) => visualCandidateKey(entry.candidate))
-            ]),
-            imageAttemptedKeys,
-            imageContentKeys: snapshot.imageContentKeys,
-            reviewedCount: snapshot.reviewedCount,
-            reviewConflictCount: snapshot.reviewConflictCount,
-            reviewInsufficientCount: snapshot.reviewInsufficientCount,
-            accepted: finalCandidates,
-            retrievedProductHashes: snapshot.retrievedProductHashes
-          });
-          pruneVisualSearchSnapshots();
-          const message = `REVIEW REQUIRED. Final answer is forbidden. ${finalCandidates.length} accepted first-round matches are retained; no sufficient possible-same-item result yet. Review all ${candidateEntries.length} remaining candidates, then call finalize_visual_search once with visualSessionId ${visualSessionId}. Do not relax product family or accept visible conflicts. This is the final review round.`;
-          const emptyExecution = { ...secondExecution, candidates: [] };
-          const { response } = await buildUnifiedResponse(snapshot.input, emptyExecution, "REVIEW_REQUIRED");
-          return {
-            ...response,
-            content: visualCandidateContent(message, candidateEntries),
-            _meta: { ...searchTraceMeta(secondExecution, "REVIEW_REQUIRED", { reviewed: snapshot.reviewedCount,
-              reviewConflicts: snapshot.reviewConflictCount, reviewInsufficient: snapshot.reviewInsufficientCount,
-              imageAttempts: secondImageLoad.diagnostics.attempted, imagesLoaded: available.length }),
-              "findcheap/visualImageLoadDiagnostics": secondImageLoad.diagnostics,
-              ...visualEvaluationMeta(secondExecution, snapshot.retrievedProductHashes, candidateEntries) },
-            structuredContent: {
-              ...response.structuredContent,
-              message,
-              visualReview: {
-                stage,
-                terminal: false as const,
-                finalAnswerAllowed: false as const,
-                requiredNextTool: "finalize_visual_search" as const,
-                visualSessionId,
-                expiresAt: new Date(expiresAtMs).toISOString(),
-                candidates: visualCandidateDescriptors(candidateEntries)
+            pruneVisualSearchSnapshots();
+            const message = `REVIEW REQUIRED. Final answer is forbidden. ${finalCandidates.length} accepted first-round matches are retained; no sufficient purchasable same-item result yet; any unavailable identity evidence is retained. Review all ${candidateEntries.length} remaining candidates, then call finalize_visual_search once with visualSessionId ${visualSessionId}. Do not relax product family or accept visible conflicts. This is the final review round.`;
+            const emptyExecution = { ...secondExecution, candidates: [] };
+            const { response } = await buildUnifiedResponse(snapshot.input, emptyExecution, "REVIEW_REQUIRED");
+            return {
+              ...response,
+              content: visualCandidateContent(message, candidateEntries),
+              _meta: { ...searchTraceMeta(secondExecution, "REVIEW_REQUIRED", { reviewed: snapshot.reviewedCount,
+                reviewConflicts: snapshot.reviewConflictCount, reviewInsufficient: snapshot.reviewInsufficientCount,
+                imageAttempts: secondImageLoad.diagnostics.attempted, imagesLoaded: available.length }),
+                "findcheap/visualImageLoadDiagnostics": secondImageLoad.diagnostics,
+                ...visualEvaluationMeta(secondExecution, snapshot.retrievedProductHashes, candidateEntries) },
+              structuredContent: {
+                ...response.structuredContent,
+                message,
+                visualReview: {
+                  stage,
+                  terminal: false as const,
+                  finalAnswerAllowed: false as const,
+                  requiredNextTool: "finalize_visual_search" as const,
+                  visualSessionId,
+                  expiresAt: new Date(expiresAtMs).toISOString(),
+                  candidates: visualCandidateDescriptors(candidateEntries)
+                }
               }
-            }
-          };
+            };
+          }
+          if ((secondImageLoad.diagnostics.failures.length > 0 || secondImageLoad.diagnostics.outputBudgetSkipped > 0) && finalCandidates.length === 0) {
+            secondExecution.searchRun?.recordVisualStage("FINAL", [], { round: 2 });
+            const failure = visualSearchFailure(secondExecution, imageFailureCode(secondImageLoad.diagnostics), snapshot.input.responseLocale ?? "en-US");
+            const message = `${failure.message} ${snapshot.input.responseLocale === "zh-CN" ? "未生成视觉推荐。" : "No visual recommendation was produced."}`;
+            const emptyExecution = { ...secondExecution, candidates: [] };
+            const { response, enriched } = await buildUnifiedResponse(snapshot.input, emptyExecution, "NO_LOADABLE_IMAGES");
+            const remembered = rememberVisualFailure({ ...response.structuredContent, message, visualSearchFailure: failure }, enriched.result,
+              { ...snapshot, execution: secondExecution, imageAttemptedKeys });
+            return {
+              ...response,
+              content: [{ type: "text" as const, text: remembered.message }],
+              _meta: { ...searchTraceMeta(secondExecution, "NO_LOADABLE_IMAGES", { reviewed: snapshot.reviewedCount,
+                reviewConflicts: snapshot.reviewConflictCount, reviewInsufficient: snapshot.reviewInsufficientCount,
+                imageAttempts: secondImageLoad.diagnostics.attempted, imagesLoaded: 0, returned: 0 }),
+                "findcheap/visualImageLoadDiagnostics": secondImageLoad.diagnostics,
+                ...visualEvaluationMeta(secondExecution, snapshot.retrievedProductHashes, [], []) },
+              structuredContent: remembered
+            };
+          }
         }
-        if ((secondImageLoad.diagnostics.failures.length > 0 || secondImageLoad.diagnostics.outputBudgetSkipped > 0) && finalCandidates.length === 0) {
-          secondExecution.searchRun?.recordVisualStage("FINAL", [], { round: 2 });
-          const failure = visualSearchFailure(secondExecution, imageFailureCode(secondImageLoad.diagnostics), snapshot.input.responseLocale ?? "en-US");
-          const message = `${failure.message} ${snapshot.input.responseLocale === "zh-CN" ? "未生成视觉推荐。" : "No visual recommendation was produced."}`;
-          const emptyExecution = { ...secondExecution, candidates: [] };
-          const { response, enriched } = await buildUnifiedResponse(snapshot.input, emptyExecution, "NO_LOADABLE_IMAGES");
-          const remembered = rememberVisualFailure({ ...response.structuredContent, message, visualSearchFailure: failure }, enriched.result,
-            { ...snapshot, execution: secondExecution, imageAttemptedKeys });
+        const candidatesWithDeals = await addVerifiedCoupons(finalCandidates,
+          toolAvailability.verifiedDeals ? dealPort : undefined, snapshot.input.membershipIds ?? [], snapshot.execution.searchRun);
+        const execution: UnifiedSearchExecution = { ...snapshot.execution, candidates: candidatesWithDeals };
+        const allConflicted = snapshot.reviewedCount > 0 && snapshot.reviewConflictCount === snapshot.reviewedCount;
+        const emptyOutcome = allConflicted ? "CANDIDATES_CONFLICTED" : "VISUAL_EVIDENCE_INSUFFICIENT";
+        execution.searchRun?.recordVisualStage("FINAL", finalCandidates.map((candidate) => ({ productHash: visualProductHash(candidate) })),
+          { round: snapshot.attempt });
+        const { response, enriched } = await buildUnifiedResponse(snapshot.input, execution,
+          finalCandidates.length > 0 ? "MATCH_FOUND" : emptyOutcome);
+        if (response.structuredContent.products.length === 0) {
+          const failure = visualSearchFailure(
+            snapshot.execution,
+            emptyOutcome,
+            snapshot.input.responseLocale ?? "en-US"
+          );
+          const remembered = rememberVisualFailure({ ...response.structuredContent, message: failure.message, visualSearchFailure: failure }, enriched.result,
+            { ...snapshot, execution });
           return {
             ...response,
+            _meta: { ...searchTraceMeta(execution, emptyOutcome, { reviewed: snapshot.reviewedCount,
+              reviewConflicts: snapshot.reviewConflictCount, reviewInsufficient: snapshot.reviewInsufficientCount, returned: 0 }),
+              ...visualEvaluationMeta(execution, snapshot.retrievedProductHashes, [], []) },
             content: [{ type: "text" as const, text: remembered.message }],
-            _meta: { ...searchTraceMeta(secondExecution, "NO_LOADABLE_IMAGES", { reviewed: snapshot.reviewedCount,
-              reviewConflicts: snapshot.reviewConflictCount, reviewInsufficient: snapshot.reviewInsufficientCount,
-              imageAttempts: secondImageLoad.diagnostics.attempted, imagesLoaded: 0, returned: 0 }),
-              "findcheap/visualImageLoadDiagnostics": secondImageLoad.diagnostics,
-              ...visualEvaluationMeta(secondExecution, snapshot.retrievedProductHashes, [], []) },
             structuredContent: remembered
           };
         }
-      }
-      const candidatesWithDeals = await addVerifiedCoupons(finalCandidates,
-        toolAvailability.verifiedDeals ? dealPort : undefined, snapshot.input.membershipIds ?? [], snapshot.execution.searchRun);
-      const execution: UnifiedSearchExecution = { ...snapshot.execution, candidates: candidatesWithDeals };
-      const allConflicted = snapshot.reviewedCount > 0 && snapshot.reviewConflictCount === snapshot.reviewedCount;
-      const emptyOutcome = allConflicted ? "CANDIDATES_CONFLICTED" : "VISUAL_EVIDENCE_INSUFFICIENT";
-      execution.searchRun?.recordVisualStage("FINAL", finalCandidates.map((candidate) => ({ productHash: visualProductHash(candidate) })),
-        { round: snapshot.attempt });
-      const { response, enriched } = await buildUnifiedResponse(snapshot.input, execution,
-        finalCandidates.length > 0 ? "MATCH_FOUND" : emptyOutcome);
-      if (response.structuredContent.products.length === 0) {
-        const failure = visualSearchFailure(
-          snapshot.execution,
-          emptyOutcome,
-          snapshot.input.responseLocale ?? "en-US"
-        );
-        const remembered = rememberVisualFailure({ ...response.structuredContent, message: failure.message, visualSearchFailure: failure }, enriched.result,
-          { ...snapshot, execution });
+        const preflight = await preflightQuoteCapabilities(response.structuredContent, snapshot.execution.searchRun!);
+        searchRun.throwIfCancelled();
+        const recommendation = choosePrimaryRecommendation(preflight.content.products, now().getTime());
+        const content = rememberSnapshot({
+          ...preflight.content,
+          recommendation: {
+            state: recommendation.state,
+            reasonCodes: recommendation.reasonCodes
+          },
+          visualSearchOutcome: describeVisualOutcome(execution.candidates.map(candidate => ({
+            identityStatus: candidate.identityStatus, visualMatchGroup: candidate.visualMatchGroup,
+            availability: (candidate.awinProduct ?? candidate.shopifyProduct ?? candidate.ebayProduct).availability
+          })), execution.searchRun?.diagnostics().budgetExhausted === true ||
+            Object.values(execution.sourceStatus).some(status => status === "PARTIAL" || status === "UNAVAILABLE") ||
+            execution.officialStoreFallback.status === "UNAVAILABLE" || execution.officialStoreFallback.status === "PARTIAL",
+          snapshot.input.responseLocale ?? "en-US")
+        }, enriched.result, preflight.resolvedAwinProducts, recommendation.primaryProductIndex, snapshot.input, execution.candidates, false, searchRun);
         return {
           ...response,
-          _meta: { ...searchTraceMeta(execution, emptyOutcome, { reviewed: snapshot.reviewedCount,
-            reviewConflicts: snapshot.reviewConflictCount, reviewInsufficient: snapshot.reviewInsufficientCount, returned: 0 }),
-            ...visualEvaluationMeta(execution, snapshot.retrievedProductHashes, [], []) },
-          content: [{ type: "text" as const, text: remembered.message }],
-          structuredContent: remembered
+          _meta: { ...searchTraceMeta(execution, "MATCH_FOUND", { reviewed: snapshot.reviewedCount,
+            reviewConflicts: snapshot.reviewConflictCount, reviewInsufficient: snapshot.reviewInsufficientCount, returned: content.products.length }),
+            "findcheap/quotePreflight": preflight.diagnostics,
+            ...visualEvaluationMeta(execution, snapshot.retrievedProductHashes, [], content.products, content.recommendation?.primarySelectionId) },
+          content: [{
+            type: "text" as const,
+            text: `${content.visualSearchOutcome?.message ?? ""}\n${response.content[0]!.text}\n${recommendationInstruction(content)}\nUse structured selection references for follow-ups; never print them or search titles.`
+          }],
+          structuredContent: content
         };
-      }
-      const preflight = await preflightQuoteCapabilities(response.structuredContent);
-      const recommendation = choosePrimaryRecommendation(preflight.content.products, now().getTime());
-      const content = rememberSnapshot({
-        ...preflight.content,
-        recommendation: {
-          state: recommendation.state,
-          reasonCodes: recommendation.reasonCodes
-        }
-      }, enriched.result, preflight.resolvedAwinProducts, recommendation.primaryProductIndex, snapshot.input, execution.candidates);
-      return {
-        ...response,
-        _meta: { ...searchTraceMeta(execution, "MATCH_FOUND", { reviewed: snapshot.reviewedCount,
-          reviewConflicts: snapshot.reviewConflictCount, reviewInsufficient: snapshot.reviewInsufficientCount, returned: content.products.length }),
-          ...visualEvaluationMeta(execution, snapshot.retrievedProductHashes, [], content.products, content.recommendation?.primarySelectionId) },
-        content: [{
-          type: "text" as const,
-          text: `${response.content[0]!.text}\n${recommendationInstruction(content)}\nUse structured selection references for follow-ups; never print them or search titles.`
-        }],
-        structuredContent: content
-      };
+      });
     }
   );
 
@@ -3508,6 +3680,19 @@ export function createShoppingServer(
           ...(requestedSize === undefined ? {} : { requiredSize: verifiedSize ?? requestedSize[1] })
         });
         const inspectedKeys = new Set(inspection.variants.map(productReferenceKey));
+        const previousCard = snapshot.content.products.find(product => productReferenceKey(product) === reference.productKey);
+        const visualDerived = snapshot.request?.visualInput !== undefined || previousCard?.visualReviewAssessment !== undefined ||
+          previousCard?.visualReviewRequired === true;
+        const inspectedCards: ProductCardContent["products"] = internalResponse.structuredContent.products.map(product => {
+          if (!visualDerived || previousCard === undefined) return product;
+          const sameVisualEvidence = productReferenceKey(product) === productReferenceKey(previousCard) &&
+            product.imageUrl === previousCard.imageUrl &&
+            JSON.stringify(Object.entries(product.variantDimensions).sort()) === JSON.stringify(Object.entries(previousCard.variantDimensions).sort());
+          if (!sameVisualEvidence) return { ...product, visualReviewRequired: true };
+          return { ...product, matchStatus: previousCard.matchStatus, card: { ...product.card, matchBadge: previousCard.card.matchBadge },
+            visualReviewRequired: previousCard.visualReviewRequired, visualReviewAssessment: previousCard.visualReviewAssessment,
+            visualMatchGroup: previousCard.visualMatchGroup, visualMatchEvidence: previousCard.visualMatchEvidence };
+        });
         // One exact sibling updates the comparison set; multiple options require a
         // fresh user selection. Old snapshots and their selection IDs never change.
         const derivedSource = inspection.variants.length === 1 ? {
@@ -3517,8 +3702,8 @@ export function createShoppingServer(
         } : inspectedResult;
         const derivedProducts = inspection.variants.length === 1
           ? snapshot.content.products.flatMap(product => productReferenceKey(product) === reference.productKey
-            ? internalResponse.structuredContent.products : [product])
-          : internalResponse.structuredContent.products;
+            ? inspectedCards : [product])
+          : inspectedCards;
         const assessedProducts = derivedProducts.map(product => {
           if (nextRequest === undefined) return product;
           const source = derivedSource.products.find(value => productReferenceKey(value) === productReferenceKey(product));
@@ -3533,7 +3718,7 @@ export function createShoppingServer(
             (product.itemPrice === undefined || product.itemPrice.amountCents > nextRequest.maxItemPriceCents)) limitations.push("maximum item price");
           return { ...product, requirementAssessment: checked.assessment,
             featureEvidence: checked.matched, requiredFeatureLimitations: limitations,
-            presentationGroup: limitations.length > 0 ? "RESEARCH_ONLY" as const
+            presentationGroup: limitations.length > 0 || product.visualReviewRequired === true ? "RESEARCH_ONLY" as const
               : product.merchantTrust.verification === "INDEPENDENT" ? "TRUSTED_MATCH" as const : "BEST_VALUE" as const };
         });
         const decision = choosePrimaryRecommendation(assessedProducts, now().getTime());
@@ -3588,7 +3773,7 @@ export function createShoppingServer(
     "quote_selected_shopify_product",
     {
       title: "Quote a selected product",
-      description: "Call only when the referenced card is DELIVERED_TOTAL_SUPPORTED or ZIP_ESTIMATE_ONLY and the user supplied a ZIP. Schema requires the prior renderId plus selectionId or one-based position for a user reference such as 'the first product'. On MISSING_REFERENCE_CONTEXT, retry once with the prior search renderId; do not describe the reference as expired. Never call this when the current turn includes a newly attached image; that image starts NEW_PRODUCT through search_visual_candidates. If ZIP is missing, ask only for ZIP. For MERCHANT_CHECKOUT_ONLY, do not ask for ZIP and do not call this tool. Never guess by title, request a street address, or run another search.",
+      description: "An explicit quote request and host form approval are required; ZIP alone is not consent. Only DELIVERED_TOTAL_SUPPORTED or ZIP_ESTIMATE_ONLY cards qualify. The tool requests single-use anonymous Cart permission; no host form/decline/cancel/timeout means no quote, never automatically retry. Use current responseLocale. Schema requires prior renderId plus selectionId or one-based position. On MISSING_REFERENCE_CONTEXT, correct once from the original receipt, not expiry. Never call this when the current turn includes a newly attached image; that image starts NEW_PRODUCT through search_visual_candidates. For unsupported cards or unavailable host consent, do not ask for ZIP. Never guess by title, request a street address, or run another search.",
       inputSchema: ShopifySelectedQuoteInputSchema,
       outputSchema: ShopifyProductsOutputShape,
       annotations: {
@@ -3604,7 +3789,7 @@ export function createShoppingServer(
         "openai/toolInvocation/invoked": "Selected-product quote ready."
       }
     },
-    async (input) => {
+    async (input, extra) => {
       const parsed = ShopifySelectedQuoteInputSchema.parse(input);
       const reference = resolveSelectionReference(parsed);
       if (reference === undefined) {
@@ -3636,6 +3821,7 @@ export function createShoppingServer(
           }]
         };
       }
+      if (selectedCard.quoteCapability === "NOT_CHECKED") return quoteAuthorizationFailure("QUOTE_CAPABILITY_NOT_CHECKED", parsed.responseLocale ?? snapshot.content.locale ?? "en-US");
       if (selectedCard.quoteCapability === "MERCHANT_CHECKOUT_ONLY") {
         return recoverableQuoteResult(
           snapshot,
@@ -3650,19 +3836,30 @@ export function createShoppingServer(
           "[MERCHANT_CART_UNAVAILABLE] ZIP quoting is temporarily unavailable. Continue at merchant checkout or choose another existing card; no new search is required."
         );
       }
+      const locale = parsed.responseLocale ?? snapshot.content.locale ?? "en-US";
+      let quoteContextIsCurrent = () => true;
       try {
-        const selected = selectedCard.sourceKind === "AWIN_PRODUCT_FEED"
-          ? snapshot.resolvedAwinProducts.get(productKey)
-          : snapshot.sourceResult.products.find((product) => productReferenceKey(product) === productKey);
+        const selected = selectedQuoteTarget(snapshot, selectedCard);
         if (selected === undefined) {
-          throw new ShopifyCartQuoteError("MERCHANT_CART_UNAVAILABLE");
+          return quoteAuthorizationFailure("QUOTE_TARGET_UNVERIFIED", locale);
         }
-        const cartQuote = await cartQuotes.quote(selected, zipCode);
+        const originalSelection = cardSelections.get(renderId);
+        const revalidate = () => renderSnapshots.get(renderId) === snapshot && snapshot.expiresAt > now().getTime() &&
+          cardSelections.get(renderId) === originalSelection && resolveSelectionReference(parsed)?.productKey === productKey &&
+          selectedQuoteTarget(snapshot, selectedCard) === selected;
+        quoteContextIsCurrent = revalidate;
+        const authorization = await authorizeQuote([selected], zipCode, locale, extra, revalidate);
+        if ("error" in authorization) return authorization.error;
+        const cartQuote = await cartQuotes.quote(selected, zipCode, authorization.permit);
+        if (extra.signal.aborted || !revalidate()) return discardedQuoteResult(locale);
         const quotedProduct = withCartQuote(selectedCard, cartQuote);
         const { renderId: _previousRenderId, ...previousContent } = snapshot.content;
-        const message = `Estimated delivered total for the selected product is USD ${(cartQuote.deliveredPrice.amountCents / 100).toFixed(2)}. It includes item price, selected shipping, and ${cartQuote.tax.status === "ZIP_ESTIMATED" ? "ZIP state-average estimated tax" : "merchant-reported tax"}; final checkout may change.`;
+        const message = locale === "zh-CN"
+          ? `所选商品预估到手价为 USD ${(cartQuote.deliveredPrice.amountCents / 100).toFixed(2)}，包括商品价、已选运费及${cartQuote.tax.status === "ZIP_ESTIMATED" ? "按 ZIP 估算的州平均税费" : "商家返回税费"}；最终结账金额可能变化。`
+          : `Estimated delivered total for the selected product is USD ${(cartQuote.deliveredPrice.amountCents / 100).toFixed(2)}. It includes item price, selected shipping, and ${cartQuote.tax.status === "ZIP_ESTIMATED" ? "ZIP state-average estimated tax" : "merchant-reported tax"}; final checkout may change.`;
         const content = rememberSnapshot({
           ...previousContent,
+          locale,
           message,
           priceScope: "SHOPIFY_CART_ESTIMATE",
           cartQuoteCoverage: { attempted: 1, succeeded: 1 },
@@ -3690,11 +3887,9 @@ export function createShoppingServer(
         const failure = error instanceof ShopifyCartQuoteError
           ? error
           : new ShopifyCartQuoteError("MERCHANT_CART_UNAVAILABLE", { cause: error });
-        return recoverableQuoteResult(
-          snapshot,
-          productKey,
-          `${quoteFailureMessage(failure.code)} Continue at merchant checkout or choose another existing card; no new search is required.`
-        );
+        if (extra.signal.aborted || !quoteContextIsCurrent()) return discardedQuoteResult(locale);
+        return recoverableQuoteResult(snapshot, productKey,
+          `${quoteFailureMessage(failure.code)} Continue at merchant checkout or choose another existing card; no new search is required.`);
       }
     }
   );
@@ -3703,7 +3898,7 @@ export function createShoppingServer(
     "quote_and_compare_selected_products",
     {
       title: "Quote and compare selected products",
-      description: "Quote and compare 2-4 products from one immutable search snapshot for a supplied ZIP. Schema requires the prior renderId; selectionIds are optional explicit UI choices bound to it. Use responseLocale for the current message language. On MISSING_REFERENCE_CONTEXT, retry once with the prior search renderId; do not describe the reference as expired. The execution layer rejects stale, foreign, or cross-snapshot selections. Use this instead of multiple single-product quote calls and never calculate totals or differences in prose.",
+      description: "An explicit quote request and host form approval are required; ZIP alone is not consent. Quote and compare 2-4 supported products from one immutable snapshot. One form grants one selected batch only, never future or Watch quotes. Missing/declined/cancelled/expired consent means no quote and no automatic retry. Requires prior renderId; selectionIds are optional UI choices bound to it. Use responseLocale for the current message language. On MISSING_REFERENCE_CONTEXT, correct once from original receipt, not expiry. Reject stale, foreign or cross-snapshot choices. Never calculate totals or differences in prose.",
       inputSchema: QuotedProductComparisonInputSchema,
       outputSchema: ProductComparisonOutputSchema,
       annotations: {
@@ -3719,7 +3914,7 @@ export function createShoppingServer(
         "openai/toolInvocation/invoked": "Delivered-total comparison ready."
       }
     },
-    async (rawInput) => {
+    async (rawInput, extra) => {
       const request = QuotedProductComparisonInputSchema.parse(rawInput);
       const localizedError = (english: string, chinese: string) => ({
         isError: true,
@@ -3774,23 +3969,36 @@ export function createShoppingServer(
           "某个所选商品不属于该不可变搜索快照。"
         );
       }
+      if (selectedCards.some(product => product!.quoteCapability === "NOT_CHECKED")) return localizedError(
+        "Quote capability has not been verified for every selected product; no quote was requested.",
+        "至少一个所选商品的报价能力尚未核验；未请求报价。"
+      );
       if (selectedCards.some((product) => product!.quoteCapability === "MERCHANT_CHECKOUT_ONLY")) {
         return localizedError(
           "Quote unsupported for at least one selected product: merchant checkout is required, so ZIP delivered totals cannot be compared.",
           "至少一个所选商品不支持报价：只能在商家结账页计算总价，无法按 ZIP 比较到手价。"
         );
       }
+      let quoteContextIsCurrent = () => true;
       try {
+        const targets = selectedCards.map(card => selectedQuoteTarget(snapshot, card!));
+        if (targets.some(target => target === undefined)) {
+          return quoteAuthorizationFailure("QUOTE_TARGET_UNVERIFIED", request.responseLocale);
+        }
+        const originalSelection = cardSelections.get(renderId);
+        const revalidate = () => renderSnapshots.get(renderId) === snapshot && snapshot.expiresAt > now().getTime() &&
+          cardSelections.get(renderId) === originalSelection && input.selectionIds.every((id, index) =>
+            selections.get(id) === references[index] && selectedQuoteTarget(snapshot, selectedCards[index]!) === targets[index]);
+        quoteContextIsCurrent = revalidate;
+        const authorization = await authorizeQuote(targets as ShopifyProduct[], request.zipCode, request.responseLocale, extra, revalidate);
+        if ("error" in authorization) return authorization.error;
         const quotedProducts = await Promise.all(selectedCards.map(async (selectedCard, index) => {
-          const selected = selectedCard!.sourceKind === "AWIN_PRODUCT_FEED"
-            ? snapshot.resolvedAwinProducts.get(productReferenceKey(selectedCard!))
-            : snapshot.sourceResult.products.find((product) => productReferenceKey(product) === productReferenceKey(selectedCard!));
-          if (selected === undefined) throw new ShopifyCartQuoteError("MERCHANT_CART_UNAVAILABLE");
           return {
-            ...withCartQuote(selectedCard!, await cartQuotes!.quote(selected, request.zipCode)),
+            ...withCartQuote(selectedCard!, await cartQuotes!.quote(targets[index]!, request.zipCode, authorization.permit)),
             selectionId: input.selectionIds[index]!
           };
         }));
+        if (extra.signal.aborted || !revalidate()) return discardedQuoteResult(request.responseLocale);
         const quoteExpiries = quotedProducts.map((product) =>
           Date.parse(product.pricing.deliveredPrice.expiresAt!)
         );
@@ -3819,10 +4027,8 @@ export function createShoppingServer(
         const failure = error instanceof ShopifyCartQuoteError
           ? error
           : new ShopifyCartQuoteError("MERCHANT_CART_UNAVAILABLE", { cause: error });
-        return localizedError(
-          quoteFailureMessage(failure.code),
-          quoteFailureMessage(failure.code)
-        );
+        if (extra.signal.aborted || !quoteContextIsCurrent()) return discardedQuoteResult(request.responseLocale);
+        return localizedError(quoteFailureMessage(failure.code), quoteFailureMessage(failure.code));
       }
     }
   );
@@ -4171,7 +4377,7 @@ export function createShoppingServer(
     "create_watch",
     {
       title: "Create a shopping watch",
-      description: "For a clear Watch request, call immediately without Memory, repo scans, or sequence narration. Persist one rule and return exact Automation handoff. PRICE_BELOW needs explicit priceBasis. DELIVERED_TOTAL needs ZIP and prior selectionId. Active only after bind_watch_automation succeeds.",
+      description: "For a clear Watch request, call without Memory, repo scans, or sequence narration. Persist one rule and return Automation handoff. PRICE_BELOW requires explicit ITEM_PRICE. DELIVERED_TOTAL Watch is unavailable because one-shot consent does not authorize recurring Cart quotes; do not ask for ZIP or selected quote references. Binding alone records an Automation identifier, not verified host execution.",
       inputSchema: WatchSpecInputSchema,
       outputSchema: {
         status: z.enum(["READY_TO_SCHEDULE", "ACTIVE", "PAUSED", "LEGACY_UNVERIFIED", "NEEDS_CLARIFICATION", "DATA_SOURCE_UNAVAILABLE"]),
@@ -4187,6 +4393,14 @@ export function createShoppingServer(
     async (input) => {
       const createdAt = now();
       const requested = WatchSpecInputSchema.parse(input);
+      if (requested.priceBasis === "DELIVERED_TOTAL") {
+        const message = "[RECURRING_QUOTE_AUTHORIZATION_UNAVAILABLE] " + (/\p{Script=Han}/u.test(requested.query)
+          ? "暂不支持到手价持续监控：单次匿名购物车授权不授权持续监控报价。未请求报价或保存规则；不要索取 ZIP 或完整地址。可由用户另选商品价监控。"
+          : "Delivered-total Watch is unavailable: one-time anonymous Cart consent does not authorize recurring quotes. No quote or Watch was created; do not request ZIP or a street address. The user may instead choose item-price monitoring.");
+        return { content: [{ type: "text" as const, text: message }], structuredContent: {
+          status: "DATA_SOURCE_UNAVAILABLE" as const, message, questions: []
+        } };
+      }
       if (
         !toolAvailability.verifiedDeals &&
         ["DISCOUNT_AT_LEAST", "COUPON_AVAILABLE", "CASHBACK_AT_LEAST"].includes(requested.condition)
@@ -4205,92 +4419,18 @@ export function createShoppingServer(
           questions
         } };
       }
-      const { quoteReference, ...persistedInput } = requested;
-      let selectedProduct: z.infer<typeof WatchSpecSchema>["selectedProduct"];
-      if (requested.priceBasis === "DELIVERED_TOTAL") {
-        const reference = quoteReference === undefined ? undefined : resolveSelectionReference(quoteReference);
-        const snapshot = reference === undefined ? undefined : renderSnapshots.get(reference.renderId);
-        if (snapshot === undefined || snapshot.expiresAt <= now().getTime()) {
-          if (reference !== undefined) deleteSnapshot(reference.renderId);
-          const message = "The selected product reference expired. Run one new product search, then create the delivered-total watch from that exact card.";
-          return { content: [{ type: "text" as const, text: message }], structuredContent: {
-            status: "DATA_SOURCE_UNAVAILABLE" as const,
-            message,
-            questions: []
-          } };
-        }
-        const selectedCard = snapshot.content.products.find((product) => productReferenceKey(product) === reference?.productKey);
-        const selected = selectedCard?.sourceKind === "AWIN_PRODUCT_FEED"
-          ? snapshot.resolvedAwinProducts.get(productReferenceKey(selectedCard))
-          : snapshot.sourceResult.products.find((product) => productReferenceKey(product) === reference?.productKey);
-        if (selected === undefined) {
-          const message = "The selected product does not support a stable ZIP quote. Choose another existing card or use ITEM_PRICE; no new search is required.";
-          return { content: [{ type: "text" as const, text: message }], structuredContent: {
-            status: "DATA_SOURCE_UNAVAILABLE" as const,
-            message,
-            questions: []
-          } };
-        }
-        const selectedCondition = selectedCard?.condition ?? selected.condition;
-        if (requested.conditionPreference !== "ANY" && selectedCondition !== requested.conditionPreference) {
-          const question = `The selected product condition is ${selectedCondition}; choose a matching product or explicitly accept ANY condition.`;
-          return { content: [{ type: "text" as const, text: question }], structuredContent: {
-            status: "NEEDS_CLARIFICATION" as const,
-            message: question,
-            questions: [question]
-          } };
-        }
-        if (cartQuotes === undefined) {
-          const message = "Shopify Cart quote provider is unavailable; a delivered-total watch was not created.";
-          return { content: [{ type: "text" as const, text: message }], structuredContent: {
-            status: "DATA_SOURCE_UNAVAILABLE" as const,
-            message,
-            questions: []
-          } };
-        }
-        try {
-          await cartQuotes.quote(selected, requested.zipCode!);
-        } catch (error) {
-          const failure = error instanceof ShopifyCartQuoteError
-            ? error
-            : new ShopifyCartQuoteError("MERCHANT_CART_UNAVAILABLE", { cause: error });
-          const reason = failure.code === "FULL_ADDRESS_REQUIRED"
-            ? "[FULL_ADDRESS_REQUIRED] This merchant requires a full address, but recurring delivered-total Watch rules store ZIP only. Use ITEM_PRICE or choose another merchant."
-            : quoteFailureMessage(failure.code);
-          const message = `${reason} A delivered-total watch was not created.`;
-          return { content: [{ type: "text" as const, text: message }], structuredContent: {
-            status: "DATA_SOURCE_UNAVAILABLE" as const,
-            message,
-            questions: []
-          } };
-        }
-        selectedProduct = {
-          sourceKind: "SHOPIFY_GLOBAL_CATALOG",
-          merchantId: selected.merchantId,
-          merchant: selected.merchant,
-          sourceHost: selected.sourceHost,
-          variantId: selected.handle,
-          title: selected.title,
-          merchantUrl: selected.merchantUrl,
-          condition: selected.condition,
-          variantDimensions: selected.variantDimensions,
-          selectedAt: createdAt.toISOString()
-        };
-      }
-      const spec = WatchSpecSchema.parse({
-        ...persistedInput,
-        ...(selectedProduct === undefined ? {} : { selectedProduct })
-      });
+      const { quoteReference: _quoteReference, ...persistedInput } = requested;
+      const spec = WatchSpecSchema.parse(persistedInput);
       if (spec.expiresAt !== undefined && Date.parse(spec.expiresAt) <= createdAt.getTime()) {
         throw new Error("expiresAt must be in the future");
       }
       const watch = await watchStore.create(spec, createdAt.toISOString());
-      const automationPrompt = `Call FindCheap Agent check_watch exactly once with watchId ${watch.watchId}. Notify the user only when status is TRIGGERED; include the observed value, checkedAt, and direct source or merchant link from observation. Treat NOT_TRIGGERED as a silent check. Do not purchase, reserve, submit forms, or use Chrome.`;
+      const automationPrompt = `Call FindCheap Agent check_watch exactly once with watchId ${watch.watchId}. Notify only for TRIGGERED; include value, checkedAt and source link, and deduplicate any completionEventId. NOT_TRIGGERED is silent. COMPLETED/EXPIRED/PAUSED/NOT_FOUND must not produce a new product alert. For STOP_REQUIRED, verify this task's own host Automation identity/scope before stopping it; the returned ID is only an unverified reference. Never claim host stop without real host evidence. Do not purchase, reserve, submit forms, or use Chrome.`;
       const status = watch.status === "PAUSED" ? "PAUSED" as const
         : watch.schedulingState === undefined ? "LEGACY_UNVERIFIED" as const
           : watch.automationId === undefined ? "READY_TO_SCHEDULE" as const : "ACTIVE" as const;
       const message = status === "ACTIVE"
-        ? `Watch ${watch.watchId} is active with Codex Automation ${watch.automationId}.`
+        ? `Watch ${watch.watchId} is locally active with recorded Automation ${watch.automationId}; host ownership and scheduling remain unverified.`
         : status === "PAUSED"
           ? `Watch ${watch.watchId} already exists and is paused.`
         : status === "LEGACY_UNVERIFIED"
@@ -4311,12 +4451,13 @@ export function createShoppingServer(
     "bind_watch_automation",
     {
       title: "Bind a Codex Automation to a shopping watch",
-      description: "Record the Codex Automation created from create_watch. Monitoring becomes active only after this binding succeeds.",
+      description: "Record an unverified Codex Automation identifier for a local Watch. Binding is not proof of host ownership, scheduling, or stop acknowledgement; terminal rules cannot rebind.",
       inputSchema: z.object({ watchId: z.string().uuid(), automationId: WatchAutomationIdSchema }).strict(),
       outputSchema: {
-        status: z.enum(["ACTIVE", "PAUSED", "EXPIRED", "NOT_FOUND", "AUTOMATION_ALREADY_BOUND"]),
+        status: z.enum(["ACTIVE", "PAUSED", "EXPIRED", "COMPLETED", "NOT_FOUND", "AUTOMATION_ALREADY_BOUND", "AUTOMATION_SYNC_REQUIRED"]),
         watchId: z.string().uuid(),
-        automationId: WatchAutomationIdSchema
+        automationId: WatchAutomationIdSchema,
+        stopIntent: WatchStopIntentSchema.optional()
       },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false }
     },
@@ -4329,11 +4470,13 @@ export function createShoppingServer(
         };
       }
       const boundAt = now();
-      if (watch.spec.expiresAt !== undefined && Date.parse(watch.spec.expiresAt) <= boundAt.getTime()) {
-        await watchStore.save({ ...watch, status: "EXPIRED", updatedAt: boundAt.toISOString() });
+      if (watch.status === "COMPLETED" || watch.status === "EXPIRED" ||
+        (watch.spec.expiresAt !== undefined && Date.parse(watch.spec.expiresAt) <= boundAt.getTime())) {
+        const terminal = (await evaluateWatch(watch, watchStore, shopifyPort, dealPort, cartQuotes, boundAt)).watch;
         return {
-          content: [{ type: "text" as const, text: "Watch expired before Automation binding." }],
-          structuredContent: { status: "EXPIRED" as const, watchId, automationId }
+          content: [{ type: "text" as const, text: "Watch is locally terminal and cannot bind or resume; host scheduling remains unverified." }],
+          structuredContent: { status: terminal.status, watchId, automationId: terminal.automationId ?? automationId,
+            ...(terminal.stopIntent === undefined ? {} : { stopIntent: terminal.stopIntent }) }
         };
       }
       if (watch.automationId !== undefined && watch.automationId !== automationId) {
@@ -4342,20 +4485,27 @@ export function createShoppingServer(
           structuredContent: { status: "AUTOMATION_ALREADY_BOUND" as const, watchId, automationId: watch.automationId }
         };
       }
+      if (watch.stopIntent !== undefined) return {
+        content: [{ type: "text" as const, text: "STOP_REQUIRED is unresolved; binding cannot acknowledge or restart the host scheduler." }],
+        structuredContent: { status: "AUTOMATION_SYNC_REQUIRED" as const, watchId, automationId, stopIntent: watch.stopIntent }
+      };
       const conflict = (await watchStore.list()).find((candidate) =>
         candidate.watchId !== watchId && candidate.automationId === automationId
       );
-      if (conflict !== undefined) {
+      const reserved = (await watchStore.listPendingStops()).some(stop => stop.watchId !== watchId && stop.automationId === automationId);
+      if (conflict !== undefined || reserved) {
         return {
           content: [{ type: "text" as const, text: "Codex Automation is already bound to a different watch." }],
           structuredContent: { status: "AUTOMATION_ALREADY_BOUND" as const, watchId, automationId }
         };
       }
       const updated = { ...watch, automationId, schedulingState: "BOUND" as const, updatedAt: boundAt.toISOString() };
-      await watchStore.save(updated);
+      const stopIntent = watch.status === "PAUSED" ? watchStopIntent(updated, "PAUSED", boundAt.toISOString()) : undefined;
+      const saved = await watchStore.save({ ...updated, ...(stopIntent === undefined ? {} : { stopIntent }) });
       return {
-        content: [{ type: "text" as const, text: `Watch monitoring is ${updated.status.toLowerCase()}.` }],
-        structuredContent: { status: updated.status, watchId, automationId }
+        content: [{ type: "text" as const, text: `Watch is locally ${saved.status.toLowerCase()}; the recorded Automation ID is unverified host state, not ownership or stop acknowledgement.` }],
+        structuredContent: { status: saved.status, watchId, automationId,
+          ...(saved.stopIntent === undefined ? {} : { stopIntent: saved.stopIntent }) }
       };
     }
   );
@@ -4367,16 +4517,24 @@ export function createShoppingServer(
       description: "Evaluate one persisted watch against current verified sources and update deduplication state.",
       inputSchema: z.object({ watchId: z.string().uuid() }).strict(),
       outputSchema: {
-        status: z.enum(["TRIGGERED", "NOT_TRIGGERED", "PAUSED", "EXPIRED", "NEEDS_CLARIFICATION", "NOT_SCHEDULED", "NOT_FOUND", "DATA_SOURCE_UNAVAILABLE"]),
+        status: z.enum(["TRIGGERED", "NOT_TRIGGERED", "PAUSED", "EXPIRED", "COMPLETED", "NEEDS_CLARIFICATION", "NOT_SCHEDULED", "NOT_FOUND", "DATA_SOURCE_UNAVAILABLE"]),
         message: z.string(),
         watchId: z.string().uuid(),
-        observation: z.record(z.string(), z.unknown()).optional()
+        observation: z.record(z.string(), z.unknown()).optional(),
+        completionEventId: z.string().uuid().optional(),
+        stopIntent: WatchStopIntentSchema.optional()
       },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }
     },
     async ({ watchId }) => {
       const watch = await watchStore.get(watchId);
-      if (watch === undefined) return { content: [{ type: "text" as const, text: "Watch not found." }], structuredContent: { status: "NOT_FOUND" as const, message: "Watch not found.", watchId } };
+      if (watch === undefined) {
+        const stopIntent = (await watchStore.listPendingStops()).find(stop => stop.watchId === watchId);
+        const message = stopIntent === undefined ? "Watch not found." : "Watch is locally deleted; STOP_REQUIRED remains pending and host scheduling is unverified.";
+        return { content: [{ type: "text" as const, text: message }], structuredContent: {
+          status: "NOT_FOUND" as const, message, watchId, ...(stopIntent === undefined ? {} : { stopIntent })
+        } };
+      }
       const questions = productWatchClarificationQuestions(watch.spec);
       const expired = watch.spec.expiresAt !== undefined && Date.parse(watch.spec.expiresAt) <= now().getTime();
       if (
@@ -4403,6 +4561,8 @@ export function createShoppingServer(
         status: result.status,
         message: result.message,
         watchId,
+        ...(result.watch.completionEventId === undefined ? {} : { completionEventId: result.watch.completionEventId }),
+        ...(result.watch.stopIntent === undefined ? {} : { stopIntent: result.watch.stopIntent }),
         ...(result.observation === undefined ? {} : { observation: result.observation })
       } };
     }
@@ -4412,63 +4572,83 @@ export function createShoppingServer(
     "list_watches",
     {
       title: "List shopping watches",
-      description: "List persisted shopping watches without contacting merchants.",
+      description: "List local Watch states and minimal pending scheduler stops without contacting merchants. ACTIVE/BOUND never proves host ownership or scheduling; STOP_REQUIRED is not acknowledged.",
       inputSchema: z.object({}).strict(),
       outputSchema: { watches: z.array(z.object({
         watchId: z.string().uuid(),
         status: z.string(),
-        monitoringStatus: z.enum(["READY_TO_SCHEDULE", "ACTIVE", "PAUSED", "EXPIRED", "LEGACY_UNVERIFIED"]),
+        monitoringStatus: z.enum(["READY_TO_SCHEDULE", "ACTIVE", "PAUSED", "EXPIRED", "COMPLETED", "LEGACY_UNVERIFIED"]),
         automationId: WatchAutomationIdSchema.optional(),
+        completionEventId: z.string().uuid().optional(),
+        stopIntent: WatchStopIntentSchema.optional(),
         query: z.string(),
         condition: z.string(),
         priceBasis: z.enum(["ITEM_PRICE", "DELIVERED_TOTAL"]).optional(),
         intervalMinutes: z.number().int()
-      })) },
+      })), pendingStops: z.array(WatchStopIntentSchema).optional() },
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
     },
-    async () => ({ content: [{ type: "text" as const, text: "Shopping watches listed." }], structuredContent: { watches: (await watchStore.list()).map((watch) => ({
+    async () => {
+      const pendingStops = await watchStore.listPendingStops();
+      return { content: [{ type: "text" as const, text: "Local shopping watches listed; host ownership, scheduling and stop acknowledgement remain unverified." }], structuredContent: { watches: (await watchStore.list()).map((watch) => ({
       watchId: watch.watchId,
       status: watch.status,
-      monitoringStatus: watch.status === "EXPIRED" ? "EXPIRED" as const
-        : watch.status === "PAUSED" ? "PAUSED" as const
+      monitoringStatus: watch.status !== "ACTIVE" ? watch.status
           : watch.schedulingState === undefined ? "LEGACY_UNVERIFIED" as const
             : watch.automationId === undefined ? "READY_TO_SCHEDULE" as const : "ACTIVE" as const,
       ...(watch.automationId === undefined ? {} : { automationId: watch.automationId }),
+      ...(watch.completionEventId === undefined ? {} : { completionEventId: watch.completionEventId }),
+      ...(watch.stopIntent === undefined ? {} : { stopIntent: watch.stopIntent }),
       query: watch.spec.query,
       condition: watch.spec.condition,
       ...(watch.spec.priceBasis === undefined ? {} : { priceBasis: watch.spec.priceBasis }),
       intervalMinutes: watch.spec.intervalMinutes
-    })) } })
+    })), ...(pendingStops.length === 0 ? {} : { pendingStops }) } };
+    }
   );
 
   toolRegistrar.registerTool(
     "pause_watch",
     {
       title: "Pause or resume a shopping watch",
-      description: "Pause or resume one persisted shopping watch.",
+      description: "Pause local Watch checks first, returning any STOP_REQUIRED handoff; never treat a supplied Automation ID as host acknowledgement. Resume is blocked for terminal, legacy or unresolved-stop rules.",
       inputSchema: z.object({ watchId: z.string().uuid(), paused: z.boolean(), automationId: WatchAutomationIdSchema.optional() }).strict(),
-      outputSchema: { status: z.enum(["ACTIVE", "PAUSED", "NOT_FOUND", "AUTOMATION_SYNC_REQUIRED"]), watchId: z.string().uuid(), automationId: WatchAutomationIdSchema.optional() },
+      outputSchema: { status: z.enum(["ACTIVE", "PAUSED", "EXPIRED", "COMPLETED", "NOT_FOUND", "AUTOMATION_SYNC_REQUIRED"]), watchId: z.string().uuid(), automationId: WatchAutomationIdSchema.optional(), stopIntent: WatchStopIntentSchema.optional() },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false }
     },
     async ({ watchId, paused, automationId }) => {
       const watch = await watchStore.get(watchId);
       if (watch === undefined) return { content: [{ type: "text" as const, text: "Watch not found." }], structuredContent: { status: "NOT_FOUND" as const, watchId } };
-      if (watch.schedulingState === undefined) {
+      if (automationId !== undefined && watch.automationId !== automationId) {
         return {
-          content: [{ type: "text" as const, text: "Bind the legacy Watch to its existing Codex Automation before pausing or resuming it." }],
-          structuredContent: { status: "AUTOMATION_SYNC_REQUIRED" as const, watchId }
+          content: [{ type: "text" as const, text: "Automation binding mismatch; verify the reference. No local or host state changed." }],
+          structuredContent: { status: "AUTOMATION_SYNC_REQUIRED" as const, watchId, ...(watch.automationId === undefined ? {} : { automationId: watch.automationId }) }
         };
       }
-      if (watch.automationId !== undefined && watch.automationId !== automationId) {
+      const changedAt = now();
+      if (watch.status === "COMPLETED" || watch.status === "EXPIRED" ||
+        (watch.spec.expiresAt !== undefined && Date.parse(watch.spec.expiresAt) <= changedAt.getTime())) {
+        const terminal = (await evaluateWatch(watch, watchStore, shopifyPort, dealPort, cartQuotes, changedAt)).watch;
+        return { content: [{ type: "text" as const, text: "Watch is locally terminal and cannot resume; host scheduling remains unverified." }], structuredContent: {
+          status: terminal.status, watchId, ...(terminal.automationId === undefined ? {} : { automationId: terminal.automationId }),
+          ...(terminal.stopIntent === undefined ? {} : { stopIntent: terminal.stopIntent })
+        } };
+      }
+      if (!paused && (watch.stopIntent !== undefined || watch.schedulingState === undefined)) {
         return {
-          content: [{ type: "text" as const, text: "Update the bound Codex Automation first, then retry with its automationId." }],
-          structuredContent: { status: "AUTOMATION_SYNC_REQUIRED" as const, watchId, automationId: watch.automationId }
+          content: [{ type: "text" as const, text: "Resume refused: unresolved STOP_REQUIRED or legacy scheduler state needs trusted host reconciliation, which this binding cannot acknowledge." }],
+          structuredContent: { status: "AUTOMATION_SYNC_REQUIRED" as const, watchId,
+            ...(watch.automationId === undefined ? {} : { automationId: watch.automationId }),
+            ...(watch.stopIntent === undefined ? {} : { stopIntent: watch.stopIntent }) }
         };
       }
       const status = paused ? "PAUSED" as const : "ACTIVE" as const;
-      await watchStore.save({ ...watch, status, updatedAt: now().toISOString() });
-      return { content: [{ type: "text" as const, text: `Watch is ${status.toLowerCase()}.` }], structuredContent: {
-        status, watchId, ...(watch.automationId === undefined ? {} : { automationId: watch.automationId })
+      const stopIntent = paused ? watchStopIntent(watch, "PAUSED", changedAt.toISOString()) : undefined;
+      if (watch.status !== status || stopIntent !== watch.stopIntent) await watchStore.save({ ...watch, status, updatedAt: changedAt.toISOString(),
+        ...(stopIntent === undefined ? {} : { stopIntent }) });
+      return { content: [{ type: "text" as const, text: `Watch is locally ${status.toLowerCase()}; host scheduling and stop acknowledgement remain unverified.` }], structuredContent: {
+        status, watchId, ...(watch.automationId === undefined ? {} : { automationId: watch.automationId }),
+        ...(stopIntent === undefined ? {} : { stopIntent })
       } };
     }
   );
@@ -4477,39 +4657,35 @@ export function createShoppingServer(
     "delete_watch",
     {
       title: "Delete a shopping watch",
-      description: "Permanently delete one local shopping watch. The host must also remove its scheduled automation.",
+      description: "Delete the local Watch first and retain a minimal STOP_REQUIRED handoff. The host must verify ownership/scope and stop its Automation separately; an identifier is not acknowledgement.",
       inputSchema: z.object({ watchId: z.string().uuid(), automationId: WatchAutomationIdSchema.optional() }).strict(),
-      outputSchema: { status: z.enum(["DELETED", "NOT_FOUND", "AUTOMATION_SYNC_REQUIRED"]), deleted: z.boolean(), watchId: z.string().uuid(), automationId: WatchAutomationIdSchema.optional() },
+      outputSchema: { status: z.enum(["DELETED", "NOT_FOUND", "AUTOMATION_SYNC_REQUIRED"]), deleted: z.boolean(), watchId: z.string().uuid(), automationId: WatchAutomationIdSchema.optional(), stopIntent: WatchStopIntentSchema.optional() },
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false }
     },
     async ({ watchId, automationId }) => {
       const watch = await watchStore.get(watchId);
-      if (watch === undefined) return { content: [{ type: "text" as const, text: "Watch not found." }], structuredContent: {
-        status: "NOT_FOUND" as const, deleted: false, watchId
-      } };
-      if (watch.schedulingState === undefined) {
+      const pendingStop = (await watchStore.listPendingStops()).find(stop => stop.watchId === watchId);
+      const recordedAutomationId = watch?.automationId ?? pendingStop?.automationId;
+      if (automationId !== undefined && recordedAutomationId !== automationId) {
         return {
-          content: [{ type: "text" as const, text: "Bind the legacy Watch to its existing Codex Automation before deleting it." }],
-          structuredContent: { status: "AUTOMATION_SYNC_REQUIRED" as const, deleted: false, watchId }
-        };
-      }
-      if (watch.automationId !== undefined && watch.automationId !== automationId) {
-        return {
-          content: [{ type: "text" as const, text: "Delete the bound Codex Automation first, then retry with its automationId." }],
+          content: [{ type: "text" as const, text: "Automation binding mismatch; verify the reference. No local or host state changed." }],
           structuredContent: {
             status: "AUTOMATION_SYNC_REQUIRED" as const,
             deleted: false,
             watchId,
-            automationId: watch.automationId
+            ...(recordedAutomationId === undefined ? {} : { automationId: recordedAutomationId })
           }
         };
       }
-      const deleted = await watchStore.delete(watchId);
-      return { content: [{ type: "text" as const, text: deleted ? "Watch deleted." : "Watch not found." }], structuredContent: {
+      const removed = await watchStore.delete(watchId);
+      const stopIntent = (await watchStore.listPendingStops()).find(stop => stop.watchId === watchId);
+      const deleted = removed || stopIntent !== undefined;
+      return { content: [{ type: "text" as const, text: deleted ? "Watch locally deleted; host scheduling and stop acknowledgement remain unverified." : "Watch not found." }], structuredContent: {
         status: deleted ? "DELETED" as const : "NOT_FOUND" as const,
         deleted,
         watchId,
-        ...(watch.automationId === undefined ? {} : { automationId: watch.automationId })
+        ...(recordedAutomationId === undefined ? {} : { automationId: recordedAutomationId }),
+        ...(stopIntent === undefined ? {} : { stopIntent })
       } };
     }
   );

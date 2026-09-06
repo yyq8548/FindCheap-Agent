@@ -28,6 +28,7 @@ type RecommendationProduct = ValueProduct & {
   title: string;
   matchStatus: "EXACT" | "DISCOVERY_MATCH" | "SIMILAR";
   visualReviewAssessment?: VisualReviewAssessment | undefined;
+  visualReviewRequired?: boolean | undefined;
   presentationGroup?: "OFFICIAL_STORE" | "TRUSTED_MATCH" | "BEST_VALUE" | "RESEARCH_ONLY" | undefined;
   recommendationTier?: "TRUSTED_OR_AFFILIATE" | "HIGH_RATED_UNVERIFIED" | "GENERAL_UNVERIFIED" | undefined;
   merchantTrust: {

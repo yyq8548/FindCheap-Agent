@@ -3,6 +3,7 @@ import { RECOMMENDATION_REASON_CODES, choosePrimaryRecommendation } from "./prod
 import { DealAssessmentSchema, DealSummarySchema, type DealAssessment, type DealSummary } from "./deal-assessment.js";
 import { DealLookupStatusSchema } from "./deal-client.js";
 import { RequirementAssessmentSchema, type RequirementAssessment } from "./product-requirements.js";
+import type { VisualReviewAssessment } from "./visual-review-policy.js";
 import { assessQualityEvidence, comparableSameProduct, comparableUnitPrices, QualityEvidenceSchema, UnitPriceSchema, unitPriceEvidence, type ValueProduct } from "./product-value-evidence.js";
 
 const MoneySchema = z.object({
@@ -47,10 +48,19 @@ const ComparisonEntrySchema = z.object({
   gtins: z.array(z.string()),
   variantDimensions: z.record(z.string(), z.string()),
   matchStatus: z.enum(["EXACT", "DISCOVERY_MATCH", "SIMILAR"]),
+  visualMatchGroup: z.enum(["POSSIBLE_SAME_ITEM", "HIGHLY_SIMILAR", "SAME_STYLE"]).optional(),
+  visualReviewRequired: z.boolean().optional(),
+  visualMatchEvidence: z.array(z.string()).optional(),
+  visualReviewAssessment: z.object({
+    group: z.enum(["POSSIBLE_SAME_ITEM", "HIGHLY_SIMILAR", "SAME_STYLE"]),
+    structuralMatchCount: z.number().int().min(0).max(16),
+    matchCount: z.number().int().min(0).max(16),
+    recommendationScope: z.literal("SIMILAR").optional()
+  }).strict().optional(),
   itemPrice: MoneySchema.optional(),
   deliveredTotal: MoneySchema.optional(),
   deliveredTotalExpiresAt: z.string().datetime().optional(),
-  deliveredTotalStatus: z.enum(["QUOTED", "NOT_QUOTED", "MERCHANT_CHECKOUT_ONLY"]),
+  deliveredTotalStatus: z.enum(["QUOTED", "NOT_QUOTED", "MERCHANT_CHECKOUT_ONLY", "NOT_CHECKED"]),
   comparedPrice: MoneySchema.optional(),
   unitPrice: UnitPriceSchema.optional(),
   qualityEvidence: QualityEvidenceSchema.optional(),
@@ -110,6 +120,7 @@ export const ProductComparisonOutputSchema = z.object({
   recommendation: z.object({
     state: z.enum(["READY", "RESEARCH_ONLY", "NO_MATCH"]),
     recommendedSelectionId: z.string().uuid().optional(),
+    scope: z.literal("SIMILAR").optional(),
     reasonCodes: z.array(z.enum(RECOMMENDATION_REASON_CODES)).max(3),
     conditions: z.array(z.string()).max(3).optional(),
     limitations: z.array(z.string()).max(3).optional()
@@ -133,11 +144,15 @@ export type ComparableProduct = ValueProduct & {
   gtins: string[];
   variantDimensions: Record<string, string>;
   matchStatus: "EXACT" | "DISCOVERY_MATCH" | "SIMILAR";
+  visualMatchGroup?: "POSSIBLE_SAME_ITEM" | "HIGHLY_SIMILAR" | "SAME_STYLE" | undefined;
+  visualReviewRequired?: boolean | undefined;
+  visualReviewAssessment?: VisualReviewAssessment | undefined;
+  visualMatchEvidence?: string[] | undefined;
   presentationGroup?: "OFFICIAL_STORE" | "TRUSTED_MATCH" | "BEST_VALUE" | "RESEARCH_ONLY";
   requirementAssessment?: RequirementAssessment;
   recommendationTier?: "TRUSTED_OR_AFFILIATE" | "HIGH_RATED_UNVERIFIED" | "GENERAL_UNVERIFIED";
   itemPrice?: { amountCents: number; currency: "USD" };
-  quoteCapability?: "DELIVERED_TOTAL_SUPPORTED" | "ZIP_ESTIMATE_ONLY" | "MERCHANT_CHECKOUT_ONLY";
+  quoteCapability?: "DELIVERED_TOTAL_SUPPORTED" | "ZIP_ESTIMATE_ONLY" | "MERCHANT_CHECKOUT_ONLY" | "NOT_CHECKED";
   pricing: {
     deliveredPrice: {
       status: "ESTIMATED" | "UNAVAILABLE";
@@ -220,6 +235,7 @@ export function buildProductComparison(
     state: decision.state === "READY" ? "READY" as const
       : decision.state === "NO_MATCH" ? "NO_MATCH" as const : "RESEARCH_ONLY" as const,
     ...(recommendedSelectionId === undefined ? {} : { recommendedSelectionId }),
+    ...(selectedProduct?.visualReviewAssessment?.recommendationScope === "SIMILAR" ? { scope: "SIMILAR" as const } : {}),
     reasonCodes: decision.reasonCodes,
     ...(conditionalChoice ? {
       conditions: [selectedEvidence.length > 0
@@ -247,6 +263,9 @@ export function buildProductComparison(
   );
   const pricingMessage = priceBasis === "DELIVERED_TOTAL"
     ? localize(input.responseLocale, "Delivered totals are quoted and comparable.", "到手价已报价且可直接比较。")
+    : entries.some(entry => entry.deliveredTotalStatus === "NOT_CHECKED")
+      ? localize(input.responseLocale, "Quote capability has not been verified for every card; available item prices are retained.",
+        "至少一张商品卡的报价能力尚未核验；保留已知商品价。")
     : entries.some((entry) => entry.deliveredTotalStatus === "MERCHANT_CHECKOUT_ONLY")
       ? localize(
           input.responseLocale,
@@ -290,6 +309,7 @@ function comparisonEntry(
     : product.pricing.deliveredPrice.expiresAt;
   const deliveredTotalStatus = deliveredTotal !== undefined
     ? "QUOTED" as const
+    : product.quoteCapability === "NOT_CHECKED" ? "NOT_CHECKED" as const
     : product.quoteCapability === "MERCHANT_CHECKOUT_ONLY"
       ? "MERCHANT_CHECKOUT_ONLY" as const
       : "NOT_QUOTED" as const;
@@ -315,6 +335,10 @@ function comparisonEntry(
     gtins: product.gtins,
     variantDimensions: product.variantDimensions,
     matchStatus: product.matchStatus,
+    ...(product.visualMatchGroup === undefined ? {} : { visualMatchGroup: product.visualMatchGroup }),
+    ...(product.visualReviewRequired === undefined ? {} : { visualReviewRequired: product.visualReviewRequired }),
+    ...(product.visualReviewAssessment === undefined ? {} : { visualReviewAssessment: product.visualReviewAssessment }),
+    ...(product.visualMatchEvidence === undefined ? {} : { visualMatchEvidence: product.visualMatchEvidence }),
     ...(product.itemPrice === undefined ? {} : { itemPrice: product.itemPrice }),
     ...(deliveredTotal === undefined ? {} : { deliveredTotal }),
     ...(deliveredTotalExpiresAt === undefined ? {} : { deliveredTotalExpiresAt }),

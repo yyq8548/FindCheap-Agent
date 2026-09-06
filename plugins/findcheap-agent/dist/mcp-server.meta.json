@@ -3786,6 +3786,10 @@
         }
       ]
     },
+    "src/await-with-signal.ts": {
+      "format": "esm",
+      "imports": []
+    },
     "src/awin-shopify-quote.ts": {
       "format": "esm",
       "imports": [
@@ -3803,6 +3807,11 @@
           "kind": "import-statement",
           "original": "./shopify-cart-quote.js",
           "path": "src/shopify-cart-quote.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./await-with-signal.js",
+          "path": "src/await-with-signal.ts"
         }
       ]
     },
@@ -3832,6 +3841,11 @@
           "kind": "import-statement",
           "original": "./deal-assessment.js",
           "path": "src/deal-assessment.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./await-with-signal.js",
+          "path": "src/await-with-signal.ts"
         }
       ]
     },
@@ -4009,6 +4023,11 @@
           "kind": "import-statement",
           "original": "./merchant-trust.js",
           "path": "src/merchant-trust.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./await-with-signal.js",
+          "path": "src/await-with-signal.ts"
         }
       ]
     },
@@ -4043,6 +4062,11 @@
           "kind": "import-statement",
           "original": "./merchant-trust.js",
           "path": "src/merchant-trust.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./await-with-signal.js",
+          "path": "src/await-with-signal.ts"
         }
       ]
     },
@@ -4255,6 +4279,10 @@
         }
       ]
     },
+    "src/quote-authorization.ts": {
+      "format": "esm",
+      "imports": []
+    },
     "src/ranking-assessment.ts": {
       "format": "esm",
       "imports": [
@@ -4340,6 +4368,11 @@
           "kind": "import-statement",
           "original": "./visual-review-policy.js",
           "path": "src/visual-review-policy.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./visual-search-outcome.js",
+          "path": "src/visual-search-outcome.ts"
         },
         {
           "kind": "import-statement",
@@ -4488,6 +4521,11 @@
         },
         {
           "kind": "import-statement",
+          "original": "./visual-search-outcome.js",
+          "path": "src/visual-search-outcome.ts"
+        },
+        {
+          "kind": "import-statement",
           "original": "./execution/tool-executor.js",
           "path": "src/execution/tool-executor.ts"
         },
@@ -4533,6 +4571,11 @@
         },
         {
           "kind": "import-statement",
+          "original": "./await-with-signal.js",
+          "path": "src/await-with-signal.ts"
+        },
+        {
+          "kind": "import-statement",
           "original": "./search-products.js",
           "path": "src/search-products.ts"
         },
@@ -4575,6 +4618,11 @@
           "kind": "import-statement",
           "original": "./shopify-cart-quote.js",
           "path": "src/shopify-cart-quote.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./quote-authorization.js",
+          "path": "src/quote-authorization.ts"
         },
         {
           "kind": "import-statement",
@@ -4685,6 +4733,11 @@
           "kind": "import-statement",
           "original": "./sales-tax-estimator.js",
           "path": "src/sales-tax-estimator.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./quote-authorization.js",
+          "path": "src/quote-authorization.ts"
         }
       ]
     },
@@ -4988,8 +5041,23 @@
       "imports": [
         {
           "kind": "import-statement",
+          "original": "./product-constraint-matcher.js",
+          "path": "src/product-constraint-matcher.ts"
+        },
+        {
+          "kind": "import-statement",
           "original": "./visual-product-discovery.js",
           "path": "src/visual-product-discovery.ts"
+        }
+      ]
+    },
+    "src/visual-search-outcome.ts": {
+      "format": "esm",
+      "imports": [
+        {
+          "kind": "import-statement",
+          "original": "zod",
+          "path": "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/index.js"
         }
       ]
     },
@@ -5020,6 +5088,11 @@
           "kind": "import-statement",
           "original": "zod",
           "path": "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/index.js"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:crypto"
         },
         {
           "kind": "import-statement",
@@ -5106,7 +5179,7 @@
   },
   "outputs": {
     "../../plugins/findcheap-agent/dist/mcp-server.js": {
-      "bytes": 934922,
+      "bytes": 966787,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
@@ -5259,6 +5332,11 @@
           "external": true,
           "kind": "import-statement",
           "path": "node:path"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:crypto"
         }
       ],
       "inputs": {
@@ -5308,7 +5386,7 @@
           "bytesInOutput": 1536
         },
         "../../node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/types.js": {
-          "bytesInOutput": 12609
+          "bytesInOutput": 12541
         },
         "../../node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/validation/ajv-provider.js": {
           "bytesInOutput": 450
@@ -5683,7 +5761,7 @@
           "bytesInOutput": 44
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v4/classic/schemas.js": {
-          "bytesInOutput": 10402
+          "bytesInOutput": 10401
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v4/core/api.js": {
           "bytesInOutput": 4774
@@ -5757,8 +5835,11 @@
         "src/affiliate-links.ts": {
           "bytesInOutput": 2966
         },
+        "src/await-with-signal.ts": {
+          "bytesInOutput": 303
+        },
         "src/awin-shopify-quote.ts": {
-          "bytesInOutput": 4153
+          "bytesInOutput": 4340
         },
         "src/backend.ts": {
           "bytesInOutput": 501
@@ -5767,7 +5848,7 @@
           "bytesInOutput": 4579
         },
         "src/deal-client.ts": {
-          "bytesInOutput": 6157
+          "bytesInOutput": 6579
         },
         "src/deal-concierge.ts": {
           "bytesInOutput": 2511
@@ -5806,7 +5887,7 @@
           "bytesInOutput": 15814
         },
         "src/merchant-trust-registry-client.ts": {
-          "bytesInOutput": 1283
+          "bytesInOutput": 1367
         },
         "src/merchant-trust.ts": {
           "bytesInOutput": 9659
@@ -5815,7 +5896,7 @@
           "bytesInOutput": 940
         },
         "src/official-storefront-registry-client.ts": {
-          "bytesInOutput": 1326
+          "bytesInOutput": 1410
         },
         "src/product-candidate-ranking.ts": {
           "bytesInOutput": 6896
@@ -5824,13 +5905,13 @@
           "bytesInOutput": 814
         },
         "src/product-card-ui.ts": {
-          "bytesInOutput": 74671
+          "bytesInOutput": 75983
         },
         "src/product-comparison-ui.ts": {
-          "bytesInOutput": 27906
+          "bytesInOutput": 28859
         },
         "src/product-comparison.ts": {
-          "bytesInOutput": 10750
+          "bytesInOutput": 12031
         },
         "src/product-constraint-matcher.ts": {
           "bytesInOutput": 12903
@@ -5847,11 +5928,14 @@
         "src/product-value-evidence.ts": {
           "bytesInOutput": 4711
         },
+        "src/quote-authorization.ts": {
+          "bytesInOutput": 752
+        },
         "src/ranking-assessment.ts": {
-          "bytesInOutput": 2743
+          "bytesInOutput": 3075
         },
         "src/recommendation-message.ts": {
-          "bytesInOutput": 1528
+          "bytesInOutput": 1711
         },
         "src/retrieval-plan.ts": {
           "bytesInOutput": 779
@@ -5863,19 +5947,19 @@
           "bytesInOutput": 3148
         },
         "src/search-products.ts": {
-          "bytesInOutput": 39339
+          "bytesInOutput": 40114
         },
         "src/search-requirements-context.ts": {
           "bytesInOutput": 4694
         },
         "src/search-run.ts": {
-          "bytesInOutput": 3966
+          "bytesInOutput": 6382
         },
         "src/server.ts": {
-          "bytesInOutput": 155090
+          "bytesInOutput": 168009
         },
         "src/shopify-cart-quote.ts": {
-          "bytesInOutput": 10343
+          "bytesInOutput": 12431
         },
         "src/shopify-client.ts": {
           "bytesInOutput": 181
@@ -5914,19 +5998,22 @@
           "bytesInOutput": 884
         },
         "src/visual-review-policy.ts": {
-          "bytesInOutput": 4177
+          "bytesInOutput": 4512
+        },
+        "src/visual-search-outcome.ts": {
+          "bytesInOutput": 2842
         },
         "src/visual-source-fingerprints.ts": {
           "bytesInOutput": 644
         },
         "src/watch-service.ts": {
-          "bytesInOutput": 7121
+          "bytesInOutput": 7108
         },
         "src/watch-store.ts": {
-          "bytesInOutput": 7115
+          "bytesInOutput": 11137
         },
         "src/web-product-recovery.ts": {
-          "bytesInOutput": 4641
+          "bytesInOutput": 5298
         }
       }
     }

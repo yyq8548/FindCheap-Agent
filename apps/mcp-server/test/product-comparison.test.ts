@@ -63,6 +63,33 @@ const identity = {
 };
 
 describe("deterministic product comparison", () => {
+  it.each(["zh-CN", "en-US"] as const)("keeps unverified quote capability distinct from unsupported and unquoted (%s)", responseLocale => {
+    const result = buildProductComparison({ ...input, responseLocale }, [
+      product({ quoteCapability: "NOT_CHECKED", pricing: { deliveredPrice: { status: "UNAVAILABLE" } } }),
+      product({ selectionId: selectionB, quoteCapability: "DELIVERED_TOTAL_SUPPORTED", pricing: { deliveredPrice: { status: "UNAVAILABLE" } } })
+    ], identity);
+    expect(result.entries.map(entry => entry.deliveredTotalStatus)).toEqual(["NOT_CHECKED", "NOT_QUOTED"]);
+    expect(result.message).toContain(responseLocale === "zh-CN" ? "报价能力尚未核验" : "Quote capability has not been verified");
+    expect(result.message).not.toContain("ZIP");
+    expect(result.priceBasis).toBe("ITEM_PRICE");
+  });
+
+  it("preserves scoped visual alternatives without claiming same-item price savings", () => {
+    const similar = { title: "Boat neck dress", productType: "dress", variantDimensions: {}, visualMatchGroup: "SAME_STYLE" as const,
+      visualReviewAssessment: { group: "SAME_STYLE" as const, matchCount: 2, structuralMatchCount: 1, recommendationScope: "SIMILAR" as const },
+      visualMatchEvidence: ["NECKLINE: boat neck", "COLOR differs: black / ivory"] };
+    const choices = [product({ ...similar, matchStatus: "SIMILAR", sku: "a", gtins: [] }),
+      product({ ...similar, selectionId: selectionB, matchStatus: "SIMILAR", sku: "b", gtins: [], merchantUrl: "https://merchant.example/other" })];
+    const result = buildProductComparison(input, choices, identity);
+    expect(result).toMatchObject({ mode: "PRODUCT_CHOICES", priceComparability: "NOT_LIKE_FOR_LIKE",
+      recommendation: { state: "READY", scope: "SIMILAR" } });
+    expect(result.priceDelta).toBeUndefined();
+    expect(result.entries[0]).toMatchObject({ visualMatchGroup: similar.visualMatchGroup,
+      visualReviewAssessment: similar.visualReviewAssessment, visualMatchEvidence: similar.visualMatchEvidence });
+    expect(buildProductComparison({ ...input, mode: "SAME_PRODUCT_OFFERS" }, choices, identity).status).toBe("SAME_PRODUCT_IDENTITY_UNVERIFIED");
+    expect(buildProductComparison(input, choices.map(choice => ({ ...choice, visualReviewRequired: true })), identity).recommendation)
+      .toMatchObject({ state: "RESEARCH_ONLY", reasonCodes: ["VISUAL_REVIEW_REQUIRED"] });
+  });
   it.each([["2026-09-03T06:00:00.001Z", selectionA], ["2026-09-03T06:00:00.000Z", selectionB]])(
     "evaluates coupon expiry at the comparison evaluation time (%s)", (validTo, recommendedSelectionId) => {
       const result = buildProductComparison(input, [product({ itemPrice: { amountCents: 2000, currency: "USD" },

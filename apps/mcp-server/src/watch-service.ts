@@ -1,11 +1,12 @@
 import { VerifiedDealsSchema, type DealPort, type VerifiedDeal } from "./deal-client.js";
 import { z } from "zod";
+import { randomUUID } from "node:crypto";
 import type { ShopifyPort, ShopifyProduct } from "./shopify-client.js";
 import { ShopifyCartQuoteError, type ShopifyCartQuotePort } from "./shopify-cart-quote.js";
-import { productWatchClarificationQuestions, type WatchRecord, type WatchStore } from "./watch-store.js";
+import { productWatchClarificationQuestions, WatchStateConflictError, watchStopIntent, type WatchRecord, type WatchStore } from "./watch-store.js";
 
 export type WatchEvaluation = {
-  status: "TRIGGERED" | "NOT_TRIGGERED" | "PAUSED" | "EXPIRED" | "NEEDS_CLARIFICATION" | "DATA_SOURCE_UNAVAILABLE";
+  status: "TRIGGERED" | "NOT_TRIGGERED" | "PAUSED" | "EXPIRED" | "COMPLETED" | "NEEDS_CLARIFICATION" | "DATA_SOURCE_UNAVAILABLE";
   message: string;
   watch: WatchRecord;
   observation?: Record<string, unknown>;
@@ -16,15 +17,26 @@ export async function evaluateWatch(
   store: WatchStore,
   shopify: ShopifyPort,
   deals: DealPort,
-  cartQuotes: ShopifyCartQuotePort | undefined,
+  _cartQuotes: ShopifyCartQuotePort | undefined,
   now: Date
 ): Promise<WatchEvaluation> {
-  if (watch.status === "PAUSED") return { status: "PAUSED", message: "Watch is paused.", watch };
-  if (watch.spec.expiresAt !== undefined && Date.parse(watch.spec.expiresAt) <= now.getTime()) {
-    const expired = { ...watch, status: "EXPIRED" as const, updatedAt: now.toISOString() };
-    await store.save(expired);
-    return { status: "EXPIRED", message: "Watch has expired.", watch: expired };
+  if (watch.status === "COMPLETED") return { status: "COMPLETED", message: "Restock Watch is locally completed; no new notification. Host scheduler stop remains unverified.", watch };
+  if (watch.status === "EXPIRED" || (watch.spec.expiresAt !== undefined && Date.parse(watch.spec.expiresAt) <= now.getTime())) {
+    const stopIntent = watchStopIntent(watch, "EXPIRED", now.toISOString());
+    if (watch.status === "EXPIRED" && (stopIntent === undefined || watch.stopIntent !== undefined)) {
+      return { status: "EXPIRED", message: "Watch is locally expired; host scheduler stop remains unverified.", watch };
+    }
+    const expired = { ...watch, status: "EXPIRED" as const, updatedAt: now.toISOString(),
+      ...(stopIntent === undefined ? {} : { stopIntent }) };
+    const saved = await store.save(expired);
+    return { status: "EXPIRED", message: "Watch has expired.", watch: saved };
   }
+  if (watch.status === "PAUSED") return { status: "PAUSED", message: "Watch is locally paused; host scheduler state is unverified.", watch };
+  if (watch.spec.priceBasis === "DELIVERED_TOTAL") return {
+    status: "DATA_SOURCE_UNAVAILABLE",
+    message: "[RECURRING_QUOTE_AUTHORIZATION_UNAVAILABLE] Recurring anonymous Cart authorization is not implemented. No quote was requested. One-time quote consent does not authorize Watch quotes.",
+    watch
+  };
   const questions = productWatchClarificationQuestions(watch.spec);
   if (questions.length > 0) {
     return {
@@ -38,23 +50,28 @@ export async function evaluateWatch(
   try {
     const observation = isDealCondition(watch)
       ? await observeDeals(watch, deals, now)
-      : await observeProducts(watch, shopify, cartQuotes, now);
+      : await observeProducts(watch, shopify, now);
     const triggered = observation.satisfied && watch.wasSatisfied !== true;
+    const complete = triggered && watch.spec.condition === "RESTOCKED";
+    const stopIntent = complete ? watchStopIntent(watch, "RESTOCKED", now.toISOString()) : undefined;
     const updated = {
       ...watch,
       updatedAt: now.toISOString(),
       lastCheckedAt: now.toISOString(),
       wasSatisfied: observation.satisfied,
-      lastObservation: observation.data
+      lastObservation: observation.data,
+      ...(complete ? { status: "COMPLETED" as const, completionEventId: randomUUID() } : {}),
+      ...(stopIntent === undefined ? {} : { stopIntent })
     };
-    await store.save(updated);
+    const saved = await store.save(updated);
     return {
       status: triggered ? "TRIGGERED" : "NOT_TRIGGERED",
       message: triggered ? observation.triggerMessage : observation.statusMessage,
-      watch: updated,
+      watch: saved,
       observation: observation.data
     };
   } catch (error) {
+    if (error instanceof WatchStateConflictError) throw error;
     const failureCode = error instanceof ShopifyCartQuoteError ? error.code : undefined;
     return {
       status: "DATA_SOURCE_UNAVAILABLE",
@@ -74,12 +91,8 @@ function isDealCondition(watch: WatchRecord) {
 async function observeProducts(
   watch: WatchRecord,
   shopify: ShopifyPort,
-  cartQuotes: ShopifyCartQuotePort | undefined,
   now: Date
 ) {
-  if (watch.spec.condition === "PRICE_BELOW" && watch.spec.priceBasis === "DELIVERED_TOTAL") {
-    return observeDeliveredTotal(watch, cartQuotes);
-  }
   const result = await shopify.search({
     query: buildProductWatchQuery(watch),
     limit: 3,
@@ -153,47 +166,6 @@ function matchingInventoryObservation(
     Object.keys(previous.variantDimensions).length === Object.keys(product.variantDimensions).length &&
     Object.entries(previous.variantDimensions).every(([key, value]) => product.variantDimensions[key] === value)
     ? previous : undefined;
-}
-
-async function observeDeliveredTotal(
-  watch: WatchRecord,
-  cartQuotes: ShopifyCartQuotePort | undefined
-) {
-  const selected = watch.spec.selectedProduct;
-  const zipCode = watch.spec.zipCode;
-  if (selected === undefined || zipCode === undefined || cartQuotes === undefined) {
-    throw new Error("DATA_SOURCE_UNAVAILABLE");
-  }
-  const quote = await cartQuotes.quote({
-    merchantId: selected.merchantId,
-    handle: selected.variantId,
-    sourceHost: selected.sourceHost,
-    merchantUrl: selected.merchantUrl,
-    title: selected.title
-  }, zipCode);
-  const threshold = watch.spec.threshold ?? 0;
-  const satisfied = quote.deliveredPrice.amountCents < threshold;
-  const delivered = `$${(quote.deliveredPrice.amountCents / 100).toFixed(2)}`;
-  return {
-    satisfied,
-    triggerMessage: `${selected.title} has an estimated delivered total of ${delivered}, below the watch target.`,
-    statusMessage: `${selected.title} has an estimated delivered total of ${delivered}; target not reached.`,
-    data: {
-      title: selected.title,
-      merchant: selected.merchant,
-      merchantUrl: selected.merchantUrl,
-      variantId: selected.variantId,
-      variantDimensions: selected.variantDimensions,
-      priceBasis: "DELIVERED_TOTAL",
-      subtotal: quote.subtotal,
-      shipping: quote.shipping,
-      tax: quote.tax,
-      deliveredPrice: quote.deliveredPrice,
-      totalEstimated: quote.totalEstimated,
-      checkedAt: quote.checkedAt,
-      expiresAt: quote.expiresAt
-    }
-  };
 }
 
 function buildProductWatchQuery(watch: WatchRecord): string {

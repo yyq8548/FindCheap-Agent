@@ -1,4 +1,5 @@
 import type { CodexVisualVerdict } from "./search-products.js";
+import { evaluateFeature } from "./product-constraint-matcher.js";
 import { isVisualAttributeOccluded, normalizeVisualEvidence, visualColorwayTerms, type VisualMatchGroup, type VisualProductInput } from "./visual-product-discovery.js";
 
 /** Created only after server validation of reference evidence and a visual verdict. */
@@ -6,18 +7,31 @@ export type VisualReviewAssessment = {
   group: VisualMatchGroup;
   structuralMatchCount: number;
   matchCount: number;
+  recommendationScope?: "SIMILAR" | undefined;
 };
 
 type EvidencePair = CodexVisualVerdict["matches"][number];
+export type VisualHardRequirements = { requiredFeatures: readonly string[]; excludedFeatures: readonly string[] };
 
 export function assessVisualVerdict(
   verdict: CodexVisualVerdict,
   visual: VisualProductInput | undefined,
-  allowAlternatives: boolean
+  allowAlternatives: boolean,
+  hardRequirements?: VisualHardRequirements
 ): (VisualReviewAssessment & { matches: EvidencePair[]; conflicts: EvidencePair[]; score: number }) | undefined {
-  const matches = [...new Map(verdict.matches.filter((entry) => admissibleReference(entry, visual))
-    .map((entry) => [entry.attribute, entry])).values()];
+  const admissibleMatches = verdict.matches.filter((entry) => admissibleReference(entry, visual));
+  const matches = [...new Map(admissibleMatches.map((entry) => [entry.attribute, entry])).values()];
   const conflicts = verdict.conflicts.filter((entry) => admissibleReference(entry, visual));
+  if (hardRequirements !== undefined && [...admissibleMatches, ...conflicts].some(entry => {
+    const reference = `${entry.attribute.toLowerCase()}: ${entry.referenceEvidence}`;
+    const candidate = `${entry.attribute.toLowerCase()}: ${entry.candidateEvidence}`;
+    return hardRequirements.requiredFeatures.some(requirement => {
+      const candidateStatus = evaluateFeature(candidate, requirement);
+      return candidateStatus === "CONTRADICTED" ||
+        (evaluateFeature(reference, requirement) === "MATCHED" && candidateStatus !== "MATCHED");
+    }) ||
+      hardRequirements.excludedFeatures.some(requirement => evaluateFeature(candidate, requirement) === "MATCHED");
+  })) return undefined;
   const structural = structuralAttributes(visual?.productType);
   const structuralMatchCount = matches.filter((entry) => structural.has(entry.attribute)).length;
   const colorwayOnlyConflict = conflicts.length > 0 && structuralMatchCount >= 3 &&

@@ -61,8 +61,11 @@ export class WebRecoverySessions {
   readonly #leases = new Map<string, Lease>();
   constructor(private readonly now: () => number = Date.now) {}
   forget(renderId: string): void { this.#leases.delete(renderId); }
-  async begin(renderId: string, approve: () => Promise<"ACCEPT" | "DECLINE" | "CANCEL">): Promise<ConsentResult> {
+  async begin(renderId: string, approve: () => Promise<"ACCEPT" | "DECLINE" | "CANCEL">,
+    remainingServiceMs: () => number = () => WEB_SEARCH_LIMITS.durationMs): Promise<ConsentResult> {
     const previous = this.#leases.get(renderId);
+    const duration = () => Math.floor(Math.min(WEB_SEARCH_LIMITS.durationMs, remainingServiceMs()));
+    if (!(duration() > 0)) return { status: "EXPIRED", retryable: false, attempt: previous?.attempt ?? 0 };
     if (previous !== undefined && !previous.retryable) {
       const status = previous.status === "READY" ? previous.deadline <= this.now() ? "EXPIRED" : "ALREADY_USED" : previous.status;
       return { status, retryable: false, attempt: previous.attempt };
@@ -83,7 +86,12 @@ export class WebRecoverySessions {
     }
     if (this.#leases.get(renderId) !== lease) return { status: "EXPIRED", retryable: false, attempt: lease.attempt };
     if (lease.status !== "READY") return { status: lease.status, retryable: lease.retryable, attempt: lease.attempt };
-    lease.deadline = this.now() + WEB_SEARCH_LIMITS.durationMs;
+    const remaining = duration();
+    if (!(remaining > 0)) {
+      lease.status = "EXPIRED";
+      return { status: "EXPIRED", retryable: false, attempt: lease.attempt };
+    }
+    lease.deadline = this.now() + remaining;
     return { ...lease };
   }
   consume(renderId: string, token: string): number | undefined {
@@ -112,15 +120,21 @@ export function webSearchQueries(request: SearchProductsInput): string[] {
 }
 
 export async function readWebCandidates(urls: readonly string[], request: SearchProductsInput, port: WebProductPagePort,
-  durationMs: number): Promise<{ products: ShopifyProduct[]; rejected: number; unavailable: number }> {
+  durationMs: number, options?: { signal?: AbortSignal }): Promise<{ products: ShopifyProduct[]; rejected: number; unavailable: number }> {
+  options?.signal?.throwIfAborted();
   if (urls.length > WEB_SEARCH_LIMITS.merchantPages) throw new Error("WEB_PAGE_LIMIT");
   const distinct = new Map<string, string>();
   for (const value of urls) { const url = webProductUrl(value); const host = new URL(url).hostname;
     if (!distinct.has(host)) distinct.set(host, url); }
   const selected = [...distinct.values()];
+  if (!Number.isFinite(durationMs) || durationMs <= 0) return { products: [], rejected: urls.length - selected.length, unavailable: selected.length };
   const controller = new AbortController();
+  const abort = () => controller.abort(options?.signal?.reason);
+  options?.signal?.addEventListener("abort", abort, { once: true });
   // Leave response time inside the plugin's 30-second per-tool host deadline.
-  const timeout = setTimeout(() => controller.abort(), Math.min(durationMs, 25_000));
+  const duration = Math.min(durationMs, 25_000);
+  const deadline = performance.now() + duration;
+  const timeout = setTimeout(() => controller.abort(), duration);
   const products: Array<ShopifyProduct | undefined> = Array.from({ length: selected.length });
   let unavailable = 0;
   try {
@@ -129,6 +143,7 @@ export async function readWebCandidates(urls: readonly string[], request: Search
     let next = 0;
     await Promise.all(Array.from({ length: 2 }, async () => {
       while (next < selected.length && !controller.signal.aborted) {
+        if (performance.now() >= deadline) { controller.abort(); break; }
         const index = next++;
         const url = selected[index]!;
         let onAbort: (() => void) | undefined;
@@ -137,6 +152,7 @@ export async function readWebCandidates(urls: readonly string[], request: Search
             if (controller.signal.aborted) reject(new Error("WEB_TIMEOUT"));
             else { onAbort = () => reject(new Error("WEB_TIMEOUT")); controller.signal.addEventListener("abort", onAbort, { once: true }); }
           })]);
+          if (controller.signal.aborted || performance.now() >= deadline) throw new Error("WEB_TIMEOUT");
           if (value.sourceHost !== new URL(url).hostname || value.merchantUrl !== url || value.sourceKind !== "WEB_PRODUCT_PAGE") {
             throw new Error("WEB_IDENTITY_MISMATCH");
           }
@@ -146,6 +162,7 @@ export async function readWebCandidates(urls: readonly string[], request: Search
       }
     }));
     unavailable += selected.length - next;
-  } finally { clearTimeout(timeout); }
+  } finally { clearTimeout(timeout); options?.signal?.removeEventListener("abort", abort); }
+  options?.signal?.throwIfAborted();
   return { products: products.filter((value): value is ShopifyProduct => value !== undefined), rejected: urls.length - selected.length, unavailable };
 }

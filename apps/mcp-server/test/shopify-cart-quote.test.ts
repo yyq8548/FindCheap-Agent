@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import type { lookup } from "node:dns/promises";
 import type { request as httpsRequest } from "node:https";
+import type { IncomingMessage, RequestOptions } from "node:http";
+import { EventEmitter } from "node:events";
 
 import {
   createShopifyCartQuotePort,
@@ -8,6 +10,7 @@ import {
   type ShopifyCartRequest
 } from "../src/shopify-cart-quote.js";
 import type { ShopifyProduct } from "../src/shopify-client.js";
+import { issueQuoteAuthorization } from "../src/quote-authorization.js";
 
 const product: ShopifyProduct = {
   merchantId: "shopify-123",
@@ -32,6 +35,14 @@ const product: ShopifyProduct = {
 };
 
 const money = (amount: string) => ({ amount, currencyCode: "USD" });
+// Controlled offline authority fixture; this is not a real user's approval.
+const authorization = (zip = "33433") => issueQuoteAuthorization([product], zip, new AbortController().signal);
+const cartLines = () => ({
+  nodes: [{ __typename: "CartLine", quantity: 1,
+    merchandise: { __typename: "ProductVariant", id: "gid://shopify/ProductVariant/456" },
+    sellingPlanAllocation: null, parentRelationship: null }],
+  pageInfo: { hasNextPage: false }
+});
 
 function createResponse() {
   return {
@@ -39,6 +50,7 @@ function createResponse() {
       cartCreate: {
         cart: {
           id: "gid://shopify/Cart/cart-key",
+          lines: cartLines(),
           cost: {
             subtotalAmount: money("100.00"),
             totalAmount: money("100.00"),
@@ -70,6 +82,7 @@ function updateResponse(tax: { amount: string; estimated: boolean } | null = nul
       cartSelectedDeliveryOptionsUpdate: {
         cart: {
           id: "gid://shopify/Cart/cart-key",
+          lines: cartLines(),
           cost: {
             subtotalAmount: money("100.00"),
             totalAmount: money(tax === null ? "105.00" : "112.25"),
@@ -99,6 +112,87 @@ function updateResponse(tax: { amount: string; estimated: boolean } | null = nul
 }
 
 describe("Shopify tokenless Cart quote", () => {
+  it("rejects changed merchandise before selecting delivery for the original item", async () => {
+    const wrongItem = createResponse();
+    wrongItem.data.cartCreate.cart.lines.nodes[0]!.merchandise.id = "gid://shopify/ProductVariant/999";
+    const request = vi.fn(async () => request.mock.calls.length === 1 ? wrongItem : updateResponse());
+    const port = createShopifyCartQuotePort({ SHOPIFY_CART_QUOTE_MODE: "tokenless" }, { request });
+
+    await expect(port.quote(product, "33433", authorization())).rejects.toMatchObject({ code: "VARIANT_REJECTED" });
+    expect(request).toHaveBeenCalledTimes(1);
+  });
+  it.each(["variant=999", "variant=456&variant=456"])("rejects conflicting or ambiguous source variant %s before network", async query => {
+    const request = vi.fn(async () => request.mock.calls.length === 1 ? createResponse() : updateResponse());
+    const port = createShopifyCartQuotePort({ SHOPIFY_CART_QUOTE_MODE: "tokenless" }, { request });
+    await expect(port.quote({ ...product, merchantUrl: `https://shop.example/products/fixture?${query}` },
+      "33433", authorization())).rejects.toThrow("variant");
+    expect(request).not.toHaveBeenCalled();
+  });
+  it.each(["expiry", "cancellation"])("does not select delivery after permission %s during cart creation", async kind => {
+    const controller = new AbortController();
+    let elapsed = 0;
+    const permit = issueQuoteAuthorization([product], "33433", controller.signal, () => elapsed);
+    const request = vi.fn(async () => {
+      if (request.mock.calls.length === 1) {
+        if (kind === "expiry") elapsed = 5_000;
+        else controller.abort();
+        return createResponse();
+      }
+      return updateResponse();
+    });
+    const port = createShopifyCartQuotePort({ SHOPIFY_CART_QUOTE_MODE: "tokenless" }, { request });
+    await expect(port.quote(product, "33433", permit)).rejects.toMatchObject({ code: "QUOTE_TIMEOUT" });
+    expect(request).toHaveBeenCalledTimes(1);
+  });
+  it.each(["2026-10", undefined, "2026-07"])("accepts only the reviewed response API version: %s", async version => {
+    let calls = 0;
+    const requestImpl = vi.fn((_options: RequestOptions, callback: (response: IncomingMessage) => void) => {
+      const response = Object.assign(new EventEmitter(), { statusCode: 200,
+        headers: { "content-type": "application/json", ...(version === undefined ? {} : { "x-shopify-api-version": version }) },
+        destroy: vi.fn() });
+      return Object.assign(new EventEmitter(), { end() {
+        const body = ++calls === 1 ? createResponse() : updateResponse();
+        queueMicrotask(() => {
+          callback(response as unknown as IncomingMessage);
+          response.emit("data", Buffer.from(JSON.stringify(body)));
+          response.emit("end");
+        });
+      } });
+    });
+    const resolve = vi.fn(async () => [{ address: "93.184.216.34", family: 4 as const }]);
+    const port = createShopifyCartQuotePort({ SHOPIFY_CART_QUOTE_MODE: "tokenless" }, {
+      resolve: resolve as unknown as typeof lookup, requestImpl: requestImpl as unknown as typeof httpsRequest
+    });
+    if (version === "2026-07") {
+      await expect(port.quote(product, "33433", authorization())).resolves.toMatchObject({
+        deliveredPrice: { amountCents: 11_198, currency: "USD" }
+      });
+      expect(requestImpl).toHaveBeenCalledTimes(2);
+    } else {
+      await expect(port.quote(product, "33433", authorization())).rejects.toMatchObject({ code: "MERCHANT_CART_UNAVAILABLE" });
+      expect(requestImpl).toHaveBeenCalledTimes(1);
+    }
+  });
+  it.each(["extra line", "quantity", "bundle", "selling plan", "parent line", "next page", "changed update"])(
+    "rejects %s rather than labeling it as the selected one-unit item", async kind => {
+      const created = createResponse();
+      const updated = updateResponse();
+      const cart = kind === "changed update" ? updated.data.cartSelectedDeliveryOptionsUpdate.cart : created.data.cartCreate.cart;
+      const line = cart.lines.nodes[0]! as Record<string, unknown>;
+      if (kind === "extra line") cart.lines.nodes.push({ ...cart.lines.nodes[0]! });
+      if (kind === "quantity") line.quantity = 2;
+      if (kind === "bundle") line.__typename = "ComponentizableCartLine";
+      if (kind === "selling plan") line.sellingPlanAllocation = { __typename: "SellingPlanAllocation" };
+      if (kind === "parent line") line.parentRelationship = { __typename: "CartLineParentRelationship" };
+      if (kind === "next page") cart.lines.pageInfo.hasNextPage = true;
+      if (kind === "changed update") cart.lines.nodes[0]!.merchandise.id = "gid://shopify/ProductVariant/999";
+      let calls = 0;
+      const request = vi.fn(async () => ++calls === 1 ? created : updated);
+      const port = createShopifyCartQuotePort({ SHOPIFY_CART_QUOTE_MODE: "tokenless" }, { request });
+      await expect(port.quote(product, "33433", authorization())).rejects.toMatchObject({ code: "VARIANT_REJECTED" });
+      expect(request).toHaveBeenCalledTimes(kind === "changed update" ? 2 : 1);
+    }
+  );
   it("queries Shopify tax, selects cheapest shipping, and falls back to a labeled ZIP estimate", async () => {
     const requests: ShopifyCartRequest[] = [];
     const request = vi.fn(async (input: ShopifyCartRequest) => {
@@ -110,7 +204,7 @@ describe("Shopify tokenless Cart quote", () => {
       { request, clock: { now: () => new Date("2026-08-20T12:01:00.000Z") } }
     );
 
-    await expect(port.quote(product, "33433-1234")).resolves.toEqual({
+    await expect(port.quote(product, "33433-1234", authorization("33433-1234"))).resolves.toEqual({
       status: "ESTIMATED",
       subtotal: { amountCents: 10_000, currency: "USD" },
       shipping: { amountCents: 500, currency: "USD", label: "Standard" },
@@ -129,6 +223,8 @@ describe("Shopify tokenless Cart quote", () => {
     expect(requests).toHaveLength(2);
     expect(requests[0]?.query).toContain("totalTaxAmount");
     expect(requests[0]?.query).toContain("totalTaxAmountEstimated");
+    expect(requests[0]?.query).toContain("lines(first: 2)");
+    expect(requests.every(entry => !/@defer|checkoutUrl|customerAccessToken|sellingPlanId|payment/iu.test(entry.query))).toBe(true);
     expect(requests[0]).toMatchObject({
       url: "https://shop.example/api/2026-07/graphql.json",
       timeoutMs: 2500,
@@ -161,7 +257,7 @@ describe("Shopify tokenless Cart quote", () => {
       { request: async () => ++call === 1 ? createResponse() : updateResponse({ amount: "7.25", estimated: false }) }
     );
 
-    await expect(port.quote(product, "33433")).resolves.toMatchObject({
+    await expect(port.quote(product, "33433", authorization())).resolves.toMatchObject({
       tax: {
         status: "SHOPIFY_REPORTED",
         amount: { amountCents: 725, currency: "USD" },
@@ -198,7 +294,7 @@ describe("Shopify tokenless Cart quote", () => {
       }
     );
 
-    await expect(port.quote(product, "33433")).resolves.toMatchObject({
+    await expect(port.quote(product, "33433", authorization())).resolves.toMatchObject({
       subtotal: { amountCents: 10_000 },
       shipping: { amountCents: 500 },
       deliveredPrice: { amountCents: 11_198 }
@@ -240,7 +336,7 @@ describe("Shopify tokenless Cart quote", () => {
         }
       }) }
     );
-    await expect(noDelivery.quote(product, "33433")).rejects.toMatchObject({
+    await expect(noDelivery.quote(product, "33433", authorization())).rejects.toMatchObject({
       code: "FULL_ADDRESS_REQUIRED"
     });
   });
@@ -258,7 +354,7 @@ describe("Shopify tokenless Cart quote", () => {
         return response;
       } }
     );
-    await expect(invalidTotal.quote(product, "33433")).rejects.toMatchObject({
+    await expect(invalidTotal.quote(product, "33433", authorization())).rejects.toMatchObject({
       code: "MERCHANT_CART_UNAVAILABLE"
     });
 
@@ -273,7 +369,7 @@ describe("Shopify tokenless Cart quote", () => {
         return response;
       } }
     );
-    await expect(changedDelivery.quote(product, "33433")).rejects.toMatchObject({
+    await expect(changedDelivery.quote(product, "33433", authorization())).rejects.toMatchObject({
       code: "NO_DELIVERY_OPTIONS"
     });
   });
@@ -323,7 +419,7 @@ describe("Shopify tokenless Cart quote", () => {
         { SHOPIFY_CART_QUOTE_MODE: "tokenless" },
         { request: async () => testCase.response }
       );
-      const error = await port.quote(product, "33433").catch((cause: unknown) => cause);
+      const error = await port.quote(product, "33433", authorization()).catch((cause: unknown) => cause);
       expect(error).toBeInstanceOf(ShopifyCartQuoteError);
       expect(error).toMatchObject({ code: testCase.code });
       expect(String(error)).not.toContain("private detail");
@@ -339,7 +435,7 @@ describe("Shopify tokenless Cart quote", () => {
         throw error;
       } }
     );
-    await expect(timeout.quote(product, "33433")).rejects.toMatchObject({ code: "QUOTE_TIMEOUT" });
+    await expect(timeout.quote(product, "33433", authorization())).rejects.toMatchObject({ code: "QUOTE_TIMEOUT" });
 
     const requests: ShopifyCartRequest[] = [];
     const zipOnly = createShopifyCartQuotePort(
@@ -349,7 +445,7 @@ describe("Shopify tokenless Cart quote", () => {
         return requests.length === 1 ? createResponse() : updateResponse();
       } }
     );
-    await zipOnly.quote(product, "33433");
+    await zipOnly.quote(product, "33433", authorization());
     expect(requests[0]?.variables).toMatchObject({
       input: {
         buyerIdentity: {
@@ -380,7 +476,7 @@ describe("Shopify tokenless Cart quote", () => {
       }
     );
 
-    await expect(port.quote(product, "33433")).rejects.toMatchObject({
+    await expect(port.quote(product, "33433", authorization())).rejects.toMatchObject({
       code: "MERCHANT_CART_UNAVAILABLE"
     });
     expect(resolve).toHaveBeenCalledWith("shop.example", { all: true, verbatim: true });

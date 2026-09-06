@@ -1,5 +1,6 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { ElicitRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   MAX_PRODUCT_SELECTION_SNAPSHOTS,
@@ -92,10 +93,13 @@ const shopifyPort: ShopifyPort = {
 async function connect(
   shopify: ShopifyPort = shopifyPort,
   affiliateLinks?: AffiliateLinkResolver,
-  dependencies?: ShoppingServerDependencies
+  dependencies?: ShoppingServerDependencies,
+  approveQuoteFixture = false
 ) {
   const server = createShoppingServer(shopify, affiliateLinks, dependencies);
-  const client = new Client({ name: "shopping-agent-test", version: "0.0.0" });
+  const client = new Client({ name: "shopping-agent-test", version: "0.0.0" },
+    approveQuoteFixture ? { capabilities: { elicitation: { form: {} } } } : {});
+  if (approveQuoteFixture) client.setRequestHandler(ElicitRequestSchema, async () => ({ action: "accept", content: { approved: true } }));
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
   closers.push(async () => {
@@ -452,7 +456,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.17.23",
+        version: "0.17.24",
         terminalStage: "DOM_RENDERED",
         stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
       }
@@ -461,7 +465,7 @@ describe("shopping MCP server", () => {
     expect(result.structuredContent).toEqual({ status: "RECORDED" });
     expect(record).toHaveBeenCalledWith(expect.objectContaining({
       renderId,
-      version: "0.17.23",
+      version: "0.17.24",
       terminalStage: "DOM_RENDERED",
       stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
     }));
@@ -469,7 +473,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.17.23",
+        version: "0.17.24",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 14 }
       }
@@ -479,7 +483,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.17.23",
+        version: "0.17.24",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 300_001 }
       }
@@ -490,7 +494,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId: "22222222-2222-4222-8222-222222222222",
-        version: "0.17.23",
+        version: "0.17.24",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 1 }
       }
@@ -617,7 +621,7 @@ describe("shopping MCP server", () => {
 
       shopifyPort,
       undefined,
-      { cartQuotes: { quote: quoteCart } }
+      { cartQuotes: { quote: quoteCart } }, true
     );
 
     const discovery = await client.callTool({
@@ -635,7 +639,7 @@ describe("shopping MCP server", () => {
     const result = await client.callTool({ name: "quote_selected_shopify_product", arguments: {
       renderId: (discovery.structuredContent as { renderId: string }).renderId, position: 1, zipCode: "33433"
     } });
-    expect(quoteCart).toHaveBeenCalledWith(expect.objectContaining({ merchant: "Death Wish Coffee" }), "33433");
+    expect(quoteCart).toHaveBeenCalledWith(expect.objectContaining({ merchant: "Death Wish Coffee" }), "33433", expect.anything());
     expect(result.structuredContent).toMatchObject({
       priceScope: "SHOPIFY_CART_ESTIMATE",
       cartQuoteCoverage: { attempted: 1, succeeded: 1 },
@@ -694,7 +698,7 @@ describe("shopping MCP server", () => {
 
       { search },
       undefined,
-      { cartQuotes: { quote: quoteCart } }
+      { cartQuotes: { quote: quoteCart } }, true
     );
 
     const first = await client.callTool({
@@ -719,7 +723,7 @@ describe("shopping MCP server", () => {
     expect(quoteCart).toHaveBeenCalledWith(expect.objectContaining({
       handle: "42797821853913",
       title: "Valhalla Java Single-Serve Pods — 10 count"
-    }), "33433");
+    }), "33433", expect.anything());
     expect(quoted.structuredContent).toMatchObject({
       status: "OK",
       priceScope: "SHOPIFY_CART_ESTIMATE",
@@ -742,7 +746,7 @@ describe("shopping MCP server", () => {
 
       { search },
       undefined,
-      { cartQuotes: { quote: quoteCart } }
+      { cartQuotes: { quote: quoteCart } }, true
     );
     const first = await client.callTool({
       name: "search_shopify_products",
@@ -866,7 +870,7 @@ describe("shopping MCP server", () => {
 
       { search },
       undefined,
-      { selectedProducts: { inspect }, cartQuotes: { quote: quoteCart } }
+      { selectedProducts: { inspect }, cartQuotes: { quote: quoteCart } }, true
     );
     const first = await client.callTool({
       name: "search_shopify_products",
@@ -916,7 +920,7 @@ describe("shopping MCP server", () => {
     expect(quoteCart).toHaveBeenCalledWith(expect.objectContaining({
       handle: "42797821853914",
       variantDimensions: { Size: "S" }
-    }), "33433");
+    }), "33433", expect.anything());
     expect(search).toHaveBeenCalledTimes(1);
 
     const titleRetry = await client.callTool({
@@ -1920,13 +1924,14 @@ describe("Coupon and Watch tools", () => {
 
     expect(created.structuredContent).toMatchObject({
       status: "NEEDS_CLARIFICATION",
-      questions: [expect.stringMatching(/ITEM_PRICE|DELIVERED_TOTAL/i)]
+      questions: [expect.stringContaining("ITEM_PRICE")]
     });
+    expect(JSON.stringify(created.structuredContent)).not.toContain("DELIVERED_TOTAL");
   });
 
-  it("monitors delivered total for the exact prior Shopify variant without another title search", async () => {
+  it("does not create a delivered-total Watch even for a valid prior variant and ZIP", async () => {
     const search = vi.fn(shopifyPort.search);
-    let deliveredCents = 2_104;
+    const deliveredCents = 2_104;
     const quoteCart = vi.fn(async () => ({
       status: "ESTIMATED" as const,
       subtotal: { amountCents: deliveredCents - 605, currency: "USD" as const },
@@ -1965,29 +1970,12 @@ describe("Coupon and Watch tools", () => {
       quoteReference: reference,
       conditionPreference: "ANY"
     } });
-    const watchId = (created.structuredContent as { watchId: string }).watchId;
-    expect(created.structuredContent).toMatchObject({ status: "READY_TO_SCHEDULE" });
-    await client.callTool({ name: "bind_watch_automation", arguments: {
-      watchId, automationId: "watch-delivered-total"
-    } });
-
-    expect((await client.callTool({ name: "check_watch", arguments: { watchId } })).structuredContent)
-      .toMatchObject({ status: "NOT_TRIGGERED", observation: {
-        variantId: "42797821853913",
-        priceBasis: "DELIVERED_TOTAL",
-        deliveredPrice: { amountCents: 2_104, currency: "USD" }
-      } });
-    deliveredCents = 1_900;
-    expect((await client.callTool({ name: "check_watch", arguments: { watchId } })).structuredContent)
-      .toMatchObject({ status: "TRIGGERED", observation: {
-        variantId: "42797821853913",
-        priceBasis: "DELIVERED_TOTAL",
-        deliveredPrice: { amountCents: 1_900, currency: "USD" }
-      } });
+    expect(created.structuredContent).toMatchObject({ status: "DATA_SOURCE_UNAVAILABLE", questions: [],
+      message: expect.stringContaining("RECURRING_QUOTE_AUTHORIZATION_UNAVAILABLE") });
     expect(search).toHaveBeenCalledTimes(1);
-    expect(quoteCart).toHaveBeenCalledTimes(3);
+    expect(quoteCart).not.toHaveBeenCalled();
     expect((await client.callTool({ name: "list_watches", arguments: {} })).structuredContent)
-      .toMatchObject({ watches: [{ watchId, priceBasis: "DELIVERED_TOTAL" }] });
+      .toEqual({ watches: [] });
   });
 
   it("does not schedule a delivered-total watch when the merchant requires a full address", async () => {
@@ -2017,7 +2005,7 @@ describe("Coupon and Watch tools", () => {
 
     expect(created.structuredContent).toMatchObject({
       status: "DATA_SOURCE_UNAVAILABLE",
-      message: expect.stringMatching(/FULL_ADDRESS_REQUIRED.*ZIP only/i)
+      message: expect.stringContaining("RECURRING_QUOTE_AUTHORIZATION_UNAVAILABLE")
     });
     expect((await client.callTool({ name: "list_watches", arguments: {} })).structuredContent)
       .toEqual({ watches: [] });
@@ -2498,7 +2486,7 @@ describe("Coupon and Watch tools", () => {
           };
         }
       }
-    });
+    }, true);
     const found = await client.callTool({ name: "search_products", arguments: { query: "B24 shampoo", limit: 2 } });
     const awinProduct = (found.structuredContent as {
       products: Array<{ sourceKind?: string; quoteReference: { selectionId: string; renderId: string; variantId: string } }>;
@@ -2624,7 +2612,7 @@ describe("Coupon and Watch tools", () => {
     });
   });
 
-  it("keeps legacy checks runnable but requires reconciliation before lifecycle changes", async () => {
+  it("keeps legacy checks runnable and allows local pause before host reconciliation", async () => {
     const watches = createMemoryWatchStore();
     const created = await watches.create({
       query: "Valhalla Java pods",
@@ -2651,11 +2639,11 @@ describe("Coupon and Watch tools", () => {
     expect((await client.callTool({ name: "pause_watch", arguments: {
       watchId: created.watchId,
       paused: true
-    } })).structuredContent).toMatchObject({ status: "AUTOMATION_SYNC_REQUIRED" });
+    } })).structuredContent).toMatchObject({ status: "PAUSED" });
     expect((await client.callTool({ name: "bind_watch_automation", arguments: {
       watchId: created.watchId,
       automationId: "legacy-existing-automation"
-    } })).structuredContent).toMatchObject({ status: "ACTIVE" });
+    } })).structuredContent).toMatchObject({ status: "PAUSED", stopIntent: { reason: "PAUSED", status: "STOP_REQUIRED" } });
   });
 
   it("establishes a restock baseline before notifying", async () => {

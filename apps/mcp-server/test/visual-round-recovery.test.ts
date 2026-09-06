@@ -24,6 +24,55 @@ const conflict = { classification: "CONFLICT", matches: [], conflicts: [
 ] };
 
 describe("cross-round visual regressions", () => {
+  it("continues past an unavailable possible same item, retains it, and ends after the second review", async () => {
+    const unavailable = Array.from({ length: 6 }, (_, index) => ({ ...dress(index), availability: "OUT_OF_STOCK" as const,
+      description: "ivory floral boat neck cap sleeve mini dress with three horizontal lace inset bands" }));
+    const alternative = { ...dress(99), title: "Ivory dress", description: "Ivory dress" };
+    const replay = await connectReplay(async () => searchResult([...unavailable, alternative]), {
+      visualCandidateImages: { load: async url => ({ data: Buffer.from(url).toString("base64"), mimeType: "image/jpeg" }) }
+    });
+    try {
+      const first = await replay.client.callTool({ name: "search_visual_candidates", arguments: { ...request,
+        visualInput: { ...request.visualInput, distinctiveDetails: ["three horizontal lace inset bands"] } } });
+      const initial = sessionOf(first.structuredContent);
+      expect(initial.candidates).toHaveLength(6);
+      expect(initial.candidates.every(entry => entry.title !== alternative.title)).toBe(true);
+      const reviewedAnchorTitle = initial.candidates[0]!.title;
+      const next = await replay.client.callTool({ name: "finalize_visual_search", arguments: {
+        visualSessionId: initial.visualSessionId,
+        verdicts: initial.candidates.map(({ candidateId }, index) => ({ candidateId, verdict: index > 0 ? conflict : {
+          classification: "POSSIBLE_SAME_ITEM", matches: [
+            { attribute: "NECKLINE", referenceEvidence: "boat neck", candidateEvidence: "boat neck" },
+            { attribute: "LENGTH", referenceEvidence: "mini", candidateEvidence: "mini" },
+            { attribute: "DISTINCTIVE_DETAIL", referenceEvidence: "three horizontal lace inset bands", candidateEvidence: "three horizontal lace inset bands" }
+          ], conflicts: []
+        } }))
+      } });
+      expect(next.isError).not.toBe(true);
+      expect(next.structuredContent).toHaveProperty("visualReview.finalAnswerAllowed", false);
+      const second = sessionOf(next.structuredContent);
+      expect(second.candidates.map(entry => entry.title)).toEqual([alternative.title]);
+      const final = await replay.client.callTool({ name: "finalize_visual_search", arguments: {
+        visualSessionId: second.visualSessionId, verdicts: second.candidates.map(({ candidateId }) => ({ candidateId,
+          verdict: { classification: "HIGHLY_SIMILAR", matches: [
+            { attribute: "PRODUCT_TYPE", referenceEvidence: "dress", candidateEvidence: "dress" },
+            { attribute: "NECKLINE", referenceEvidence: "boat neck", candidateEvidence: "boat neck" }
+          ], conflicts: [] } }))
+      } });
+      expect(final.isError).not.toBe(true);
+      expect(final.structuredContent).not.toHaveProperty("visualReview");
+      const content = final.structuredContent as { products: Array<{ title: string; availability: string; selectionId: string }>;
+        recommendation: { primarySelectionId: string } };
+      expect(content.products).toHaveLength(2);
+      expect(content).toMatchObject({ visualSearchOutcome: { sameItemStatus: "POSSIBLE", outOfStockStatus: "POSSIBLE" } });
+      expect(content.products.find(entry => entry.title === reviewedAnchorTitle)?.availability).toBe("OUT_OF_STOCK");
+      expect(content.recommendation.primarySelectionId).toBe(content.products.find(entry => entry.title === alternative.title)?.selectionId);
+      const replayed = await replay.client.callTool({ name: "finalize_visual_search", arguments: {
+        visualSessionId: second.visualSessionId, verdicts: [{ candidateId: second.candidates[0]!.candidateId, verdict: conflict }]
+      } });
+      expect(replayed.isError).toBe(true);
+    } finally { await replay.close(); }
+  });
   it.each([true, false])("reserves official continuation despite a full same-run tail; new result=%s", async fresh => {
     let second = false;
     const officialDress = (index: number) => ({ ...dress(index), merchant: "DÔEN", brand: "DÔEN",

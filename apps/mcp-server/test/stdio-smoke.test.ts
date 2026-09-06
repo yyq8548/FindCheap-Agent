@@ -284,6 +284,7 @@ describe("installed plugin stdio", () => {
       expect(Object.keys(quoteTool?.inputSchema.properties ?? {}).sort()).toEqual([
         "position",
         "renderId",
+        "responseLocale",
         "selectionId",
         "variantId",
         "zipCode"

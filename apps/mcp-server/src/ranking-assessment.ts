@@ -2,7 +2,7 @@ import { visualReviewScore, type VisualReviewAssessment } from "./visual-review-
 import { assessQualityEvidence, comparableUnitPrices, type QualityEvidence, type ValueProduct } from "./product-value-evidence.js";
 
 export const PRIMARY_BLOCK_REASON_CODES = [
-  "VARIANT_OUT_OF_STOCK", "UNVERIFIED_MERCHANT", "UNFULFILLED_REQUIREMENTS", "SIMILAR_ONLY", "MISSING_PRICE"
+  "VARIANT_OUT_OF_STOCK", "UNVERIFIED_MERCHANT", "UNFULFILLED_REQUIREMENTS", "SIMILAR_ONLY", "MISSING_PRICE", "VISUAL_REVIEW_REQUIRED"
 ] as const;
 export type PrimaryBlockReasonCode = typeof PRIMARY_BLOCK_REASON_CODES[number];
 
@@ -23,6 +23,7 @@ export type RankingInput = Omit<ValueProduct, "itemPrice"> & {
   confirmedCouponPriceCents?: number | undefined;
   couponRank?: number | undefined;
   visualReviewAssessment?: VisualReviewAssessment | undefined;
+  visualReviewRequired?: boolean | undefined;
 };
 
 export type RankingAssessment = {
@@ -57,8 +58,12 @@ export function assessRanking(input: RankingInput): RankingAssessment {
   if (input.availability === "OUT_OF_STOCK") primaryBlockReasons.push("VARIANT_OUT_OF_STOCK");
   if (!trusted) primaryBlockReasons.push("UNVERIFIED_MERCHANT");
   if (limitationCount > 0) primaryBlockReasons.push("UNFULFILLED_REQUIREMENTS");
-  if (input.matchStatus === "SIMILAR") primaryBlockReasons.push("SIMILAR_ONLY");
+  const review = input.visualReviewAssessment;
+  const scopedSimilar = review?.recommendationScope === "SIMILAR" && (review.group === "SAME_STYLE" || review.group === "HIGHLY_SIMILAR") &&
+    review.matchCount >= 2 && review.structuralMatchCount >= 1 && visualReviewScore(review) > 0 && input.availability === "IN_STOCK";
+  if ((input.matchStatus === "SIMILAR" || review?.recommendationScope === "SIMILAR") && !scopedSimilar) primaryBlockReasons.push("SIMILAR_ONLY");
   if (!validPrice(input.itemPriceCents)) primaryBlockReasons.push("MISSING_PRICE");
+  if (input.visualReviewRequired === true) primaryBlockReasons.push("VISUAL_REVIEW_REQUIRED");
   return {
     primaryEligible: primaryBlockReasons.length === 0,
     primaryBlockReasons,

@@ -77,6 +77,26 @@ function executeUi(output: Record<string, unknown>) {
 }
 
 describe("product comparison MCP Apps UI", () => {
+  it.each(["zh-CN", "en-US"])("does not offer quote controls for an unchecked comparison (%s)", locale => {
+    const { app } = executeUi({ status: "OK", locale, entries: [
+      { selectionId: "a", title: "A", deliveredTotalStatus: "NOT_CHECKED" },
+      { selectionId: "b", title: "B", deliveredTotalStatus: "NOT_QUOTED" }
+    ] });
+    expect(text(app)).toContain(locale === "zh-CN" ? "报价能力尚未核验" : "Quote capability not verified");
+    expect(nodes(app).filter(node => node.tagName === "INPUT")).toHaveLength(0);
+  });
+
+  it.each(["zh-CN", "en-US"])("shows scoped similar choices and fresh-variant review limits (%s)", locale => {
+    const { app } = executeUi({ status: "OK", locale, entries: [
+      { selectionId: "a", title: "Dress A", merchant: "A", visualMatchEvidence: ["Color: ivory, not black"] },
+      { selectionId: "b", title: "Dress B", merchant: "B", visualReviewRequired: true }
+    ], recommendation: { state: "READY", scope: "SIMILAR", recommendedSelectionId: "a" } });
+    const result = text(app);
+    expect(result).toContain(locale === "zh-CN" ? "相似款中值得先看" : "First among similar choices");
+    expect(result).toContain("Color: ivory, not black");
+    expect(result).toContain(locale === "zh-CN" ? "所选变体的图片匹配尚未复核" : "Visual matching for the selected variant needs review");
+    expect(result).not.toContain("VISUAL_REVIEW_REQUIRED");
+  });
   it.each(["zh-CN", "en-US"])("keeps expired confirmed coupons out of the primary offer in %s", locale => {
     const { app } = executeUi({ status: "OK", locale, entries: [
       { selectionId: "a", title: "A", merchant: "A", verifiedDeals: [{ title: "OLD", kind: "COUPON", validTo: "2000-01-01T00:00:00Z",

@@ -7,14 +7,16 @@ const LIMITATIONS: Record<"zh-CN" | "en-US", Record<PrimaryBlockReasonCode, stri
     UNVERIFIED_MERCHANT: "商家可信证据不足",
     UNFULFILLED_REQUIREMENTS: "必要要求尚未满足或核实",
     SIMILAR_ONLY: "仅为替代或相似商品",
-    MISSING_PRICE: "商品价格尚未核实"
+    MISSING_PRICE: "商品价格尚未核实",
+    VISUAL_REVIEW_REQUIRED: "所选变体的图片匹配尚未复核"
   },
   "en-US": {
     VARIANT_OUT_OF_STOCK: "the selected variant is out of stock; other variants' availability is not established by this",
     UNVERIFIED_MERCHANT: "merchant verification is insufficient",
     UNFULFILLED_REQUIREMENTS: "required features are unmet or unverified",
     SIMILAR_ONLY: "only alternative or similar products are available",
-    MISSING_PRICE: "item price is unverified"
+    MISSING_PRICE: "item price is unverified",
+    VISUAL_REVIEW_REQUIRED: "visual matching for the selected variant needs review"
   }
 };
 

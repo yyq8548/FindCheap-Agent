@@ -3,6 +3,7 @@ import { z } from "zod";
 import { safeFetchWithProvenance } from "../../../packages/network-safety/src/safe-fetch.js";
 import type { ShopifyProduct } from "./shopify-client.js";
 import { ShopifyCartQuoteError } from "./shopify-cart-quote.js";
+import { awaitWithSignal } from "./await-with-signal.js";
 
 const VariantIdSchema = z.union([
   z.number().int().positive().transform(String),
@@ -54,12 +55,13 @@ export type AwinShopifyQuoteSeed = {
 
 export interface AwinShopifyQuoteResolver {
   supports(seed: AwinShopifyQuoteSeed): boolean;
-  resolve(seed: AwinShopifyQuoteSeed): Promise<ShopifyProduct>;
+  resolve(seed: AwinShopifyQuoteSeed, options?: { signal?: AbortSignal }): Promise<ShopifyProduct>;
 }
 
 type ProductFetch = (
   url: string,
-  allowedHosts: readonly string[]
+  allowedHosts: readonly string[],
+  options?: { signal?: AbortSignal }
 ) => Promise<{ response: Response; finalUrl: string }>;
 
 type Dependencies = {
@@ -70,8 +72,8 @@ type Dependencies = {
 export function createAwinShopifyQuoteResolver(
   dependencies: Dependencies = {}
 ): AwinShopifyQuoteResolver {
-  const fetchProduct = dependencies.fetchProduct ?? ((url, allowedHosts) =>
-    safeFetchWithProvenance({ url }, { allowedHosts }));
+  const fetchProduct: ProductFetch = dependencies.fetchProduct ?? ((url, allowedHosts, options) =>
+    safeFetchWithProvenance({ url }, { allowedHosts, ...(options?.signal === undefined ? {} : { signal: options.signal }) }));
   const clock = dependencies.clock ?? { now: () => new Date() };
 
   return {
@@ -85,17 +87,20 @@ export function createAwinShopifyQuoteResolver(
         return false;
       }
     },
-    async resolve(seed) {
+    async resolve(seed, options) {
+      options?.signal?.throwIfAborted();
       try {
         const hosts = APPROVED_QUOTE_HOSTS[seed.merchantId];
         if (hosts === undefined || !hosts.includes(seed.sourceHost.toLocaleLowerCase("en-US"))) {
           throw new Error("merchant does not have an approved Shopify quote bridge");
         }
         const target = productTarget(seed.merchantUrl, seed.sourceHost);
-        const fetched = await fetchProduct(target.jsonUrl, hosts);
+        const fetched = await awaitWithSignal(options === undefined ? fetchProduct(target.jsonUrl, hosts)
+          : fetchProduct(target.jsonUrl, hosts, options), options?.signal);
         if (!fetched.response.ok) throw new Error("merchant product document unavailable");
         const final = finalProductTarget(fetched.finalUrl, hosts, target.productHandle);
-        const product = ProductJsonSchema.parse(JSON.parse(await fetched.response.text()));
+        const product = ProductJsonSchema.parse(JSON.parse(await awaitWithSignal(fetched.response.text(), options?.signal)));
+        options?.signal?.throwIfAborted();
         if (
           product.handle !== target.productHandle ||
           !sameProductTitle(product.title, seed.title)
@@ -129,6 +134,7 @@ export function createAwinShopifyQuoteResolver(
           checkedAt
         };
       } catch (error) {
+        options?.signal?.throwIfAborted();
         if (error instanceof ShopifyCartQuoteError) throw error;
         throw new ShopifyCartQuoteError("MERCHANT_CART_UNAVAILABLE", { cause: error });
       }

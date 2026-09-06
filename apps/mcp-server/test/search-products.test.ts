@@ -54,6 +54,22 @@ function ebay(products = [ebayProduct("1", 2100)]): EbayBrowsePort {
 }
 
 describe("unified product search", () => {
+  it("passes the original read signal into registries and Coupon enrichment", async () => {
+    const signals: Array<AbortSignal | undefined> = [];
+    const refresh = vi.fn(async (options?: { signal?: AbortSignal }) => { signals.push(options?.signal); });
+    const dealSearch = vi.fn(async (_input: unknown, options?: { signal?: AbortSignal }) => {
+      signals.push(options?.signal); return [];
+    });
+    const result = await searchProducts(SearchProductsInputSchema.parse({ query: "hair mask", productType: "hair mask" }), {
+      awin: awin(), shopify: shopify(), deals: { search: dealSearch },
+      officialStorefrontRegistry: { refresh, imageProxyOrigin: "https://findcheap.example" }, merchantTrustRegistry: { refresh }
+    });
+    expect(result.candidates.length).toBeGreaterThan(0);
+    expect(refresh).toHaveBeenCalledTimes(2);
+    expect(dealSearch).toHaveBeenCalled();
+    expect(signals.every(signal => signal instanceof AbortSignal)).toBe(true);
+  });
+
   it.each(["AWIN", "SHOPIFY"])("excludes description-only quotation fees from %s even for a trusted merchant", async source => {
     const description = "Custom commission for a professionally styled cosplay wig. Your quote request fee will be applied toward your final order total.";
     const result = await searchProducts(SearchProductsInputSchema.parse({ query: "wig", productType: "wig", primaryUse: "cosplay", maxItemPriceCents: 10000 }), {

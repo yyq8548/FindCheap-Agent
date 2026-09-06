@@ -9,11 +9,11 @@ English | [简体中文](README.zh-CN.md)
 
 Product form: **Codex Plugin Agent**.
 
-Current package: **v0.17.23** — visual identity labels, same-snapshot card choices,
-read-only research and reliable restock/deadline handling are aligned with the
-[approved design; release scope and known limits](docs/releases/v0.17.23.md).
+Current package: **v0.17.24** — reviewed visual alternatives, service-observed
+retrieval budgets, explicit quote authorization and atomic Watch state protection.
+[Release scope, verification and remaining design gaps](docs/releases/v0.17.24.md).
 
-FindCheap Agent is a read-only Codex plugin for product search, offer matching, price checks, product cards, evidence-backed comparison views, verified deals, and shopping watches. It returns up to eight products in three tiers: 2 official-store matches, 3 trusted matches, and 3 best-value high-match options.
+FindCheap Agent is a shopping-research Codex plugin for product search, offer matching, price checks, product cards, evidence-backed comparison views, verified deals, and shopping watches. Search is read-only; quotes and Watches have separate authorization boundaries. It returns up to eight products in three tiers: 2 official-store matches, 3 trusted matches, and 3 best-value high-match options.
 
 Codex starts text product discovery with `search_products` through a local stdio MCP server; image, comparison and follow-up operations have their own tools. Eligible Awin, Shopify, configured eBay and official-store sources can run in parallel. Insufficient recommendable results may trigger bounded complementary retrieval; the card limit is not a quota. An authorized bounded Chrome search requires a server-issued recovery action and host authorization, not merely an empty result.
 
@@ -45,7 +45,7 @@ Attach a product photo or screenshot and ask for visual discovery:
 Find this item, then show highly similar and same-style options.
 ```
 
-Add a ZIP code when you want available shipping, tax, and estimated-total details:
+For a supported selected product, explicitly request shipping, tax, and an estimated total with a US ZIP; then approve the host's one-time anonymous Cart form:
 
 ```text
 Quote the first product for ZIP 33065.
@@ -120,9 +120,9 @@ Each result can include:
 - model, SKU, GTIN, or variant evidence
 - observation time and source status
 
-Search and Coupon research use public item prices; providing a ZIP alone does not create a cart or request a delivered-total quote. The separate selected-product quote tools may create a short-lived anonymous Shopify cart and display item price, selected shipping, tax, and estimated total separately. Use them only for an explicit quote request with a US ZIP. Free delivery appears as `$0.00` only when supported by quote evidence. The approved authorization and no-inventory-reservation requirements, including remaining implementation gaps, are tracked in the [Agent design](docs/architecture/agent-design.md#11-v01722-基线与本地实现差距).
+Search and Coupon research use public item prices; providing a ZIP alone does not create a cart or authorize a quote. Selected-product quotes require a trusted, stable product reference and actual MCP host form acceptance for that single item or 2–4-item batch. Missing, declined, cancelled, timed-out, stale, or forged approval causes no Cart request. The reviewed Shopify Storefront `2026-07` Cart operations create an anonymous Cart and select a delivery option, not an order, payment, or inventory reservation. The runtime verifies the returned API version, exact variant, quantity, and ordinary non-subscription line before accepting totals. Review expires before July 2027; different request shapes require a new review. These controls are automatically tested with simulated hosts and offline transports; real Codex approval UI and merchant results remain separate acceptance gates in the [Agent design](docs/architecture/agent-design.md#11-v01722-基线与本地实现差距).
 
-Shopify tax is used only when the merchant returns `totalTaxAmount`. Otherwise, the card can show a ZIP-based state and average local tax estimate. That estimate is not checkout tax. Some merchants require a full address or checkout before they return shipping or tax. Merchants that do not support Cart quoting remain item-price-only.
+Shopify tax is used only when the merchant returns `totalTaxAmount`; otherwise a labeled ZIP-based state/local average estimate may be shown, not checkout tax. Only verified free shipping is `$0.00`. The bounded flow does not request carrier-rate calculation, full addresses, checkout, bundles, subscriptions, or transformed variants. Unsupported merchant responses remain item-price-only, and checkout can change the final amount.
 
 Follow-up questions reuse the selected result's `renderId` and stable product identity. Native Shopify cards use their Variant ID. Supported Awin merchant pages resolve the exact prior merchant product path to one Shopify Variant before creating a quote. The plugin never searches the title again, so item price, shipping, and tax stay attached to the same selected product.
 
@@ -142,7 +142,7 @@ The default plugin exposes unified product search, product cards, evidence-backe
 
 ## Current deal check
 
-After the user selects a product card, the deal checker keeps that stable product and variant identity. It checks current item price, inventory, current verified merchant deal candidates, and optional ZIP delivered-price evidence. It never searches the selected title again.
+After selection, the deal checker keeps that product and variant identity and checks item price, inventory, and verified merchant deal candidates. It never searches the title again or creates a Cart; a separate explicit quote and one-time host approval are required for delivered-price evidence.
 
 Price-history collection and buy-or-wait forecasting are disabled. A merchant promotion remains a candidate until the merchant confirms product eligibility and stacking.
 
@@ -157,11 +157,11 @@ Users can ask Codex to monitor a product and notify them when:
 - an item returns to stock
 - a requested size, color, or variant is restocked
 
-Scheduling and notifications use native Codex Automation. A watch becomes active only after its Automation ID is bound successfully. The plugin persists the rule, last observation, and transition state across MCP restarts, which prevents repeated alerts for the same observation.
+Scheduling and notifications use native Codex Automation. Binding records a local reference, not verified host ownership or activity. The plugin persists rules and observations with revision-checked atomic saves. A verified restock completes once with a stable notification event ID; later checks do no source work. Actual notification delivery and host stopping are separate, unverified acceptance gates.
 
-Price thresholds are exclusive. A request for "below $40" stores `4000` cents and triggers at `$39.99`, not `$40.00`.
+Price thresholds are exclusive. A request for "below $40" stores `4000` cents and triggers at `$39.99`, not `$40.00`. Item-price monitoring remains available. Delivered-total Watch is currently refused before ZIP/reference clarification: one-time Cart approval does not authorize recurring mutations. Legacy delivered-total records remain readable but cannot request quotes.
 
-Pause, resume, and delete operations synchronize the Automation and Watch rule. Older rules without a verified Automation binding are labeled `LEGACY_UNVERIFIED` until they are reconciled.
+Pause/delete disable local work first. A bound rule retains a minimal `STOP_REQUIRED` handoff, including after deletion; the real host must verify ownership/scope before stopping its Automation. No host ACK is fabricated. Pending stops, completed/expired rules, and unreconciled legacy rules cannot resume. Older unbound records remain `LEGACY_UNVERIFIED` and can still be stopped locally. New rules default to 30 days; deduplication does not extend the deadline.
 
 Example requests:
 
@@ -182,7 +182,7 @@ and falls back to that Feed's last valid cache. Newly joined programmes become s
 adding another source URL or product-category rule.
 Only links that carry this publisher ID and the row's merchant ID are returned, with an affiliate disclosure.
 
-Feed rows always provide item price, availability, and merchant product ID; GTIN, MPN, brand, and condition may be absent. Results remain `DISCOVERY_MATCH`, `DISCOVERY_ONLY`, and `condition: UNKNOWN`; they are not exact or same-product comparisons. When an exact prior merchant product path safely resolves to one supported Shopify Variant, an explicit selected-product quote request with a ZIP can show selected shipping, tax, and estimated total. Otherwise the result remains item-price-only. Coupons and member price remain unavailable unless separately verified. Other product sources keep canonical merchant links unless their own approved relationship is configured. Commission never affects ranking.
+Feed rows provide item price, availability, and merchant product ID; GTIN, MPN, brand, and condition may be absent. Results remain `DISCOVERY_MATCH`, `DISCOVERY_ONLY`, and `condition: UNKNOWN`, not exact comparisons. A safely resolved prior merchant path and Shopify Variant can be quoted only after an explicit request, ZIP, and one-time host form approval; otherwise it remains item-price-only. Coupons and member price require separate verification. Other sources retain canonical merchant links unless their approved relationship is configured. Commission never affects ranking.
 
 See [Awin Product Feed production deployment](docs/product/awin-feed-deployment.md) for the scheduled downloader, persistent volume, authenticated endpoint, and required secrets.
 

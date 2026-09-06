@@ -6,6 +6,41 @@ import {
 import { SearchProductsInputSchema } from "../src/search-products.js";
 
 describe("product recommendation", () => {
+  it("enforces scoped-alternative eligibility even when the source card is DISCOVERY_MATCH", () => {
+    const similar = { ...product({ title: "Similar dress", price: 12000, presentationGroup: "TRUSTED_MATCH" }),
+      matchStatus: "DISCOVERY_MATCH" as const, visualReviewAssessment: { group: "HIGHLY_SIMILAR" as const,
+        recommendationScope: "SIMILAR" as const, matchCount: 2, structuralMatchCount: 1 } };
+    for (const unsafe of [{ ...similar, availability: "UNKNOWN" as const },
+      { ...similar, visualReviewAssessment: { ...similar.visualReviewAssessment, structuralMatchCount: 0 } },
+      { ...similar, visualReviewAssessment: { ...similar.visualReviewAssessment, matchCount: 0 } }]) {
+      expect(choosePrimaryRecommendation([unsafe])).toMatchObject({ state: "RESEARCH_ONLY", reasonCodes: ["SIMILAR_ONLY"] });
+    }
+    expect(choosePrimaryRecommendation([similar]).state).toBe("READY");
+    expect(choosePrimaryRecommendation([{ ...similar, visualReviewAssessment: undefined, availability: "UNKNOWN" }]).state).toBe("READY");
+  });
+  it("does not treat source variant identity as proof of an unreviewed visual change", () => {
+    const inspected = { ...product({ title: "Different color variant", price: 12000, presentationGroup: "TRUSTED_MATCH" }),
+      visualReviewRequired: true };
+    expect(choosePrimaryRecommendation([inspected])).toEqual({ state: "RESEARCH_ONLY", reasonCodes: ["VISUAL_REVIEW_REQUIRED"] });
+    expect(choosePrimaryRecommendation([{ ...inspected, visualReviewRequired: false }]).state).toBe("READY");
+  });
+  it.each(["SAME_STYLE", "HIGHLY_SIMILAR"] as const)("allows scoped available %s without opening ordinary SIMILAR recommendations", group => {
+    const similar = { ...product({ title: "Similar dress", price: 12000, presentationGroup: "TRUSTED_MATCH" }),
+      matchStatus: "SIMILAR" as const,
+      visualReviewAssessment: { group, matchCount: 2, structuralMatchCount: 1,
+        recommendationScope: "SIMILAR" as const } };
+    expect(choosePrimaryRecommendation([similar])).toMatchObject({ state: "READY", primaryProductIndex: 0,
+      reasonCodes: ["BEST_FIT", "TRUSTED_MERCHANT"] });
+    expect(choosePrimaryRecommendation([{ ...similar, visualReviewAssessment: undefined }])).toMatchObject({ state: "RESEARCH_ONLY" });
+    expect(choosePrimaryRecommendation([{ ...similar, visualReviewAssessment: { ...similar.visualReviewAssessment,
+      recommendationScope: undefined } }])).toMatchObject({ state: "RESEARCH_ONLY" });
+    for (const unsafe of [
+      { ...similar, availability: "UNKNOWN" as const }, { ...similar, availability: "OUT_OF_STOCK" as const },
+      { ...similar, merchantTrust: { verification: "UNVERIFIED" as const } },
+      { ...similar, requiredFeatureLimitations: ["required color not verified"] }, { ...similar, itemPrice: undefined },
+      { ...similar, visualReviewAssessment: { ...similar.visualReviewAssessment, structuralMatchCount: 0 } }
+    ]) expect(choosePrimaryRecommendation([unsafe]).state).toBe("RESEARCH_ONLY");
+  });
   it.each([
     ["2026-09-05T12:00:00.001Z", 0],
     ["2026-09-05T12:00:00.000Z", 1],

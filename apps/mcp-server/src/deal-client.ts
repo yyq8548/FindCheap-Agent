@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { assessSelectedProductDeal } from "./deal-assessment.js";
+import { awaitWithSignal } from "./await-with-signal.js";
 
 export const DealKindSchema = z.enum([
   "COUPON",
@@ -116,8 +117,8 @@ export type DealLookupResult = z.infer<typeof DealLookupResultSchema>;
 export type DealLookupReason = z.infer<typeof DealLookupReasonSchema>;
 
 export interface DealPort {
-  search(input: DealSearchInput): Promise<VerifiedDeal[]>;
-  searchWithStatus?(input: DealSearchInput): Promise<DealLookupResult>;
+  search(input: DealSearchInput, options?: { signal?: AbortSignal }): Promise<VerifiedDeal[]>;
+  searchWithStatus?(input: DealSearchInput, options?: { signal?: AbortSignal }): Promise<DealLookupResult>;
 }
 
 export function createUnavailableDealPort(): DealPort {
@@ -129,11 +130,17 @@ export function createUnavailableDealPort(): DealPort {
 
 const ProviderResponseSchema = z.object({ deals: z.array(z.unknown()).max(200) }).strict();
 
-export async function searchDealsWithStatus(port: DealPort, input: DealSearchInput): Promise<DealLookupResult> {
+export async function searchDealsWithStatus(port: DealPort, input: DealSearchInput, options?: { signal?: AbortSignal }): Promise<DealLookupResult> {
+  options?.signal?.throwIfAborted();
   try {
-    if (port.searchWithStatus !== undefined) return DealLookupResultSchema.parse(await port.searchWithStatus(input));
-    return validateDealRecords(await port.search(input));
+    if (port.searchWithStatus !== undefined) return DealLookupResultSchema.parse(await awaitWithSignal(
+      options === undefined ? port.searchWithStatus(input) : port.searchWithStatus(input, options), options?.signal
+    ));
+    return validateDealRecords(await awaitWithSignal(
+      options === undefined ? port.search(input) : port.search(input, options), options?.signal
+    ));
   } catch (error) {
+    options?.signal?.throwIfAborted();
     return unavailableDeals(error instanceof z.ZodError ? "INVALID_RESPONSE" : sourceFailureReason(error));
   }
 }
@@ -168,11 +175,14 @@ export function createDealPortFromEnvironment(
   if (configuration === undefined) return createUnavailableDealPort();
   const { endpoint, token } = configuration;
 
-  const searchWithStatus = async (input: DealSearchInput): Promise<DealLookupResult> => {
+  const searchWithStatus = async (input: DealSearchInput, options?: { signal?: AbortSignal }): Promise<DealLookupResult> => {
+      options?.signal?.throwIfAborted();
       const controller = new AbortController();
+      const abort = () => controller.abort(options?.signal?.reason);
+      options?.signal?.addEventListener("abort", abort, { once: true });
       const timeout = setTimeout(() => controller.abort(), 5_000);
       try {
-        const response = await fetcher(endpoint, {
+        const response = await awaitWithSignal(fetcher(endpoint, {
           method: "POST",
           redirect: "error",
           signal: controller.signal,
@@ -182,14 +192,14 @@ export function createDealPortFromEnvironment(
             accept: "application/json"
           },
           body: JSON.stringify(DealSearchInputSchema.parse(input))
-        });
+        }), controller.signal);
         if (!response.ok) return unavailableDeals(response.status === 429 ? "RATE_LIMITED" : "UPSTREAM_UNAVAILABLE");
         const contentLength = Number(response.headers.get("content-length"));
         if (Number.isFinite(contentLength) && contentLength > 524_288) return unavailableDeals("INVALID_RESPONSE");
         if (!(response.headers.get("content-type") ?? "").toLowerCase().includes("application/json")) {
           return unavailableDeals("INVALID_RESPONSE");
         }
-        const text = await readBoundedText(response, 524_288);
+        const text = await readBoundedText(response, 524_288, controller.signal);
         const parsed = ProviderResponseSchema.safeParse(JSON.parse(text));
         if (!parsed.success) return unavailableDeals("INVALID_RESPONSE");
         const result = validateDealRecords(parsed.data.deals);
@@ -199,15 +209,17 @@ export function createDealPortFromEnvironment(
           return channelsMatch && Date.parse(deal.validFrom) <= timestamp && Date.parse(deal.validTo) > timestamp;
         }) };
       } catch (error) {
+        options?.signal?.throwIfAborted();
         return unavailableDeals(error instanceof SyntaxError ? "INVALID_RESPONSE" : sourceFailureReason(error));
       } finally {
         clearTimeout(timeout);
+        options?.signal?.removeEventListener("abort", abort);
       }
   };
   return {
     searchWithStatus,
-    async search(input) {
-      const result = await searchWithStatus(input);
+    async search(input, options) {
+      const result = await searchWithStatus(input, options);
       if (result.status !== "COMPLETE") throw new Error("DATA_SOURCE_UNAVAILABLE");
       return result.deals;
     }
@@ -257,14 +269,15 @@ function publicAwinOffersConfiguration(
   }
 }
 
-async function readBoundedText(response: Response, maximumBytes: number): Promise<string> {
+async function readBoundedText(response: Response, maximumBytes: number, signal: AbortSignal): Promise<string> {
   if (response.body === null) return "";
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;
   try {
     while (true) {
-      const { done, value } = await reader.read();
+      signal.throwIfAborted();
+      const { done, value } = await awaitWithSignal(reader.read(), signal);
       if (done) break;
       total += value.byteLength;
       if (total > maximumBytes) {
@@ -275,6 +288,7 @@ async function readBoundedText(response: Response, maximumBytes: number): Promis
     }
     return Buffer.concat(chunks, total).toString("utf8");
   } finally {
+    if (signal.aborted) void reader.cancel().catch(() => {});
     reader.releaseLock();
   }
 }

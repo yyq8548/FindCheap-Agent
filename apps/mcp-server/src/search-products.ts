@@ -4,7 +4,8 @@ import { compileSourceQuery, discoveryTarget, isExplicitCategoryQuery } from "./
 import { classifySourceFailure, type SourceFailure } from "./source-failure.js";
 import type { ValueEvidence } from "./product-value-evidence.js";
 import { candidateFingerprint, sourceProductFingerprint, visualQueryHash } from "./visual-source-fingerprints.js";
-import { assessVisualVerdict, type VisualReviewAssessment } from "./visual-review-policy.js";
+import { assessVisualVerdict, type VisualHardRequirements, type VisualReviewAssessment } from "./visual-review-policy.js";
+import { selectVisualResults } from "./visual-search-outcome.js";
 
 import type {
   AwinProduct,
@@ -310,16 +311,41 @@ export type UnifiedSearchExecution = {
   chromeFallbackEligible: boolean;
 };
 
+/** The same candidate boundary is used for final cards and review diagnostics. */
+export function assessCodexVisualCandidate(
+  candidate: UnifiedCandidate,
+  verdict: CodexVisualVerdict,
+  visualInput: VisualProductInput | undefined,
+  allowAlternatives: boolean,
+  hardRequirements?: VisualHardRequirements,
+  referenceBrand = visualInput?.brand
+): ReturnType<typeof assessVisualVerdict> {
+  const review = assessVisualVerdict(verdict, visualInput, allowAlternatives, hardRequirements);
+  if (review === undefined || visualInput === undefined || review.conflicts.length === 0) return review;
+  const brands = candidate.source === "SHOPIFY_GLOBAL_CATALOG" ? [candidate.shopifyProduct.brand]
+    : candidate.source === "EBAY_BROWSE" ? candidate.ebayProduct.attributes.filter(isExplicitBrandAttribute)
+      .map(value => value.normalize("NFKC").replace(/^[^:=]*[:=]/u, "")) : [];
+  const sourceBrands = new Set(brands.filter((value): value is string => value !== undefined)
+    .map(value => brandTokens(value).join(" ")).filter(Boolean));
+  const requested = referenceBrand === undefined ? "" : brandTokens(referenceBrand).join(" ");
+  // Admitted differences are colorway-only. Colorway alternatives need positive
+  // same-brand product evidence; merchant names and titles cannot supply it.
+  return requested !== "" && sourceBrands.size === 1 && sourceBrands.has(requested) ? review : undefined;
+}
+
 export function finalizeCodexVisualCandidates(
   reviewed: Array<{ candidate: UnifiedCandidate; verdict: CodexVisualVerdict }>,
   allowAlternatives: boolean,
   limit = 3,
   visualInput?: VisualProductInput,
   requestedBrand = true,
-  evaluatedAtMs = Date.now()
+  evaluatedAtMs = Date.now(),
+  hardRequirements?: VisualHardRequirements,
+  referenceBrand = visualInput?.brand
 ): UnifiedCandidate[] {
+  const allowReviewedAlternatives = allowAlternatives || visualInput !== undefined;
   const accepted = reviewed.flatMap(({ candidate, verdict }) => {
-    const review = assessVisualVerdict(verdict, visualInput, allowAlternatives);
+    const review = assessCodexVisualCandidate(candidate, verdict, visualInput, allowReviewedAlternatives, hardRequirements, referenceBrand);
     if (review === undefined) return [];
     const { group, matchCount, structuralMatchCount } = review;
     const visualEvidence = review.matches.map((entry) =>
@@ -332,29 +358,31 @@ export function finalizeCodexVisualCandidates(
     const stableExact = candidate.identityStatus === "EXACT" && !confirmedVisualDifference;
     // Only Shopify/official-page sources can carry EXACT. Cards also consume
     // their matchStatus; preserve identity and variant facts in the source object.
-    const reviewedCandidate = confirmedVisualDifference && candidate.source === "SHOPIFY_GLOBAL_CATALOG" &&
-      candidate.shopifyProduct.matchStatus === "EXACT"
-      ? { ...candidate, shopifyProduct: { ...candidate.shopifyProduct, matchStatus: "DISCOVERY_MATCH" as const } }
+    const revisedSourceStatus = group === "SAME_STYLE" && !stableExact ? "SIMILAR" as const
+      : confirmedVisualDifference && candidate.shopifyProduct?.matchStatus === "EXACT" ? "DISCOVERY_MATCH" as const : undefined;
+    const reviewedCandidate = revisedSourceStatus !== undefined && candidate.source === "SHOPIFY_GLOBAL_CATALOG"
+      ? { ...candidate, shopifyProduct: { ...candidate.shopifyProduct, matchStatus: revisedSourceStatus } }
       : candidate;
     return [{
       ...reviewedCandidate,
       visualMatchGroup: group,
       visualMatchEvidence: unique([...(candidate.visualMatchEvidence ?? []), ...visualEvidence, ...visualDifferences]),
       visualMatchScore: review.score,
-      visualReviewAssessment: { group, matchCount, structuralMatchCount },
+      visualReviewAssessment: { group, matchCount, structuralMatchCount,
+        ...(!stableExact && group !== "POSSIBLE_SAME_ITEM" && visualInput !== undefined ? { recommendationScope: "SIMILAR" as const } : {}) },
       identityEvidence: unique([...candidate.identityEvidence, ...visualEvidence, ...visualDifferences]),
       identityStatus: stableExact ? "EXACT" as const : group === "SAME_STYLE" ? "SIMILAR" as const : "DISCOVERY_MATCH" as const,
       resultGroup: stableExact ? candidate.resultGroup : visualResultGroup(group)
     }];
   }).sort((left, right) => compareRankedCandidates(left, right, evaluatedAtMs));
-  return selectPresentationCandidates(
+  return selectVisualResults(selectPresentationCandidates(
     accepted,
     "MERCHANT_DIVERSE",
-    allowAlternatives,
+    allowReviewedAlternatives,
     true,
     requestedBrand,
     evaluatedAtMs
-  ).sort((left, right) => compareRankedCandidates(left, right, evaluatedAtMs)).slice(0, limit);
+  ).sort((left, right) => compareRankedCandidates(left, right, evaluatedAtMs)), limit);
 }
 
 export function shouldQueryAwin(query: string): boolean {
@@ -377,9 +405,9 @@ export async function searchProducts(
   const searchRun = rawInput.searchRun ?? new SearchRun();
   await Promise.all([
     ports.officialStorefrontRegistry === undefined ? undefined
-      : searchRun.read("REGISTRY", "official", () => ports.officialStorefrontRegistry!.refresh()),
+      : searchRun.read("REGISTRY", "official", signal => ports.officialStorefrontRegistry!.refresh({ signal })),
     ports.merchantTrustRegistry === undefined ? undefined
-      : searchRun.read("REGISTRY", "trust", () => ports.merchantTrustRegistry!.refresh())
+      : searchRun.read("REGISTRY", "trust", signal => ports.merchantTrustRegistry!.refresh({ signal }))
   ]);
   const rawRequiredFeatures = unique([
     ...rawInput.requiredFeatures,
@@ -591,6 +619,7 @@ export async function searchProducts(
         limit,
         signal,
         comparisonMode: searchIntent === "VISUAL_DISCOVERY" ? "DISCOVERY" : input.comparisonMode,
+        ...(input.visualInput === undefined ? {} : { includeOutOfStock: true }),
         selectionMode: input.selectionMode,
         ...(input.maxItemPriceCents === undefined ? {} : { maxItemPriceCents: input.maxItemPriceCents }),
         ...(input.zipCode === undefined ? {} : { zipCode: input.zipCode }),
@@ -921,7 +950,7 @@ export function evaluateRecoveredProducts(request: SearchProductsInput, products
   const identityQuery = input.brand !== undefined && !containsBrand(query, input.brand) ? `${input.brand} ${query}` : query;
   const features = new Set<string>(), brands = new Set<string>(), identities = new Set<string>(), visuals = new Set<string>();
   const candidates = products.flatMap(product => {
-    if (product.availability === "OUT_OF_STOCK" || product.sourceKind !== "WEB_PRODUCT_PAGE") return [];
+    if ((product.availability === "OUT_OF_STOCK" && input.visualInput === undefined) || product.sourceKind !== "WEB_PRODUCT_PAGE") return [];
     const identity = classifyShopifyCandidate(searchIntent === "EXACT_PRODUCT" ? identityQuery : input.productType ?? query, product);
     if (identity.status === "IRRELEVANT" || (identity.status === "SIMILAR" && !input.allowAlternatives)) {
       identities.add(productReferenceKey(product)); return [];
@@ -1758,11 +1787,11 @@ export async function addVerifiedCoupons(
   }
   const results: Array<readonly [string, DealLookupResult]> = await Promise.all([...merchants].map(async ([key, merchant]) => {
     try {
-      const read = () => searchDealsWithStatus(deals, {
+      const read = (signal?: AbortSignal) => searchDealsWithStatus(deals, {
         merchant,
         membershipIds,
         channel: "ONLINE"
-      });
+      }, signal === undefined ? undefined : { signal });
       const lookup = await (searchRun === undefined ? read() : searchRun.read("DEALS", key, read));
       return [key, { ...lookup, deals: lookup.deals.filter(isCoupon) }] as const;
     } catch {
@@ -1770,6 +1799,7 @@ export async function addVerifiedCoupons(
     }
   }));
   const byMerchant = new Map(results);
+  searchRun?.throwIfCancelled();
   return candidates.map((candidate) => ({
     ...candidate,
     verifiedCoupons: byMerchant.get(normalize(candidateMerchant(candidate)))?.deals ?? [],

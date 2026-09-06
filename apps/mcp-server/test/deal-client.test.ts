@@ -25,6 +25,43 @@ const deal = {
 };
 
 describe("Deals API client", () => {
+  it("does not dispatch for pre-cancelled callers or accept a late legacy port result", async () => {
+    const input = { merchant: "Merchant", membershipIds: [], channel: "ANY" as const };
+    const parent = new AbortController(); parent.abort();
+    const fetcher = vi.fn(async () => new Response('{"deals":[]}', { headers: { "content-type": "application/json" } }));
+    const port = createDealPortFromEnvironment({ AWIN_OFFERS_SEARCH_URL: "https://findcheap.example/v1/offers/search" }, fetcher);
+    await expect(port.search(input, { signal: parent.signal })).rejects.toThrow();
+    expect(fetcher).not.toHaveBeenCalled();
+    const second = new AbortController();
+    let finish!: (value: never[]) => void;
+    const pending = searchDealsWithStatus({ search: () => new Promise(resolve => { finish = resolve; }) }, input, { signal: second.signal });
+    const rejected = expect(pending).rejects.toThrow();
+    second.abort(); finish([]);
+    await rejected;
+  });
+
+  it.each(["parent", "timeout"] as const)("bounds a stalled body by %s and releases the reader", async mode => {
+    vi.useFakeTimers();
+    try {
+      const parent = new AbortController();
+      const cancel = vi.fn();
+      const body = new ReadableStream<Uint8Array>({ cancel });
+      let fetchSignal: AbortSignal | undefined;
+      const port = createDealPortFromEnvironment({ AWIN_OFFERS_SEARCH_URL: "https://findcheap.example/v1/offers/search" },
+        (async (_url, init) => { fetchSignal = init?.signal ?? undefined;
+          return new Response(body, { headers: { "content-type": "application/json" } }); }) as typeof fetch);
+      const pending = searchDealsWithStatus(port, { merchant: "Merchant", membershipIds: [], channel: "ANY" }, { signal: parent.signal });
+      const rejected = mode === "parent" ? expect(pending).rejects.toThrow() : undefined;
+      await vi.advanceTimersByTimeAsync(1);
+      if (mode === "parent") parent.abort();
+      else await vi.advanceTimersByTimeAsync(4_999);
+      if (rejected !== undefined) await rejected;
+      else expect(await pending).toMatchObject({ status: "UNAVAILABLE", reasonCodes: ["TIMEOUT"] });
+      expect(fetchSignal?.aborted).toBe(true);
+      expect(cancel).toHaveBeenCalledOnce();
+    } finally { vi.useRealTimers(); }
+  });
+
   it.each([429, 500])("reports safe source status for HTTP %s", async (status) => {
     const port = createDealPortFromEnvironment({ FINDCHEAP_DEALS_API_URL: "https://deals.example", FINDCHEAP_DEALS_API_TOKEN: "secret" },
       (async () => new Response("private provider message", { status })) as typeof fetch);

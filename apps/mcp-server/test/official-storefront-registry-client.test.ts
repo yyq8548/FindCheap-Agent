@@ -6,6 +6,38 @@ import { createOfficialStorefrontRegistryPortFromEnvironment } from "../src/offi
 afterEach(() => replaceManagedOfficialStorefronts([]));
 
 describe("managed official storefront registry", () => {
+  it("cancels only the caller, leaving the bounded shared refresh and cache for other callers", async () => {
+    let finish!: (response: Response) => void;
+    let sourceSignal: AbortSignal | undefined;
+    const fetchRequest = vi.fn((_url: string | URL | Request, init?: RequestInit) => {
+      sourceSignal = init?.signal ?? undefined;
+      return new Promise<Response>(resolve => { finish = resolve; });
+    });
+    const port = createOfficialStorefrontRegistryPortFromEnvironment({ AWIN_PRODUCT_SEARCH_URL: "https://findcheap.example/v1/search" },
+      { fetch: fetchRequest as typeof fetch });
+    const parent = new AbortController();
+    const cancelled = port!.refresh({ signal: parent.signal });
+    const rejected = expect(cancelled).rejects.toThrow();
+    const other = port!.refresh();
+    parent.abort();
+    finish(new Response(null, { status: 304 }));
+    await rejected;
+    await other;
+    expect(sourceSignal?.aborted).toBe(false);
+    await port!.refresh();
+    expect(fetchRequest).toHaveBeenCalledOnce();
+    await expect(port!.refresh({ signal: parent.signal })).rejects.toThrow();
+  });
+
+  it("does not dispatch for an already cancelled caller", async () => {
+    const fetchRequest = vi.fn(async () => new Response(null, { status: 304 }));
+    const port = createOfficialStorefrontRegistryPortFromEnvironment({ AWIN_PRODUCT_SEARCH_URL: "https://findcheap.example/v1/search" },
+      { fetch: fetchRequest as typeof fetch });
+    const parent = new AbortController(); parent.abort();
+    await expect(port!.refresh({ signal: parent.signal })).rejects.toThrow();
+    expect(fetchRequest).not.toHaveBeenCalled();
+  });
+
   it("loads one bounded registry and revalidates it with ETag", async () => {
     let now = 1_000;
     let requests = 0;

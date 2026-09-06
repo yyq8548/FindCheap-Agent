@@ -1,8 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DealPort } from "../src/deal-client.js";
 import type { ShopifyPort, ShopifyProduct, ShopifySearchResult } from "../src/shopify-client.js";
 import { evaluateWatch } from "../src/watch-service.js";
-import { createMemoryWatchStore } from "../src/watch-store.js";
+import { createJsonWatchStore, createMemoryWatchStore, WatchStateConflictError } from "../src/watch-store.js";
 
 const checkedAt = "2026-09-06T12:00:00.000Z";
 const now = new Date(checkedAt);
@@ -44,8 +47,110 @@ function searchResult(products: ShopifyProduct[]): ShopifySearchResult {
 }
 
 const noDeals: DealPort = { search: async () => { throw new Error("NETWORK_FORBIDDEN_IN_WATCH_TEST"); } };
+const watchDirectories: string[] = [];
+afterEach(async () => { for (const directory of watchDirectories.splice(0)) await rm(directory, { recursive: true, force: true }); });
+
+async function restockBaseline(store = createMemoryWatchStore()) {
+  const created = await store.create({ query: "Black Lace Dress", condition: "RESTOCKED", identity: { gtin: "1234567890123" },
+    conditionPreference: "ANY", membershipIds: [], intervalMinutes: 60 }, checkedAt);
+  const watch = await store.save({ ...created, automationId: "synthetic-restock", schedulingState: "BOUND" });
+  return (await evaluateWatch(watch, store, { search: async () => searchResult([{ ...product, availability: "OUT_OF_STOCK" }]) },
+    noDeals, undefined, now)).watch;
+}
 
 describe("restock watch evidence", () => {
+  it("preserves one completion event and pending stop across JSON adapter restart", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "findcheap-watch-event-"));
+    watchDirectories.push(directory);
+    const store = createJsonWatchStore(directory);
+    const baseline = await restockBaseline(store);
+    const search = vi.fn(async () => searchResult([{ ...product, availability: "IN_STOCK" as const }]));
+    const first = await evaluateWatch(baseline, store, { search }, noDeals, undefined, now);
+    const restarted = createJsonWatchStore(directory);
+    const again = await evaluateWatch((await restarted.get(baseline.watchId))!, restarted, { search }, noDeals, undefined, now);
+    expect(first.status).toBe("TRIGGERED");
+    expect(again.status).toBe("COMPLETED");
+    expect(again.watch).toEqual(first.watch);
+    expect(await restarted.listPendingStops()).toEqual([first.watch.stopIntent]);
+    expect(search).toHaveBeenCalledTimes(1);
+  });
+  it("commits only one notification event when two evaluations share a reliable baseline", async () => {
+    const store = createMemoryWatchStore();
+    const baseline = await restockBaseline(store);
+    const source: ShopifyPort = { search: async () => searchResult([{ ...product, availability: "IN_STOCK" }]) };
+    const results = await Promise.allSettled([
+      evaluateWatch(baseline, store, source, noDeals, undefined, now),
+      evaluateWatch(baseline, store, source, noDeals, undefined, now)
+    ]);
+    expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
+    expect(results.find(result => result.status === "fulfilled")).toMatchObject({ value: { status: "TRIGGERED" } });
+    expect(results.find(result => result.status === "rejected")).toMatchObject({ reason: new WatchStateConflictError() });
+    expect(await store.get(baseline.watchId)).toMatchObject({ status: "COMPLETED", revision: baseline.revision! + 1 });
+  });
+  it.each(["pause", "delete"])("does not trigger or restore state when %s commits while a source is in flight", async action => {
+    const store = createMemoryWatchStore();
+    const baseline = await restockBaseline(store);
+    let release!: (value: ShopifySearchResult) => void;
+    let started!: () => void;
+    const entered = new Promise<void>(resolve => { started = resolve; });
+    const source: ShopifyPort = { search: () => { started(); return new Promise(resolve => { release = resolve; }); } };
+    const pending = evaluateWatch(baseline, store, source, noDeals, undefined, now);
+    await entered;
+    if (action === "delete") await store.delete(baseline.watchId);
+    else await store.save({ ...baseline, status: "PAUSED" });
+    const stopped = await store.get(baseline.watchId);
+    release(searchResult([{ ...product, availability: "IN_STOCK" }]));
+    await expect(pending).rejects.toBeInstanceOf(WatchStateConflictError);
+    expect(await store.get(baseline.watchId)).toEqual(stopped);
+    if (stopped !== undefined) expect(stopped.completionEventId).toBeUndefined();
+  });
+  it("expires a bound rule once with a persistent stop request and no provider calls", async () => {
+    const store = createMemoryWatchStore();
+    const baseline = await restockBaseline(store);
+    const search = vi.fn(async () => searchResult([product]));
+    const expiredNow = new Date("2026-10-07T12:00:00.000Z");
+    const expired = await evaluateWatch(baseline, store, { search }, noDeals, undefined, expiredNow);
+    const again = await evaluateWatch(expired.watch, store, { search }, noDeals, undefined, expiredNow);
+    expect(expired.status).toBe("EXPIRED");
+    expect(expired.watch.stopIntent).toMatchObject({ reason: "EXPIRED", status: "STOP_REQUIRED" });
+    expect(again.watch).toEqual(expired.watch);
+    expect(search).not.toHaveBeenCalled();
+  });
+  it("completes after one verified restock, retains one event and stop request, and performs no later source work", async () => {
+    const store = createMemoryWatchStore();
+    const created = await store.create({ query: "Black Lace Dress", condition: "RESTOCKED", identity: { gtin: "1234567890123" },
+      conditionPreference: "ANY", membershipIds: [], intervalMinutes: 60 }, checkedAt);
+    const watch = await store.save({ ...created, automationId: "synthetic-restock", schedulingState: "BOUND" });
+    let availability: "OUT_OF_STOCK" | "IN_STOCK" = "OUT_OF_STOCK";
+    const search = vi.fn(async () => searchResult([{ ...product, availability }]));
+    const baseline = await evaluateWatch(watch, store, { search }, noDeals, undefined, now);
+    availability = "IN_STOCK";
+    const triggered = await evaluateWatch(baseline.watch, store, { search }, noDeals, undefined, now);
+    expect(triggered.status).toBe("TRIGGERED");
+    expect(triggered.watch).toMatchObject({ status: "COMPLETED", completionEventId: expect.any(String),
+      stopIntent: { watchId: watch.watchId, automationId: "synthetic-restock", reason: "RESTOCKED", status: "STOP_REQUIRED" } });
+    const repeated = await evaluateWatch((await store.get(watch.watchId))!, store, { search }, noDeals, undefined, now);
+    expect(repeated.status).toBe("COMPLETED");
+    expect(repeated.watch.completionEventId).toBe(triggered.watch.completionEventId);
+    expect(search).toHaveBeenCalledTimes(2);
+  });
+  it("keeps legacy delivered-total Watch data readable but never calls a recurring quote provider", async () => {
+    const store = createMemoryWatchStore();
+    const watch = await store.create({ query: "Black Lace Dress", condition: "PRICE_BELOW", threshold: 12000,
+      priceBasis: "DELIVERED_TOTAL", zipCode: "33433", conditionPreference: "ANY", membershipIds: [], intervalMinutes: 60,
+      selectedProduct: { sourceKind: "SHOPIFY_GLOBAL_CATALOG", merchantId: product.merchantId, merchant: product.merchant,
+        sourceHost: product.sourceHost, variantId: product.handle, title: product.title, merchantUrl: product.merchantUrl,
+        condition: product.condition, variantDimensions: product.variantDimensions, selectedAt: checkedAt }
+    }, checkedAt);
+    const quote = vi.fn(async () => { throw new Error("NO_RECURRING_QUOTE_CONSENT"); });
+    const search = vi.fn(async () => searchResult([product]));
+    const result = await evaluateWatch(watch, store, { search }, noDeals, { quote }, now);
+    expect(quote).not.toHaveBeenCalled();
+    expect(search).not.toHaveBeenCalled();
+    expect(result.status).toBe("DATA_SOURCE_UNAVAILABLE");
+    expect(result.message).toContain("RECURRING_QUOTE_AUTHORIZATION_UNAVAILABLE");
+    expect(await store.get(watch.watchId)).toEqual(watch);
+  });
   it("does not call UNKNOWN inventory a restock baseline", async () => {
     const store = createMemoryWatchStore();
     const watch = await store.create({

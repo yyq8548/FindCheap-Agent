@@ -3,9 +3,9 @@ name: deals-and-watch
 description: Find verified Coupon, promotion, membership, or Cashback evidence, and manage shopping watches.
 ---
 
-# FindCheap Agent v0.17.23 Deals and Watch
+# FindCheap Agent v0.17.24 Deals and Watch
 
-Live Coupon/Watch is self-contained. Do not read Memory, repository files, logs, task files, or plugin cache. One short progress sentence maximum; do not narrate the tool sequence between calls.
+Live Coupon/Watch is self-contained. Do not read Memory, repository files, logs, task files, or plugin cache. One progress sentence max; do not narrate the tool sequence between calls.
 
 ## Coupon
 
@@ -17,11 +17,11 @@ Selected card: `research_selected_product_deal` with prior `renderId` plus `sele
 
 ## Create Watch
 
-Risk `R2`. Direct “tell me,” “notify me,” or “watch” authorizes Watch plus recurring Codex Automation, never purchase/reservation/checkout/payment.
+Risk `R2`: “tell me”/“notify me”/“watch” authorizes Watch + recurring Codex Automation, never purchase/reservation/checkout/payment.
 
-1. One condition: `PRICE_BELOW`, `DISCOUNT_AT_LEAST`, `CASHBACK_AT_LEAST`, `COUPON_AVAILABLE`, `IN_STOCK`, or `RESTOCKED`. `PRICE_BELOW`: exclusive integer-cent `threshold`; below $40 = `4000`, excludes $40.00. `priceBasis`: `ITEM_PRICE` or `DELIVERED_TOTAL`.
-2. Require exact generation/model/GTIN and explicit condition: `NEW`, `USED`, `REFURBISHED`, `OPEN_BOX`, or `ANY`. Named style without model/GTIN needs merchant. `DELIVERED_TOTAL` needs prior stable `selectionId` and US ZIP. Preserve variants. Never infer identity/condition/merchant/ZIP/membership/threshold/expiration/price basis; never search selected title or request street address.
-3. Call `create_watch` once. `NEEDS_CLARIFICATION`: ask and stop. `ACTIVE`/`PAUSED`: no duplicate. `DATA_SOURCE_UNAVAILABLE`: no Automation. `LEGACY_UNVERIFIED`: read [watch-lifecycle.md](references/watch-lifecycle.md). `READY_TO_SCHEDULE`: create one heartbeat with native `automation_update` tool, exact prompt/interval, then call `bind_watch_automation`. Never claim monitoring is active until binding succeeds; on failure delete the newly created Automation.
-4. Scheduled: `check_watch` once. `TRIGGERED`: notify value/merchant/link/`checkedAt`; `NOT_TRIGGERED`: silent. Automated Watch checks never use Chrome.
+1. One condition: `PRICE_BELOW`, `DISCOUNT_AT_LEAST`, `CASHBACK_AT_LEAST`, `COUPON_AVAILABLE`, `IN_STOCK`, or `RESTOCKED`. `PRICE_BELOW`: exclusive integer-cent `threshold`; below $40 = `4000`, excludes $40.00. Require `ITEM_PRICE`; DELIVERED_TOTAL Watch is unavailable; do not request ZIP. One-shot host form approval never authorizes recurring Cart quotes.
+2. Exact generation/model/GTIN, variants; explicit condition: `NEW`, `USED`, `REFURBISHED`, `OPEN_BOX`, or `ANY`. Named style: merchant. Never infer identity/condition/merchant/membership/threshold/expiration/price basis; never title-search or request street address.
+3. `create_watch` once. `NEEDS_CLARIFICATION`: ask/stop. `ACTIVE`/`PAUSED`: no duplicate. `DATA_SOURCE_UNAVAILABLE`: no Automation. `LEGACY_UNVERIFIED`: read below. `READY_TO_SCHEDULE`: native `automation_update` tool creates one heartbeat with returned prompt/interval; then `bind_watch_automation`. BOUND is only a local reference, not host proof. Failure: verify scope, delete the newly created Automation.
+4. Scheduled `check_watch` once. `TRIGGERED`: notify value/merchant/link/`checkedAt`, deduplicate `completionEventId`. `NOT_TRIGGERED`: silent. `COMPLETED/EXPIRED/PAUSED/NOT_FOUND`: no product alert. `STOP_REQUIRED`: read below; no host ACK. Automated Watch checks never use Chrome.
 
-Pause/resume/delete/legacy: read [watch-lifecycle.md](references/watch-lifecycle.md) fully. No travel/hotel/ticket/appointment/automatic buying.
+Pause/resume/delete/legacy/STOP_REQUIRED: read [watch-lifecycle.md](references/watch-lifecycle.md) fully. No travel/hotel/ticket/appointment/automatic buying.

@@ -22,6 +22,40 @@ const document = (overrides: Record<string, unknown> = {}) => `<script type="app
 })}</script>`;
 
 describe("bounded web recovery safety", () => {
+  it("does not dispatch more pages when synchronous work has crossed the lease deadline", async () => {
+    let clock = 0;
+    const monotonic = vi.spyOn(performance, "now").mockImplementation(() => clock);
+    try {
+      const urls = Array.from({ length: 5 }, (_, index) => `https://merchant-${index}.example/products/shampoo`);
+      const read = vi.fn(async () => { clock = 26_000; return webProduct(); });
+      expect(await readWebCandidates(urls, request, { read }, 25_000)).toMatchObject({ products: [], unavailable: 5 });
+      expect(read).toHaveBeenCalledTimes(1);
+    } finally { monotonic.mockRestore(); }
+  });
+
+  it("dispatches no page reads when no time remains", async () => {
+    const read = vi.fn(async () => webProduct());
+    expect(await readWebCandidates([url], request, { read }, 0)).toMatchObject({ products: [], unavailable: 1 });
+    expect(read).not.toHaveBeenCalled();
+  });
+  it("propagates parent cancellation and discards an adapter's late page", async () => {
+    const parent = new AbortController();
+    let finish!: (value: ReturnType<typeof webProduct>) => void;
+    let sourceSignal: AbortSignal | undefined;
+    const read = vi.fn((_url: string, _request: unknown, signal: AbortSignal) => {
+      sourceSignal = signal;
+      return new Promise<ReturnType<typeof webProduct>>(resolve => { finish = resolve; });
+    });
+    const pending = readWebCandidates([url], request, { read }, 1_000, { signal: parent.signal });
+    const rejected = expect(pending).rejects.toThrow();
+    parent.abort(); finish(webProduct());
+    await rejected;
+    expect(sourceSignal?.aborted).toBe(true);
+    read.mockClear();
+    await expect(readWebCandidates([url], request, { read }, 1_000, { signal: parent.signal })).rejects.toThrow();
+    expect(read).not.toHaveBeenCalled();
+  });
+
   it.each(["http://example.com/products/a", "https://127.0.0.1/products/a", "https://user:secret@example.com/products/a",
     "https://example.com/checkout", "https://example.com/collections/shampoo", "https://google.com/search?q=shampoo",
     "https://example.com/products/a?token=private", "https://example.com/products/a?color=red&color=blue",
@@ -96,6 +130,18 @@ describe("bounded web recovery safety", () => {
     expect(await sessions.begin("parent", async () => "ACCEPT")).toMatchObject({ status: "APPROVAL_PENDING" });
     accept("ACCEPT"); expect(await pending).toMatchObject({ status: "READY" });
   });
+  it("caps a lease by the original service flow before and after verified approval", async () => {
+    const sessions = new WebRecoverySessions(() => 1_000);
+    let remaining = 0;
+    const approve = vi.fn(async () => "ACCEPT" as const);
+    expect(await sessions.begin("expired", approve, () => remaining)).toMatchObject({ status: "EXPIRED" });
+    expect(approve).not.toHaveBeenCalled();
+    remaining = 10_000;
+    expect(await sessions.begin("capped", approve, () => remaining)).toMatchObject({ status: "READY", deadline: 11_000 });
+    const late = await sessions.begin("late", async () => { remaining = 0; return "ACCEPT"; }, () => remaining);
+    expect(late).toMatchObject({ status: "EXPIRED" });
+    expect(late.token).toBeUndefined();
+  });
   it("retries a transient consent failure once without consuming web admission", async () => {
     const sessions = new WebRecoverySessions();
     const fail = vi.fn(async (): Promise<"ACCEPT"> => { throw new McpError(ErrorCode.RequestTimeout, "private error must not escape"); });
@@ -138,6 +184,19 @@ describe("bounded web recovery safety", () => {
     expect(evaluateRecoveredProducts({ ...request, conditionPreference: "NEW" }, [{ ...webProduct(), condition: "UNKNOWN" }], false).candidates).toHaveLength(0);
     expect(evaluateRecoveredProducts(request, [{ ...webProduct(), merchantTrust: { level: "RISKY", verification: "INDEPENDENT", evidence: [] } }], false).candidates).toHaveLength(0);
     expect(textSearchRecovery(evaluateRecoveredProducts(request, [], true))).toMatchObject({ action: "REPORT_INCOMPLETE" });
+  });
+  it("retains unavailable web variants only for visual review, without changing their facts", () => {
+    const unavailable = { ...webProduct(), availability: "OUT_OF_STOCK" as const,
+      availabilityScope: "SELECTED_VARIANT" as const, variantDimensions: { size: "M" } };
+    const original = structuredClone(unavailable);
+    const visual = SearchProductsInputSchema.parse({ ...request, visualInput: { productType: "shampoo" } });
+    const execution = evaluateRecoveredProducts(visual, [unavailable], false, { deferVisualFiltering: true });
+    expect(execution.candidates).toHaveLength(1);
+    expect(execution.candidates[0]!.shopifyProduct).toMatchObject({ availability: "OUT_OF_STOCK",
+      availabilityScope: "SELECTED_VARIANT", variantDimensions: { size: "M" }, merchantUrl: url,
+      itemPrice: { amountCents: 3641, currency: "USD" } });
+    expect(unavailable).toEqual(original);
+    expect(evaluateRecoveredProducts(request, [unavailable], false, { deferVisualFiltering: true }).candidates).toEqual([]);
   });
 });
 

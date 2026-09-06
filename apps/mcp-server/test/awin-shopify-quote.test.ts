@@ -16,6 +16,21 @@ const seed = {
 };
 
 describe("Awin Shopify quote resolver", () => {
+  it("does not probe a pre-cancelled selection and forwards cancellation to the product fetch", async () => {
+    const fetchProduct = vi.fn(async (_url: string, _hosts: readonly string[], options?: { signal?: AbortSignal }) => {
+      expect(options?.signal).toBe(parent.signal);
+      parent.abort();
+      return { response: new Response("ignored late document"), finalUrl: seed.merchantUrl + ".js" };
+    });
+    const parent = new AbortController();
+    const resolver = createAwinShopifyQuoteResolver({ fetchProduct });
+    await expect(resolver.resolve(seed, { signal: parent.signal })).rejects.toMatchObject({ name: "AbortError" });
+    expect(fetchProduct).toHaveBeenCalledOnce();
+    fetchProduct.mockClear();
+    await expect(resolver.resolve(seed, { signal: parent.signal })).rejects.toMatchObject({ name: "AbortError" });
+    expect(fetchProduct).not.toHaveBeenCalled();
+  });
+
   it("binds the stable Awin product path to one Shopify variant across an approved redirect", async () => {
     const fetchProduct = vi.fn(async () => ({
       response: new Response(JSON.stringify({

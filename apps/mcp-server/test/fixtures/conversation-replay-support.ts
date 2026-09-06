@@ -1,5 +1,6 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { ElicitRequestSchema, type ElicitRequest, type ElicitResult } from "@modelcontextprotocol/sdk/types.js";
 import { expect, vi } from "vitest";
 import { createShoppingServer, type ShoppingServerDependencies, type ShopifyPort } from "../../src/server.js";
 import type { ShopifyProduct, ShopifySearchResult } from "../../src/shopify-client.js";
@@ -38,7 +39,8 @@ export function searchResult(products: ShopifyProduct[]): ShopifySearchResult {
   };
 }
 
-export async function connectReplay(search: ShopifyPort["search"], dependencies: ShoppingServerDependencies = {}) {
+export async function connectReplay(search: ShopifyPort["search"], dependencies: ShoppingServerDependencies = {},
+  elicitation?: (params: ElicitRequest["params"]) => Promise<ElicitResult>) {
   const network = vi.fn(async () => { throw new Error("NETWORK_FORBIDDEN_IN_CONVERSATION_REPLAY"); });
   vi.stubGlobal("fetch", network);
   const server = createShoppingServer({ search }, undefined, {
@@ -46,7 +48,10 @@ export async function connectReplay(search: ShopifyPort["search"], dependencies:
     visualCandidateImages: { load: async () => ({ data: Buffer.from("synthetic-image-not-model-input").toString("base64"), mimeType: "image/jpeg" }) },
     ...dependencies
   });
-  const client = new Client({ name: "conversation-01a06df9-replay", version: "1.0.0" });
+  // An explicit simulated host approval is test evidence, not actual desktop/user consent.
+  const client = new Client({ name: "conversation-01a06df9-replay", version: "1.0.0" },
+    elicitation === undefined ? {} : { capabilities: { elicitation: { form: {} } } });
+  if (elicitation !== undefined) client.setRequestHandler(ElicitRequestSchema, (request) => elicitation(request.params));
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
   return {
