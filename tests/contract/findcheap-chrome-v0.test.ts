@@ -183,7 +183,7 @@ describe("FindCheap Agent plugin contract", () => {
     for (const skill of [compareSkill, dealsSkill]) {
       expect(skill).toMatch(/Show best Coupon first: code\/benefit|Best Coupon=/u);
       expect(skill).toMatch(/scope—customer, products, exclusions|code\/benefit\/customer\/products\/exclusions/u);
-      expect(skill).toContain("summary.recommendedDealId");
+      expect(skill).toContain("dealSummary.recommendedDealId");
       expect(skill).toMatch(/Other offers: collapsed or on request|Others collapsed/u);
       expect(skill).not.toContain("Blank line; list all deals below");
       expect(skill).toContain("Checkout confirms scope/stacking");
@@ -249,7 +249,7 @@ describe("FindCheap Agent plugin contract", () => {
     };
 
     expect(manifest.name).toBe("findcheap-agent");
-    expect(manifest.version).toMatch(/^0\.17\.27(?:\+codex\.)?/u);
+    expect(manifest.version).toMatch(/^0\.17\.28(?:\+codex\.)?/u);
     expect(manifest.interface.displayName).toBe("FindCheap Agent");
     expect(manifest.interface.longDescription).toMatch(/Codex Plugin Agent/u);
     expect(manifest.interface.longDescription).toMatch(/[Aa]uthorized.*Chrome/u);

@@ -1,7 +1,7 @@
 import { FINDCHEAP_VERSION } from "../../../config/version.js";
 import { MAX_PRODUCT_CARDS } from "./product-candidate-ranking.js";
 
-export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v35.html";
+export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v36.html";
 
 export const PRODUCT_CARD_RESOURCE_DOMAINS = [
   "https://cdn.shopify.com",
@@ -58,6 +58,8 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
     }
     #app { display: grid; gap: 10px; padding: 0; }
     .summary { padding: 0 1px; color: var(--fc-muted); font-size: 12px; line-height: 1.45; }
+    .variant-group > summary { cursor: pointer; padding: 10px 14px; color: var(--fc-muted); }
+    .variant-group > .card { margin-top: 10px; }
     .quote-summary {
       display: grid;
       gap: 7px;
@@ -749,7 +751,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       const rows = [
         [text("Variant", "规格"), (entry) => {
           const section = make("div");
-          section.append(comparisonList(Object.entries(entry.variantDimensions || {}).map(([key, value]) => key + ": " + value)));
+          section.append(comparisonList(Object.entries(entry.variantDimensions || {}).map(([key, value]) => (key === "Merchant variant" ? text(key, "商家标注规格") : key) + ": " + value)));
           const warnings = [
             ...(entry.requirementAssessment?.entries || []).filter(item => item.status !== "MATCHED").map(item => requirementLabel(item.requirement) + ": " +
               (item.status === "UNKNOWN" ? text("Not verified", "待核验") : text("Conflicting evidence", "证据冲突"))),
@@ -888,6 +890,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       const validSelectionIds = new Set(comparable.map(product => product.selectionId));
       for (const selectionId of selected) if (!validSelectionIds.has(selectionId)) selected.delete(selectionId);
       const selectionButtons = new Map();
+      const selectionDisclosures = new Map();
       let compareButton;
       let compareStatus;
       const syncSelection = () => {
@@ -919,6 +922,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
           button.textContent = active ? text("Selected", "已选择") : text("Select for comparison", "选择对比");
           button.disabled = !renderId || (!active && selected.size >= 4);
           button.ariaPressed = String(active);
+          if (active && selectionDisclosures.has(selectionId)) selectionDisclosures.get(selectionId).open = true;
         }
         if (compareButton) {
           compareButton.disabled = !renderId || selected.size < 2 || selected.size > 4;
@@ -1000,6 +1004,11 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
         if (researchOnly) group.addEventListener("toggle", () => requestSizeReport("DOM_RENDERED"));
         if (definition.notice) group.append(make("div", "limitations notice", definition.notice));
         const cards = make("div", "cards");
+        const seenFamilies = new Set();
+        let foldedFamily;
+        let variantDisclosure;
+        let variantSummary;
+        let variantCount = 0;
         for (const product of grouped) {
           const cardData = product && typeof product.card === "object" ? product.card : {};
           const card = make("article", "card");
@@ -1048,7 +1057,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
           const identity = [product.brand, product.sku ? text("Model/SKU: ", "型号/SKU：") + product.sku : undefined, product.gtins?.[0] ? "GTIN: " + product.gtins[0] : undefined]
             .filter(Boolean).join(" / ");
           if (identity) body.append(make("div", "details", identity));
-          const variants = Object.entries(product.variantDimensions || {}).map(([name, value]) => name + ": " + value).join(" / ");
+          const variants = Object.entries(product.variantDimensions || {}).map(([name, value]) => (name === "Merchant variant" ? text(name, "商家标注规格") : name) + ": " + value).join(" / ");
           if (product.requirementAssessment?.entries?.length > 0) {
             const satisfied = product.requirementAssessment.status === "SATISFIED";
             body.append(make("div", satisfied ? "evidence" : "limitations notice",
@@ -1204,7 +1213,28 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
             body.append(link);
           }
           card.append(body);
-          cards.append(card);
+          const family = typeof product.displayFamilyKey === "string" && product.displayFamilyKey ? product.displayFamilyKey : undefined;
+          if (family && seenFamilies.has(family)) {
+            // Fold at the variant's original position. Never move cards across
+            // intervening styles: spoken ordinals still follow snapshot order.
+            if (foldedFamily !== family) {
+              variantDisclosure = make("details", "variant-group");
+              variantSummary = make("summary");
+              variantDisclosure.append(variantSummary);
+              variantDisclosure.addEventListener("toggle", () => requestSizeReport("DOM_RENDERED"));
+              cards.append(variantDisclosure);
+              foldedFamily = family;
+              variantCount = 0;
+            }
+            variantSummary.textContent = text("Other variants", "其他规格") + " (" + (++variantCount) + ")";
+            variantDisclosure.append(card);
+            if (isFirstSupported || selected.has(product.selectionId)) variantDisclosure.open = true;
+            selectionDisclosures.set(product.selectionId, variantDisclosure);
+          } else {
+            cards.append(card);
+            foldedFamily = undefined;
+          }
+          if (family) seenFamilies.add(family);
         }
         group.append(cards);
         app.append(group);

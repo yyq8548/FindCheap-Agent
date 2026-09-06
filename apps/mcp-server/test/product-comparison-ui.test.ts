@@ -77,6 +77,13 @@ function executeUi(output: Record<string, unknown>) {
 }
 
 describe("product comparison MCP Apps UI", () => {
+  it("labels merchant-reported variant text without asserting verified dimensions", () => {
+    const { app } = executeUi({ status: "OK", locale: "zh-CN", entries: [{ selectionId: "a", title: "Wig",
+      variantDimensions: { "Merchant variant": "8 / Brazilian Hair / Natural Black" } }, { selectionId: "b", title: "Other wig" }] });
+    expect(text(app)).toContain("商家标注规格: 8 / Brazilian Hair / Natural Black");
+    expect(text(app)).not.toContain("8 inch");
+  });
+
   it.each([2, 3, 4])("shows exactly nine ordered rows for %i products regardless of focus", count => {
     const { app } = executeUi({ status: "OK", locale: "zh-CN", focus: ["DEALS", "PRICE"], entries: Array.from({ length: count }, (_, i) => ({
       selectionId: String(i), title: `Product ${i}`, condition: "NEW", availability: "OUT_OF_STOCK",

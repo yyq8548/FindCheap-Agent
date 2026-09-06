@@ -1,6 +1,6 @@
 import { FINDCHEAP_VERSION } from "../../../config/version.js";
 
-export const PRODUCT_COMPARISON_UI_URI = "ui://findcheap/product-comparison/v5.html";
+export const PRODUCT_COMPARISON_UI_URI = "ui://findcheap/product-comparison/v6.html";
 
 export const PRODUCT_COMPARISON_HTML = String.raw`<!doctype html>
 <html>
@@ -296,7 +296,7 @@ export const PRODUCT_COMPARISON_HTML = String.raw`<!doctype html>
       const rows = [
         { label: text(locale, "Variant", "规格"), renderValue: (entry) => {
           const section = make("div");
-          section.append(list(Object.entries(entry.variantDimensions || {}).map(([key, value]) => key + ": " + value), locale, "Not specified", "未提供"));
+          section.append(list(Object.entries(entry.variantDimensions || {}).map(([key, value]) => (key === "Merchant variant" ? text(locale, key, "商家标注规格") : key) + ": " + value), locale, "Not specified", "未提供"));
           const warnings = [
             ...(entry.requirementAssessment?.entries || []).filter(item => item.status !== "MATCHED").map(item => item.requirement + ": " +
               (item.status === "UNKNOWN" ? text(locale, "Not verified", "待核验") : text(locale, "Conflicting evidence", "证据冲突"))),

@@ -3,7 +3,7 @@ name: compare-products
 description: "Live shopping. Initial search: load, localized line, tool."
 ---
 
-FindCheap Agent v0.17.27. R0 search/Chrome; R1 quote. Never checkout/reserve/buy/pay/persist/request address.
+FindCheap Agent v0.17.28. R0 search/Chrome; R1 quote. Never checkout/reserve/buy/pay/persist/request address.
 
 ## Fast path
 
@@ -20,7 +20,7 @@ Never call `search_products` or title-search. Always pass the prior `renderId`, 
 
 - `inspect_selected_shopify_product` + reference/`variantDimensions`, once. Stale=unknown. `updatedSnapshot`: reselect, never mix IDs. `visualReviewRequired`: review before visual claims/primary.
 - Quote: explicit request, supported card, ZIP, host form approval. ZIP alone is not consent. For `MERCHANT_CHECKOUT_ONLY`/`NOT_CHECKED`, no ZIP. No refusal retry or future/Watch consent.
-- Deals: `research_selected_product_deal` + reference. Best Coupon=`summary.recommendedDealId`: code/benefit/customer/products/exclusions. Others collapsed. Merchant-wide is not product-confirmed. Discount needs confirmed terms. Checkout confirms scope/stacking/total. No forecast/Watch.
+- Deals: `research_selected_product_deal` + reference. Best Coupon=`dealSummary.recommendedDealId`: code/benefit/customer/products/exclusions. Others collapsed. Merchant-wide is not product-confirmed. Discount needs confirmed terms. Checkout confirms scope/stacking/total. No forecast/Watch.
 - Errors: code + checkout/existing card; no invented total/new search. Expired: user search only.
 
 ## Chrome fallback

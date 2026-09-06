@@ -921,7 +921,8 @@ export async function searchProducts(
         input.allowAlternatives,
         input.visualInput !== undefined,
         input.brand !== undefined && input.brandMode === "REQUIRED",
-        evaluatedAtMs
+        evaluatedAtMs,
+        searchIntent === "CATEGORY_DISCOVERY" && !input.compareMerchants
       ).slice(0, input.comparisonMode === "SAME_PRODUCT" ? Math.min(3, input.limit) : input.limit);
   const queriedSourcesComplete =
     awinStatus !== "UNAVAILABLE" &&
@@ -1028,7 +1029,7 @@ export function evaluateRecoveredProducts(request: SearchProductsInput, products
   });
   const candidates = mergeCandidates(previous, recovered);
   return { candidates: controls.deferVisualFiltering === true ? candidates.slice(0, 5) : selectPresentationCandidates(candidates, input.selectionMode, input.allowAlternatives, false,
-    input.brand !== undefined, evaluatedAtMs).slice(0, Math.min(input.limit, 3)),
+    input.brand !== undefined, evaluatedAtMs, searchIntent === "CATEGORY_DISCOVERY" && !input.compareMerchants).slice(0, Math.min(input.limit, 3)),
     retrievedProductHashes: products.map(product => sourceProductFingerprint("SHOPIFY", product).productHash),
     previousProductHashes: previous.map(candidate => candidateFingerprint(candidate).productHash),
     sourceStatus: { awin: "SKIPPED", shopify: "SKIPPED", ebay: "SKIPPED", web: partial ? "PARTIAL" : "COMPLETE" },

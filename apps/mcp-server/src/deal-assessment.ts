@@ -36,6 +36,10 @@ const PRODUCT_FAMILIES = [
 ] as const;
 
 // These patterns can disqualify a candidate, never prove checkout eligibility.
+export function isPlaceholderDealTerm(value: string): boolean {
+  return /^(?:no|n\/a)$/iu.test(value.trim());
+}
+
 export function assessSelectedProductDeal(deal: VerifiedDeal, product: DealAssessmentProduct): DealAssessment {
   if (deal.productApplicability === "PRODUCT_CONFIRMED" && !deal.applicableProductIds?.includes(product.merchantProductId)) {
     return assessment("INELIGIBLE", "PRODUCT_ID_MISMATCH");
@@ -69,7 +73,12 @@ export function assessSelectedProductDeal(deal: VerifiedDeal, product: DealAsses
   const restrictionText = deal.productApplicability === "PRODUCT_CONFIRMED"
     ? text.replace(/\b(?:this|the\s+selected)\s+(?:item|product)\s+only\b/giu, "")
     : text;
-  if (deal.eligibility.length > 0 || /\b(?:selected|exclud\w*|exclusiv\w*|only|minimum|qualifying|eligible|specific|valid\s+(?:on|for))\b/iu.test(restrictionText)) {
+  // Missing merchant terms allow only a conditional sitewide candidate. Keep
+  // raw evidence, and never use a placeholder to confirm product eligibility.
+  const hasTerms = deal.eligibility.some((term) =>
+    deal.productApplicability !== "MERCHANT_WIDE" || !isPlaceholderDealTerm(term)
+  );
+  if (hasTerms || /\b(?:selected|exclud\w*|exclusiv\w*|only|minimum|qualifying|eligible|specific|valid\s+(?:on|for))\b/iu.test(restrictionText)) {
     return assessment("UNKNOWN", "SCOPE_UNVERIFIED");
   }
   if (deal.productApplicability === "PRODUCT_CONFIRMED") return assessment("CONFIRMED", "PRODUCT_ID_CONFIRMED", true);

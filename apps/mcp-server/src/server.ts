@@ -90,7 +90,8 @@ import {
   type VerifiedDeal
 } from "./deal-client.js";
 import { researchSelectedProductDeal } from "./deal-concierge.js";
-import { DealAssessmentSchema, DealSummarySchema, assessSelectedProductDeal, rankAssessedDeals } from "./deal-assessment.js";
+import { DealAssessmentSchema, DealSummarySchema, assessSelectedProductDeal, isPlaceholderDealTerm, rankAssessedDeals } from "./deal-assessment.js";
+import { merchantReportedVariant, merchantVariantStyleKey } from "./merchant-variant.js";
 import {
   WatchSpecSchema,
   WatchSpecInputSchema,
@@ -609,6 +610,7 @@ const ShopifyProductOutputSchema = z.object({
   requirementAssessment: RequirementAssessmentSchema.optional(),
   resultGroup: z.enum(["REQUESTED_PRODUCT", "DISCOVERY", "ALTERNATIVE"]).optional(),
   presentationGroup: z.enum(["OFFICIAL_STORE", "TRUSTED_MATCH", "BEST_VALUE", "RESEARCH_ONLY"]).optional(),
+  displayFamilyKey: z.string().max(2048).optional(),
   visualMatchGroup: z.enum(["POSSIBLE_SAME_ITEM", "HIGHLY_SIMILAR", "SAME_STYLE"]).optional(),
   visualReviewRequired: z.boolean().optional(),
   visualReviewAssessment: z.object({
@@ -1230,9 +1232,17 @@ function unifiedResult(
       recommendationTier: candidate.recommendationTier
     }, candidate.verifiedCoupons, candidate.dealLookupStatus)];
   });
+  if (execution.searchIntent === "CATEGORY_DISCOVERY" && input.selectionMode === "MERCHANT_DIVERSE" && !input.compareMerchants) {
+    for (const product of products) {
+      const family = merchantVariantStyleKey(product);
+      if (family !== undefined) product.displayFamilyKey = family;
+    }
+  }
   const affiliateCount = products.filter((product) => product.affiliateState === "APPROVED").length;
   const itemPriceCount = products.filter((product) => product.itemPrice !== undefined).length;
-  const couponCount = products.reduce((count, product) => count + product.coupons.verified.length, 0);
+  const couponCount = new Set(products.flatMap(product => product.coupons.verified.map(deal =>
+    JSON.stringify([product.sourceHost.toLowerCase(), product.merchantId, deal.dealId])
+  ))).size;
   const unavailableSource = Object.values(execution.sourceStatus).includes("UNAVAILABLE");
   const budgetExhausted = execution.searchRun?.diagnostics().budgetExhausted === true;
   const partialSource = Object.values(execution.sourceStatus).includes("PARTIAL") || budgetExhausted;
@@ -1489,7 +1499,7 @@ function awinCardProduct(candidate: UnifiedCandidate): ProductCardProduct {
     handle: product.merchantProductId,
     title: product.title,
     gtins: [],
-    variantDimensions: {},
+    variantDimensions: merchantReportedVariant({ ...product, sourceHost, handle: product.merchantProductId }),
     matchStatus: candidate.identityStatus === "SIMILAR" ? "SIMILAR" : product.matchStatus,
     matchEvidence: product.matchEvidence,
     condition: product.condition,
@@ -1662,15 +1672,15 @@ function withVerifiedCoupons(
     }];
   });
   if (coupons.length === 0) return { ...product, coupons: { ...product.coupons, lookupStatus, summary } };
-  const first = coupons[0]!;
-  const couponValue = first.code !== undefined
+  const first = coupons.find(deal => deal.dealId === summary.recommendedDealId);
+  const couponValue = first === undefined ? undefined : first.code !== undefined
     ? first.code
     : first.discountPercent !== undefined
       ? `${first.discountPercent}% off`
       : first.discountAmount !== undefined
         ? `$${(first.discountAmount.amountCents / 100).toFixed(2)} off`
         : first.title;
-  const couponLabel = first.productApplicability === "PRODUCT_CONFIRMED"
+  const couponLabel = first === undefined ? undefined : first.productApplicability === "PRODUCT_CONFIRMED"
     ? `Verified Coupon: ${couponValue}`
     : first.productApplicability === "MERCHANT_WIDE"
       ? `Merchant offer: ${couponValue}`
@@ -4254,17 +4264,21 @@ export function createShoppingServer(
         ? text("Current price: unavailable.", "当前价格不可用。")
         : text(`Current ${research.currentPrice.basis === "DELIVERED_TOTAL" ? "estimated delivered total" : "item price"}: USD ${(research.currentPrice.amount.amountCents / 100).toFixed(2)}; checked at ${research.currentPrice.checkedAt}.`,
           `当前${research.currentPrice.basis === "DELIVERED_TOTAL" ? "预估到手价" : "商品价"}：USD ${(research.currentPrice.amount.amountCents / 100).toFixed(2)}；核验时间：${research.currentPrice.checkedAt}。`);
+      const preferredDeals = research.deals.filter(deal => deal.dealId === research.dealSummary.recommendedDealId);
       const dealEvidence = research.dealLookupStatus !== "COMPLETE" && research.deals.length === 0
         ? text("Deal source unavailable or incomplete; coupon availability cannot be determined.", "优惠来源不可用或查询尚不完整；不能判断是否有优惠。")
         : research.deals.length === 0 ? text("Verified deals: none found in the completed lookup.", "本次已完成查询，未找到已验证的优惠。")
-        : text("Verified deals: ", "已验证的商家优惠：") + research.deals.map((deal) => [
-            deal.title,
+        : text(`${research.deals.length} merchant offers found; `, `找到 ${research.deals.length} 条商家优惠；`) +
+          (preferredDeals.length === 0 ? text("none can currently be recommended for the selected product.", "目前没有可推荐给所选商品的优惠。") :
+          preferredDeals.slice(0, 1).map((deal) => [
+            deal.title.slice(0, 120),
             deal.code === undefined ? undefined : text("code ", "优惠码：") + deal.code,
-            text("eligibility: ", "适用条件：") + (deal.eligibility.join(", ") || text("merchant confirmation required", "需商家确认")),
+            deal.assessment.status === "CONFIRMED" ? text("product eligibility confirmed", "已确认适用于所选商品")
+              : text("conditional merchant offer; merchant confirmation required", "商家优惠候选；适用性需商家确认"),
+            text("eligibility: ", "适用条件：") + (deal.eligibility.filter(term => !isPlaceholderDealTerm(term)).join(", ").slice(0, 200) || text("merchant confirmation required", "需商家确认")),
             text("valid through ", "有效期至：") + deal.validTo,
-            text("checked at ", "核验时间：") + deal.checkedAt,
-            text("source ", "来源：") + deal.sourceUrl
-          ].filter((part): part is string => part !== undefined).join("; ")).join(" | ");
+            text("checked at ", "核验时间：") + deal.checkedAt
+          ].filter((part): part is string => part !== undefined).join("; ")).join(" | "));
       const message = [
         text(`Selected product: ${selectedCard.title}; merchant: ${selectedCard.merchant}; availability: ${selectedCard.availability}.`,
           `所选商品：${selectedCard.title}；商家：${selectedCard.merchant}；库存：${({ IN_STOCK: "有货", OUT_OF_STOCK: "缺货", UNKNOWN: "未知" })[selectedCard.availability]}。`),

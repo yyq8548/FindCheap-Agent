@@ -81,6 +81,32 @@ function couponFixture(coupons: Record<string, unknown>) {
 }
 
 describe("product-card MCP Apps UI", () => {
+  it.each(["zh-CN", "en-US"])("folds sibling variants without changing ordinal order, prices or selection controls (%s)", locale => {
+    const base = couponFixture({ verified: [] }).products[0]!;
+    const products = ["family-a", "family-b", "family-a", "family-a"].map((displayFamilyKey, index) => ({ ...base,
+      displayFamilyKey, selectionId: `variant-${index}`, title: `Wig ${index}`,
+      variantDimensions: { "Merchant variant": "8 / Brazilian Hair / Natural Black" },
+      card: { ...base.card, title: `Wig ${index}`, primaryPrice: { amountCents: 1000 + index * 1000, currency: "USD" } }
+    }));
+    const app = renderFixture({ renderId: "11111111-1111-4111-8111-111111111111", locale, products });
+    const folds = nodes(app).filter(node => node.className === "variant-group");
+    expect(folds).toHaveLength(1);
+    expect(folds[0]!.open).toBe(false);
+    expect(text(folds[0]!)).toContain(locale === "zh-CN" ? "其他规格 (2)" : "Other variants (2)");
+    const articles = nodes(app).filter(node => node.tagName === "ARTICLE");
+    expect(articles).toHaveLength(4);
+    articles.forEach((article, index) => expect(text(article)).toContain(`Wig ${index}`));
+    expect(text(folds[0]!)).toContain("30.00");
+    expect(text(folds[0]!)).toContain("40.00");
+    const button = nodes(folds[0]!).find(node => node.className === "compare-toggle")!;
+    button.dispatch("click");
+    expect(button.ariaPressed).toBe("true");
+    expect(folds[0]!.open).toBe(true);
+    expect(text(app)).toContain(locale === "zh-CN" ? "商家标注规格" : "Merchant variant");
+    const primary = renderFixture({ locale, products, recommendation: { state: "READY", primarySelectionId: "variant-3" } });
+    expect(nodes(primary).find(node => node.className === "variant-group")?.open).toBe(true);
+  });
+
   it.each([2, 3, 4])("renders exactly nine inline comparison rows for %i products", count => {
     const app = renderFixture({ status: "OK", locale: "zh-CN", entries: Array.from({ length: count }, (_, i) => ({
       selectionId: String(i), title: `Product ${i}`, condition: "NEW", availability: "OUT_OF_STOCK",
@@ -356,7 +382,7 @@ describe("product-card MCP Apps UI", () => {
   });
 
   it("uses an embedded Codex-native surface with responsive cards", () => {
-    expect(PRODUCT_CARD_UI_URI).toBe("ui://findcheap/product-cards/v35.html");
+    expect(PRODUCT_CARD_UI_URI).toBe("ui://findcheap/product-cards/v36.html");
     expect(PRODUCT_CARD_HTML).toContain("--fc-surface:");
     expect(PRODUCT_CARD_HTML).toContain("background: var(--fc-action);");
     expect(PRODUCT_CARD_HTML).toContain("@media (max-width: 640px)");
@@ -464,7 +490,7 @@ describe("product-card MCP Apps UI", () => {
       params: expect.objectContaining({
         name: "report_product_card_metrics",
         arguments: expect.objectContaining({
-          version: "0.17.27",
+          version: "0.17.28",
           terminalStage: "DOM_RENDERED",
           stages: expect.objectContaining({ DOM_RENDERED: expect.any(Number) })
         })
@@ -843,7 +869,7 @@ describe("product-card MCP Apps UI", () => {
     expect(output.indexOf("Another Trusted Product")).toBeLessThan(output.indexOf("Value Product"));
   });
 
-  it("selects 2-4 native cards and renders the server comparison without focus", async () => {
+  it.each([false, true])("selects native cards and renders the server comparison without focus (folded=%s)", async folded => {
     const script = PRODUCT_CARD_HTML.match(/<script>([\s\S]*)<\/script>/u)?.[1];
     const app = new FakeNode();
     type TestEvent = { source?: object; data?: unknown };
@@ -852,6 +878,7 @@ describe("product-card MCP Apps UI", () => {
     const parent = { postMessage: (message: (typeof messages)[number]) => messages.push(message) };
     const product = (selectionId: string, title: string) => ({
       selectionId,
+      ...(folded ? { displayFamilyKey: "fixture-family" } : {}),
       merchant: "Merchant",
       title,
       matchStatus: "DISCOVERY_MATCH",
@@ -1083,7 +1110,7 @@ describe("product-card MCP Apps UI", () => {
       method: "ui/initialize",
       params: {
         protocolVersion: "2026-01-26",
-        appInfo: { name: "FindCheap Agent product cards", version: "0.17.27" },
+        appInfo: { name: "FindCheap Agent product cards", version: "0.17.28" },
         appCapabilities: { availableDisplayModes: ["inline"] }
       }
     });

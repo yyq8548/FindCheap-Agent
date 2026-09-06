@@ -154,12 +154,12 @@ describe("shopping MCP server", () => {
     const selectionTool = tools.tools.find((candidate) => candidate.name === "sync_product_card_selection");
     const metricsTool = tools.tools.find((candidate) => candidate.name === "report_product_card_metrics");
     expect(searchTool?._meta).toMatchObject({
-      ui: { resourceUri: "ui://findcheap/product-cards/v35.html" },
-      "openai/outputTemplate": "ui://findcheap/product-cards/v35.html"
+      ui: { resourceUri: "ui://findcheap/product-cards/v36.html" },
+      "openai/outputTemplate": "ui://findcheap/product-cards/v36.html"
     });
     expect(renderTool?._meta).toMatchObject({
       ui: {
-        resourceUri: "ui://findcheap/product-cards/v35.html",
+        resourceUri: "ui://findcheap/product-cards/v36.html",
         visibility: ["app"]
       }
     });
@@ -178,15 +178,15 @@ describe("shopping MCP server", () => {
     expect(resources.resources).toHaveLength(2);
     expect(resources.resources).toEqual(expect.arrayContaining([expect.objectContaining({
       name: "findcheap-product-cards",
-      uri: "ui://findcheap/product-cards/v35.html",
+      uri: "ui://findcheap/product-cards/v36.html",
       mimeType: "text/html;profile=mcp-app"
     }), expect.objectContaining({
       name: "findcheap-product-comparison",
-      uri: "ui://findcheap/product-comparison/v5.html",
+      uri: "ui://findcheap/product-comparison/v6.html",
       mimeType: "text/html;profile=mcp-app"
     })]));
 
-    const resource = await client.readResource({ uri: "ui://findcheap/product-cards/v35.html" });
+    const resource = await client.readResource({ uri: "ui://findcheap/product-cards/v36.html" });
     const content = resource.contents[0];
     const html = content !== undefined && "text" in content ? content.text : "";
     expect(html).toContain("ui/notifications/tool-result");
@@ -457,7 +457,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.17.27",
+        version: "0.17.28",
         terminalStage: "DOM_RENDERED",
         stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
       }
@@ -466,7 +466,7 @@ describe("shopping MCP server", () => {
     expect(result.structuredContent).toEqual({ status: "RECORDED" });
     expect(record).toHaveBeenCalledWith(expect.objectContaining({
       renderId,
-      version: "0.17.27",
+      version: "0.17.28",
       terminalStage: "DOM_RENDERED",
       stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
     }));
@@ -474,7 +474,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.17.27",
+        version: "0.17.28",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 14 }
       }
@@ -484,7 +484,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.17.27",
+        version: "0.17.28",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 300_001 }
       }
@@ -495,7 +495,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId: "22222222-2222-4222-8222-222222222222",
-        version: "0.17.27",
+        version: "0.17.28",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 1 }
       }
@@ -1241,8 +1241,9 @@ describe("Coupon and Watch tools", () => {
       text: expect.stringContaining("Selected product: Valhalla Java Single-Serve Pods — 10 count")
     }), expect.objectContaining({ text: expect.stringContaining('"findcheapContext":') })]);
     expect(content[0]?.text).toContain("Current item price: USD 14.99");
-    expect(content[0]?.text).toContain("code SAVE30");
-    expect(content[0]?.text).toContain("source https://www.aritzia.com/promotion");
+    expect(content[0]?.text).toContain("none can currently be recommended");
+    expect(result.structuredContent).toMatchObject({ deals: [expect.objectContaining({ code: "SAVE30", sourceUrl: "https://www.aritzia.com/promotion",
+      assessment: { status: "UNKNOWN", recommendationEligible: false, reasonCodes: ["SCOPE_UNVERIFIED"] } })] });
     expect(JSON.stringify(result.structuredContent)).not.toMatch(/history|cadence|BUY_NOW|WAIT/u);
     expect((await client.callTool({ name: "list_watches", arguments: {} })).structuredContent)
       .toEqual({ watches: [] });
@@ -2320,9 +2321,10 @@ describe("Coupon and Watch tools", () => {
       products: [{
         coupons: {
           status: "VERIFIED",
+          summary: expect.objectContaining({ status: "NO_ELIGIBLE_DEAL" }),
           verified: [{ code: "SAVE30", discountPercent: 30, productApplicability: "MERCHANT_WIDE" }]
         },
-        card: { couponLabel: "Merchant offer: SAVE30" }
+        card: { couponLabel: undefined }
       }]
     });
   });

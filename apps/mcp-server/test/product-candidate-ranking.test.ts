@@ -279,6 +279,21 @@ function rankingCandidate(handle: string, title: string, amountCents: number, ve
 }
 
 describe("evidence-backed presentation tiers", () => {
+  it("prefers distinct styles only for opted-in category discovery, retaining variant backfill", () => {
+    const products = ["first", "first", "second", "third"].map((style, index) => {
+      const entry = rankingCandidate(String(100 + index), `Human hair wig ${index}`, 1000 + index);
+      entry.shopifyProduct!.merchantUrl = `https://example.com/products/${style}?variant=${100 + index}`;
+      return entry;
+    });
+    const choose = (diverse: boolean, visual = false) => selectPresentationCandidates(products, "MERCHANT_DIVERSE", false, visual, false, Date.now(), diverse)
+      .map(p => p.shopifyProduct!.handle);
+    expect(choose(false)).toEqual(["100", "101", "102"]);
+    expect(choose(true)).toEqual(["100", "102", "103"]);
+    expect(choose(true, true)).toEqual(choose(false, true));
+    expect(selectPresentationCandidates(products.slice(0, 3), "MERCHANT_DIVERSE", false, false, false, Date.now(), true))
+      .toHaveLength(3);
+  });
+
   it("folds even highly rated unverified merchants into research", () => {
     const value = candidate("unknown", "Shampoo 250 mL");
     value.recommendationTier = "HIGH_RATED_UNVERIFIED";

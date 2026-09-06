@@ -12,6 +12,27 @@ const deal: VerifiedDeal = {
 };
 
 describe("selected product deal assessment", () => {
+  it.each(["NO", "N/A", " no ", " n/a "])("keeps placeholder terms raw and sitewide eligibility conditional (%s)", (term) => {
+    const candidate = { ...deal, eligibility: [term] };
+    expect(assessSelectedProductDeal(candidate, product)).toMatchObject({
+      status: "CONDITIONAL", reasonCodes: ["MERCHANT_ELIGIBILITY_UNCONFIRMED"], recommendationEligible: true
+    });
+    expect(candidate.eligibility).toEqual([term]);
+    expect(assessSelectedProductDeal({ ...candidate, productApplicability: "PRODUCT_CONFIRMED", applicableProductIds: ["wig-1"] }, product))
+      .toMatchObject({ status: "UNKNOWN", recommendationEligible: false });
+  });
+
+  it.each(["NO restrictions documented", "No sale items", "New customers only", "Wholesale only", "Orders $100+"])(
+    "never treats a meaningful restriction as a placeholder (%s)", (term) => {
+      expect(assessSelectedProductDeal({ ...deal, eligibility: ["NO", term] }, product).recommendationEligible).toBe(false);
+    }
+  );
+
+  it("does not infer sitewide scope from a placeholder", () => {
+    expect(assessSelectedProductDeal({ ...deal, title: "18% off", description: "Anniversary sale", eligibility: ["NO"] }, product))
+      .toMatchObject({ status: "UNKNOWN", recommendationEligible: false });
+  });
+
   it("keeps merchant-wide evidence conditional and selects only a relevant candidate", () => {
     const assessed = [
       { ...deal, dealId: "minimum", title: "$40 off orders over $199", description: "Spend $199 to save $40" },

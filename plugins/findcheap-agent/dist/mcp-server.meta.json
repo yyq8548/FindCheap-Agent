@@ -4056,6 +4056,10 @@
         }
       ]
     },
+    "src/merchant-variant.ts": {
+      "format": "esm",
+      "imports": []
+    },
     "src/named-product-identity.ts": {
       "format": "esm",
       "imports": []
@@ -4092,6 +4096,11 @@
           "kind": "import-statement",
           "original": "./product-reference.js",
           "path": "src/product-reference.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./merchant-variant.js",
+          "path": "src/merchant-variant.ts"
         },
         {
           "kind": "import-statement",
@@ -4681,6 +4690,11 @@
         },
         {
           "kind": "import-statement",
+          "original": "./merchant-variant.js",
+          "path": "src/merchant-variant.ts"
+        },
+        {
+          "kind": "import-statement",
           "original": "./watch-store.js",
           "path": "src/watch-store.ts"
         },
@@ -5229,7 +5243,7 @@
   },
   "outputs": {
     "../../plugins/findcheap-agent/dist/mcp-server.js": {
-      "bytes": 999500,
+      "bytes": 1003819,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
@@ -5895,7 +5909,7 @@
           "bytesInOutput": 501
         },
         "src/deal-assessment.ts": {
-          "bytesInOutput": 4579
+          "bytesInOutput": 4682
         },
         "src/deal-client.ts": {
           "bytesInOutput": 6579
@@ -5945,6 +5959,9 @@
         "src/merchant-trust.ts": {
           "bytesInOutput": 9792
         },
+        "src/merchant-variant.ts": {
+          "bytesInOutput": 831
+        },
         "src/named-product-identity.ts": {
           "bytesInOutput": 940
         },
@@ -5952,16 +5969,16 @@
           "bytesInOutput": 1410
         },
         "src/product-candidate-ranking.ts": {
-          "bytesInOutput": 7154
+          "bytesInOutput": 7547
         },
         "src/product-card-telemetry.ts": {
           "bytesInOutput": 814
         },
         "src/product-card-ui.ts": {
-          "bytesInOutput": 75876
+          "bytesInOutput": 77718
         },
         "src/product-comparison-ui.ts": {
-          "bytesInOutput": 25923
+          "bytesInOutput": 25996
         },
         "src/product-comparison.ts": {
           "bytesInOutput": 12031
@@ -6000,7 +6017,7 @@
           "bytesInOutput": 3700
         },
         "src/search-products.ts": {
-          "bytesInOutput": 42663
+          "bytesInOutput": 42755
         },
         "src/search-requirements-context.ts": {
           "bytesInOutput": 4713
@@ -6009,7 +6026,7 @@
           "bytesInOutput": 7594
         },
         "src/server.ts": {
-          "bytesInOutput": 181926
+          "bytesInOutput": 182911
         },
         "src/shopify-cart-quote.ts": {
           "bytesInOutput": 12428

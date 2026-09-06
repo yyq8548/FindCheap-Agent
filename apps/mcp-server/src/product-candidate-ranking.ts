@@ -1,5 +1,6 @@
 import { resolveMerchantTrust } from "./merchant-trust.js";
 import { productReferenceKey } from "./product-reference.js";
+import { merchantVariantStyleKey } from "./merchant-variant.js";
 import { assessRanking, compareRankingAssessments, hasEquivalentFitEvidence } from "./ranking-assessment.js";
 import { costAdvantage, isCurrentDeal, type ValueEvidence, type ValueProduct } from "./product-value-evidence.js";
 import { assessSelectedProductDeal } from "./deal-assessment.js";
@@ -62,7 +63,8 @@ export function selectPresentationCandidates(
   allowAlternatives: boolean,
   visualDiscovery: boolean,
   requestedBrand = true,
-  evaluatedAtMs = Date.now()
+  evaluatedAtMs = Date.now(),
+  preferDistinctStyles = false
 ): Array<UnifiedCandidate & { valueEvidence?: ValueEvidence }> {
   const eligible = candidates.filter(candidate => candidateRanking(candidate, evaluatedAtMs).primaryEligible);
   const officialInTier = (candidate: UnifiedCandidate) => requestedBrand && isOfficialCandidate(candidate);
@@ -91,7 +93,7 @@ export function selectPresentationCandidates(
   const selectedValueKeys = new Set(bestValue.map(candidateKey));
   const remainingTrusted = rankedTrusted.filter(candidate => !selectedValueKeys.has(candidateKey(candidate)));
   const trusted = (selectionMode === "MERCHANT_DIVERSE"
-    ? selectMerchantDiverse(remainingTrusted, TRUSTED_PRODUCT_CARD_LIMIT)
+    ? selectMerchantDiverse(remainingTrusted, TRUSTED_PRODUCT_CARD_LIMIT, new Set(), preferDistinctStyles && !visualDiscovery)
     : remainingTrusted.slice(0, TRUSTED_PRODUCT_CARD_LIMIT))
     .map((candidate) => ({ ...candidate, presentationGroup: "TRUSTED_MATCH" as const }));
   const research = candidates.filter(candidate => !eligible.includes(candidate))
@@ -295,7 +297,8 @@ function candidateMerchantKey(candidate: UnifiedCandidate): string {
 function selectMerchantDiverse(
   candidates: UnifiedCandidate[],
   limit: number,
-  initialMerchantKeys: Set<string> = new Set()
+  initialMerchantKeys: Set<string> = new Set(),
+  preferDistinctStyles = false
 ): UnifiedCandidate[] {
   const selected: UnifiedCandidate[] = [];
   const selectedCandidateKeys = new Set<string>();
@@ -308,10 +311,25 @@ function selectMerchantDiverse(
     merchantKeys.add(merchantKey);
     if (selected.length === limit) return selected;
   }
-  for (const candidate of candidates) {
+  const styleKey = (candidate: UnifiedCandidate): string => {
+    if (candidate.source === "EBAY_BROWSE") return candidateKey(candidate);
+    const product = candidate.awinProduct ?? candidate.shopifyProduct;
+    return merchantVariantStyleKey({ sourceKind: candidate.source, merchantId: product.merchantId,
+      sourceHost: new URL(product.merchantUrl).hostname, handle: candidateProductId(candidate), merchantUrl: product.merchantUrl }) ?? candidateKey(candidate);
+  };
+  const selectedStyles = new Set(selected.map(styleKey));
+  const remaining = candidates.filter(candidate => !selectedCandidateKeys.has(candidateKey(candidate)));
+  const distinct = preferDistinctStyles ? remaining.filter(candidate => {
+    const style = styleKey(candidate);
+    if (selectedStyles.has(style)) return false;
+    selectedStyles.add(style);
+    return true;
+  }) : [];
+  for (const candidate of [...distinct, ...remaining]) {
     const key = candidateKey(candidate);
     if (selectedCandidateKeys.has(key)) continue;
     selected.push(candidate);
+    selectedCandidateKeys.add(key);
     if (selected.length === limit) break;
   }
   return selected;
