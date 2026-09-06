@@ -573,11 +573,10 @@ describe("unified product search", () => {
     ]);
   });
 
-  it("does not infer NEW when the query has no explicit condition", async () => {
+  it("does not infer NEW when conditionPreference is omitted", async () => {
     const result = await searchProducts(SearchProductsInputSchema.parse({
       query: "Apple MacBook Pro",
-      limit: 1,
-      conditionPreference: "NEW"
+      limit: 1
     }), { awin: awin([]), shopify: shopify([shopifyProduct("macbook", 199_900, "UNKNOWN", {
       title: "Apple MacBook Pro 14-inch",
       brand: "Apple",

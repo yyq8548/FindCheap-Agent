@@ -10,6 +10,29 @@ const profileUrl = "https://cdn.jsdelivr.net/gh/yyq8548/FindCheap-Agent@24267014
 const now = "2026-08-18T12:00:00.000Z";
 
 describe("Shopify Global Catalog client", () => {
+  it.each(["description", "variantDescription"] as const)("keeps core offer facts when optional %s exceeds its limit", async field => {
+    const candidate = product({ shopId: "33", merchant: "Audio Store", host: "audio.example", price: 39999,
+      title: "Sony WH-1000XM6 Black Headphones", [field]: { plain: "long prose ".repeat(2001) } });
+    const port = createShopifyGlobalCatalogPort({ SHOPIFY_AGENT_PROFILE_URL: profileUrl }, {
+      fetch: async () => catalogResponse([candidate])
+    });
+    const result = await port.search({ query: "Sony WH-1000XM6", limit: 3 });
+    expect(result.products).toHaveLength(1);
+    expect(result.products[0]).toMatchObject({ condition: "NEW", variantDimensions: { Color: "Black" },
+      itemPrice: { amountCents: 39999, currency: "USD" } });
+    expect(result.products[0]?.description).not.toContain("long prose");
+    expect(result.diagnostics.malformedCatalogProductsExcluded).toBe(0);
+  });
+
+  it("does not rescue an invalid price by omitting an oversized description", async () => {
+    const candidate = product({ shopId: "33", merchant: "Audio Store", host: "audio.example", price: -1,
+      description: "x".repeat(20001) });
+    const port = createShopifyGlobalCatalogPort({ SHOPIFY_AGENT_PROFILE_URL: profileUrl }, {
+      fetch: async () => catalogResponse([candidate])
+    });
+    await expect(port.search({ query: "Sony WH-1000XM5", limit: 3 })).rejects.toThrow("CATALOG_SCHEMA_CHANGED");
+  });
+
   it("translates supported Chinese product terms while preserving identity and variants", () => {
     expect(planCatalogQueries("我要买 Sony WH-1000XM6 黑色 头戴式耳机")).toEqual([
       { kind: "PRIMARY", query: "Sony WH-1000XM6 black over ear headphones" },

@@ -17,7 +17,7 @@ export const OfficialStorefrontRecordSchema = z.object({
     .default([]),
   officialHost: HostSchema,
   storefrontHost: StorefrontHostSchema.optional(),
-  platform: z.enum(["SHOPIFY", "GENERIC_JSON_LD"]),
+  platform: z.enum(["SHOPIFY", "GENERIC_JSON_LD", "SONY_OCC"]),
   productPathPrefixes: z.array(PathPrefixSchema).min(1).max(10),
   searchPathTemplate: z.string().trim().regex(/^\/[A-Za-z0-9._~!$&'()*+,;=:@%/?{}-]*\{query\}[A-Za-z0-9._~!$&'()*+,;=:@%/?{}-]*$/u)
     .max(300)
@@ -29,6 +29,11 @@ export const OfficialStorefrontRecordSchema = z.object({
   reviewedAt: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u),
   status: z.literal("APPROVED")
 }).strict().superRefine((record, context) => {
+  if (record.platform === "SONY_OCC" && (record.officialHost !== "electronics.sony.com" ||
+    (record.storefrontHost !== undefined && record.storefrontHost !== "electronics.sony.com") ||
+    normalizeBrand(record.brand) !== "sony")) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["platform"], message: "Sony OCC requires the reviewed Sony storefront" });
+  }
   const evidence = new URL(record.evidenceUrl);
   if (evidence.protocol !== "https:" || evidence.username !== "" || evidence.password !== "" || evidence.port !== "") {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ["evidenceUrl"], message: "evidenceUrl must be credential-free HTTPS" });

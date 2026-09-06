@@ -365,12 +365,22 @@ describe("product-card MCP Apps UI", () => {
     expect(productCardResourceDomains("https://findcheap.example/v1/search")).toEqual([
       "https://cdn.shopify.com",
       "https://i.ebayimg.com",
+      "https://d1ncau8tqf99kp.cloudfront.net",
       "https://findcheap.example"
     ]);
     expect(productCardResourceDomains("http://findcheap.example/v1/search")).toEqual([
       "https://cdn.shopify.com",
-      "https://i.ebayimg.com"
+      "https://i.ebayimg.com",
+      "https://d1ncau8tqf99kp.cloudfront.net"
     ]);
+  });
+
+  it("admits only the reviewed Sony CDN, never arbitrary CloudFront hosts", () => {
+    const domains = productCardResourceDomains();
+    expect(domains).toContain("https://d1ncau8tqf99kp.cloudfront.net");
+    expect(domains.some(domain => domain.includes("*"))).toBe(false);
+    expect(domains).not.toContain("https://cloudfront.net");
+    expect(domains).not.toContain("https://unreviewed.cloudfront.net");
   });
 
   it("reports size only after rendered DOM, without ResizeObserver, and persists app-only metrics", async () => {
@@ -440,7 +450,7 @@ describe("product-card MCP Apps UI", () => {
       params: expect.objectContaining({
         name: "report_product_card_metrics",
         arguments: expect.objectContaining({
-          version: "0.17.24",
+          version: "0.17.25",
           terminalStage: "DOM_RENDERED",
           stages: expect.objectContaining({ DOM_RENDERED: expect.any(Number) })
         })
@@ -1059,7 +1069,7 @@ describe("product-card MCP Apps UI", () => {
       method: "ui/initialize",
       params: {
         protocolVersion: "2026-01-26",
-        appInfo: { name: "FindCheap Agent product cards", version: "0.17.24" },
+        appInfo: { name: "FindCheap Agent product cards", version: "0.17.25" },
         appCapabilities: { availableDisplayModes: ["inline"] }
       }
     });

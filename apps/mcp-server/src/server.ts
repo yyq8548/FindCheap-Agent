@@ -2830,7 +2830,7 @@ export function createShoppingServer(
   if (backend.product.webProducts !== undefined) {
     toolRegistrar.registerTool("begin_web_search", {
       title: "Authorize bounded web recovery",
-      description: "Only after a search result returns recovery.action=REQUEST_WEB_SEARCH. Pass that immutable renderId. The host asks the user for permission; no model boolean can grant it. Do not open Chrome until READY. Follow returned queries and limits; never reset the budget with another search call. For image searches, send descriptions only, never upload the reference image. Recovered visual candidates must pass the remaining visual review before recommendation.",
+      description: "Only after a search result returns recovery.action=REQUEST_WEB_SEARCH. Pass that immutable renderId. Requests explicit consent through the host; the plugin cannot confirm whether a form is displayed. Never promise a popup or attribute a host decline to the user. No model boolean can grant permission. Do not open Chrome until READY. Follow returned queries and limits; never reset the budget with another search call. For image searches, send descriptions only, never upload the reference image. Recovered visual candidates must pass the remaining visual review before recommendation.",
       inputSchema: z.object({ renderId: z.string().uuid() }).strict(),
       outputSchema: z.object({ status: WebConsentStatusSchema, message: z.string(), retryable: z.boolean(), attempt: z.number().int().min(0).max(2),
         diagnostics: z.object({ formSupported: z.boolean(), durationMs: z.number().int().nonnegative(),
@@ -2855,7 +2855,7 @@ export function createShoppingServer(
       const reply = (status: z.infer<typeof WebConsentStatusSchema>, retryable = false, attempt = 0) => {
         const messages: Record<z.infer<typeof WebConsentStatusSchema>, [string, string]> = {
           READY: ["Authorized.", "已获授权。"],
-          PERMISSION_DENIED: ["The host did not grant permission. No recovery started; do not request again for these results.", "宿主未授予本次授权。未启动补搜；不再为这批结果重复申请。"],
+          PERMISSION_DENIED: ["The host did not grant permission. We cannot confirm whether the authorization form was displayed or infer a user action from this response. No recovery started; do not request again for these results.", "宿主未授予本次授权。无法确认授权表单是否显示，也不能据此判断用户操作。未启动补搜；不再为这批结果重复申请。"],
           PERMISSION_CANCELLED: ["The authorization request was cancelled. No recovery started.", "授权请求已取消，未启动补搜。"],
           PERMISSION_UNAVAILABLE: ["Host consent is unavailable. No recovery started; this does not prove product absence.", "当前宿主不支持本次授权请求，未启动补搜；这不代表商品不存在。"],
           PERMISSION_TIMEOUT: ["The authorization request timed out. No recovery started.", "授权请求超时，未启动补搜。"],

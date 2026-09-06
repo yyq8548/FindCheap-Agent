@@ -428,7 +428,6 @@ export async function searchProducts(
             ? { productType: rawInput.productType }
             : {})
         },
-    conditionPreference: explicitConditionPreference(rawInput.query, rawInput.conditionPreference),
     requiredFeatures: rawRequiredFeatures.filter((feature) => !isPackagingOnlyConstraint(feature)),
     excludedFeatures: unique([
       ...rawInput.excludedFeatures,
@@ -528,7 +527,8 @@ export async function searchProducts(
   let inspectionCount = 0;
   const inspectRequiredVariants = async (products: ShopifyProduct[]): Promise<ShopifyProduct[]> => {
     if (ports.selectedProducts === undefined || input.visualInput !== undefined || input.deferVisualFiltering === true ||
-      (input.requiredFeatures.length === 0 && input.maxItemPriceCents === undefined)) return products;
+      (input.requiredFeatures.length === 0 && input.maxItemPriceCents === undefined &&
+        !(input.brand !== undefined && input.brandMode === "REQUIRED"))) return products;
     const results: ShopifyProduct[][] = [];
     let next = 0;
     await Promise.all(Array.from({ length: 2 }, async () => {
@@ -537,7 +537,10 @@ export async function searchProducts(
         const product = products[index]!;
         const key = productReferenceKey(product);
         const assessment = evaluateConstraints(product, input);
-        if (assessment.assessment.status === "SATISFIED" || product.checkoutPlatform === "MERCHANT") {
+        const missingRequiredBrand = !product.brand?.trim() && assessBrand(input,
+          product.merchantTrust.level === "OFFICIAL" ? [product.merchant] : [], [product.title]).excluded;
+        if ((assessment.assessment.status === "SATISFIED" && !missingRequiredBrand) ||
+          product.checkoutPlatform === "MERCHANT" || !conditionMatches(product.condition, input.conditionPreference)) {
           results[index] = [product];
           continue;
         }
@@ -546,8 +549,10 @@ export async function searchProducts(
           inspectionCount++;
           pending = searchRun.read("VARIANT", key, async signal => {
             const result = await ports.selectedProducts!.inspect(product, {}, { signal,
-              requirements: { requiredFeatures: input.requiredFeatures, requiredSize: input.requiredSize,
-                query: input.query, productType: input.productType, primaryUse: input.primaryUse } });
+              ...(assessment.assessment.status === "SATISFIED" ? {} : {
+                requirements: { requiredFeatures: input.requiredFeatures, requiredSize: input.requiredSize,
+                  query: input.query, productType: input.productType, primaryUse: input.primaryUse }
+              }) });
             const originalUrl = new URL(product.merchantUrl);
             const variants = result.variants.filter(variant => {
               const url = new URL(variant.merchantUrl);
@@ -1015,23 +1020,6 @@ function productSourceError(error: unknown): "CATALOG_SCHEMA_CHANGED" | "DATA_SO
     : "DATA_SOURCE_UNAVAILABLE";
 }
 
-function explicitConditionPreference(
-  query: string,
-  requested: SearchProductsInput["conditionPreference"]
-): SearchProductsInput["conditionPreference"] {
-  if (requested === "ANY") return "ANY";
-  const text = query.normalize("NFKC").toLocaleLowerCase("en-US")
-    .replace(/\bnew\s+(?:balance|era|look)\b/gu, "");
-  const patterns: Record<Exclude<SearchProductsInput["conditionPreference"], "ANY">, RegExp> = {
-    NEW: /(?:全新|新品|未拆封|原封)|\b(?:new|brand[\s-]*new|factory[\s-]*sealed|unopened)\b/iu,
-    USED: /(?:二手|中古)|\b(?:used|pre[\s-]*owned|second[\s-]*hand|resale)\b/iu,
-    REFURBISHED: /(?:翻新|官翻)|\b(?:refurbished|renewed|reconditioned)\b/iu,
-    OPEN_BOX: /(?:开箱品|拆箱品)|\bopen[\s-]*box\b/iu,
-    UNKNOWN: /(?:成色未知|状态未知)|\b(?:unknown|unspecified)\s+condition\b/iu
-  };
-  return patterns[requested].test(text) ? requested : "ANY";
-}
-
 function awinCandidate(
   product: AwinProduct,
   input: SearchProductsExecutionInput,
@@ -1162,6 +1150,7 @@ function shopifyCandidate(
       ...(product.brand === undefined ? {} : { brand: product.brand }),
       ...(product.description === undefined ? {} : { description: product.description }),
       ...(product.sku === undefined ? {} : { sku: product.sku }),
+      ...(product.mpn === undefined ? {} : { mpn: product.mpn }),
       handle: product.handle,
       gtins: product.gtins,
       ...(product.productType === undefined ? {} : { productType: product.productType }),

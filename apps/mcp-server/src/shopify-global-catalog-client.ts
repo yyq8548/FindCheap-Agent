@@ -60,6 +60,9 @@ const DescriptionSchema = z.union([
     value.plain !== undefined || value.markdown !== undefined || value.html !== undefined,
   "description must contain plain, markdown, or html text")
 ]);
+// Prose is optional evidence. Omit malformed/oversized text in full instead of
+// losing the offer, or retaining a prefix that can omit a later qualification.
+const OptionalDescriptionSchema = DescriptionSchema.optional().catch(undefined);
 const CategorySchema = z.union([
   z.string().trim().max(300),
   z.object({
@@ -137,12 +140,12 @@ const VariantSchema = z.object({
   }).passthrough(),
   condition: ConditionSchema,
   rating: RatingSchema.nullish(),
-  description: DescriptionSchema.optional()
+  description: OptionalDescriptionSchema
 }).passthrough();
 const ProductSchema = z.object({
   id: z.string().regex(/^gid:\/\/shopify\/p\/[A-Za-z0-9]+$/u).max(200),
   title: z.string().trim().min(1).max(1_000),
-  description: DescriptionSchema.optional(),
+  description: OptionalDescriptionSchema,
   product_type: CategorySchema.nullish(),
   productType: CategorySchema.nullish(),
   category: CategorySchema.nullish(),

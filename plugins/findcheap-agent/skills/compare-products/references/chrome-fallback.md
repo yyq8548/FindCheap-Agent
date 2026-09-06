@@ -16,14 +16,17 @@ responses, security rejection, exhausted budgets and explicit no-Chrome stay blo
    identity, variant, condition, budget or must-haves. For `MISSING_REFERENCE_CONTEXT`
    with `REUSE_ORIGINAL_REFERENCE`, correct once from the original receipt only.
    Never infer the latest snapshot, scan logs, or start `NEW_PRODUCT` as a workaround.
-2. Call `begin_web_search`. Host elicitation obtains explicit user consent.
+2. Call `begin_web_search`. Request explicit user consent through host elicitation.
+   Never promise a popup. A declared form capability does not prove the form was
+   displayed; a host decline does not establish whether the user interacted.
    Never fabricate consent or pass a model-authored approval flag. Open Chrome
    only for READY. Only `retryable=true` permits one further authorization attempt
    with the same renderId; never reset search or lease budgets. Refusal,
    cancellation, PERMISSION_UNAVAILABLE, non-retryable error, pending/used/expired
    sessions: explain the returned limitation and stop. An interface error is not
-   user refusal. Host decline without a visible popup does not prove that the user
-   declined. Never claim absence or switch browsers. If Chrome capability
+   user refusal. Do not claim a plugin update fixed the host popup, weaken global
+   permissions, or repackage a declined request to obtain permission. Never claim
+   absence or switch browsers. If Chrome capability
    itself is unavailable, say so; do not invent installation instructions.
 3. Use installed Chrome for discovery only. Perform the first returned query;
    if fewer than three plausible direct product URLs and a second query was returned, use it once.

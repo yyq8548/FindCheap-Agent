@@ -36,6 +36,8 @@ export type ShopifyProduct = {
   description?: string;
   brand?: string;
   sku?: string;
+  /** Source-owned manufacturer model, distinct from the selected merchant SKU. */
+  mpn?: string;
   gtins: string[];
   variantDimensions: Record<string, string>;
   availableSizes?: string[];

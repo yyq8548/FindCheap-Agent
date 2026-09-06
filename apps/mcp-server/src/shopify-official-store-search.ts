@@ -8,6 +8,7 @@ import { ShopifyProductJsonSchema, shopifyVariantDimensions } from "./shopify-pr
 import { evaluateFeature, isColorRequirement } from "./product-constraint-matcher.js";
 import { sizeEvidence } from "./product-requirements.js";
 import { createGenericOfficialStoreSearchPort } from "./generic-official-store-search.js";
+import { createSonyOfficialSearchPort, fetchSonyOfficialDocument, SONY_API_HOST } from "./sony-official-store-search.js";
 
 const PredictiveProductSchema = z.object({
   handle: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,200}$/u),
@@ -22,7 +23,10 @@ const PredictiveSearchSchema = z.object({
   }).passthrough()
 }).passthrough();
 
+const JsonLdConditionSchema = z.string().trim().min(1).max(300).optional().catch("UNKNOWN");
+
 const JsonLdOfferSchema = z.object({
+  itemCondition: JsonLdConditionSchema,
   availability: z.string().max(300),
   price: z.union([z.number().nonnegative(), z.string().regex(/^\d+(?:\.\d{1,2})?$/u)]),
   priceCurrency: z.string().trim().length(3),
@@ -30,6 +34,7 @@ const JsonLdOfferSchema = z.object({
 }).passthrough();
 
 const JsonLdVariantSchema = z.object({
+  itemCondition: JsonLdConditionSchema,
   name: z.string().trim().min(1).max(1_000),
   gtin: z.string().trim().max(300).optional(),
   mpn: z.string().trim().max(300).optional(),
@@ -40,6 +45,7 @@ const JsonLdVariantSchema = z.object({
 }).passthrough();
 
 const JsonLdProductGroupSchema = z.object({
+  itemCondition: JsonLdConditionSchema,
   "@type": z.union([z.literal("ProductGroup"), z.array(z.string()).refine((values) => values.includes("ProductGroup"))]),
   name: z.string().trim().min(1).max(1_000),
   brand: z.union([
@@ -88,6 +94,7 @@ export type OfficialStructuredProduct = {
     gtin?: string | undefined;
     size?: string | undefined;
     color?: string | undefined;
+    conditionEvidence?: string[] | undefined;
     imageUrl?: string | undefined;
     amountCents: number;
     available: boolean;
@@ -116,7 +123,8 @@ export function createOfficialShopifySearchPort(
   dependencies: Dependencies = {}
 ): OfficialShopifySearchPort {
   const fetchDocument = dependencies.fetchDocument ?? ((url, allowedHost, signal, onRead) =>
-    safeFetchWithProvenance({ url }, { allowedHosts: [allowedHost],
+    allowedHost === SONY_API_HOST ? fetchSonyOfficialDocument(url, allowedHost, signal, onRead) :
+      safeFetchWithProvenance({ url }, { allowedHosts: [allowedHost],
       maxResponseBytes: new URL(url).pathname.endsWith(".xml") ? 2 * 1024 * 1024 : 1024 * 1024,
       ...(onRead === undefined ? {} : { onRead }), ...(signal === undefined ? {} : { signal }) }));
   const clock = dependencies.clock ?? { now: () => new Date() };
@@ -131,7 +139,12 @@ export function createOfficialShopifySearchPort(
         cache = scopes.get(input.cacheScope);
         if (cache === undefined) { cache = { reads: new Map(), bytes: 0 }; scopes.set(input.cacheScope, cache); }
       }
-      const scopedFetch = scopedOfficialFetch(fetchDocument, cache, input.signal, input.onRead, dependencies.fetchDocument === undefined);
+      const sony = "platform" in input.seed && input.seed.platform === "SONY_OCC";
+      // Sony supplies a source-local budget observer, forwarding the global observer itself.
+      const scopedFetch = scopedOfficialFetch(fetchDocument, cache, input.signal, sony ? undefined : input.onRead, dependencies.fetchDocument === undefined);
+      if (sony) {
+        return createSonyOfficialSearchPort({ fetchDocument: scopedFetch, clock }).search(input);
+      }
       if ("platform" in input.seed && input.seed.platform === "GENERIC_JSON_LD") {
         return createGenericOfficialStoreSearchPort({
           fetchDocument: scopedFetch, clock,
@@ -175,10 +188,12 @@ const MAX_SCOPE_CACHE_BYTES = 8 * 1024 * 1024;
 const MAX_SCOPE_CACHE_ENTRIES = 32;
 
 function scopedOfficialFetch(
-  fetchDocument: OfficialShopifyFetch, cache: OfficialReadCache | undefined, signal: AbortSignal | undefined,
-  onRead?: OfficialShopifySearchInput["onRead"], nativeAccounting = false
+  fetchDocument: OfficialShopifyFetch, cache: OfficialReadCache | undefined, parentSignal: AbortSignal | undefined,
+  defaultOnRead?: OfficialShopifySearchInput["onRead"], nativeAccounting = false
 ): OfficialShopifyFetch {
-  return async (url, host) => {
+  return async (url, host, callSignal, callOnRead) => {
+    const signal = callSignal === undefined ? parentSignal : parentSignal === undefined ? callSignal : AbortSignal.any([parentSignal, callSignal]);
+    const onRead = callOnRead ?? defaultOnRead;
     signal?.throwIfAborted();
     // Search responses differ by query; reuse only bounded source documents.
     const cacheable = cache !== undefined && /(?:\.xml|\.js)$|\/products\//u.test(new URL(url).pathname);
@@ -192,7 +207,7 @@ function scopedOfficialFetch(
         signal?.throwIfAborted();
         const reader = fetched.response.body?.getReader();
         const chunks: Uint8Array[] = [];
-        const maxBytes = new URL(url).pathname.endsWith(".xml") ? 2 * 1024 * 1024 : 1024 * 1024;
+        const maxBytes = host === SONY_API_HOST ? 512 * 1024 : new URL(url).pathname.endsWith(".xml") ? 2 * 1024 * 1024 : 1024 * 1024;
         let size = 0;
         if (reader !== undefined) {
           const cancel = (): void => { void reader.cancel().catch(() => undefined); };
@@ -598,9 +613,14 @@ export function parseOfficialStructuredProduct(
     if (!Number.isSafeInteger(amountCents) || amountCents < 0 || amountCents > 100_000_000) {
       throw new Error("official structured price was invalid");
     }
+    const variantConditions = [variant.offers.itemCondition, variant.itemCondition]
+      .filter((value): value is string => value !== undefined);
+    const conditionEvidence = variantConditions.length ? variantConditions
+      : group.itemCondition === undefined ? [] : [group.itemCondition];
     return [{
       variantId,
       title: variant.name,
+      ...(conditionEvidence.length ? { conditionEvidence } : {}),
       ...(variant.mpn === undefined || variant.mpn === "" ? {} : { sku: variant.mpn }),
       ...(variant.gtin === undefined || variant.gtin === "" ? {} : { gtin: variant.gtin }),
       ...(variant.size === undefined || variant.size === "" ? {} : { size: variant.size }),

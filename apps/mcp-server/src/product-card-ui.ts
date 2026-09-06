@@ -5,7 +5,8 @@ export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v34.html";
 
 export const PRODUCT_CARD_RESOURCE_DOMAINS = [
   "https://cdn.shopify.com",
-  "https://i.ebayimg.com"
+  "https://i.ebayimg.com",
+  "https://d1ncau8tqf99kp.cloudfront.net"
 ];
 
 export function productCardResourceDomains(productSearchUrl?: string): string[] {

@@ -60,6 +60,121 @@ const productJson = {
 };
 
 describe("selected Shopify product inspection", () => {
+  it.each(["Unknown", "Unspecified"])("does not inherit NEW over Condition: %s in the fresh title", async condition => {
+    const json = { ...productJson, title: `${productJson.title} Condition: ${condition}` };
+    const inspector = createShopifySelectedProductInspector({ fetchProduct: async url => ({ finalUrl: url, response: Response.json(json) }) });
+    expect((await inspector.inspect({ ...selected, condition: "NEW" }, {})).variants[0]?.condition).toBe("UNKNOWN");
+  });
+
+  it("does not preserve a stale MPN when selecting another variant", async () => {
+    const inspector = createShopifySelectedProductInspector({ fetchProduct: async url => ({ finalUrl: url, response: Response.json(productJson) }) });
+    expect((await inspector.inspect({ ...selected, mpn: "OLD-MODEL" }, { Size: "S" })).variants[0]?.mpn).toBeUndefined();
+  });
+
+  it("does not inherit NEW when the refreshed product title says Refurbished", async () => {
+    const json = { ...productJson, title: `${productJson.title} Refurbished` };
+    const inspector = createShopifySelectedProductInspector({ fetchProduct: async url => ({ finalUrl: url, response: Response.json(json) }) });
+    expect((await inspector.inspect({ ...selected, condition: "NEW" }, {})).variants[0]?.condition).toBe("REFURBISHED");
+  });
+
+  it("retains contrary condition from the same variant USD-price fallback document", async () => {
+    const document = { "@type": "Product", name: selected.title, offers: { price: 248, priceCurrency: "USD",
+      availability: "https://schema.org/InStock", url: selected.merchantUrl, itemCondition: "https://schema.org/UsedCondition" } };
+    const inspector = createShopifySelectedProductInspector({ fetchProduct: async url => ({ finalUrl: url,
+      response: url.endsWith(".js") ? Response.json({ ...productJson, currency: undefined })
+        : new Response(`<script type="application/ld+json">${JSON.stringify(document)}</script>`) }) });
+    expect((await inspector.inspect({ ...selected, condition: "NEW" }, {})).variants[0]).toMatchObject({
+      condition: "USED", itemPrice: selected.itemPrice
+    });
+  });
+
+  it.each(["Unknown", "Unspecified", "Like New"])("does not inherit NEW over explicit %s condition", async condition => {
+    const json = { ...productJson, options: [{ name: "Condition", position: 1, values: [condition] }],
+      variants: [{ ...productJson.variants[0]!, options: [condition] }] };
+    const inspector = createShopifySelectedProductInspector({ fetchProduct: async url => ({ finalUrl: url, response: Response.json(json) }) });
+    expect((await inspector.inspect({ ...selected, condition: "NEW" }, {})).variants[0]?.condition)
+      .toBe(condition === "Like New" ? "USED" : "UNKNOWN");
+  });
+
+  it.each([
+    { variant: { itemCondition: "https://schema.org/RefurbishedCondition" }, product: {}, expected: "REFURBISHED" },
+    { variant: { condition: "Unknown" }, product: { condition: "New" }, expected: "UNKNOWN" },
+    { variant: { condition: null }, product: { condition: "New" }, expected: "UNKNOWN" },
+    { variant: { condition: "New", itemCondition: "Used" }, product: {}, expected: "USED" },
+    { variant: {}, product: { itemCondition: "https://schema.org/UsedCondition" }, expected: "USED" },
+    { variant: { condition: "New" }, product: { condition: "Used" }, expected: "NEW" }
+  ])("preserves structured JSON condition $expected with variant precedence", async ({ variant, product, expected }) => {
+    const json = { ...productJson, ...product, variants: [{ ...productJson.variants[0]!, ...variant }] };
+    const inspector = createShopifySelectedProductInspector({ fetchProduct: async url => ({ finalUrl: url, response: Response.json(json) }) });
+    expect((await inspector.inspect({ ...selected, condition: "NEW" }, {})).variants[0]?.condition).toBe(expected);
+  });
+
+  it.each(["Product", "ProductGroup"])("preserves %s offer itemCondition before inheriting old NEW", async type => {
+    const offer = { price: 248, priceCurrency: "USD", availability: "https://schema.org/InStock",
+      url: selected.merchantUrl, itemCondition: "https://schema.org/RefurbishedCondition" };
+    const document = { "@type": type, name: selected.title, itemCondition: "https://schema.org/NewCondition",
+      ...(type === "Product" ? { offers: offer } : { hasVariant: [{ name: selected.title, offers: offer }] }) };
+    const inspector = createShopifySelectedProductInspector({ fetchProduct: async url => ({ finalUrl: url,
+      response: url.endsWith(".js") ? new Response("missing", { status: 404 })
+        : new Response(`<script type="application/ld+json">${JSON.stringify(document)}</script>`) }) });
+    expect((await inspector.inspect({ ...selected, condition: "NEW" }, {})).variants[0]?.condition).toBe("REFURBISHED");
+  });
+
+  it.each(["Used", "Refurbished", "Open Box"])("does not inherit NEW for a %s sibling", async condition => {
+    const json = { ...productJson, options: [{ name: "Condition", position: 1, values: ["New", condition] }],
+      variants: productJson.variants.map((variant, index) => ({ ...variant,
+        title: index ? condition : "New", options: [index ? condition : "New"] })) };
+    const inspector = createShopifySelectedProductInspector({ fetchProduct: async url => ({ finalUrl: url, response: Response.json(json) }) });
+    const result = await inspector.inspect({ ...selected, condition: "NEW" }, { Condition: condition });
+    expect(result.variants[0]?.condition).toBe(condition === "Used" ? "USED" : condition === "Refurbished" ? "REFURBISHED" : "OPEN_BOX");
+  });
+
+  it("does not inherit known condition for an unproven sibling", async () => {
+    const inspector = createShopifySelectedProductInspector({ fetchProduct: async url => ({ finalUrl: url, response: Response.json(productJson) }) });
+    expect((await inspector.inspect({ ...selected, condition: "NEW" }, { Size: "S" })).variants[0]?.condition).toBe("UNKNOWN");
+  });
+
+  it("rejects stale NEW evidence when the same variant is now explicitly Used", async () => {
+    const json = { ...productJson, options: [{ name: "Condition", position: 1, values: ["Used"] }],
+      variants: [{ ...productJson.variants[0]!, title: "Used", options: ["Used"] }] };
+    const inspector = createShopifySelectedProductInspector({ fetchProduct: async url => ({ finalUrl: url, response: Response.json(json) }) });
+    expect((await inspector.inspect({ ...selected, condition: "NEW" }, {})).variants[0]).toMatchObject({
+      handle: selected.handle, condition: "USED"
+    });
+  });
+
+  it("recovers missing brand only from the exact product JSON vendor", async () => {
+    const { brand: _brand, ...withoutBrand } = selected;
+    const inspector = createShopifySelectedProductInspector({ fetchProduct: async url => ({
+      response: Response.json(productJson), finalUrl: url
+    }) });
+    const result = await inspector.inspect(withoutBrand, {});
+    expect(result.variants[0]).toMatchObject({ brand: "DÔEN", handle: selected.handle,
+      merchantTrust: selected.merchantTrust, itemPrice: selected.itemPrice });
+  });
+
+  it("retains a conflicting document vendor instead of inventing the requested brand", async () => {
+    const inspector = createShopifySelectedProductInspector({ fetchProduct: async url => ({
+      response: Response.json({ ...productJson, vendor: "Another Brand" }), finalUrl: url
+    }) });
+    expect((await inspector.inspect(selected, {})).variants[0]?.brand).toBe("Another Brand");
+  });
+
+  it("recovers structured brand and color from the identity-bound JSON-LD fallback", async () => {
+    const { brand: _brand, ...withoutBrand } = selected;
+    const canonical = selected.merchantUrl.split("?")[0]!;
+    const document = { "@type": "Product", name: selected.title, brand: { "@type": "Brand", name: "DÔEN" }, color: "Black",
+      offers: { "@type": "Offer", price: 248, priceCurrency: "USD", availability: "https://schema.org/InStock",
+        url: `${canonical}?variant=${selected.handle}` } };
+    const inspector = createShopifySelectedProductInspector({ fetchProduct: async url => ({ finalUrl: url,
+      response: url.endsWith(".js") ? new Response("missing", { status: 404 })
+        : new Response(`<script type="application/ld+json">${JSON.stringify(document)}</script>`)
+    }) });
+    expect((await inspector.inspect(withoutBrand, {})).variants[0]).toMatchObject({
+      brand: "DÔEN", variantDimensions: { Color: "Black" }, handle: selected.handle
+    });
+  });
+
   it("selects the required US shoe size using merchant evidence and drops old variant facts", async () => {
     const shoeJson = { ...productJson, description: "US shoe sizes", options: [{ name: "Size", position: 1, values: ["5", "7"] }],
       variants: productJson.variants.map((variant, i) => ({ ...variant, sku: null, barcode: i ? "123456789012" : null, title: i ? "7" : "5", options: [i ? "7" : "5"], price: i ? 6500 : 5000 })) };

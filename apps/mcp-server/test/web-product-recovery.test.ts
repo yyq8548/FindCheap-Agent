@@ -200,7 +200,7 @@ describe("bounded web recovery safety", () => {
   });
 });
 
-async function connect(consent: boolean | undefined) {
+async function connect(consent: boolean | undefined, responseLocale = "zh-CN") {
   const read = vi.fn(async (value: string) => ({ ...webProduct(), sourceHost: new URL(value).hostname,
     merchantUrl: value, merchantId: `web-${new URL(value).hostname}`, merchant: new URL(value).hostname }));
   const search = vi.fn(async () => searchResult([product({ title: "Daily shampoo", productType: "shampoo", description: "Gentle cleansing." })]));
@@ -212,7 +212,7 @@ async function connect(consent: boolean | undefined) {
   if (consent !== undefined) client.setRequestHandler(ElicitRequestSchema, approve);
   const [a, b] = InMemoryTransport.createLinkedPair();
   await Promise.all([server.connect(b), client.connect(a)]);
-  const initial = await client.callTool({ name: "search_products", arguments: request });
+  const initial = await client.callTool({ name: "search_products", arguments: { ...request, responseLocale } });
   return { client, read, search, approve, parent: initial.structuredContent as ProductCardContent,
     close: async () => { await client.close(); await server.close(); } };
 }
@@ -241,8 +241,38 @@ describe("MCP recovery contract", () => {
     const replay = await connect(consent);
     try {
       const result = await replay.client.callTool({ name: "begin_web_search", arguments: { renderId: replay.parent.renderId } });
-      expect(result.structuredContent).toMatchObject({ status: consent === undefined ? "PERMISSION_UNAVAILABLE" : "PERMISSION_DENIED", retryable: false });
+      expect(result.structuredContent).toMatchObject({ status: consent === undefined ? "PERMISSION_UNAVAILABLE" : "PERMISSION_DENIED", retryable: false,
+        diagnostics: { formSupported: consent !== undefined, hostAction: consent === undefined ? "NOT_REQUESTED" : "ACCEPT_FALSE" } });
+      expect(result.structuredContent).not.toHaveProperty("webSessionId");
+      expect(result.structuredContent).not.toHaveProperty("queries");
       expect(replay.read).not.toHaveBeenCalled();
+    } finally { await replay.close(); }
+  });
+  it.each([
+    ["zh-CN", "无法确认授权表单是否显示"],
+    ["en-US", "cannot confirm whether the authorization form was displayed"]
+  ])("reports SDK decline without inventing visible user interaction: %s", async (locale, limitation) => {
+    const replay = await connect(true, locale);
+    try {
+      replay.approve.mockResolvedValueOnce({ action: "decline" });
+      const args = { name: "begin_web_search", arguments: { renderId: replay.parent.renderId } };
+      const denied = await replay.client.callTool(args);
+      expect(denied.structuredContent).toMatchObject({ status: "PERMISSION_DENIED", retryable: false, attempt: 1,
+        diagnostics: { formSupported: true, hostAction: "DECLINE" } });
+      expect(denied.structuredContent).not.toHaveProperty("webSessionId");
+      expect(denied.structuredContent).not.toHaveProperty("queries");
+      const repeated = await replay.client.callTool(args);
+      expect(repeated.structuredContent).toMatchObject({ status: "PERMISSION_DENIED", retryable: false, attempt: 1,
+        diagnostics: { hostAction: "NOT_REQUESTED" } });
+      expect(repeated.structuredContent).not.toHaveProperty("webSessionId");
+      const forged = await replay.client.callTool({ name: "complete_web_search", arguments: {
+        renderId: replay.parent.renderId, webSessionId: "d7096284-c555-4a4c-8115-408101164000", urls: [url]
+      } });
+      expect(forged.isError).toBe(true);
+      expect(replay.approve).toHaveBeenCalledTimes(1);
+      expect(replay.read).not.toHaveBeenCalled();
+      expect(JSON.stringify(denied.content)).toContain(limitation);
+      expect(denied.structuredContent).toMatchObject({ message: expect.stringContaining(limitation) });
     } finally { await replay.close(); }
   });
   it("round-trips URLs into new native cards while preserving old references", async () => {
@@ -292,8 +322,16 @@ describe("MCP recovery contract", () => {
     const replay = await connect(true);
     try {
       replay.approve.mockResolvedValueOnce({ action: "cancel" });
-      const result = await replay.client.callTool({ name: "begin_web_search", arguments: { renderId: replay.parent.renderId } });
-      expect(result.structuredContent).toMatchObject({ status: "PERMISSION_CANCELLED", retryable: false });
+      const args = { name: "begin_web_search", arguments: { renderId: replay.parent.renderId } };
+      const result = await replay.client.callTool(args);
+      expect(result.structuredContent).toMatchObject({ status: "PERMISSION_CANCELLED", retryable: false, attempt: 1,
+        diagnostics: { formSupported: true, hostAction: "CANCEL" } });
+      expect(result.structuredContent).not.toHaveProperty("webSessionId");
+      expect(result.structuredContent).not.toHaveProperty("queries");
+      const repeated = await replay.client.callTool(args);
+      expect(repeated.structuredContent).toMatchObject({ status: "PERMISSION_CANCELLED", retryable: false, attempt: 1,
+        diagnostics: { hostAction: "NOT_REQUESTED" } });
+      expect(replay.approve).toHaveBeenCalledTimes(1);
       expect(replay.read).not.toHaveBeenCalled();
     } finally { await replay.close(); }
   });

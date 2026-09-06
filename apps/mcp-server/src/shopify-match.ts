@@ -5,6 +5,7 @@ export type ShopifyMatchCandidate = {
   description?: string;
   brand?: string;
   sku?: string;
+  mpn?: string;
   handle?: string;
   gtins?: readonly string[];
   productType?: string;
@@ -164,7 +165,7 @@ export function classifyShopifyCandidate(
   if (hasPetFoodSpeciesConflict(queryTokens, candidateTokens)) {
     return irrelevant("requested pet-food species does not match");
   }
-  const candidateIdentifiers = [candidate.sku, candidate.handle]
+  const candidateIdentifiers = [candidate.mpn, candidate.sku, candidate.handle]
     .filter((value): value is string => value !== undefined)
     .map(compact)
     .filter((value) => value !== "");
@@ -182,6 +183,7 @@ export function classifyShopifyCandidate(
     candidate.productType,
     candidate.brand,
     candidate.sku,
+    candidate.mpn,
     candidate.handle
   ].filter((value): value is string => value !== undefined).join(" ")));
   if (isUnrequestedWigAccessory(queryTokens, candidate.title)) {
@@ -237,7 +239,7 @@ export function classifyShopifyCandidate(
   const brandExact = brandTokens.length > 0 && brandTokens.every((token) => queryTokens.includes(token));
   const modelQueryTokens = required
     .filter((token) => !brandTokens.includes(token) && !requestedVariantTerms.has(token) && !CONDITION_TERMS.has(token));
-  const candidateMpn = compact(candidate.sku ?? "");
+  const candidateMpn = compact(candidate.mpn ?? candidate.sku ?? "");
   const brandMpnExact = (namedIdentity === undefined || hasStrongProductIdentifier(query)) && brandExact && candidateMpn !== "" && containsContiguousIdentity(modelQueryTokens, candidateMpn);
   const evidence = [
     ...(category === undefined ? [] : ["product category exact"]),
@@ -273,6 +275,7 @@ function candidateText(candidate: ShopifyMatchCandidate): string {
     candidate.description,
     candidate.brand,
     candidate.sku,
+    candidate.mpn,
     candidate.handle,
     candidate.productType,
     ...(candidate.tags ?? []),

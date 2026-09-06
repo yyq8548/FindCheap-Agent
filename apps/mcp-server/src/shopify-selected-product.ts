@@ -1,6 +1,6 @@
 import { safeFetchWithProvenance } from "../../../packages/network-safety/src/safe-fetch.js";
 import type { ShopifyProduct } from "./shopify-client.js";
-import { parseOfficialStructuredProduct } from "./shopify-official-store-search.js";
+import { parseOfficialStructuredProduct, type OfficialStructuredProduct } from "./shopify-official-store-search.js";
 import { ShopifyProductJsonSchema, shopifyVariantDimensions } from "./shopify-product-json.js";
 import { evaluateProductRequirements, sizeEvidence } from "./product-requirements.js";
 
@@ -60,17 +60,17 @@ export function createShopifySelectedProductInspector(
         }
         // /products/*.js may omit currency. Never relabel a local-market price as
         // USD: accept explicit USD, or the exact page's USD offer for that variant.
-        const usdOffers = new Map<string, number>();
+        const usdOffers = new Map<string, OfficialStructuredProduct["variants"][number]>();
         if (product.currency === undefined && product.priceCurrency === undefined) {
           try {
             const page = await fetchProduct(target.canonicalProductUrl, target.sourceHost, options?.signal);
             if (page.response.ok && canonicalHref(page.finalUrl) === canonicalHref(target.canonicalProductUrl)) {
               const details = parseOfficialStructuredProduct(await page.response.text(), target.sourceHost, target.productHandle);
-              for (const variant of details.variants) usdOffers.set(variant.variantId, variant.amountCents);
+              for (const variant of details.variants) usdOffers.set(variant.variantId, variant);
             }
           } catch { options?.signal?.throwIfAborted(); }
         }
-        const { sku: _oldSku, gtins: _oldGtins, cartQuote: _oldQuote, itemPrice: _oldPrice,
+        const { sku: _oldSku, mpn: _oldMpn, gtins: _oldGtins, cartQuote: _oldQuote, itemPrice: _oldPrice,
           availableSizes: _oldSizes, imageUrl: _oldImage, ...baseProduct } = selected;
         const variants = product.variants
           .map((variant) => ({ variant, dimensions: shopifyVariantDimensions(product.options, variant) }))
@@ -79,6 +79,10 @@ export function createShopifySelectedProductInspector(
             : variant.id === selected.handle)
           .map(({ variant, dimensions }): ShopifyProduct => ({
             ...baseProduct,
+            ...(product.vendor?.trim() ? { brand: product.vendor.trim() } : {}),
+            condition: inspectedCondition(`${product.title} ${variant.title} ${usdOffers.get(variant.id)?.title ?? ""}`,
+              dimensions, variant.id, selected,
+              [...conditionFields(variant), ...(usdOffers.get(variant.id)?.conditionEvidence ?? [])], conditionFields(product)),
             handle: variant.id,
             gtins: typeof variant.barcode === "string" && /^(?:\d{8}|\d{12,14})$/u.test(variant.barcode) ? [variant.barcode] : [],
             title: variant.title === "Default Title"
@@ -93,7 +97,7 @@ export function createShopifySelectedProductInspector(
             ...variantImage(selected, dimensions, variant.featured_image),
             ...((product.currency === "USD" || product.priceCurrency === "USD")
               ? { itemPrice: { amountCents: variant.price, currency: "USD" as const } }
-              : usdOffers.has(variant.id) ? { itemPrice: { amountCents: usdOffers.get(variant.id)!, currency: "USD" as const } } : {}),
+              : usdOffers.has(variant.id) ? { itemPrice: { amountCents: usdOffers.get(variant.id)!.amountCents, currency: "USD" as const } } : {}),
             availabilityScope: "SELECTED_VARIANT",
             availability: variant.available ? "IN_STOCK" : "OUT_OF_STOCK",
             merchantUrl: `${target.canonicalProductUrl}?variant=${variant.id}`,
@@ -116,18 +120,22 @@ export function createShopifySelectedProductInspector(
       if (!product.variants.some((variant) => variant.variantId === selected.handle)) {
         throw new Error("selected variant identity was not present");
       }
-      const { sku: _oldSku, gtins: _oldGtins, cartQuote: _oldQuote, itemPrice: _oldPrice,
+      const { sku: _oldSku, mpn: _oldMpn, gtins: _oldGtins, cartQuote: _oldQuote, itemPrice: _oldPrice,
         availableSizes: _oldSizes, imageUrl: _oldImage, ...baseProduct } = selected;
       const variants = product.variants
         .map((variant) => ({
           variant,
-          dimensions: variant.size === undefined ? {} : { Size: variant.size }
+          dimensions: { ...(variant.size === undefined ? {} : { Size: variant.size }),
+            ...(variant.color === undefined ? {} : { Color: variant.color }) }
         }))
         .filter(({ variant, dimensions }) => options?.requirements !== undefined || hasRequestedDimensions
           ? matchesDimensions(dimensions, requestedVariantDimensions)
           : variant.variantId === selected.handle)
         .map(({ variant, dimensions }): ShopifyProduct => ({
           ...baseProduct,
+          ...(product.brand?.trim() ? { brand: product.brand.trim() } : {}),
+          condition: inspectedCondition(`${product.title} ${variant.title}`, dimensions, variant.variantId, selected,
+            variant.conditionEvidence),
           handle: variant.variantId,
           title: variant.title,
           ...(variant.sku === undefined ? {} : { sku: variant.sku }),
@@ -150,6 +158,30 @@ function meetsRequirements(product: ShopifyProduct, options: InspectionOptions |
   return options?.requirements === undefined || evaluateProductRequirements(product, {
     ...options.requirements, excludedFeatures: [], preferences: []
   }).assessment.status === "SATISFIED";
+}
+
+function conditionFields(record: Record<string, unknown>): unknown[] {
+  return [record.condition, record.itemCondition].filter(value => value !== undefined);
+}
+
+function inspectedCondition(title: string, dimensions: Record<string, string>, variantId: string,
+  selected: ShopifyProduct, variantEvidence: readonly unknown[] = [], productEvidence: readonly unknown[] = []): ShopifyProduct["condition"] {
+  const variantLabels = [...Object.entries(dimensions).filter(([key]) => /\bcondition\b/iu.test(key)).map(([, value]) => value),
+    ...variantEvidence];
+  const labels = (variantLabels.length ? variantLabels : productEvidence).map(value =>
+    typeof value === "string" && value.length <= 300
+      ? value.trim().replace(/^(?:https?:\/\/schema\.org\/)?(New|Used|Refurbished|Damaged)Condition$/iu, "$1")
+      : "UNKNOWN");
+  const text = [...labels, title].join(" ").normalize("NFKC").toLowerCase().replaceAll("_", " ");
+  // Explicit document conflicts win even for the original variant. Positive
+  // NEW needs a condition label, not a product name such as New Balance.
+  if (/\b(?:damaged|defective|for parts|parts only)\b/u.test(text)) return "UNKNOWN";
+  if (/\bcondition\s*[:=-]?\s*(?:unknown|unspecified)\b/u.test(text)) return "UNKNOWN";
+  if (/\bopen[\s-]*box\b/u.test(text)) return "OPEN_BOX";
+  if (/\b(?:refurbished|renewed|reconditioned)\b/u.test(text)) return "REFURBISHED";
+  if (/\b(?:used|pre[\s-]*owned|second[\s-]*hand|resale|like new)\b/u.test(text)) return "USED";
+  if (labels.length) return labels.every(value => /^(?:brand[\s-]*)?new$/iu.test(value)) ? "NEW" : "UNKNOWN";
+  return variantId === selected.handle ? selected.condition : "UNKNOWN";
 }
 
 function variantImage(selected: ShopifyProduct, dimensions: Record<string, string>, image: unknown): { imageUrl?: string } {

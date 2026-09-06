@@ -4823,6 +4823,11 @@
           "kind": "import-statement",
           "original": "./generic-official-store-search.js",
           "path": "src/generic-official-store-search.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./sony-official-store-search.js",
+          "path": "src/sony-official-store-search.ts"
         }
       ]
     },
@@ -4858,6 +4863,36 @@
           "kind": "import-statement",
           "original": "./product-requirements.js",
           "path": "src/product-requirements.ts"
+        }
+      ]
+    },
+    "src/sony-official-store-search.ts": {
+      "format": "esm",
+      "imports": [
+        {
+          "kind": "import-statement",
+          "original": "zod",
+          "path": "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/index.js"
+        },
+        {
+          "kind": "import-statement",
+          "original": "../../../packages/network-safety/src/safe-fetch.js",
+          "path": "../../packages/network-safety/src/safe-fetch.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./merchant-trust.js",
+          "path": "src/merchant-trust.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./product-constraint-matcher.js",
+          "path": "src/product-constraint-matcher.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./shopify-match.js",
+          "path": "src/shopify-match.ts"
         }
       ]
     },
@@ -5179,7 +5214,7 @@
   },
   "outputs": {
     "../../plugins/findcheap-agent/dist/mcp-server.js": {
-      "bytes": 966787,
+      "bytes": 979176,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
@@ -5362,10 +5397,10 @@
           "bytesInOutput": 195
         },
         "../../node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/server/index.js": {
-          "bytesInOutput": 8042
+          "bytesInOutput": 8036
         },
         "../../node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/server/mcp.js": {
-          "bytesInOutput": 14812
+          "bytesInOutput": 14794
         },
         "../../node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/server/stdio.js": {
           "bytesInOutput": 1028
@@ -5377,7 +5412,7 @@
           "bytesInOutput": 574
         },
         "../../node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/shared/protocol.js": {
-          "bytesInOutput": 16095
+          "bytesInOutput": 16065
         },
         "../../node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/shared/stdio.js": {
           "bytesInOutput": 638
@@ -5386,7 +5421,7 @@
           "bytesInOutput": 1536
         },
         "../../node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/types.js": {
-          "bytesInOutput": 12541
+          "bytesInOutput": 12539
         },
         "../../node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/validation/ajv-provider.js": {
           "bytesInOutput": 450
@@ -5455,7 +5490,7 @@
           "bytesInOutput": 1980
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/core.js": {
-          "bytesInOutput": 12297
+          "bytesInOutput": 12299
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/refs/data.json": {
           "bytesInOutput": 358
@@ -5827,7 +5862,7 @@
           "bytesInOutput": 4078
         },
         "../../packages/contracts/src/official-storefront.ts": {
-          "bytesInOutput": 2145
+          "bytesInOutput": 2432
         },
         "../../packages/network-safety/src/safe-fetch.ts": {
           "bytesInOutput": 8344
@@ -5884,13 +5919,13 @@
           "bytesInOutput": 7857
         },
         "src/generic-official-store-search.ts": {
-          "bytesInOutput": 15814
+          "bytesInOutput": 15816
         },
         "src/merchant-trust-registry-client.ts": {
           "bytesInOutput": 1367
         },
         "src/merchant-trust.ts": {
-          "bytesInOutput": 9659
+          "bytesInOutput": 9792
         },
         "src/named-product-identity.ts": {
           "bytesInOutput": 940
@@ -5905,7 +5940,7 @@
           "bytesInOutput": 814
         },
         "src/product-card-ui.ts": {
-          "bytesInOutput": 75983
+          "bytesInOutput": 76023
         },
         "src/product-comparison-ui.ts": {
           "bytesInOutput": 28859
@@ -5947,7 +5982,7 @@
           "bytesInOutput": 3148
         },
         "src/search-products.ts": {
-          "bytesInOutput": 40114
+          "bytesInOutput": 39773
         },
         "src/search-requirements-context.ts": {
           "bytesInOutput": 4694
@@ -5956,7 +5991,7 @@
           "bytesInOutput": 6382
         },
         "src/server.ts": {
-          "bytesInOutput": 168009
+          "bytesInOutput": 168420
         },
         "src/shopify-cart-quote.ts": {
           "bytesInOutput": 12431
@@ -5965,19 +6000,22 @@
           "bytesInOutput": 181
         },
         "src/shopify-global-catalog-client.ts": {
-          "bytesInOutput": 22425
+          "bytesInOutput": 22434
         },
         "src/shopify-match.ts": {
-          "bytesInOutput": 10880
+          "bytesInOutput": 10909
         },
         "src/shopify-official-store-search.ts": {
-          "bytesInOutput": 14141
+          "bytesInOutput": 14636
         },
         "src/shopify-product-json.ts": {
           "bytesInOutput": 1432
         },
         "src/shopify-selected-product.ts": {
-          "bytesInOutput": 4658
+          "bytesInOutput": 5907
+        },
+        "src/sony-official-store-search.ts": {
+          "bytesInOutput": 10130
         },
         "src/source-failure.ts": {
           "bytesInOutput": 1625
@@ -6013,7 +6051,7 @@
           "bytesInOutput": 11137
         },
         "src/web-product-recovery.ts": {
-          "bytesInOutput": 5298
+          "bytesInOutput": 5297
         }
       }
     }

@@ -228,7 +228,9 @@ describe("FindCheap Agent plugin contract", () => {
     const skill = (await readFile(chromeReferencePath, "utf8")).replace(/\s+/gu, " ");
     for (const term of [
       "recovery.action=REQUEST_WEB_SEARCH", "RESEARCH_ONLY", "begin_web_search",
-      "Host elicitation obtains explicit user consent", "Open Chrome only for READY",
+      "Request explicit user consent through host elicitation", "Open Chrome only for READY",
+      "Never promise a popup", "a host decline does not establish whether the user interacted",
+      "Do not claim a plugin update fixed the host popup", "repackage a declined request",
       "PERMISSION_UNAVAILABLE", "No third search", "60 seconds after approval",
       "at most 5 direct HTTPS merchant product URLs", "Do not open merchant pages in Chrome",
       "complete_web_search", "webSessionId", "Server reads at most 5 pages",
@@ -248,7 +250,7 @@ describe("FindCheap Agent plugin contract", () => {
     };
 
     expect(manifest.name).toBe("findcheap-agent");
-    expect(manifest.version).toMatch(/^0\.17\.24(?:\+codex\.)?/u);
+    expect(manifest.version).toMatch(/^0\.17\.25(?:\+codex\.)?/u);
     expect(manifest.interface.displayName).toBe("FindCheap Agent");
     expect(manifest.interface.longDescription).toMatch(/Codex Plugin Agent/u);
     expect(manifest.interface.longDescription).toMatch(/[Aa]uthorized.*Chrome/u);

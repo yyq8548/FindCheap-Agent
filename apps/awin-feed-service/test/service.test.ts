@@ -410,7 +410,7 @@ describe("Awin Feed service", () => {
       const registry = await fetch(`${origin}/v1/official-storefronts`);
       expect(registry.status).toBe(200);
       expect(await registry.json()).toMatchObject({
-        version: "official-storefronts-2026-08-28",
+        version: "official-storefronts-2026-09-06",
         stores: expect.arrayContaining([expect.objectContaining({
           brand: "Free People",
           officialHost: "freepeople.com",

@@ -6,7 +6,7 @@ import {
 } from "../../../packages/contracts/src/index.js";
 
 export const DEFAULT_OFFICIAL_STOREFRONT_REGISTRY: OfficialStorefrontRegistry = OfficialStorefrontRegistrySchema.parse({
-  version: "official-storefronts-2026-08-28",
+  version: "official-storefronts-2026-09-06",
   stores: [
     shopify("DÔEN", [], "shopdoen.com", "www.shopdoen.com", "https://www.shopdoen.com/", "2026-08-20"),
     shopify("SKIMS", ["NikeSKIMS"], "skims.com", undefined, "https://skims.com/", "2026-08-27"),
@@ -30,6 +30,11 @@ export const DEFAULT_OFFICIAL_STOREFRONT_REGISTRY: OfficialStorefrontRegistry = 
       evidenceUrl: "https://www.freepeople.com/",
       reviewedAt: "2026-08-28",
       status: "APPROVED"
+    },
+    {
+      brand: "Sony", aliases: [], officialHost: "electronics.sony.com", platform: "SONY_OCC",
+      productPathPrefixes: ["/audio/"], imageHosts: ["d1ncau8tqf99kp.cloudfront.net"],
+      evidenceUrl: "https://electronics.sony.com/", reviewedAt: "2026-09-06", status: "APPROVED"
     }
   ]
 });
