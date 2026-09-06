@@ -19,6 +19,9 @@ export const VisualProductInputSchema = z.object({
   imageUrl: HttpsEvidenceUrlSchema.optional(),
   sourcePageUrl: HttpsEvidenceUrlSchema.optional(),
   productType: VisualTextSchema.optional(),
+  categoryCandidates: z.array(VisualTextSchema).min(2).max(3).optional().describe(
+    "Decision-critical ambiguity between product families visible in the image; clarify before retrieval, then omit after user confirmation."
+  ),
   brand: VisualTextSchema.optional(),
   suspectedProductName: VisualTextSchema.optional().describe(
     "User-stated or high-confidence suspected product name used only as an exact retrieval hint; never stable identity proof"

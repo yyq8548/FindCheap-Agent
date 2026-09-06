@@ -120,6 +120,7 @@ export function createShopifySelectedProductInspector(
       if (!product.variants.some((variant) => variant.variantId === selected.handle)) {
         throw new Error("selected variant identity was not present");
       }
+      const description = (product.description ?? selected.description ?? "").replace(/<[^>]*>/gu, " ");
       const { sku: _oldSku, mpn: _oldMpn, gtins: _oldGtins, cartQuote: _oldQuote, itemPrice: _oldPrice,
         availableSizes: _oldSizes, imageUrl: _oldImage, ...baseProduct } = selected;
       const variants = product.variants
@@ -134,6 +135,8 @@ export function createShopifySelectedProductInspector(
         .map(({ variant, dimensions }): ShopifyProduct => ({
           ...baseProduct,
           ...(product.brand?.trim() ? { brand: product.brand.trim() } : {}),
+          // Keep complete bounded evidence, never a prefix hiding a later conflict.
+          description: description.length <= 6000 ? description : "",
           condition: inspectedCondition(`${product.title} ${variant.title}`, dimensions, variant.variantId, selected,
             variant.conditionEvidence),
           handle: variant.variantId,

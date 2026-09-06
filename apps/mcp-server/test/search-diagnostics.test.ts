@@ -4,6 +4,35 @@ import { SearchRun, SearchBudgetError, SearchReadTimeoutError } from "../src/sea
 import type { UnifiedSearchExecution } from "../src/search-products.js";
 
 describe("search outcome telemetry", () => {
+  it("labels current retrieval and image batches separately from cumulative visual review and final cards", () => {
+    const run = new SearchRun();
+    run.recordVisualStage("REVIEW_ACCEPTED", [{ productHash: "a".repeat(64) }], { round: 1 });
+    run.recordVisualStage("REVIEW_CONFLICT", [{ productHash: "b".repeat(64) }], { round: 2 });
+    run.recordVisualStage("FINAL", [{ productHash: "a".repeat(64) }], { round: 2 });
+    const execution = executionFor(run);
+    execution.candidateFunnel = { sourceObservations: 0, sourceUnique: 0, previousRechecked: 0, previousRetained: 0,
+      eligibleUnique: 0, requirementsMatchedUnique: 0, recommendableUnique: 0, presentedUnique: 0 };
+    const result = searchDiagnostics(execution, "MATCH_FOUND", {
+      imageAttempts: 0, imagesLoaded: 0, reviewed: 2, reviewConflicts: 1, reviewInsufficient: 0, returned: 1
+    });
+    expect(result).toMatchObject({ officialStore: { productsReturned: 0 }, candidateFunnel: { presentedUnique: 0 },
+      reviewed: 2, reviewConflicts: 1, returned: 1, diagnosticScopes: {
+        officialStore: "CURRENT_RETRIEVAL", candidateFunnel: "CURRENT_RETRIEVAL", visualFunnel: "SEARCH_FLOW_EVENTS",
+        imageAttempts: "CURRENT_IMAGE_LOAD", imagesLoaded: "CURRENT_IMAGE_LOAD",
+        reviewed: "VISUAL_FLOW", reviewConflicts: "VISUAL_FLOW", reviewInsufficient: "VISUAL_FLOW", returned: "CURRENT_RESPONSE"
+      } });
+    expect(JSON.stringify(result)).not.toContain("PRIVATE");
+  });
+
+  it("does not invent missing diagnostic counts or visual scopes for ordinary retrieval", () => {
+    const result = searchDiagnostics(executionFor(new SearchRun()), "NO_CANDIDATES");
+    expect(result).toMatchObject({ diagnosticScopes: { officialStore: "CURRENT_RETRIEVAL" } });
+    expect(result).not.toHaveProperty("diagnosticScopes.visualFunnel");
+    expect(result).not.toHaveProperty("diagnosticScopes.reviewed");
+    expect(result).not.toHaveProperty("diagnosticScopes.imagesLoaded");
+    expect(result).not.toHaveProperty("diagnosticScopes.returned");
+  });
+
   it("reports a separately exhausted web lease without claiming the catalog budget was spent", () => {
     expect(searchDiagnostics(executionFor(new SearchRun()), "BUDGET_EXHAUSTED")).toMatchObject({
       outcome: "BUDGET_EXHAUSTED", termination: "BUDGET_EXHAUSTED", budgetExhausted: false

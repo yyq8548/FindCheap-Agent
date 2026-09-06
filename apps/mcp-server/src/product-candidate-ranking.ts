@@ -228,6 +228,16 @@ export function countRecommendationEligibleCandidates(candidates: UnifiedCandida
   return new Set(candidates.filter(candidate => candidateRanking(candidate, evaluatedAtMs).primaryEligible).map(candidateKey)).size;
 }
 
+/** Count qualified source domains, not variants, merchant labels or research leads. */
+export function countComparableMerchants(candidates: UnifiedCandidate[]): number {
+  const evaluatedAtMs = Date.now();
+  return new Set(candidates.filter(candidate => candidate.identityStatus !== "SIMILAR" &&
+    candidateRanking(candidate, evaluatedAtMs).primaryEligible).map(candidate => {
+      const product = candidate.awinProduct ?? candidate.shopifyProduct ?? candidate.ebayProduct;
+      return new URL(product!.merchantUrl).hostname.toLowerCase().replace(/^www\./u, "");
+    })).size;
+}
+
 export function compareLowestPrice(left: UnifiedCandidate, right: UnifiedCandidate, evaluatedAtMs = Date.now()): number {
   if (left.visualReviewAssessment !== undefined || right.visualReviewAssessment !== undefined) {
     return compareRankingAssessments(candidateRanking(left, evaluatedAtMs), candidateRanking(right, evaluatedAtMs));

@@ -2,6 +2,7 @@ import {
   normalizeVisualEvidence,
   relaxVisualProductInput,
   visualOfficialStoreSearchQueries,
+  VisualProductInputSchema,
   type VisualProductInput
 } from "./visual-product-discovery.js";
 
@@ -17,7 +18,17 @@ export function buildVisualRetrievalQuery(
   const evidence = normalizeVisualEvidence(normalized);
   const structure = evidence.filter((entry) => !["COLOR", "LENGTH", "PRODUCT_TYPE", "PATTERN", "PRINT"].includes(entry.attribute));
   // A second pass simplifies descriptive detail, not the product family or color/length.
-  if (options.relaxed === true && structure.length > 1) normalized.distinctiveDetails = [structure[0]!.value];
+  if (options.relaxed === true && structure.length > 1) {
+    // An unrecognized first phrase must not erase a later searchable structure.
+    // Probe without palette or pattern, which otherwise could mask that loss.
+    const categoryInput = VisualProductInputSchema.parse({ productType: normalized.productType });
+    const categoryQueries = new Set(visualOfficialStoreSearchQueries(categoryInput).map((query) => query.query));
+    const searchable = structure.find((entry) => {
+      const probe = visualOfficialStoreSearchQueries({ ...categoryInput, distinctiveDetails: [entry.value] });
+      return probe.some((query) => !categoryQueries.has(query.query));
+    });
+    normalized.distinctiveDetails = [(searchable ?? structure[0]!).value];
+  }
   const queries = visualOfficialStoreSearchQueries(normalized);
   const core = queries.find((entry) => entry.stage === "CORE")?.query ?? queries[0]?.query ?? normalized.productType ?? "";
   const category = queries.find((entry) => entry.stage === "CATEGORY")?.query;

@@ -60,6 +60,31 @@ const productJson = {
 };
 
 describe("selected Shopify product inspection", () => {
+  it.each([
+    ["positive product claims", "This shampoo hydrates hair and smooths frizz.", "", 1],
+    ["fresh contrary evidence", "This shampoo does not hydrate hair and does not control frizz.", "This shampoo hydrates hair and smooths frizz.", 0],
+    ["other product claims", "Our matching conditioner hydrates hair and smooths frizz. This shampoo cleanses.", "", 0],
+    ["oversized description", `This shampoo hydrates hair and smooths frizz. ${"General information. ".repeat(400)}This shampoo does not hydrate hair.`,
+      "This shampoo hydrates hair and smooths frizz.", 0]
+  ] as const)("preserves only bounded source-owned functional evidence from JSON-LD: %s", async (_case, description, oldDescription, count) => {
+    const shampoo: ShopifyProduct = { ...selected, title: "Gentle Shampoo", productType: "shampoo",
+      description: oldDescription, merchantTrust: { level: "UNKNOWN", verification: "UNVERIFIED", evidence: [] } };
+    const document = { "@type": "Product", name: shampoo.title, description, offers: {
+      price: 19, priceCurrency: "USD", availability: "https://schema.org/InStock", url: selected.merchantUrl
+    } };
+    const fetchProduct = vi.fn<ProductJsonFetch>(async url => ({ finalUrl: url,
+      response: url.endsWith(".js") ? new Response("missing", { status: 404 })
+        : new Response(`<script type="application/ld+json">${JSON.stringify(document)}</script>`)
+    }));
+    const result = await createShopifySelectedProductInspector({ fetchProduct }).inspect(shampoo, {}, {
+      requirements: { requiredFeatures: ["moisturizing", "anti-frizz"], productType: "shampoo" }
+    });
+    expect(result.variants).toHaveLength(count);
+    expect(fetchProduct).toHaveBeenCalledTimes(2);
+    if (count === 1) expect(result.variants[0]).toMatchObject({ description, handle: selected.handle,
+      merchantTrust: shampoo.merchantTrust, itemPrice: { amountCents: 1900, currency: "USD" } });
+  });
+
   it.each(["Unknown", "Unspecified"])("does not inherit NEW over Condition: %s in the fresh title", async condition => {
     const json = { ...productJson, title: `${productJson.title} Condition: ${condition}` };
     const inspector = createShopifySelectedProductInspector({ fetchProduct: async url => ({ finalUrl: url, response: Response.json(json) }) });

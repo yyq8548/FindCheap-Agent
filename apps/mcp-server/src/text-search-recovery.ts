@@ -1,21 +1,26 @@
 import { z } from "zod";
 import type { UnifiedSearchExecution } from "./search-products.js";
-import { countDisplayEligibleCandidates, countRecommendationEligibleCandidates } from "./product-candidate-ranking.js";
+import { countComparableMerchants, countDisplayEligibleCandidates, countRecommendationEligibleCandidates } from "./product-candidate-ranking.js";
 
 export const TextSearchRecoverySchema = z.object({
   action: z.enum(["NONE", "REQUEST_WEB_SEARCH", "REPORT_UNVERIFIED_MERCHANT", "REPORT_INCOMPLETE"]),
-  reason: z.enum(["MATCH_FOUND", "NO_QUALIFIED_MATCH", "REQUIREMENTS_UNVERIFIED", "MERCHANT_UNVERIFIED", "SOURCE_UNAVAILABLE", "BUDGET_EXHAUSTED"]),
+  reason: z.enum(["MATCH_FOUND", "COMPARISON_INCOMPLETE", "NO_QUALIFIED_MATCH", "REQUIREMENTS_UNVERIFIED", "MERCHANT_UNVERIFIED", "SOURCE_UNAVAILABLE", "BUDGET_EXHAUSTED"]),
+  comparableMerchants: z.number().int().nonnegative().optional(),
   qualified: z.number().int().nonnegative(), recommendable: z.number().int().nonnegative(),
   awaitingVerification: z.number().int().nonnegative()
 }).strict();
 
-export function textSearchRecovery(execution: UnifiedSearchExecution, allowAlternatives = false) {
+export function textSearchRecovery(execution: UnifiedSearchExecution, allowAlternatives = false, compareMerchants = false) {
   const qualified = countDisplayEligibleCandidates(execution.candidates, allowAlternatives);
   const recommendable = countRecommendationEligibleCandidates(execution.candidates);
   const awaitingVerification = execution.candidates.length - qualified;
-  const base = { qualified, recommendable, awaitingVerification };
+  const comparableMerchants = countComparableMerchants(execution.candidates);
+  const base = { qualified, recommendable, awaitingVerification, ...(compareMerchants ? { comparableMerchants } : {}) };
   if (execution.searchRun?.diagnostics().budgetExhausted) return { ...base,
     action: "REPORT_INCOMPLETE" as const, reason: "BUDGET_EXHAUSTED" as const };
+  if (compareMerchants && comparableMerchants < 2) return { ...base,
+    action: execution.chromeFallbackEligible ? "REQUEST_WEB_SEARCH" as const : "REPORT_INCOMPLETE" as const,
+    reason: "COMPARISON_INCOMPLETE" as const };
   // The execution layer independently assesses safe recovery. A transient failed
   // source is incomplete coverage, not a veto on another authorized read-only source.
   if (execution.chromeFallbackEligible) return { ...base, action: "REQUEST_WEB_SEARCH" as const,

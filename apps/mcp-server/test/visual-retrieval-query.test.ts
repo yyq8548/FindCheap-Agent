@@ -44,6 +44,23 @@ describe("shared reliable visual retrieval query", () => {
     }
   });
 
+  it("keeps a searchable structure with the V6 ivory-grey botanical mini dress description in both passes", () => {
+    // Descriptors recorded at local acceptance task 01a076d0 line 209. This is a
+    // query-compilation regression, not a photo identity or live-recall claim.
+    const visual = VisualProductInputSchema.parse({ brand: "Reformation", productType: "dress", observations: [
+      { attribute: "NECKLINE", value: "high shallow rounded neckline", confidence: 0.86, visibility: "VISIBLE" },
+      { attribute: "SLEEVE", value: "very short cap sleeves", confidence: 0.94, visibility: "VISIBLE" },
+      { attribute: "PATTERN", value: "grey botanical floral sprays and pointed leaves on ivory white ground", confidence: 0.98, visibility: "VISIBLE" },
+      { attribute: "COLOR", value: "ivory or silvery white with grey floral pattern", confidence: 0.97, visibility: "VISIBLE" },
+      { attribute: "SILHOUETTE", value: "close fitted sheath through waist and hips", confidence: 0.96, visibility: "VISIBLE" },
+      { attribute: "LENGTH", value: "above-knee mini length", confidence: 0.97, visibility: "VISIBLE" }
+    ] });
+    for (const query of [buildVisualRetrievalQuery(visual), buildVisualRetrievalQuery(relaxVisualProductInput(visual), { relaxed: true })]) {
+      for (const word of ["Reformation", "dress", "ivory", "gray", "mini", "floral"]) expect(query).toContain(word);
+      expect(query).toMatch(/\b(?:high neck|round neck|short sleeve|cap sleeve)\b/u);
+    }
+  });
+
   it("does not bypass a low-confidence observation through a differently worded legacy pattern", () => {
     const visual = VisualProductInputSchema.parse({ productType: "dress", patterns: ["navy plaid"], observations: [
       { attribute: "PATTERN", value: "possibly dark navy checked fabric", confidence: 0.3, visibility: "VISIBLE" }

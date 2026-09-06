@@ -93,8 +93,14 @@ describe("production Cart quote policy", () => {
 
   it("bounds a response body stall and never sends a second mutation", async () => {
     let requestSignal: AbortSignal | undefined;
+    let requestAborted: Promise<void> | undefined;
     const requestImpl = vi.fn((options: RequestOptions, callback: (response: IncomingMessage) => void) => {
       requestSignal = options.signal;
+      const signal = requestSignal;
+      requestAborted = signal === undefined ? undefined : new Promise<void>(resolve => {
+        if (signal.aborted) resolve();
+        else signal.addEventListener("abort", () => resolve(), { once: true });
+      });
       return Object.assign(new EventEmitter(), { end() {
         callback(Object.assign(new EventEmitter(), { statusCode: 200, headers: {
           "content-type": "application/json", "x-shopify-api-version": "2026-07"
@@ -108,6 +114,11 @@ describe("production Cart quote policy", () => {
     const permit = issueQuoteAuthorization([selected], "33433", new AbortController().signal);
     await expect(port.quote(selected, "33433", permit)).rejects.toMatchObject({ code: "QUOTE_TIMEOUT" });
     expect(requestImpl).toHaveBeenCalledTimes(1);
+    expect(requestAborted).toBeDefined();
+    // The body deadline floors remaining milliseconds; its rejection may precede
+    // the original 500 ms abort timer. Observe request cancellation separately.
+    await requestAborted;
     expect(requestSignal?.aborted).toBe(true);
+    expect(requestImpl).toHaveBeenCalledTimes(1);
   });
 });

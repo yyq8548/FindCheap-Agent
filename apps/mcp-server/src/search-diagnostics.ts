@@ -23,6 +23,19 @@ export function searchDiagnostics(execution: UnifiedSearchExecution, outcome: Se
   return {
     version: 1,
     ...run,
+    // A relaxed execution can have zero new offers while retaining reviewed
+    // first-round cards. These scopes do not change the underlying counters.
+    diagnosticScopes: {
+      officialStore: "CURRENT_RETRIEVAL" as const,
+      ...(funnel === undefined ? {} : { candidateFunnel: "CURRENT_RETRIEVAL" as const }),
+      ...(run?.visualFunnel === undefined ? {} : { visualFunnel: "SEARCH_FLOW_EVENTS" as const }),
+      ...(counts.imageAttempts === undefined ? {} : { imageAttempts: "CURRENT_IMAGE_LOAD" as const }),
+      ...(counts.imagesLoaded === undefined ? {} : { imagesLoaded: "CURRENT_IMAGE_LOAD" as const }),
+      ...(counts.reviewed === undefined ? {} : { reviewed: "VISUAL_FLOW" as const }),
+      ...(counts.reviewConflicts === undefined ? {} : { reviewConflicts: "VISUAL_FLOW" as const }),
+      ...(counts.reviewInsufficient === undefined ? {} : { reviewInsufficient: "VISUAL_FLOW" as const }),
+      ...(counts.returned === undefined ? {} : { returned: "CURRENT_RESPONSE" as const })
+    },
     outcome: run?.budgetExhausted === true && outcome !== "MATCH_FOUND" && outcome !== "REVIEW_REQUIRED"
       ? "BUDGET_EXHAUSTED" as const : outcome,
     sources: execution.sourceStatus,

@@ -39,11 +39,13 @@ export class SearchRun {
   readonly #controller = new AbortController();
   #verifiedWaitMs = 0;
   #waitSince: number | undefined;
+  #categoryClarification: { renderId: string; startedAt: number; completedWaitMs?: number } | undefined;
   readonly #reads = new Map<string, Promise<unknown>>();
   readonly #officialQueries = new Set<string>();
   readonly #reviewedProducts = new Set<string>();
   #catalogRequests = 0;
   #imageRequests = 0;
+  #visualReviewRounds = 0;
   #dealRequests = 0;
   #registryRequests = 0;
   #variantRequests = 0;
@@ -69,7 +71,8 @@ export class SearchRun {
   }
 
   remainingServiceMs(): number {
-    return Math.max(0, this.#options.serviceBudgetMs - (this.serviceDuration() - this.verifiedWaitDuration()));
+    return Math.max(0, this.#options.serviceBudgetMs -
+      (this.serviceDuration() - this.verifiedWaitDuration() - this.observedClarificationWaitDuration()));
   }
 
   get signal(): AbortSignal { return this.#controller.signal; }
@@ -78,7 +81,10 @@ export class SearchRun {
 
   /** A request can terminate this flow, but its later lifecycle cannot cancel a completed request. */
   async withRequestSignal<T>(parent: AbortSignal, operation: () => Promise<T>): Promise<T> {
-    const abort = () => this.#controller.abort(new SearchCancelledError());
+    const abort = () => {
+      this.completeCategoryClarificationWait();
+      this.#controller.abort(new SearchCancelledError());
+    };
     if (parent.aborted) abort();
     else parent.addEventListener("abort", abort, { once: true });
     try { return await this.abortable(operation); }
@@ -89,7 +95,7 @@ export class SearchRun {
   async withVerifiedUserWait<T>(operation: () => Promise<T>): Promise<T> {
     this.throwIfCancelled();
     if (this.remainingServiceMs() <= 0) throw new SearchBudgetError();
-    if (this.#active > 0 || this.#waitSince !== undefined) throw new Error("SEARCH_WAIT_NOT_ALLOWED");
+    if (this.#active > 0 || this.isWaiting()) throw new Error("SEARCH_WAIT_NOT_ALLOWED");
     this.#waitSince = this.#options.monotonicNow();
     try { return await this.abortable(operation); }
     finally {
@@ -101,6 +107,37 @@ export class SearchRun {
   private verifiedWaitDuration(): number {
     return this.#verifiedWaitMs + (this.#waitSince === undefined ? 0 : Math.max(0, this.#options.monotonicNow() - this.#waitSince));
   }
+
+  /** One server-issued category question, bound to its immutable snapshot. This
+   * records an observed cross-request wait, not proof of a host user response. */
+  beginCategoryClarification(renderId: string): boolean {
+    if (this.#categoryClarification !== undefined || this.#active > 0 || !this.canRead("IMAGE") ||
+      this.remainingVisualReviewRounds() === 0 || renderId.length === 0 || renderId.length > 200) return false;
+    this.#categoryClarification = { renderId, startedAt: this.#options.monotonicNow() };
+    return true;
+  }
+
+  awaitingCategoryClarification(): boolean {
+    return this.#categoryClarification !== undefined && this.#categoryClarification.completedWaitMs === undefined;
+  }
+
+  /** Caller must validate CORRECT_PREVIOUS_PRODUCT and the resolved category. */
+  resumeCategoryClarification(renderId: string): boolean {
+    if (this.signal.aborted || !this.awaitingCategoryClarification() || this.#categoryClarification?.renderId !== renderId) return false;
+    this.completeCategoryClarificationWait();
+    return true;
+  }
+
+  private observedClarificationWaitDuration(): number {
+    const wait = this.#categoryClarification;
+    return wait === undefined ? 0 : wait.completedWaitMs ?? Math.max(0, this.#options.monotonicNow() - wait.startedAt);
+  }
+
+  private completeCategoryClarificationWait(): void {
+    if (this.awaitingCategoryClarification()) this.#categoryClarification!.completedWaitMs = this.observedClarificationWaitDuration();
+  }
+
+  private isWaiting(): boolean { return this.#waitSince !== undefined || this.awaitingCategoryClarification(); }
 
   private async abortable<T>(operation: (signal: AbortSignal) => Promise<T>, controller = this.#controller): Promise<T> {
     this.throwIfCancelled();
@@ -126,6 +163,14 @@ export class SearchRun {
   private serviceDuration(): number { return Math.max(0, this.#options.monotonicNow() - this.#startedAt); }
 
   remainingImageRequests(): number { return Math.max(0, 12 - this.#imageRequests); }
+
+  remainingVisualReviewRounds(): number { return Math.max(0, 2 - this.#visualReviewRounds); }
+
+  claimVisualReviewRound(): boolean {
+    if (this.remainingVisualReviewRounds() === 0 || this.signal.aborted || this.isWaiting()) return false;
+    this.#visualReviewRounds += 1;
+    return true;
+  }
 
   /** Execution-owned continuation, not a model-supplied cursor. The read budget still applies. */
   claimOfficialQuery(hash: string): boolean {
@@ -172,13 +217,13 @@ export class SearchRun {
   }
 
   canRead(kind: ReadKind): boolean {
-    return !this.signal.aborted && this.#waitSince === undefined && this.remainingServiceMs() > 0 &&
+    return !this.signal.aborted && !this.isWaiting() && this.remainingServiceMs() > 0 &&
       this.activeDuration() < this.#options.activeBudgetMs && !this.limitReached(kind);
   }
 
   /** A proactive stop is budget exhaustion only when known eligible work remains. */
   noteUnattemptedImages(count: number): void {
-    if (!Number.isSafeInteger(count) || count <= 0 || this.canRead("IMAGE") || this.signal.aborted || this.#waitSince !== undefined) return;
+    if (!Number.isSafeInteger(count) || count <= 0 || this.canRead("IMAGE") || this.signal.aborted || this.isWaiting()) return;
     this.#budgetExhausted = true;
     this.#imageReviewStop = {
       reason: this.activeDuration() >= this.#options.activeBudgetMs ? "ACTIVE_TIME_LIMIT"
@@ -197,7 +242,7 @@ export class SearchRun {
 
   async read<T>(kind: ReadKind, key: string, operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
     this.throwIfCancelled();
-    if (this.#waitSince !== undefined) throw new Error("SEARCH_WAIT_NOT_ALLOWED");
+    if (this.isWaiting()) throw new Error("SEARCH_WAIT_NOT_ALLOWED");
     const cacheKey = `${kind}:${key}`;
     const cached = this.#reads.get(cacheKey);
     if (cached !== undefined) {
@@ -261,7 +306,8 @@ export class SearchRun {
     const timestamp = this.#options.monotonicNow();
     const elapsedMs = Math.max(0, timestamp - this.#startedAt);
     const verifiedUserWaitMs = this.#verifiedWaitMs + (this.#waitSince === undefined ? 0 : Math.max(0, timestamp - this.#waitSince));
-    const activeMs = Math.max(0, elapsedMs - verifiedUserWaitMs);
+    const observedClarificationWaitMs = this.observedClarificationWaitDuration();
+    const activeMs = Math.max(0, elapsedMs - verifiedUserWaitMs - observedClarificationWaitMs);
     const remainingMs = Math.max(0, this.#options.serviceBudgetMs - activeMs);
     return {
       traceId: this.traceId,
@@ -270,13 +316,14 @@ export class SearchRun {
       officialHttpBytes: this.#officialHttpBytes,
       officialDocumentCacheHits: this.#officialDocumentCacheHits,
       imageRequests: this.#imageRequests,
+      visualReviewRounds: this.#visualReviewRounds,
       variantRequests: this.#variantRequests,
       dealRequests: this.#dealRequests,
       cacheHits: this.#cacheHits,
       activeDurationMs: this.activeDuration(),
       budgetExhausted: this.#budgetExhausted || (!this.signal.aborted && remainingMs === 0),
       serviceBudget: { scope: "SERVICE_OBSERVED_FLOW" as const, limitMs: this.#options.serviceBudgetMs,
-        elapsedMs, verifiedUserWaitMs, activeMs, remainingMs, cancelled: this.signal.aborted },
+        elapsedMs, verifiedUserWaitMs, observedClarificationWaitMs, activeMs, remainingMs, cancelled: this.signal.aborted },
       ...(this.#imageReviewStop === undefined ? {} : { imageReviewStop: { ...this.#imageReviewStop } }),
       readTimeouts: this.#readTimeouts,
       enrichmentLimited: this.#enrichmentLimited,

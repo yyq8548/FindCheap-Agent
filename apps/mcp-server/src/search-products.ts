@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { SearchRun } from "./search-run.js";
+import { resolveKnownProductUrl } from "./known-product-url.js";
 import { compileSourceQuery, discoveryTarget, isExplicitCategoryQuery } from "./retrieval-plan.js";
 import { classifySourceFailure, type SourceFailure } from "./source-failure.js";
 import type { ValueEvidence } from "./product-value-evidence.js";
@@ -73,6 +74,7 @@ import {
   compareRankedCandidates,
   countDisplayEligibleCandidates,
   countRecommendationEligibleCandidates,
+  countComparableMerchants,
   selectPresentationCandidates,
   selectVisualReviewCandidates
 } from "./product-candidate-ranking.js";
@@ -81,7 +83,7 @@ export { candidateMerchant } from "./product-candidate-ranking.js";
 
 const QuerySchema = z.string().trim().min(2).max(300)
   .refine((value) => /[\p{L}\p{N}]/u.test(value), "query must contain a letter or number")
-  .transform(normalizeQueryPunctuation);
+  .transform(value => /^https:\/\//iu.test(value) ? value : normalizeQueryPunctuation(value));
 
 export const SearchProductsInputSchema = z.object({
   query: QuerySchema,
@@ -110,6 +112,7 @@ export const SearchProductsInputSchema = z.object({
     .refine((values) => new Set(values).size === values.length, "membership IDs must be unique")
     .optional(),
   comparisonMode: z.enum(["DISCOVERY", "SAME_PRODUCT"]).default("DISCOVERY"),
+  compareMerchants: z.boolean().optional().describe("Only when the user explicitly asks to compare prices across merchants; finding one qualified offer does not complete that task."),
   allowAlternatives: z.boolean().default(false),
   selectionMode: z.enum(["LOWEST_PRICE", "MERCHANT_DIVERSE"]).default("MERCHANT_DIVERSE"),
   conditionPreference: z.enum(["ANY", "NEW", "USED", "REFURBISHED", "OPEN_BOX", "UNKNOWN"])
@@ -259,6 +262,8 @@ export type UnifiedSearchExecution = {
     presentedUnique: number;
   };
   webRecovery?: { submitted: number; verified: number; rejected: number; unavailable: number };
+  /** Effective request including only source-confirmed dimensions explicitly selected by its URL. */
+  resolvedRequest?: SearchProductsInput;
   searchRun?: SearchRun;
   reviewPool?: UnifiedCandidate[];
   candidates: UnifiedCandidate[];
@@ -409,14 +414,54 @@ export async function searchProducts(
     ports.merchantTrustRegistry === undefined ? undefined
       : searchRun.read("REGISTRY", "trust", signal => ports.merchantTrustRegistry!.refresh({ signal }))
   ]);
+  const knownProductUrl = rawInput.visualInput === undefined ? resolveKnownProductUrl(rawInput.query) : undefined;
+  const directSeed = knownProductUrl === undefined ? undefined
+    : officialStoreSeed([], { ...rawInput, sourcePageUrl: knownProductUrl.sourcePageUrl });
+  let resolvedRequest: SearchProductsInput | undefined;
+  if (directSeed !== undefined && knownProductUrl !== undefined && ports.officialShopify !== undefined) {
+    try {
+      const directProducts = await searchRun.read("OFFICIAL",
+        JSON.stringify([directSeed.sourceHost, "direct official product", knownProductUrl.sourcePageUrl]),
+        signal => ports.officialShopify!.search({ seed: directSeed, query: "direct official product", limit: 12,
+          sourcePageUrl: knownProductUrl.sourcePageUrl, cacheScope: searchRun, signal,
+          onRead: delta => searchRun.recordOfficialRead(delta),
+          ...(rawInput.requiredSize === undefined ? {} : { requiredSize: rawInput.requiredSize }),
+          ...(rawInput.requiredFeatures.some(isColorRequirement) ? { requiredColor: rawInput.requiredFeatures.find(isColorRequirement)! } : {}) }));
+      const target = new URL(knownProductUrl.sourcePageUrl);
+      const sourceProduct = directProducts.find(product => {
+        const source = new URL(product.merchantUrl);
+        return source.hostname === target.hostname && source.pathname === target.pathname &&
+          (!target.searchParams.has("variant") || source.searchParams.get("variant") === target.searchParams.get("variant"));
+      });
+      if (sourceProduct !== undefined) {
+        const selectedDimensions = Object.entries(sourceProduct.variantDimensions).filter(([name, value]) => {
+          if (name.toLowerCase() === "title" && value.toLowerCase() === "default title") return false;
+          return target.searchParams.has("variant") ||
+            (target.searchParams.has("size") && /^(?:shoe )?size$/iu.test(name)) ||
+            ([...target.searchParams.keys()].some(key => key === "color" || /^dwvar_.+_color$/u.test(key)) && /^(?:product )?colou?r$/iu.test(name));
+        });
+        const sourceSize = selectedDimensions.find(([name]) => /^(?:shoe )?size$/iu.test(name))?.[1];
+        const { searchRun: _searchRun, previousCandidates: _previousCandidates, deferVisualFiltering: _deferVisualFiltering,
+          relaxVisualRetrieval: _relaxVisualRetrieval, ...request } = rawInput;
+        const bound = SearchProductsInputSchema.safeParse({ ...request,
+          query: [sourceProduct.brand, sourceProduct.title].filter(Boolean).join(" ").slice(0, 300),
+          requiredFeatures: unique([...rawInput.requiredFeatures, ...selectedDimensions.map(([, value]) => value)]),
+          ...(rawInput.requiredSize === undefined && sourceSize !== undefined ? { requiredSize: sourceSize } : {})
+        });
+        // Never truncate selected variant constraints to satisfy schema limits.
+        if (bound.success) resolvedRequest = bound.data;
+      }
+    } catch { /* The normal official pass records the shared read failure; no blind retry. */ }
+  }
   const rawRequiredFeatures = unique([
-    ...rawInput.requiredFeatures,
+    ...(resolvedRequest?.requiredFeatures ?? rawInput.requiredFeatures),
     ...requiredPrimaryUseFeatures(rawInput.primaryUse),
     ...(rawInput.requiredSize === undefined ? [] : [normalizedSizeRequirement(rawInput.requiredSize, rawInput.productType ?? rawInput.query)]),
     ...(rawInput.featureMode === "REQUIRED" ? rawInput.features : [])
   ]);
   const input = {
     ...rawInput,
+    ...(resolvedRequest ?? {}),
     visualInput: rawInput.visualInput === undefined
       ? undefined
       : {
@@ -704,7 +749,7 @@ export async function searchProducts(
     const visualExcludedBefore = visualExcludedKeys.size;
     let failed = false;
     let successes = 0;
-    let sourcePageUrl = input.visualInput?.sourcePageUrl;
+    let sourcePageUrl = input.visualInput?.sourcePageUrl ?? knownProductUrl?.sourcePageUrl;
     if (sourcePageUrl !== undefined) {
       const source = new URL(sourcePageUrl);
       // Rewrite only registry-reviewed official/storefront aliases. This avoids
@@ -774,8 +819,8 @@ export async function searchProducts(
   };
   // Images and explicitly requested brands can resolve a reviewed registry seed
   // before global discovery. Both paths share the existing request/time budget.
-  const earlyOfficialSeed = input.visualInput !== undefined || (input.brand !== undefined && input.brandMode === "REQUIRED")
-    ? officialStoreSeed([], input) : undefined;
+  const earlyOfficialSeed = directSeed ?? (input.visualInput !== undefined || (input.brand !== undefined && input.brandMode === "REQUIRED")
+    ? officialStoreSeed([], input) : undefined);
   const earlyOfficial = ports.officialShopify !== undefined && earlyOfficialSeed !== undefined
     ? queryOfficial(earlyOfficialSeed) : undefined;
   await Promise.all([
@@ -802,7 +847,9 @@ export async function searchProducts(
     (input.visualInput !== undefined || input.deferVisualFiltering === true ? countDisplayEligibleCandidates : countRecommendationEligibleCandidates)(
       [...affiliateCandidates, ...ebayCandidates, ...shopifyCandidates, ...officialCandidates, ...retainedPrevious()],
       input.allowAlternatives
-    ) < discoveryTarget(input, input.visualInput !== undefined || input.deferVisualFiltering === true)
+    ) < discoveryTarget(input, input.visualInput !== undefined || input.deferVisualFiltering === true) ||
+    (input.compareMerchants === true && input.visualInput === undefined &&
+      countComparableMerchants([...affiliateCandidates, ...ebayCandidates, ...shopifyCandidates, ...officialCandidates, ...retainedPrevious()]) < 2)
   ) {
     searchPasses = 2;
     await Promise.all([
@@ -883,7 +930,8 @@ export async function searchProducts(
     shopifyStatus !== "PARTIAL" &&
     officialStoreFallback.status !== "PARTIAL" && officialStoreFallback.status !== "UNAVAILABLE";
   const chromeFallbackEligible =
-    (input.visualInput === undefined ? countRecommendationEligibleCandidates(candidates) === 0 : candidates.length === 0) &&
+    (input.visualInput === undefined ? countRecommendationEligibleCandidates(candidates) === 0 ||
+      (input.compareMerchants === true && countComparableMerchants(candidates) < 2) : candidates.length === 0) &&
     !searchRun.diagnostics().budgetExhausted &&
     !sourceFailures.some(failure => !failure.retryable) &&
     (queriedSourcesComplete || (sourceFailures.length > 0 && sourceFailures.every(failure => failure.retryable) &&
@@ -895,6 +943,7 @@ export async function searchProducts(
 
   return {
     candidates,
+    ...(resolvedRequest === undefined ? {} : { resolvedRequest }),
     retrievedProductHashes: [...freshProductHashes].slice(0, 200),
     retrievedProductsTruncated: freshProductHashes.size > 200,
     previousProductHashes: retainedPrevious().map(candidate => candidateFingerprint(candidate).productHash),
@@ -939,7 +988,7 @@ export async function searchProducts(
 /** URL intake shares the normal requirement, identity, trust and ranking gates.
  * It never invokes another catalog pass or promotes browser assertions. */
 export function evaluateRecoveredProducts(request: SearchProductsInput, products: ShopifyProduct[], partial: boolean,
-  controls: { deferVisualFiltering?: boolean } = {}): UnifiedSearchExecution {
+  controls: { deferVisualFiltering?: boolean; previousCandidates?: UnifiedCandidate[] } = {}): UnifiedSearchExecution {
   const evaluatedAtMs = Date.now();
   const input = { ...request, ...controls,
     // Recovery inherits the typed condition even when the compact identity
@@ -954,7 +1003,20 @@ export function evaluateRecoveredProducts(request: SearchProductsInput, products
   const searchIntent = resolveSearchIntent({ ...input, query });
   const identityQuery = input.brand !== undefined && !containsBrand(query, input.brand) ? `${input.brand} ${query}` : query;
   const features = new Set<string>(), brands = new Set<string>(), identities = new Set<string>(), visuals = new Set<string>();
-  const candidates = products.flatMap(product => {
+  const freshOfferKeys = new Set(products.map(product => recoveryOfferKey(product.merchantUrl)));
+  const previous = controls.deferVisualFiltering === true ? [] : (controls.previousCandidates ?? []).slice(0, 18).flatMap(candidate => {
+    const product = candidate.awinProduct ?? candidate.shopifyProduct ?? candidate.ebayProduct;
+    // Fresh exact-page observations supersede old ones even when now ineligible.
+    // Unavailable reads have no new facts: keep the original observation time.
+    if (freshOfferKeys.has(recoveryOfferKey(product.merchantUrl)) || product.availability === "OUT_OF_STOCK" ||
+      countDisplayEligibleCandidates([candidate], input.allowAlternatives) === 0) return [];
+    const args = [input, searchIntent, identityQuery, features, brands, identities, visuals] as const;
+    const checked = candidate.source === "AWIN_PRODUCT_FEED" ? awinCandidate(candidate.awinProduct, ...args)
+      : candidate.source === "SHOPIFY_GLOBAL_CATALOG" ? shopifyCandidate(candidate.shopifyProduct, ...args)
+        : ebayCandidate(candidate.ebayProduct, ...args);
+    return checked === undefined || countDisplayEligibleCandidates([checked], input.allowAlternatives) === 0 ? [] : [checked];
+  });
+  const recovered = products.flatMap(product => {
     if ((product.availability === "OUT_OF_STOCK" && input.visualInput === undefined) || product.sourceKind !== "WEB_PRODUCT_PAGE") return [];
     const identity = classifyShopifyCandidate(searchIntent === "EXACT_PRODUCT" ? identityQuery : input.productType ?? query, product);
     if (identity.status === "IRRELEVANT" || (identity.status === "SIMILAR" && !input.allowAlternatives)) {
@@ -963,13 +1025,27 @@ export function evaluateRecoveredProducts(request: SearchProductsInput, products
     const candidate = shopifyCandidate({ ...product, matchStatus: identity.status }, input, searchIntent, identityQuery,
       features, brands, identities, visuals);
     return candidate === undefined ? [] : [candidate];
-  }).sort((left, right) => compareRankedCandidates(left, right, evaluatedAtMs));
+  });
+  const candidates = mergeCandidates(previous, recovered);
   return { candidates: controls.deferVisualFiltering === true ? candidates.slice(0, 5) : selectPresentationCandidates(candidates, input.selectionMode, input.allowAlternatives, false,
     input.brand !== undefined, evaluatedAtMs).slice(0, Math.min(input.limit, 3)),
+    retrievedProductHashes: products.map(product => sourceProductFingerprint("SHOPIFY", product).productHash),
+    previousProductHashes: previous.map(candidate => candidateFingerprint(candidate).productHash),
     sourceStatus: { awin: "SKIPPED", shopify: "SKIPPED", ebay: "SKIPPED", web: partial ? "PARTIAL" : "COMPLETE" },
     searchPasses: 1, sourcePassDiagnostics: [], featureProductsExcluded: features.size, brandProductsExcluded: brands.size,
     identityProductsExcluded: identities.size, visualProductsExcluded: 0,
     officialStoreFallback: { status: "NOT_USED", productsReturned: 0 }, searchIntent, chromeFallbackEligible: false };
+}
+
+function recoveryOfferKey(value: string): string {
+  const url = new URL(value);
+  url.hostname = url.hostname.toLowerCase().replace(/^www\./u, "");
+  url.hash = "";
+  for (const key of [...url.searchParams.keys()]) {
+    if (!["variant", "color", "size", "type"].includes(key) && !/^dwvar_.+_color$/u.test(key)) url.searchParams.delete(key);
+  }
+  url.searchParams.sort();
+  return url.href;
 }
 
 function visualResultGroup(group: VisualMatchGroup): CandidateBase["resultGroup"] {
@@ -1587,12 +1663,12 @@ function hasSufficientOfficialMatches(candidates: UnifiedCandidate[], limit: num
 
 function officialStoreSeed(
   products: ShopifyProduct[],
-  input: Pick<SearchProductsInput, "brand" | "brandMode" | "visualInput">
+  input: Pick<SearchProductsInput, "brand" | "brandMode" | "visualInput"> & { sourcePageUrl?: string }
 ): OfficialShopifyStoreSeed | undefined {
   const brand = input.brand ?? input.visualInput?.brand;
   let sourceStore: ReturnType<typeof resolveVerifiedOfficialStorefront>;
-  if (input.visualInput?.sourcePageUrl !== undefined) {
-    const url = new URL(input.visualInput.sourcePageUrl);
+  if (input.visualInput?.sourcePageUrl !== undefined || input.sourcePageUrl !== undefined) {
+    const url = new URL((input.visualInput?.sourcePageUrl ?? input.sourcePageUrl)!);
     if (url.protocol === "https:" && url.username === "" && url.password === "" && url.port === "") {
       sourceStore = resolveVerifiedOfficialStorefrontByHost(url.hostname);
     }

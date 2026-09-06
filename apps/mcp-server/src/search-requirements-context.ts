@@ -56,7 +56,7 @@ export function mergeSearchRequirements(current: SearchProductsInput, previous: 
     delete merged.visualInput;
     if (current.visualInput !== undefined) merged.visualInput = current.visualInput;
   }
-  for (const key of ["maxItemPriceCents", "requiredSize", "preferredSize", "primaryUse", "brand", "productType", "zipCode", "membershipIds"] as const) {
+  for (const key of ["maxItemPriceCents", "requiredSize", "preferredSize", "primaryUse", "brand", "productType", "zipCode", "membershipIds", "compareMerchants"] as const) {
     if (current[key] !== undefined) merged[key] = current[key];
   }
   for (const key of ["requiredFeatures", "excludedFeatures", "preferences", "features"] as const) {

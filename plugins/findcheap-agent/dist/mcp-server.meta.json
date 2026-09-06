@@ -4011,6 +4011,16 @@
         }
       ]
     },
+    "src/known-product-url.ts": {
+      "format": "esm",
+      "imports": [
+        {
+          "kind": "import-statement",
+          "original": "./merchant-trust.js",
+          "path": "src/merchant-trust.ts"
+        }
+      ]
+    },
     "src/merchant-trust-registry-client.ts": {
       "format": "esm",
       "imports": [
@@ -4348,6 +4358,11 @@
           "kind": "import-statement",
           "original": "./search-run.js",
           "path": "src/search-run.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./known-product-url.js",
+          "path": "src/known-product-url.ts"
         },
         {
           "kind": "import-statement",
@@ -5214,7 +5229,7 @@
   },
   "outputs": {
     "../../plugins/findcheap-agent/dist/mcp-server.js": {
-      "bytes": 979176,
+      "bytes": 998217,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
@@ -5246,6 +5261,11 @@
         {
           "external": true,
           "kind": "import-statement",
+          "path": "node:net"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
           "path": "node:fs/promises"
         },
         {
@@ -5272,11 +5292,6 @@
           "external": true,
           "kind": "import-statement",
           "path": "node:crypto"
-        },
-        {
-          "external": true,
-          "kind": "import-statement",
-          "path": "node:net"
         },
         {
           "external": true,
@@ -5397,10 +5412,10 @@
           "bytesInOutput": 195
         },
         "../../node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/server/index.js": {
-          "bytesInOutput": 8036
+          "bytesInOutput": 8042
         },
         "../../node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/server/mcp.js": {
-          "bytesInOutput": 14794
+          "bytesInOutput": 14812
         },
         "../../node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/server/stdio.js": {
           "bytesInOutput": 1028
@@ -5412,7 +5427,7 @@
           "bytesInOutput": 574
         },
         "../../node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/shared/protocol.js": {
-          "bytesInOutput": 16065
+          "bytesInOutput": 16095
         },
         "../../node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/shared/stdio.js": {
           "bytesInOutput": 638
@@ -5421,7 +5436,7 @@
           "bytesInOutput": 1536
         },
         "../../node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/types.js": {
-          "bytesInOutput": 12539
+          "bytesInOutput": 12541
         },
         "../../node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/validation/ajv-provider.js": {
           "bytesInOutput": 450
@@ -5904,7 +5919,7 @@
           "bytesInOutput": 2051
         },
         "src/execution/model-context.ts": {
-          "bytesInOutput": 2115
+          "bytesInOutput": 2783
         },
         "src/execution/tool-executor.ts": {
           "bytesInOutput": 2309
@@ -5921,6 +5936,9 @@
         "src/generic-official-store-search.ts": {
           "bytesInOutput": 15816
         },
+        "src/known-product-url.ts": {
+          "bytesInOutput": 1650
+        },
         "src/merchant-trust-registry-client.ts": {
           "bytesInOutput": 1367
         },
@@ -5934,7 +5952,7 @@
           "bytesInOutput": 1410
         },
         "src/product-candidate-ranking.ts": {
-          "bytesInOutput": 6896
+          "bytesInOutput": 7154
         },
         "src/product-card-telemetry.ts": {
           "bytesInOutput": 814
@@ -5979,19 +5997,19 @@
           "bytesInOutput": 1784
         },
         "src/search-diagnostics.ts": {
-          "bytesInOutput": 3148
+          "bytesInOutput": 3700
         },
         "src/search-products.ts": {
-          "bytesInOutput": 39773
+          "bytesInOutput": 42661
         },
         "src/search-requirements-context.ts": {
-          "bytesInOutput": 4694
+          "bytesInOutput": 4713
         },
         "src/search-run.ts": {
-          "bytesInOutput": 6382
+          "bytesInOutput": 7594
         },
         "src/server.ts": {
-          "bytesInOutput": 168420
+          "bytesInOutput": 178968
         },
         "src/shopify-cart-quote.ts": {
           "bytesInOutput": 12431
@@ -6012,7 +6030,7 @@
           "bytesInOutput": 1432
         },
         "src/shopify-selected-product.ts": {
-          "bytesInOutput": 5907
+          "bytesInOutput": 6012
         },
         "src/sony-official-store-search.ts": {
           "bytesInOutput": 10130
@@ -6024,22 +6042,22 @@
           "bytesInOutput": 930
         },
         "src/text-search-recovery.ts": {
-          "bytesInOutput": 1372
+          "bytesInOutput": 1632
         },
         "src/visual-candidate-images.ts": {
           "bytesInOutput": 6366
         },
         "src/visual-product-discovery.ts": {
-          "bytesInOutput": 21232
+          "bytesInOutput": 21436
         },
         "src/visual-retrieval-query.ts": {
-          "bytesInOutput": 884
+          "bytesInOutput": 1045
         },
         "src/visual-review-policy.ts": {
           "bytesInOutput": 4512
         },
         "src/visual-search-outcome.ts": {
-          "bytesInOutput": 2842
+          "bytesInOutput": 3301
         },
         "src/visual-source-fingerprints.ts": {
           "bytesInOutput": 644
@@ -6051,7 +6069,7 @@
           "bytesInOutput": 11137
         },
         "src/web-product-recovery.ts": {
-          "bytesInOutput": 5297
+          "bytesInOutput": 5298
         }
       }
     }

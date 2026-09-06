@@ -111,8 +111,9 @@ describe("merchant-qualified product reference", () => {
       } });
       expect(failed.structuredContent).toMatchObject({ products: [
         { merchantId: "ishow", quoteCapability: "DELIVERED_TOTAL_SUPPORTED" },
-        { merchantId: "hairsofly", quoteCapability: "MERCHANT_CHECKOUT_ONLY" }
+        { merchantId: "hairsofly", quoteCapability: "DELIVERED_TOTAL_SUPPORTED" }
       ] });
+      expect(JSON.stringify(failed.content)).toContain("MERCHANT_CART_UNAVAILABLE");
     } finally { await replay.close(); }
   });
 

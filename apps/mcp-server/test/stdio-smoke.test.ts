@@ -245,6 +245,7 @@ describe("installed plugin stdio", () => {
         "brandMode",
         "budgetFlexible",
         "clearConstraints",
+        "compareMerchants",
         "comparisonMode",
         "conditionPreference",
         "contextMode",

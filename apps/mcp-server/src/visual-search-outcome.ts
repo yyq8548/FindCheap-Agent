@@ -12,6 +12,7 @@ export function describeVisualOutcome(products: ReadonlyArray<{
   identityStatus: "EXACT" | "DISCOVERY_MATCH" | "SIMILAR";
   visualMatchGroup?: "POSSIBLE_SAME_ITEM" | "HIGHLY_SIMILAR" | "SAME_STYLE" | undefined;
   availability: "IN_STOCK" | "OUT_OF_STOCK" | "UNKNOWN";
+  availabilityScope?: "SELECTED_VARIANT" | "PRODUCT_COLOR" | undefined;
 }>, incomplete: boolean, locale: "zh-CN" | "en-US"): z.infer<typeof VisualSearchOutcomeSchema> {
   const possible = products.filter(hasSameItemEvidence);
   const unavailable = possible.filter(product => product.availability === "OUT_OF_STOCK");
@@ -24,9 +25,18 @@ export function describeVisualOutcome(products: ReadonlyArray<{
     : sameItemStatus === "CONFIRMED" ? (zh ? "已确认同款身份。" : "Same-item identity is confirmed.")
     : sameItemStatus === "POSSIBLE" ? (zh ? "找到可能同款候选，但身份尚未确认。" : "Possible same-item candidates were found; identity is not confirmed.")
     : (zh ? "未确认图片同款；当前展示已复核的相似款，相似处与差异见卡片。" : "The image's same item is not confirmed; reviewed similar choices and their differences are shown.")];
-  if (outOfStockStatus !== "NONE") parts.push(outOfStockStatus === "CONFIRMED"
-    ? (zh ? "已确认同款的所选规格缺货；可按你的要求建立补货 Watch，尚未自动建立。" : "The confirmed item's selected variant is out of stock; an opt-in Watch can be requested, but none was created automatically.")
-    : (zh ? "可能同款候选缺货；确认身份后，可按你的要求建立补货 Watch。" : "A possible same-item candidate is out of stock; confirm its identity before requesting an opt-in Watch."));
+  if (outOfStockStatus !== "NONE") {
+    const confirmed = outOfStockStatus === "CONFIRMED";
+    const colorScope = unavailable.every(product => product.availabilityScope === "PRODUCT_COLOR");
+    const selectedScope = unavailable.every(product => product.availabilityScope === "SELECTED_VARIANT");
+    const subject = confirmed ? (zh ? "已确认同款" : "The confirmed item") : (zh ? "可能同款候选" : "A possible same-item candidate");
+    const stock = colorScope ? (zh ? "的当前配色暂无已确认可售尺码" : " has no confirmed saleable sizes in the current color")
+      : selectedScope ? (zh ? "的所选规格缺货" : "'s selected variant is out of stock")
+      : (zh ? "缺货，库存范围以对应卡片证据为准" : " is out of stock; see the corresponding card for the verified stock scope");
+    parts.push(`${subject}${stock}${confirmed
+      ? (zh ? "；可按你的要求建立补货 Watch，尚未自动建立。" : "; an opt-in Watch can be requested, but none was created automatically.")
+      : (zh ? "；确认身份后，可按你的要求建立补货 Watch。" : "; confirm its identity before requesting an opt-in Watch.")}`);
+  }
   if (incomplete) parts.push(zh ? "检索尚不完整，不能据此判断商品不存在。" : "Retrieval is incomplete, not proof that the product is absent.");
   else parts.push(zh ? "这是本次有界检索结果，不代表已搜索全网。" : "These are bounded search results, not exhaustive web coverage.");
   return { sameItemStatus, outOfStockStatus, incomplete, message: parts.join(" ") };

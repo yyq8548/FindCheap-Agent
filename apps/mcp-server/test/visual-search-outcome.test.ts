@@ -4,6 +4,29 @@ import type { UnifiedCandidate } from "../src/search-products.js";
 import { product } from "./fixtures/conversation-replay-support.js";
 
 describe("bounded visual outcome labels", () => {
+  it.each(["zh-CN", "en-US"] as const)("keeps product-color stock distinct from a representative size (%s)", locale => {
+    const input = [{ identityStatus: "EXACT" as const, availability: "OUT_OF_STOCK" as const,
+      availabilityScope: "PRODUCT_COLOR" as const }];
+    const confirmed = describeVisualOutcome(input, false, locale);
+    expect(confirmed.message).toContain(locale === "zh-CN" ? "当前配色暂无已确认可售尺码" : "no confirmed saleable sizes in the current color");
+    expect(confirmed.message).not.toContain(locale === "zh-CN" ? "所选规格" : "selected variant");
+    const possible = describeVisualOutcome([{ ...input[0]!, identityStatus: "DISCOVERY_MATCH",
+      visualMatchGroup: "POSSIBLE_SAME_ITEM" }], false, locale);
+    expect(possible).toMatchObject({ sameItemStatus: "POSSIBLE", outOfStockStatus: "POSSIBLE" });
+    expect(possible.message).toContain(locale === "zh-CN" ? "当前配色暂无已确认可售尺码" : "no confirmed saleable sizes in the current color");
+  });
+
+  it.each(["zh-CN", "en-US"] as const)("does not infer selected or whole-color stock when scope is absent or mixed (%s)", locale => {
+    const exact = { identityStatus: "EXACT" as const, availability: "OUT_OF_STOCK" as const };
+    for (const products of [[exact], [{ ...exact, availabilityScope: "PRODUCT_COLOR" as const }, exact]]) {
+      const result = describeVisualOutcome(products, false, locale);
+      expect(result.message).not.toContain(locale === "zh-CN" ? "所选规格" : "selected variant");
+      expect(result.message).not.toContain(locale === "zh-CN" ? "当前配色暂无" : "no confirmed saleable sizes in the current color");
+    }
+    const selected = describeVisualOutcome([{ ...exact, availabilityScope: "SELECTED_VARIANT" }], false, locale);
+    expect(selected.message).toContain(locale === "zh-CN" ? "所选规格缺货" : "selected variant is out of stock");
+  });
+
   it.each(["zh-CN", "en-US"] as const)("does not describe similar choices when there are no cards (%s)", locale => {
     const result = describeVisualOutcome([], true, locale);
     expect(result.message).toContain(locale === "zh-CN" ? "未返回符合条件的视觉候选" : "No eligible visual candidates were returned");

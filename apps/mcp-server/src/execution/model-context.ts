@@ -13,7 +13,7 @@ const CONTEXT_FIELDS = [
   "requirementsSummary", "recommendation", "recovery", "coverage", "priceScope",
   "visualSessionId", "webSessionId", "expiresAt", "workflow", "retryable",
   "queries", "limits", "comparisonId", "selectionId", "mode", "priceBasis",
-  "priceComparability", "priceDelta"
+  "priceComparability", "priceDelta", "visualSearchOutcome"
 ] as const;
 
 function object(value: unknown): Record<string, unknown> {
@@ -26,14 +26,37 @@ function pick(value: unknown, keys: readonly string[]): Record<string, unknown> 
   return Object.fromEntries(keys.filter(key => source[key] !== undefined).map(key => [key, source[key]]));
 }
 
+/** Summarize only explanatory lists, never identity or selection references.
+ * Keep complete evidence statements; expose omissions instead of hiding them. */
+function projectList(row: Record<string, unknown>, entry: unknown, key: string, limit: number): void {
+  const source = object(entry)[key];
+  if (!Array.isArray(source)) return;
+  const values = source.filter((value): value is string => typeof value === "string");
+  if (key === "visualMatchEvidence") values.sort((a, b) =>
+    Number(b.startsWith("Codex visual difference ")) - Number(a.startsWith("Codex visual difference ")));
+  let used = 0;
+  row[key] = values.filter(value => {
+    const length = JSON.stringify(value).length + 1;
+    if (used + length > limit) return false;
+    used += length;
+    return true;
+  });
+  if ((row[key] as string[]).length !== source.length) row[`${key}Truncated`] = true;
+}
+
 function referenceRows(value: unknown, snapshotPositions = false): Record<string, unknown>[] | undefined {
   if (!Array.isArray(value)) return undefined;
   return value.map((entry, index) => {
     const row = pick(entry, [
       "selectionId", "candidateId", "variantId", "quoteReference", "source", "mimeType",
       "itemPrice", "condition", "availability", "matchStatus", "quoteCapability", "variantDimensions",
-      "presentationGroup", "deliveredTotal", "deliveredTotalStatus"
+      "presentationGroup", "deliveredTotal", "deliveredTotalStatus",
+      "visualMatchGroup", "availabilityScope"
     ]);
+    if (object(entry).visualReviewAssessment !== undefined) row.visualReviewAssessment = pick(object(entry).visualReviewAssessment,
+      ["group", "structuralMatchCount", "matchCount", "recommendationScope"]);
+    projectList(row, entry, "visualMatchEvidence", 1_000);
+    projectList(row, entry, "availableSizes", 400);
     for (const key of ["title", "merchant"]) {
       const text = object(entry)[key];
       if (typeof text === "string") row[key] = text.slice(0, 240);

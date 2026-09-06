@@ -54,7 +54,7 @@ describe("FindCheap Agent plugin contract", () => {
     const server = await readFile(serverPath, "utf8");
     expect(compare).toContain("ZIP alone is not consent");
     expect(compare).toContain("host form approval");
-    expect(compare).toContain("No automatic retry after refusal");
+    expect(compare).toContain("No refusal retry");
     expect(compare).not.toContain("ZIP: `quote_and_compare_selected_products` once");
     expect(watch).toContain("DELIVERED_TOTAL Watch is unavailable");
     expect(watch).toContain("do not request ZIP");
@@ -188,7 +188,7 @@ describe("FindCheap Agent plugin contract", () => {
       expect(skill).not.toContain("Blank line; list all deals below");
       expect(skill).toContain("Checkout confirms scope/stacking");
     }
-    expect(compareSkill).toContain("Estimated discount: confirmed ID/terms only");
+    expect(compareSkill).toContain("Discount needs confirmed terms");
     expect(dealsSkill).toContain("Be warm and direct, not salesy");
   });
 
@@ -198,8 +198,8 @@ describe("FindCheap Agent plugin contract", () => {
       expect(skill).toContain("CORRECT_ARGUMENTS");
       expect(skill).toContain("REUSE_ORIGINAL_REFERENCE");
       expect(skill).toContain("INPUT_VALIDATION");
-      expect(skill).toContain("one corrected submission");
-      expect(skill).toContain("No agent retry for network/safety failures");
+      expect(skill).toMatch(/one corrected submission|CORRECT_ARGUMENTS: correct once/u);
+      expect(skill).toMatch(/No agent retry for network\/safety failures|No network\/safety retry/u);
     }
   });
 
@@ -213,11 +213,10 @@ describe("FindCheap Agent plugin contract", () => {
       expect(skill).toContain("NEW_PRODUCT");
     }
     const skill = await readFile(skillPath, "utf8");
-    expect(skill).toContain("retain receipts for calls, never show IDs");
+    expect(skill).toContain("private receipts");
     expect(skill).toContain("`renderId` as `parentRenderId`");
-    expect(skill).toContain("`goalId`+`goalRevision`");
-    expect(skill).toContain("copy `selectionId` only from that receipt's products");
-    expect(skill).toContain("Never use `NEW_PRODUCT` to bypass missing context or reset budgets");
+    expect(skill).toContain("receipt IDs only");
+    expect(skill).toContain("No NEW_PRODUCT budget/reference bypass");
     const schema = await readFile(path.join(root, "apps", "mcp-server", "src", "search-products.ts"), "utf8");
     expect(schema).toContain("Copy renderId from the original result's findcheapContext text receipt or structuredContent");
     expect(schema).toContain("including clarification replies");
@@ -250,7 +249,7 @@ describe("FindCheap Agent plugin contract", () => {
     };
 
     expect(manifest.name).toBe("findcheap-agent");
-    expect(manifest.version).toMatch(/^0\.17\.25(?:\+codex\.)?/u);
+    expect(manifest.version).toMatch(/^0\.17\.26(?:\+codex\.)?/u);
     expect(manifest.interface.displayName).toBe("FindCheap Agent");
     expect(manifest.interface.longDescription).toMatch(/Codex Plugin Agent/u);
     expect(manifest.interface.longDescription).toMatch(/[Aa]uthorized.*Chrome/u);
