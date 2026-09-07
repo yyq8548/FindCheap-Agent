@@ -1,7 +1,8 @@
 import { FINDCHEAP_VERSION } from "../../../config/version.js";
+import { QUOTE_UI_FEEDBACK_SCRIPT } from "./quote-ui-feedback.js";
 import { MAX_PRODUCT_CARDS } from "./product-candidate-ranking.js";
 
-export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v36.html";
+export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v37.html";
 
 export const PRODUCT_CARD_RESOURCE_DOMAINS = [
   "https://cdn.shopify.com",
@@ -258,6 +259,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
 <body>
   <main id="app" aria-live="polite"><div class="empty">Loading…</div></main>
   <script>
+    ${QUOTE_UI_FEEDBACK_SCRIPT}
     const app = document.getElementById("app");
     const uiStartedAt = typeof performance === "object" && typeof performance.now === "function"
       ? performance.now()
@@ -649,6 +651,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       INDEPENDENT: "独立验证", UNVERIFIED: "未验证"
     })[value] || String(value || "");
     const renderComparison = (output) => {
+      hasResult = true;
       const renderedRevision = ++viewRevision;
       couponEvaluatedAtMs = Date.now();
       if (output.locale === "zh-CN" || output.locale === "en-US") currentLocale = output.locale;
@@ -692,14 +695,14 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
         quoteButton.type = "button";
         const quoteStatus = make("span", "compare-status", text("Uses these same compared products.", "使用当前对比中的同一批商品。"));
         quoteButton.addEventListener("click", () => {
-          if (renderedRevision !== viewRevision) return;
+          if (quoteButton.disabled || renderedRevision !== viewRevision) return;
           const zipCode = String(zipInput.value || "").trim();
           if (!/^\d{5}(?:-\d{4})?$/u.test(zipCode)) {
             quoteStatus.textContent = text("Enter a valid US ZIP.", "请输入有效的美国 ZIP。");
             return;
           }
           quoteButton.disabled = true;
-          quoteStatus.textContent = text("Quoting delivered totals…", "正在查询到手价…");
+          quoteStatus.textContent = text("Waiting for authorization or quote results…", "等待授权或报价结果…");
           void request("tools/call", {
             name: "quote_and_compare_selected_products",
             arguments: {
@@ -710,15 +713,15 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
               focus: ["DELIVERED_TOTAL"],
               responseLocale: currentLocale
             }
-          }, 8000).then((result) => {
+          }, QUOTE_UI_TIMEOUT_MS).then((result) => {
             if (renderedRevision !== viewRevision) return;
+            if (quoteErrorCode(result)) throw result;
             const comparison = extractStructuredContent(result);
-            if (!comparison || !Array.isArray(comparison.entries) || (comparison.status === "OK" && comparison.renderId !== output.renderId)) throw new Error("quote result unavailable");
+            if (!quoteMatchesSelection(comparison, output)) throw new Error("quote result unavailable");
             renderComparison(comparison);
-          }).catch(() => {
+          }).catch((error) => {
             if (renderedRevision !== viewRevision) return;
-            quoteButton.disabled = false;
-            quoteStatus.textContent = text("Quote failed. Try once more.", "报价加载失败，请重试一次。");
+            quoteStatus.textContent = quoteFailureText(error, currentLocale);
           });
         });
         quoteAction.append(field, quoteButton, quoteStatus);

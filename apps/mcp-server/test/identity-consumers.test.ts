@@ -2,8 +2,38 @@ import { describe, expect, it, vi } from "vitest";
 import { connectReplay, product, searchResult } from "./fixtures/conversation-replay-support.js";
 import type { ProductCardContent } from "../src/server.js";
 import type { ShopifyProduct } from "../src/shopify-client.js";
+import { createShopifySelectedProductInspector } from "../src/shopify-selected-product.js";
 
 describe("identity decisions survive selected-product consumers", () => {
+  it.each(["changed-path", "invalid-json", "unknown"])("reports safe localized inspection failure without replacement: %s", mode => {
+    return (async () => {
+      const selected = product({ sourceHost: "medicube.us", merchant: "medicube", title: "medicube Zero Pore Pad Mild",
+        productType: "toner pads", brand: "medicube", handle: "123", merchantUrl: "https://medicube.us/products/pads?variant=123" });
+      const search = vi.fn(async () => searchResult([selected]));
+      const inspector = createShopifySelectedProductInspector({ fetchProduct: async url => {
+        if (mode === "unknown") throw new Error("private-provider-token-DO-NOT-LEAK");
+        return { finalUrl: mode === "changed-path" ? "https://medicube.us/products/other.js" : url,
+          response: new Response("private-provider-token-DO-NOT-LEAK") };
+      } });
+      const replay = await connectReplay(search, { selectedProducts: inspector });
+      try {
+        const first = await replay.client.callTool({ name: "search_products", arguments: {
+          query: "medicube Zero Pore Pad Mild", brand: "medicube", productType: "toner pads", responseLocale: "zh-CN"
+        } });
+        const snapshot = first.structuredContent as ProductCardContent;
+        const calls = search.mock.calls.length;
+        const failure = await replay.client.callTool({ name: "inspect_selected_shopify_product", arguments: { renderId: snapshot.renderId, position: 1 } });
+        expect(failure.isError).toBe(true);
+        expect(failure._meta?.["findcheap/inspectionFailure"]).toMatchObject({
+          reason: mode === "changed-path" ? "TARGET_CHANGED" : mode === "invalid-json" ? "SCHEMA_INVALID" : "UNKNOWN",
+          host: "medicube.us"
+        });
+        expect(JSON.stringify(failure)).toContain("未搜索替代商品");
+        expect(JSON.stringify(failure)).not.toContain("private-provider-token");
+        expect(search).toHaveBeenCalledTimes(calls);
+      } finally { await replay.close(); }
+    })();
+  });
   it("retains research identity through selection, comparison, inspection and historical rendering", async () => {
     const mild = product({ merchantId: "catalog", sourceHost: "medicube.us", merchant: "medicube",
       title: "medicube Zero Pore Pad Mild", productType: "toner pads", brand: "medicube",

@@ -3,6 +3,47 @@ import { SearchProductsInputSchema } from "../src/search-products.js";
 import { mergeSearchRequirements, shoppingRequirementLedger } from "../src/search-requirements-context.js";
 
 describe("requirement continuity contract", () => {
+  it("does not turn ambiguous Chinese counts into pads or truncate full requirement lists", () => {
+    for (const input of [SearchProductsInputSchema.parse({ query: "tablets", requiredSize: "70片" }),
+      SearchProductsInputSchema.parse({ query: "toner pads", requiredSize: "70 pads, 155g",
+        requiredFeatures: Array.from({ length: 10 }, (_, i) => `requirement ${i}`) })]) {
+      const result = mergeSearchRequirements(input, input);
+      expect(result.requiredSize).toBe(input.requiredSize);
+      expect(result.requiredFeatures).toEqual(input.requiredFeatures);
+    }
+  });
+  it("requires original candidate evidence for a longer edition spelling and retains identity boundaries", () => {
+    const previous = SearchProductsInputSchema.parse({ query: "medicube Zero Pore Pad", brand: "medicube", productType: "toner pads" });
+    const current = SearchProductsInputSchema.parse({ query: "medicube Zero Pore Madecassoside Pads (Mild)", contextMode: "CONTINUE_PREVIOUS_PRODUCT" });
+    expect(() => mergeSearchRequirements(current, previous)).toThrow("PRODUCT_CONTEXT_CONFLICT");
+    const candidates = [{ brand: "medicube", title: "Zero Pore Madecassoside Pads (Mild)" }];
+    expect(mergeSearchRequirements(current, previous, candidates).query).toBe(current.query);
+    const wrong = SearchProductsInputSchema.parse({ query: "medicube Other Pad Mild", contextMode: "CONTINUE_PREVIOUS_PRODUCT" });
+    expect(() => mergeSearchRequirements(wrong, previous, [{ brand: "medicube", title: "Other Pad Mild" }])).toThrow("PRODUCT_CONTEXT_CONFLICT");
+  });
+  it("narrows a cosmetic edition without dropping package or budget constraints", () => {
+    const previous = SearchProductsInputSchema.parse({ query: "medicube Zero Pore Pad", productType: "toner pads",
+      brand: "medicube", requiredSize: "70 pads, 155g", maxItemPriceCents: 5000, compareMerchants: true });
+    expect(mergeSearchRequirements(SearchProductsInputSchema.parse({ query: "medicube Zero Pore Pad Mild",
+      contextMode: "CONTINUE_PREVIOUS_PRODUCT" }), previous)).toMatchObject({ query: "medicube Zero Pore Pad Mild",
+      requiredFeatures: ["70 pads", "155 g"], maxItemPriceCents: 5000, compareMerchants: true });
+  });
+  it.each(["medicube Zero Pore Pad Mild Regular", "medicube Zero Pore Pad Mild another product", "medicube Zero Pore Pad Regular"])(
+    "does not replace an established edition: %s", query => {
+      expect(() => mergeSearchRequirements(SearchProductsInputSchema.parse({ query, contextMode: "CONTINUE_PREVIOUS_PRODUCT" }),
+        SearchProductsInputSchema.parse({ query: "medicube Zero Pore Pad Mild", productType: "toner pads" }))).toThrow("PRODUCT_CONTEXT_CONFLICT");
+    });
+  it.each(["70 pads, 155g", "70片、155克"])("keeps package requirements in canonical fields: %s", requiredSize => {
+    const input = SearchProductsInputSchema.parse({ query: "toner pads", requiredSize });
+    const result = mergeSearchRequirements(input, input);
+    expect(result.requiredSize).toBeUndefined();
+    expect(result.requiredFeatures).toEqual(["70 pads", "155 g"]);
+    expect(input.requiredSize).toBe(requiredSize);
+  });
+  it.each(["US 7", "14 inch", "M", "70 pads, size M", "155"])("does not reinterpret physical or ambiguous sizes: %s", requiredSize => {
+    const input = SearchProductsInputSchema.parse({ query: "product", requiredSize });
+    expect(mergeSearchRequirements(input, input).requiredSize).toBe(requiredSize);
+  });
   const previous = SearchProductsInputSchema.parse({ query: "Brand A wig", brand: "Brand A", productType: "wig",
     requiredFeatures: ["short hair"], excludedFeatures: ["glue"], preferences: ["easy to maintain"],
     primaryUse: "cosplay", maxItemPriceCents: 5000, requiredSize: "M", conditionPreference: "NEW" });

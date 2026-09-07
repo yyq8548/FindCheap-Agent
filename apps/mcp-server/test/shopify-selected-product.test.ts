@@ -60,6 +60,12 @@ const productJson = {
 };
 
 describe("selected Shopify product inspection", () => {
+  it.each([[429, "RATE_LIMITED"], [503, "UPSTREAM_ERROR"]])("does not amplify HTTP %s with an HTML fallback", async (status, code) => {
+    const fetchProduct = vi.fn<ProductJsonFetch>(async url => ({ finalUrl: url, response: new Response("private-response", { status: Number(status) }) }));
+    const inspector = createShopifySelectedProductInspector({ fetchProduct });
+    await expect(inspector.inspect(selected, {})).rejects.toMatchObject({ code, phase: "SOURCE_RESPONSE" });
+    expect(fetchProduct).toHaveBeenCalledTimes(1);
+  });
   it.each([
     ["positive product claims", "This shampoo hydrates hair and smooths frizz.", "", 1],
     ["fresh contrary evidence", "This shampoo does not hydrate hair and does not control frizz.", "This shampoo hydrates hair and smooths frizz.", 0],

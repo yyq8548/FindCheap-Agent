@@ -32,8 +32,9 @@ describe("requirements-to-comparison regression", () => {
       requiredFeatures: ["suitable for color-treated hair", "damaged hair repair", "anti-dandruff"], requiredSize: "500 ml" });
     const next = mergeSearchRequirements(SearchProductsInputSchema.parse({ query: "shampoo", contextMode: "CONTINUE_PREVIOUS_PRODUCT",
       removeRequiredFeatures: ["damaged hair repair"] }), old);
-    expect(next).toMatchObject({ maxItemPriceCents: 5000, requiredSize: "500 ml", removeRequiredFeatures: [],
-      requiredFeatures: ["suitable for color-treated hair", "anti-dandruff"] });
+    expect(next).toMatchObject({ maxItemPriceCents: 5000, removeRequiredFeatures: [],
+      requiredFeatures: ["suitable for color-treated hair", "anti-dandruff", "500 ml"] });
+    expect(next.requiredSize).toBeUndefined();
     expect(old.requiredFeatures).toHaveLength(3);
     for (const patch of [{ removeRequiredFeatures: ["invented requirement"] },
       { removeRequiredFeatures: ["anti-dandruff"], requiredFeatures: ["anti-dandruff"] }]) {

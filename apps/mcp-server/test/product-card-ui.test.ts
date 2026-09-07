@@ -382,7 +382,7 @@ describe("product-card MCP Apps UI", () => {
   });
 
   it("uses an embedded Codex-native surface with responsive cards", () => {
-    expect(PRODUCT_CARD_UI_URI).toBe("ui://findcheap/product-cards/v36.html");
+    expect(PRODUCT_CARD_UI_URI).toBe("ui://findcheap/product-cards/v37.html");
     expect(PRODUCT_CARD_HTML).toContain("--fc-surface:");
     expect(PRODUCT_CARD_HTML).toContain("background: var(--fc-action);");
     expect(PRODUCT_CARD_HTML).toContain("@media (max-width: 640px)");
@@ -490,7 +490,7 @@ describe("product-card MCP Apps UI", () => {
       params: expect.objectContaining({
         name: "report_product_card_metrics",
         arguments: expect.objectContaining({
-          version: "0.17.30",
+          version: "0.17.31",
           terminalStage: "DOM_RENDERED",
           stages: expect.objectContaining({ DOM_RENDERED: expect.any(Number) })
         })
@@ -1110,7 +1110,7 @@ describe("product-card MCP Apps UI", () => {
       method: "ui/initialize",
       params: {
         protocolVersion: "2026-01-26",
-        appInfo: { name: "FindCheap Agent product cards", version: "0.17.30" },
+        appInfo: { name: "FindCheap Agent product cards", version: "0.17.31" },
         appCapabilities: { availableDisplayModes: ["inline"] }
       }
     });

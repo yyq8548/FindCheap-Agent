@@ -6,6 +6,72 @@ import { createOfficialShopifySearchPort } from "../src/shopify-official-store-s
 import { connectReplay, product, searchResult } from "./fixtures/conversation-replay-support.js";
 
 describe("R10 medicube source coverage without weakening requirements", () => {
+  it.each(["medicube Zero Pore Pad Mild", "medicube Zero Pore Madecassoside Pads (Mild)"])(
+    "continues the original goal after inspection and explicit edition confirmation: %s", async query => {
+      const mild = product({ merchantId: "medicube", merchant: "medicube", sourceHost: "medicube.us", brand: "medicube",
+        title: "Zero Pore Madecassoside Pads (Mild)", productType: "toner pads", description: "medicube Zero Pore Pad Mild. Net wt. 155g (70 pads)",
+        handle: "41268489650224", merchantUrl: "https://medicube.us/products/zero-pore-pads-mild?variant=41268489650224" });
+      const other = { ...mild, merchantId: "other", sourceHost: "other.example", merchantUrl: "https://other.example/products/pads?variant=41268489650224" };
+      const search = vi.fn(async () => searchResult([mild, other]));
+      const replay = await connectReplay(search, { selectedProducts: { inspect: async () => ({
+        productTitle: mild.title, canonicalProductUrl: "https://medicube.us/products/zero-pore-pads-mild", variants: [mild]
+      }) } });
+      try {
+        const first = await replay.client.callTool({ name: "search_products", arguments: {
+          query: "medicube Zero Pore Pad", brand: "medicube", productType: "toner pads", requiredSize: "70 pads, 155g",
+          maxItemPriceCents: 5000, compareMerchants: true, comparisonMode: "SAME_PRODUCT", responseLocale: "zh-CN"
+        } });
+        const original = first.structuredContent as { renderId: string; goalId: string; products: { selectionId: string }[] };
+        expect(original.products, JSON.stringify(first.structuredContent)).toHaveLength(2);
+        const inspect = await replay.client.callTool({ name: "inspect_selected_shopify_product", arguments: {
+          renderId: original.renderId, position: 1
+        } });
+        expect(inspect.isError, JSON.stringify(inspect)).not.toBe(true);
+        const next = await replay.client.callTool({ name: "search_products", arguments: {
+          query, contextMode: "CONTINUE_PREVIOUS_PRODUCT", parentRenderId: original.renderId, responseLocale: "zh-CN"
+        } });
+        expect(next.isError).not.toBe(true);
+        expect(next.structuredContent).toMatchObject({ goalId: original.goalId });
+        const updated = next.structuredContent as typeof original;
+        expect(updated.products).toHaveLength(2);
+        for (const card of updated.products) expect(card).toMatchObject({ requestIdentityStatus: "CONFIRMED", requirementAssessment: { status: "SATISFIED" } });
+        const ids = updated.products.map(card => card.selectionId);
+        const comparison = await replay.client.callTool({ name: "compare_selected_products", arguments: {
+          renderId: updated.renderId, selectionIds: ids, responseLocale: "zh-CN"
+        } });
+        expect(comparison.isError).not.toBe(true);
+        expect(comparison.structuredContent).toMatchObject({ entries: ids.map(selectionId => expect.objectContaining({ selectionId, requestIdentityStatus: "CONFIRMED" })) });
+        const historical = await replay.client.callTool({ name: "render_product_cards", arguments: { renderId: original.renderId } });
+        expect(historical.structuredContent).toMatchObject({ products: original.products.map(card => expect.objectContaining({ selectionId: card.selectionId,
+          requestIdentityStatus: "NEEDS_VERIFICATION" })) });
+        const bad = await replay.client.callTool({ name: "search_products", arguments: {
+          query: "Sony headphones", contextMode: "CONTINUE_PREVIOUS_PRODUCT", parentRenderId: original.renderId, responseLocale: "zh-CN"
+        } });
+        expect(bad.isError).toBe(true);
+        expect(bad._meta?.["findcheap/errorCode"]).toBe("PRODUCT_CONTEXT_CONFLICT");
+      } finally { await replay.close(); }
+    });
+  it("normalizes the recorded package-in-size input before source execution and snapshot assessment", async () => {
+    const mild = product({ merchantId: "medicube", merchant: "medicube", sourceHost: "medicube.us",
+      title: "Zero Pore Madecassoside Pads (Mild)", brand: "medicube", productType: "toner pads",
+      description: "Net wt. 155g (70 pads)", handle: "41268489650224",
+      merchantUrl: "https://medicube.us/products/zero-pore-pads-mild?variant=41268489650224" });
+    const regular = { ...mild, title: "Zero Pore Pads", description: "medicube Zero Pore Pad. Net weight: 100ml / 70pads",
+      handle: "40542710825008", merchantUrl: "https://medicube.us/products/zero-pore-pad-1?variant=40542710825008" };
+    const replay = await connectReplay(async () => searchResult([mild, regular]));
+    try {
+      const response = await replay.client.callTool({ name: "search_products", arguments: {
+        query: "medicube Zero Pore Pad", brand: "medicube", productType: "toner pads",
+        requiredSize: "70 pads, 155g", compareMerchants: true, responseLocale: "zh-CN"
+      } });
+      expect(response.isError).not.toBe(true);
+      const cards = (response.structuredContent as { products: { title: string; requirementAssessment: unknown }[] }).products;
+      expect(cards.find(card => card.title.includes("Mild"))?.requirementAssessment).toMatchObject({ status: "SATISFIED",
+        entries: [expect.objectContaining({ requirement: "70 pads", status: "MATCHED" }), expect.objectContaining({ requirement: "155 g", status: "MATCHED" })] });
+      expect(cards.find(card => !card.title.includes("Mild"))?.requirementAssessment).toMatchObject({ status: "NEEDS_VERIFICATION",
+        entries: [expect.objectContaining({ status: "MATCHED" }), expect.objectContaining({ requirement: "155 g", status: "UNKNOWN" })] });
+    } finally { await replay.close(); }
+  });
   it("deduplicates Catalog and official offers before limits and recomputes final comparison counts", async () => {
     const mild = product({ merchantId: "shopify-15639052336", merchant: "MEDICUBE US", sourceHost: "medicube.us",
       title: "medicube Zero Pore Pad Mild 70 pads 155g", brand: "medicube", productType: "toner pads",

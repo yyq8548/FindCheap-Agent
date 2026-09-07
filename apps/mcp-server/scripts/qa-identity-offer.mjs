@@ -26,7 +26,7 @@ try {
   await client.connect(transport);
   emit({ scope: process.env.FINDCHEAP_PLUGIN_ROOT ? "SELECTED_PLUGIN_LIVE_READ_ONLY" : "LOCAL_BUNDLE_LIVE_READ_ONLY", bundleSha256: createHash("sha256").update(await readFile(join(root, "dist/mcp-server.js"))).digest("hex"),
     nativeUI: "NOT_TESTED", originalImageIdentity: "NOT_VERIFIED", hostedDeployment: "NOT_CHANGED" });
-  for (const { id, ...input } of cases) {
+  for (const { id, ...input } of process.argv.includes("--continuation-only") ? [] : cases) {
     const response = await client.callTool({ name: "search_products", arguments: { ...input,
       comparisonMode: "SAME_PRODUCT", compareMerchants: true, responseLocale: "zh-CN", limit: 8 } }, undefined, { timeout: 95_000 });
     const result = response.structuredContent ?? {};
@@ -58,6 +58,35 @@ try {
         requestIdentityStatus: product.requestIdentityStatus, presentationGroup: product.presentationGroup })),
       recommendation: result.recommendation?.state, comparison: result.comparison, recovery: result.recovery });
   }
+  const call = (name, arguments_) => client.callTool({ name, arguments: arguments_ }, undefined, { timeout: 95_000 });
+  const first = await call("search_products", { query: "medicube Zero Pore Pad", brand: "medicube", productType: "toner pads",
+    requiredSize: "70 pads, 155g", comparisonMode: "SAME_PRODUCT", compareMerchants: true, responseLocale: "zh-CN", limit: 8 });
+  const initial = first.structuredContent ?? {};
+  const mild = initial.products?.find(product => /\bmild\b/iu.test(product.title));
+  const assertions = [];
+  const check = (name, passed) => assertions.push({ name, passed: passed === true });
+  check("initial_success", first.isError !== true);
+  check("package_verified_before_confirmation", mild?.requirementAssessment?.status === "SATISFIED");
+  check("edition_still_unconfirmed", mild?.requestIdentityStatus === "NEEDS_VERIFICATION");
+  if (mild !== undefined) {
+    const inspection = await call("inspect_selected_shopify_product", { renderId: initial.renderId, selectionId: mild.selectionId });
+    check("exact_inspection", inspection.isError !== true && inspection.structuredContent?.status === "OK");
+    if (inspection.isError === true) emit({ phase: "EXACT_INSPECTION", failure: inspection._meta?.["findcheap/inspectionFailure"] ??
+      { reason: inspection._meta?.["findcheap/errorCode"] ?? "UNKNOWN" } });
+    const continued = await call("search_products", { query: "medicube Zero Pore Madecassoside Pads (Mild)",
+      parentRenderId: initial.renderId, contextMode: "CONTINUE_PREVIOUS_PRODUCT", responseLocale: "zh-CN" });
+    const next = continued.structuredContent ?? {};
+    check("continuation_success", continued.isError !== true);
+    check("same_goal", typeof initial.goalId === "string" && next.goalId === initial.goalId);
+    check("mild_confirmed_with_package", next.products?.some(product => /\bmild\b/iu.test(product.title) &&
+      product.requestIdentityStatus === "CONFIRMED" && product.requirementAssessment?.status === "SATISFIED"));
+    const original = await call("render_product_cards", { renderId: initial.renderId });
+    check("historical_selection_and_identity_unchanged", original.structuredContent?.products?.some(product =>
+      product.selectionId === mild.selectionId && product.requestIdentityStatus === "NEEDS_VERIFICATION"));
+  }
+  if (assertions.some(assertion => !assertion.passed)) process.exitCode = 1;
+  emit({ case: "PACKAGE_INSPECT_CONFIRM_CONTINUATION", status: assertions.every(assertion => assertion.passed) ? "PASS" : "FAIL", assertions,
+    nativeQuoteConsent: "NOT_TESTED", liveCartWrites: 0 });
 } catch {
   emit({ status: "FAIL", reason: "LIVE_DIAGNOSTIC_FAILED" }); process.exitCode = 1;
 } finally {

@@ -3,6 +3,7 @@ import type { SafeInputIssue } from "./input-validation.js";
 
 export const TOOL_ERROR_CODES = [
   "INVALID_ARGUMENTS",
+  "PRODUCT_CONTEXT_CONFLICT",
   "MISSING_REFERENCE_CONTEXT",
   "REFERENCE_STATE_UNAVAILABLE",
   "REFERENCE_EXPIRED",
@@ -17,6 +18,7 @@ export type ToolFailurePhase = "CAPABILITY_CHECK" | "INPUT_VALIDATION" | "DOMAIN
 
 const TOOL_ERROR_MESSAGES: Record<ToolErrorCode, string> = {
   INVALID_ARGUMENTS: "Tool arguments were invalid.",
+  PRODUCT_CONTEXT_CONFLICT: "The continuation conflicts with the original product identity or retained requirements. No search ran. Preserve the original reference and requirements; clarify the intended identity with the user. Do not automatically switch to NEW_PRODUCT or CORRECT_PREVIOUS_PRODUCT.",
   MISSING_REFERENCE_CONTEXT: "Tool call omitted required prior-product reference context.",
   REFERENCE_STATE_UNAVAILABLE: "The supplied reference is unavailable in this server state. Repeating it cannot restore missing state. Ask the user to restate the requirements or explicitly request a fresh search; do not silently switch to NEW_PRODUCT.",
   REFERENCE_EXPIRED: "The supplied reference has expired. Ask the user before a fresh search; do not reuse old prices or permissions.",
@@ -38,13 +40,14 @@ export function toolError(
   options: { phase?: ToolFailurePhase; issues?: SafeInputIssue[] } = {}
 ): CallToolResult {
   const message = TOOL_ERROR_MESSAGES[code];
-  const inputFailure = code === "INVALID_ARGUMENTS" || code === "MISSING_REFERENCE_CONTEXT";
+  const inputFailure = code === "INVALID_ARGUMENTS" || code === "MISSING_REFERENCE_CONTEXT" || code === "PRODUCT_CONTEXT_CONFLICT";
   const details = {
     version: 1,
     phase: options.phase ?? (inputFailure ? "INPUT_VALIDATION"
       : code === "TOOL_OUTPUT_REJECTED" ? "OUTPUT_VALIDATION"
         : code === "TOOL_NOT_AVAILABLE" ? "CAPABILITY_CHECK" : "DOMAIN_EXECUTION"),
     recovery: code === "INVALID_ARGUMENTS" ? { action: "CORRECT_ARGUMENTS", maxAttempts: 1 }
+      : code === "PRODUCT_CONTEXT_CONFLICT" ? { action: "CLARIFY_IDENTITY", maxAttempts: 0 }
       : code === "MISSING_REFERENCE_CONTEXT" ? { action: "REUSE_ORIGINAL_REFERENCE", maxAttempts: 1 }
         : code === "REFERENCE_STATE_UNAVAILABLE" || code === "REFERENCE_EXPIRED" ? { action: "ASK_USER_TO_RESTATE", maxAttempts: 0 }
         : { action: "NONE", maxAttempts: 0 },

@@ -9,9 +9,9 @@ English | [简体中文](README.zh-CN.md)
 
 Product form: **Codex Plugin Agent**.
 
-Current package: **v0.17.30** — request/edition identity checks, proven equivalent-offer deduplication,
-and consistent final cards, comparison counts and recovery messages. Nine-row comparisons remain.
-[Release scope, verification and remaining design gaps](docs/releases/v0.17.30.md).
+Current package: **v0.17.31** — package requirements, same-goal edition confirmation and safe quote feedback.
+Nine-row comparisons and immutable selections remain.
+[Release scope, verification and remaining design gaps](docs/releases/v0.17.31.md).
 
 FindCheap Agent is a shopping-research Codex plugin for product search, offer matching, price checks, product cards, evidence-backed comparison views, verified deals, and shopping watches. Search is read-only; quotes and Watches have separate authorization boundaries. It returns up to eight products in three tiers: 2 official-store matches, 3 trusted matches, and 3 best-value high-match options.
 

@@ -4,6 +4,7 @@ import { normalizeNamedProductIdentity } from "./named-product-identity.js";
 import { hasSpecificProductIdentity, hasStrongProductIdentifier, productQueryCategoryKeys } from "./shopify-match.js";
 import { functionalRequirement, requiredPrimaryUseFeatures } from "./functional-requirements.js";
 import { isColorRequirement } from "./product-constraint-matcher.js";
+import { normalizePackageRequirements } from "./package-requirements.js";
 
 /** Provenance of submitted fields, not a claim that the model saw a verbatim user quote. */
 export function shoppingRequirementLedger(input: SearchProductsInput) {
@@ -26,7 +27,10 @@ export function shoppingRequirementLedger(input: SearchProductsInput) {
 
 /** Pure merge; the caller resolves a same-session, unexpired explicit snapshot.
  * Parser defaults are not user requests to remove previous constraints. */
-export function mergeSearchRequirements(current: SearchProductsInput, previous: SearchProductsInput): SearchProductsInput {
+export function mergeSearchRequirements(current: SearchProductsInput, previous: SearchProductsInput,
+  previousCandidates: readonly { title: string; brand?: string | undefined }[] = []): SearchProductsInput {
+  current = normalizePackageRequirements(current);
+  previous = normalizePackageRequirements(previous);
   if (current.removeRequiredFeatures.length > 0 && current.contextMode !== "CONTINUE_PREVIOUS_PRODUCT") throw new Error("PRODUCT_CONTEXT_CONFLICT");
   if (current.contextMode === "NEW_PRODUCT") return current;
   const correctingIdentity = current.contextMode === "CORRECT_PREVIOUS_PRODUCT";
@@ -48,7 +52,7 @@ export function mergeSearchRequirements(current: SearchProductsInput, previous: 
   const merged: Record<string, unknown> = { ...previous, parentRenderId: current.parentRenderId,
     contextMode: current.contextMode, responseLocale: current.responseLocale ?? previous.responseLocale,
     clearConstraints: [], removeRequiredFeatures: [], limit: current.limit };
-  if (!correctingIdentity) merged.query = continuedIdentityQuery(current, previous);
+  if (!correctingIdentity) merged.query = continuedIdentityQuery(current, previous, previousCandidates);
   if (correctingIdentity) {
     // Correcting identity is not permission to withdraw budget, size, or must-haves.
     // Old image observations are identity evidence, not constraints for a new identity.
@@ -72,7 +76,8 @@ export function mergeSearchRequirements(current: SearchProductsInput, previous: 
 
 /** CONTINUE can narrow identity, but cannot replace, combine or erase it.
  * Unreviewed translations are not evidence of identity equivalence. */
-function continuedIdentityQuery(current: SearchProductsInput, previous: SearchProductsInput): string {
+function continuedIdentityQuery(current: SearchProductsInput, previous: SearchProductsInput,
+  previousCandidates: readonly { title: string; brand?: string | undefined }[]): string {
   // Within an already explicit EV category, "Tesla charging station" is a
   // category shorthand. This says nothing about vehicle/region compatibility.
   const evCategory = /^(?:ev (?:charging station|charger)|electric vehicle (?:charging station|charger)|充电桩)$/iu
@@ -80,7 +85,7 @@ function continuedIdentityQuery(current: SearchProductsInput, previous: SearchPr
   const categoryForm = (value: string) => evCategory ? value
     .replace(/\b(?:(?:ev|electric vehicle)\s+)?charging stations?\b|\b(?:ev|electric vehicle)\s+chargers?\b|充电桩/giu, "charger") : value;
   const tokens = (value: string) => [...new Set(normalizeNamedProductIdentity(categoryForm(value)).normalize("NFKD")
-    .replace(/\p{M}+/gu, "").toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [])];
+    .replace(/\p{M}+/gu, "").toLowerCase().replace(/\bpads\b/gu, "pad").match(/[\p{L}\p{N}]+/gu) ?? [])];
   const same = (left: readonly string[], right: readonly string[]) => left.length === right.length && left.every(token => right.includes(token));
   const oldTokens = tokens(previous.query);
   const newTokens = tokens(current.query);
@@ -107,9 +112,19 @@ function continuedIdentityQuery(current: SearchProductsInput, previous: SearchPr
   // safe-looking part of a phrase that also appends another identity.
   const queryAddition = newTokens.filter(token => !oldTokens.includes(token));
   const controlledQueryAddition = controlledVariantRefinement(queryAddition.join(" "));
+  const cosmetic = /\b(?:toner|pads?|serum|cream|skincare)\b|护肤|棉片/iu.test(previous.productType ?? previous.query);
+  const editions = newTokens.filter(token => token === "mild" || token === "regular");
+  const oldEditions = oldTokens.filter(token => token === "mild" || token === "regular");
+  if (cosmetic && editions.length > 1) throw new Error("PRODUCT_CONTEXT_CONFLICT");
+  // User input may narrow an unspecified edition; a source title alone does not.
+  // Longer spelling must exactly match a candidate from the original snapshot,
+  // after the old anchors/category/model checks above have already passed.
+  const editionRefinement = cosmetic && oldEditions.length === 0 && editions.length === 1 &&
+    (queryAddition.length === 1 || previousCandidates.some(candidate =>
+      same(newTokens, tokens([candidate.brand, candidate.title].filter(Boolean).join(" ")))));
   if (!generic && current.requiredFeatures.some(feature => /\bcharacter\b|角色/iu.test(feature) &&
     tokens(feature).some(token => !oldTokens.includes(token)))) throw new Error("PRODUCT_CONTEXT_CONFLICT");
-  if (!generic && !controlledQueryAddition && queryAddition.some(token => !supplied.has(token))) {
+  if (!generic && !controlledQueryAddition && !editionRefinement && queryAddition.some(token => !supplied.has(token))) {
     throw new Error("PRODUCT_CONTEXT_CONFLICT");
   }
   return current.query;

@@ -3,6 +3,21 @@ import type { ShopifyProduct } from "./shopify-client.js";
 import { parseOfficialStructuredProduct, type OfficialStructuredProduct } from "./shopify-official-store-search.js";
 import { ShopifyProductJsonSchema, shopifyVariantDimensions } from "./shopify-product-json.js";
 import { evaluateProductRequirements, sizeEvidence } from "./product-requirements.js";
+import { classifySourceFailure } from "./source-failure.js";
+
+export class SelectedProductInspectionError extends Error {
+  constructor(readonly code: "TARGET_CHANGED" | "VARIANT_NOT_PRESENT" | "TARGET_UNSUPPORTED" | "SOURCE_UNAVAILABLE" | "RATE_LIMITED" | "UPSTREAM_ERROR",
+    message: string, readonly phase = "TARGET_VALIDATION") {
+    super(message);
+    this.name = "SelectedProductInspectionError";
+  }
+}
+
+export function selectedInspectionFailure(error: unknown) {
+  if (error instanceof SelectedProductInspectionError) return { reason: error.code, phase: error.phase };
+  const failure = classifySourceFailure("SHOPIFY", error);
+  return { reason: failure.kind, phase: failure.phase ?? "SOURCE_READ" };
+}
 
 type InspectionOptions = { signal?: AbortSignal; requirements?: {
   requiredFeatures: readonly string[]; requiredSize?: string | undefined;
@@ -46,17 +61,18 @@ export function createShopifySelectedProductInspector(
       const target = selectedProductJsonTarget(selected);
       const fetched = await fetchProduct(target.jsonUrl, target.sourceHost, options?.signal);
       if (canonicalHref(fetched.finalUrl) !== target.jsonUrl) {
-        throw new Error("selected product path changed");
+        throw new SelectedProductInspectionError("TARGET_CHANGED", "selected product path changed");
       }
+      rejectTransientResponse(fetched.response);
       const checkedAt = clock.now().toISOString();
       const hasRequestedDimensions = Object.keys(requestedVariantDimensions).length > 0;
       if (fetched.response.ok) {
         const product = ShopifyProductJsonSchema.parse(JSON.parse(await fetched.response.text()));
         if (product.handle !== target.productHandle) {
-          throw new Error("selected product handle changed");
+          throw new SelectedProductInspectionError("TARGET_CHANGED", "selected product handle changed");
         }
         if (!product.variants.some((variant) => variant.id === selected.handle)) {
-          throw new Error("selected variant identity was not present");
+          throw new SelectedProductInspectionError("VARIANT_NOT_PRESENT", "selected variant identity was not present");
         }
         // /products/*.js may omit currency. Never relabel a local-market price as
         // USD: accept explicit USD, or the exact page's USD offer for that variant.
@@ -109,16 +125,18 @@ export function createShopifySelectedProductInspector(
       }
 
       const page = await fetchProduct(target.canonicalProductUrl, target.sourceHost, options?.signal);
-      if (canonicalHref(page.finalUrl) !== canonicalHref(target.canonicalProductUrl) || !page.response.ok) {
-        throw new Error("selected product page changed");
+      rejectTransientResponse(page.response);
+      if (canonicalHref(page.finalUrl) !== canonicalHref(target.canonicalProductUrl)) {
+        throw new SelectedProductInspectionError("TARGET_CHANGED", "selected product page changed");
       }
+      if (!page.response.ok) throw new SelectedProductInspectionError("SOURCE_UNAVAILABLE", "selected product page unavailable", "SOURCE_RESPONSE");
       const product = parseOfficialStructuredProduct(
         await page.response.text(),
         target.sourceHost,
         target.productHandle
       );
       if (!product.variants.some((variant) => variant.variantId === selected.handle)) {
-        throw new Error("selected variant identity was not present");
+        throw new SelectedProductInspectionError("VARIANT_NOT_PRESENT", "selected variant identity was not present");
       }
       const description = (product.description ?? selected.description ?? "").replace(/<[^>]*>/gu, " ");
       const { sku: _oldSku, mpn: _oldMpn, gtins: _oldGtins, cartQuote: _oldQuote, itemPrice: _oldPrice,
@@ -155,6 +173,11 @@ export function createShopifySelectedProductInspector(
         variants: variants.filter(variant => meetsRequirements(variant, options)).slice(0, 3) };
     }
   };
+}
+
+function rejectTransientResponse(response: Response): void {
+  if (response.status === 429) throw new SelectedProductInspectionError("RATE_LIMITED", "selected product source rate limited", "SOURCE_RESPONSE");
+  if (response.status >= 500) throw new SelectedProductInspectionError("UPSTREAM_ERROR", "selected product source unavailable", "SOURCE_RESPONSE");
 }
 
 function meetsRequirements(product: ShopifyProduct, options: InspectionOptions | undefined): boolean {
@@ -215,11 +238,11 @@ function selectedProductJsonTarget(selected: ShopifyProduct): {
     url.port !== "" ||
     url.hostname.toLocaleLowerCase("en-US") !== sourceHost
   ) {
-    throw new Error("selected product source changed");
+    throw new SelectedProductInspectionError("TARGET_CHANGED", "selected product source changed");
   }
   const pathname = url.pathname.replace(/\/$/u, "");
   const match = pathname.match(/^\/(?:[A-Za-z]{2}(?:-[A-Za-z]{2})?\/)?products\/([A-Za-z0-9][A-Za-z0-9_-]{0,200})$/u);
-  if (match === null) throw new Error("selected product path is unsupported");
+  if (match === null) throw new SelectedProductInspectionError("TARGET_UNSUPPORTED", "selected product path is unsupported");
   const canonicalProductUrl = `https://${sourceHost}${pathname}`;
   return {
     sourceHost,

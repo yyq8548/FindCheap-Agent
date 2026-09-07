@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { normalizePackageRequirements } from "./package-requirements.js";
 import { SearchRun } from "./search-run.js";
 import { deduplicateCandidateOffers, type OfferObservation } from "./offer-equivalence.js";
 import { resolveKnownProductUrl } from "./known-product-url.js";
@@ -108,7 +109,7 @@ export const SearchProductsInputSchema = z.object({
     .describe("User-stated preferred physical or screen size; never infer it")
     .optional(),
   requiredSize: z.string().trim().min(1).max(80)
-    .describe("User-stated mandatory physical or screen size; use only when the user explicitly requires or selects that size")
+    .describe("User-stated mandatory physical or screen size. Package count/net content belong in requiredFeatures, e.g. ['70 pads', '155 g'], not requiredSize")
     .optional(),
   zipCode: z.string().regex(/^\d{5}(?:-\d{4})?$/u).optional(),
   membershipIds: z.array(z.string().trim().min(1).max(80)).max(20)
@@ -412,6 +413,7 @@ export async function searchProducts(
     selectedProducts?: ShopifySelectedProductInspector;
   }
 ): Promise<UnifiedSearchExecution> {
+  rawInput = normalizePackageRequirements(rawInput);
   const searchRun = rawInput.searchRun ?? new SearchRun();
   await Promise.all([
     ports.officialStorefrontRegistry === undefined ? undefined

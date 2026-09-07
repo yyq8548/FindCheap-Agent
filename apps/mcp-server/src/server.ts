@@ -5,6 +5,7 @@ import { z } from "zod";
 import { productReferenceKey } from "./product-reference.js";
 import { RequirementAssessmentSchema, ambiguousShoeSize, evaluateProductRequirements, normalizedSizeRequirement } from "./product-requirements.js";
 import { mergeSearchRequirements, shoppingRequirementLedger } from "./search-requirements-context.js";
+import { normalizePackageRequirements } from "./package-requirements.js";
 import { assessQualityEvidence, unitPriceEvidence, QualityEvidenceSchema, UnitPriceSchema, ValueEvidenceSchema } from "./product-value-evidence.js";
 import { createFindCheapBackend, type FindCheapBackend } from "./backend.js";
 import { describeVisualOutcome, needsMoreVisualReview, selectVisualResults, VisualSearchOutcomeSchema } from "./visual-search-outcome.js";
@@ -53,7 +54,7 @@ import {
   type ShopifyQuoteFailureCode
 } from "./shopify-cart-quote.js";
 import { issueQuoteAuthorization } from "./quote-authorization.js";
-import type { ShopifySelectedProductInspector } from "./shopify-selected-product.js";
+import { selectedInspectionFailure, type ShopifySelectedProductInspector } from "./shopify-selected-product.js";
 import type { OfficialShopifySearchPort } from "./shopify-official-store-search.js";
 import type { OfficialStorefrontRegistryPort } from "./official-storefront-registry-client.js";
 import type { MerchantTrustRegistryPort } from "./merchant-trust-registry-client.js";
@@ -2813,7 +2814,7 @@ export function createShoppingServer(
       }
     },
     async (rawInput, extra) => {
-      let parsedInput = SearchProductsInputSchema.parse(rawInput);
+      let parsedInput = normalizePackageRequirements(SearchProductsInputSchema.parse(rawInput));
       if (parsedInput.contextMode === "NEW_PRODUCT" && (parsedInput.parentRenderId !== undefined ||
         parsedInput.goalId !== undefined || parsedInput.goalRevision !== undefined)) return toolError("INVALID_ARGUMENTS");
       if (parsedInput.removeRequiredFeatures.length > 0 && parsedInput.contextMode !== "CONTINUE_PREVIOUS_PRODUCT") return toolError("INVALID_ARGUMENTS");
@@ -2821,8 +2822,13 @@ export function createShoppingServer(
         if (parsedInput.parentRenderId === undefined && parsedInput.goalId === undefined) return toolError("MISSING_REFERENCE_CONTEXT");
         const parent = resolveSearchParent(parsedInput);
         if (parent?.request === undefined || parent.expiresAt <= now().getTime()) return unavailableReference(parent);
-        try { parsedInput = mergeSearchRequirements({ ...parsedInput, parentRenderId: parent.content.renderId }, parent.request); }
-        catch { return toolError("INVALID_ARGUMENTS"); }
+        try { parsedInput = mergeSearchRequirements({ ...parsedInput, parentRenderId: parent.content.renderId }, parent.request,
+          parent.content.products.map(product => ({ title: product.title, brand: productIdentityBrand({
+            sourceHost: product.sourceHost, merchantTrust: { level: product.merchantTrust.level,
+              verification: product.merchantTrust.verification, evidence: product.merchantTrust.evidence },
+            ...(product.brand === undefined ? {} : { brand: product.brand }) }) }))); }
+        catch (error) { return toolError(error instanceof Error && error.message === "PRODUCT_CONTEXT_CONFLICT"
+          ? "PRODUCT_CONTEXT_CONFLICT" : "INVALID_ARGUMENTS"); }
       }
       let input = parsedInput.visualInput === undefined
         ? parsedInput
@@ -3151,7 +3157,7 @@ export function createShoppingServer(
       }
     },
     async (rawInput, extra) => {
-      let parsedInput = VisualCandidateSearchInputSchema.parse(rawInput);
+      let parsedInput = normalizePackageRequirements(VisualCandidateSearchInputSchema.parse(rawInput));
       let parentRun: SearchRun | undefined;
       if (parsedInput.contextMode === "NEW_PRODUCT" && (parsedInput.parentRenderId !== undefined ||
         parsedInput.goalId !== undefined || parsedInput.goalRevision !== undefined)) return toolError("INVALID_ARGUMENTS");
@@ -3166,7 +3172,8 @@ export function createShoppingServer(
           const { limit: _limit, ...visualRequest } = merged;
           parsedInput = VisualCandidateSearchInputSchema.parse(visualRequest);
         }
-        catch { return toolError("INVALID_ARGUMENTS"); }
+        catch (error) { return toolError(error instanceof Error && error.message === "PRODUCT_CONTEXT_CONFLICT"
+          ? "PRODUCT_CONTEXT_CONFLICT" : "INVALID_ARGUMENTS"); }
       }
       const parsed = {
         ...parsedInput,
@@ -3888,14 +3895,15 @@ export function createShoppingServer(
             updatedSnapshot: remembered
           }
         };
-      } catch {
-        return {
-          isError: true,
-          content: [{
-            type: "text" as const,
-            text: "The exact selected product could not be inspected safely. No replacement product was searched."
-          }]
-        };
+      } catch (error) {
+        const failure = selectedInspectionFailure(error);
+        const host = /^[a-z0-9.-]{1,253}$/iu.test(selected.sourceHost) ? selected.sourceHost : "UNKNOWN";
+        const message = snapshot.content.locale === "zh-CN"
+          ? "所选商品详情未能完成安全核验，原有商品与选择未改变；未搜索替代商品。"
+          : "The exact selected product could not be inspected safely. Original products and selections are unchanged. No replacement product was searched.";
+        return { isError: true,
+          content: [{ type: "text" as const, text: `[INSPECTION_${failure.reason}] ${message}` }],
+          _meta: { "findcheap/inspectionFailure": { ...failure, host } } };
       }
     }
   );
