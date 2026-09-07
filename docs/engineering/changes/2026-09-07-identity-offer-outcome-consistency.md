@@ -165,3 +165,12 @@ lifecycle acceptance were not run. Default tests exclude database integration;
 database contracts were unchanged, and no production database test was executed.
 No commit, push, version bump, Railway deployment or installed-cache replacement
 was performed. No user shopping history or Watch policy was changed.
+
+### Subsequent authorized release
+
+After the implementation report, Chris separately authorized publication and
+post-install replay. [v0.17.30 release evidence](../../releases/v0.17.30.md)
+records commit/push, Railway production, installed-cache verification and the
+three-case / 26-assertion replay. The earlier unpublished status above describes
+the completed implementation turn, not the later release state. Original-photo
+identity and complete cross-merchant comparison remain unaccepted.
