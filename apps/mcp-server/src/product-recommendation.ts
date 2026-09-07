@@ -1,4 +1,5 @@
 import type { SearchProductsInput } from "./search-products.js";
+import type { RequestIdentityStatus } from "./shopify-match.js";
 import { PRIMARY_BLOCK_REASON_CODES, assessRanking, compareRankingAssessments, hasEquivalentFitEvidence } from "./ranking-assessment.js";
 import type { VisualReviewAssessment } from "./visual-review-policy.js";
 import { costAdvantage, isCurrentDeal, type ValueProduct } from "./product-value-evidence.js";
@@ -27,6 +28,7 @@ export type RecommendationDecision = {
 type RecommendationProduct = ValueProduct & {
   title: string;
   matchStatus: "EXACT" | "DISCOVERY_MATCH" | "SIMILAR";
+  requestIdentityStatus?: RequestIdentityStatus | undefined;
   visualReviewAssessment?: VisualReviewAssessment | undefined;
   visualReviewRequired?: boolean | undefined;
   presentationGroup?: "OFFICIAL_STORE" | "TRUSTED_MATCH" | "BEST_VALUE" | "RESEARCH_ONLY" | undefined;

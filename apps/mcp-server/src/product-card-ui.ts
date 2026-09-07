@@ -1052,6 +1052,8 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
             body.append(make("div", "details", text("Seller: ", "卖家：") + String(cardData.sellerName || product.sellerName)));
           }
           body.append(make("h3", "", cardData.title || product.title || text("Product", "商品")));
+          if (product.requestIdentityStatus === "NEEDS_VERIFICATION") body.append(make("div", "limitations notice",
+            text("Product name or edition needs confirmation", "商品名称或版本身份待确认")));
           if (product.visualReviewRequired === true) body.append(make("div", "limitations notice",
             text("Visual matching for the selected variant needs review", "所选变体的图片匹配尚未复核")));
           const identity = [product.brand, product.sku ? text("Model/SKU: ", "型号/SKU：") + product.sku : undefined, product.gtins?.[0] ? "GTIN: " + product.gtins[0] : undefined]

@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { classifyShopifyCandidate, hasStrongProductIdentifier } from "./shopify-match.js";
+import { classifyShopifyCandidate } from "./shopify-match.js";
 import type {
   ShopifyCondition,
   ShopifyPort,
@@ -482,17 +482,14 @@ function buildResult(
       }))
     : priceEligible.flatMap((candidate) => {
         const match = classifyShopifyCandidate(input.query ?? "", candidate);
-        const catalogIdentityExact = match.status === "DISCOVERY_MATCH" && hasStrongProductIdentifier(input.query ?? "");
         return match.status === "IRRELEVANT" ? [] : [{
           ...candidate,
           matchStatus: context.relaxed
             ? "DISCOVERY_MATCH" as const
-            : catalogIdentityExact ? "EXACT" as const : match.status,
+            : match.status,
           matchEvidence: context.relaxed
             ? [...match.evidence, "bounded relaxed Catalog query", "exact identity not independently verified"]
-            : catalogIdentityExact
-              ? [...match.evidence, "Shopify Universal Product ID exact"]
-              : match.evidence
+            : match.evidence
         }];
       });
   const requested = requestedCondition(input.query);
@@ -505,11 +502,8 @@ function buildResult(
   const upidGroup = input.comparisonMode === "SAME_PRODUCT" && !context.relaxed
     ? selectUpidGroup(ranked)
     : undefined;
-  const sameProduct = upidGroup?.map((candidate) => ({
-    ...candidate,
-    matchStatus: "EXACT" as const,
-    matchEvidence: [...new Set([...candidate.matchEvidence, "Shopify Universal Product ID exact"])]
-  }));
+  // A shared Catalog ID relates offers to each other, not to the user's request.
+  const sameProduct = upidGroup;
   const pool = sameProduct ?? ranked;
   const unverifiedPool = pool.filter((candidate) => candidate.merchantTrust.level === "UNKNOWN");
   const selectionMode = input.selectionMode ?? "MERCHANT_DIVERSE";

@@ -1,4 +1,7 @@
 export type ShopifyMatchStatus = "EXACT" | "DISCOVERY_MATCH" | "SIMILAR" | "IRRELEVANT";
+export type RequestIdentityStatus = "CONFIRMED" | "NEEDS_VERIFICATION";
+const MEASUREMENT_UNITS = "g|grams?|kg|mg|l|ml|cl|oz|lb|lbs|gb|tb|mb|pads?|count|ct|pcs|pc|pieces?|pack|pk|inch|inches|in|mm|cm|m|w|kw|v|mv|ma|mah|ah|hz|khz|mhz|ghz|wh|kwh";
+const MEASUREMENT_TOKEN = new RegExp(`^\\d+(?:${MEASUREMENT_UNITS})$`, "u");
 
 export type ShopifyMatchCandidate = {
   title: string;
@@ -118,8 +121,32 @@ export function hasStrongProductIdentifier(query: string): boolean {
       token.length >= 4 &&
       /\p{L}/u.test(token) &&
       /\d/u.test(token) &&
-      !/^\d+(?:gb|tb|mb|ml|oz|count|pack|inch|in)$/u.test(token)
+      !MEASUREMENT_TOKEN.test(token)
     );
+}
+
+/** Primary fields can confirm the requested name, never a cross-merchant SKU.
+ * Shared descriptions may recall candidates, but cannot resolve edition identity. */
+export function assessRequestIdentity(query: string, candidate: ShopifyMatchCandidate,
+  status: ShopifyMatchStatus): RequestIdentityStatus {
+  if (status === "EXACT") return "CONFIRMED";
+  if (status !== "DISCOVERY_MATCH") return "NEEDS_VERIFICATION";
+  const singular = (token: string) => token === "pads" ? "pad" : token;
+  const requested = tokenize(query).map(singular);
+  const primary = new Set(tokenize([candidate.title, candidate.brand, candidate.mpn, candidate.sku].filter(Boolean).join(" ")).map(singular));
+  const editions = ["mild", "regular", "pro", "max", "ultra", "plus", "lite", "mini"];
+  if (editions.some(edition => primary.has(edition) && !requested.includes(edition))) return "NEEDS_VERIFICATION";
+  const unit = new RegExp(`^(?:fl|${MEASUREMENT_UNITS})$`, "u");
+  const anchors = requested.filter(token => !IGNORED_QUERY_TERMS.has(token) &&
+    !CONDITION_TERMS.has(token) && !/^\d+$/u.test(token) && !MEASUREMENT_TOKEN.test(token) && !unit.test(token));
+  // Numeric model tokens remain mandatory (e.g. iPhone 16 versus iPhone 15).
+  const modelNumbers = requested.filter((token, index) => /^\d+$/u.test(token) &&
+    requested[index + 1] !== undefined && !unit.test(requested[index + 1]!) &&
+    !/^(?:pads?|pieces?)$/u.test(requested[index + 1]!));
+  const trailingNumber = requested.at(-1);
+  if (trailingNumber && /^\d+$/u.test(trailingNumber)) modelNumbers.push(trailingNumber);
+  return anchors.length >= 2 && [...anchors, ...modelNumbers].every(token => primary.has(token))
+    ? "CONFIRMED" : "NEEDS_VERIFICATION";
 }
 
 export function hasNamedProductIntent(query: string): boolean {

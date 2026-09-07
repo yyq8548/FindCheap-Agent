@@ -1,14 +1,16 @@
 import { visualReviewScore, type VisualReviewAssessment } from "./visual-review-policy.js";
+import type { RequestIdentityStatus } from "./shopify-match.js";
 import { assessQualityEvidence, comparableUnitPrices, type QualityEvidence, type ValueProduct } from "./product-value-evidence.js";
 
 export const PRIMARY_BLOCK_REASON_CODES = [
-  "VARIANT_OUT_OF_STOCK", "UNVERIFIED_MERCHANT", "UNFULFILLED_REQUIREMENTS", "SIMILAR_ONLY", "MISSING_PRICE", "VISUAL_REVIEW_REQUIRED"
+  "VARIANT_OUT_OF_STOCK", "IDENTITY_UNVERIFIED", "UNVERIFIED_MERCHANT", "UNFULFILLED_REQUIREMENTS", "SIMILAR_ONLY", "MISSING_PRICE", "VISUAL_REVIEW_REQUIRED"
 ] as const;
 export type PrimaryBlockReasonCode = typeof PRIMARY_BLOCK_REASON_CODES[number];
 
 export type RankingInput = Omit<ValueProduct, "itemPrice"> & {
   title: string;
   matchStatus: "EXACT" | "DISCOVERY_MATCH" | "SIMILAR";
+  requestIdentityStatus?: RequestIdentityStatus | undefined;
   recommendationTier?: "TRUSTED_OR_AFFILIATE" | "HIGH_RATED_UNVERIFIED" | "GENERAL_UNVERIFIED" | undefined;
   merchantTrust: {
     verification: "INDEPENDENT" | "UNVERIFIED";
@@ -56,6 +58,7 @@ export function assessRanking(input: RankingInput): RankingAssessment {
     ? Math.min(itemPrice, input.confirmedCouponPriceCents) : itemPrice;
   const primaryBlockReasons: PrimaryBlockReasonCode[] = [];
   if (input.availability === "OUT_OF_STOCK") primaryBlockReasons.push("VARIANT_OUT_OF_STOCK");
+  if (input.requestIdentityStatus === "NEEDS_VERIFICATION") primaryBlockReasons.push("IDENTITY_UNVERIFIED");
   if (!trusted) primaryBlockReasons.push("UNVERIFIED_MERCHANT");
   if (limitationCount > 0) primaryBlockReasons.push("UNFULFILLED_REQUIREMENTS");
   const review = input.visualReviewAssessment;

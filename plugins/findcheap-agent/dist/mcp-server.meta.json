@@ -4073,6 +4073,10 @@
       "format": "esm",
       "imports": []
     },
+    "src/offer-equivalence.ts": {
+      "format": "esm",
+      "imports": []
+    },
     "src/official-storefront-registry-client.ts": {
       "format": "esm",
       "imports": [
@@ -4105,6 +4109,16 @@
           "kind": "import-statement",
           "original": "./product-reference.js",
           "path": "src/product-reference.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./offer-equivalence.js",
+          "path": "src/offer-equivalence.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./search-result-summary.js",
+          "path": "src/search-result-summary.ts"
         },
         {
           "kind": "import-statement",
@@ -4379,6 +4393,11 @@
         },
         {
           "kind": "import-statement",
+          "original": "./offer-equivalence.js",
+          "path": "src/offer-equivalence.ts"
+        },
+        {
+          "kind": "import-statement",
           "original": "./known-product-url.js",
           "path": "src/known-product-url.ts"
         },
@@ -4496,6 +4515,21 @@
           "kind": "import-statement",
           "original": "./product-constraint-matcher.js",
           "path": "src/product-constraint-matcher.ts"
+        }
+      ]
+    },
+    "src/search-result-summary.ts": {
+      "format": "esm",
+      "imports": [
+        {
+          "kind": "import-statement",
+          "original": "./product-recommendation.js",
+          "path": "src/product-recommendation.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./product-value-evidence.js",
+          "path": "src/product-value-evidence.ts"
         }
       ]
     },
@@ -4646,6 +4680,11 @@
           "kind": "import-statement",
           "original": "./shopify-match.js",
           "path": "src/shopify-match.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./search-result-summary.js",
+          "path": "src/search-result-summary.ts"
         },
         {
           "kind": "import-statement",
@@ -5262,7 +5301,7 @@
   },
   "outputs": {
     "../../plugins/findcheap-agent/dist/mcp-server.js": {
-      "bytes": 1007219,
+      "bytes": 1013578,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
@@ -5469,7 +5508,7 @@
           "bytesInOutput": 1536
         },
         "../../node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/types.js": {
-          "bytesInOutput": 12609
+          "bytesInOutput": 12541
         },
         "../../node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/validation/ajv-provider.js": {
           "bytesInOutput": 450
@@ -5844,7 +5883,7 @@
           "bytesInOutput": 44
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v4/classic/schemas.js": {
-          "bytesInOutput": 10402
+          "bytesInOutput": 10401
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v4/core/api.js": {
           "bytesInOutput": 4774
@@ -5955,7 +5994,7 @@
           "bytesInOutput": 2051
         },
         "src/execution/model-context.ts": {
-          "bytesInOutput": 2783
+          "bytesInOutput": 2807
         },
         "src/execution/tool-executor.ts": {
           "bytesInOutput": 2309
@@ -5987,23 +6026,26 @@
         "src/named-product-identity.ts": {
           "bytesInOutput": 940
         },
+        "src/offer-equivalence.ts": {
+          "bytesInOutput": 1898
+        },
         "src/official-storefront-registry-client.ts": {
           "bytesInOutput": 1410
         },
         "src/product-candidate-ranking.ts": {
-          "bytesInOutput": 7547
+          "bytesInOutput": 7627
         },
         "src/product-card-telemetry.ts": {
           "bytesInOutput": 814
         },
         "src/product-card-ui.ts": {
-          "bytesInOutput": 77718
+          "bytesInOutput": 77940
         },
         "src/product-comparison-ui.ts": {
-          "bytesInOutput": 25996
+          "bytesInOutput": 26175
         },
         "src/product-comparison.ts": {
-          "bytesInOutput": 12031
+          "bytesInOutput": 12328
         },
         "src/product-constraint-matcher.ts": {
           "bytesInOutput": 12930
@@ -6018,16 +6060,16 @@
           "bytesInOutput": 5689
         },
         "src/product-value-evidence.ts": {
-          "bytesInOutput": 4711
+          "bytesInOutput": 4807
         },
         "src/quote-authorization.ts": {
           "bytesInOutput": 752
         },
         "src/ranking-assessment.ts": {
-          "bytesInOutput": 3075
+          "bytesInOutput": 3175
         },
         "src/recommendation-message.ts": {
-          "bytesInOutput": 1711
+          "bytesInOutput": 2008
         },
         "src/retrieval-plan.ts": {
           "bytesInOutput": 779
@@ -6039,16 +6081,19 @@
           "bytesInOutput": 3773
         },
         "src/search-products.ts": {
-          "bytesInOutput": 42831
+          "bytesInOutput": 43429
         },
         "src/search-requirements-context.ts": {
           "bytesInOutput": 4713
+        },
+        "src/search-result-summary.ts": {
+          "bytesInOutput": 2139
         },
         "src/search-run.ts": {
           "bytesInOutput": 7832
         },
         "src/server.ts": {
-          "bytesInOutput": 183117
+          "bytesInOutput": 182799
         },
         "src/shopify-cart-quote.ts": {
           "bytesInOutput": 12428
@@ -6057,10 +6102,10 @@
           "bytesInOutput": 181
         },
         "src/shopify-global-catalog-client.ts": {
-          "bytesInOutput": 22434
+          "bytesInOutput": 22195
         },
         "src/shopify-match.ts": {
-          "bytesInOutput": 11062
+          "bytesInOutput": 11910
         },
         "src/shopify-official-store-search.ts": {
           "bytesInOutput": 14636
@@ -6081,7 +6126,7 @@
           "bytesInOutput": 930
         },
         "src/text-search-recovery.ts": {
-          "bytesInOutput": 1632
+          "bytesInOutput": 1839
         },
         "src/visual-candidate-images.ts": {
           "bytesInOutput": 6960

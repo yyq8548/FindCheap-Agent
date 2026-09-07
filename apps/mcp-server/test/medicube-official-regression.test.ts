@@ -3,9 +3,56 @@ import { resolveMerchantTrust, resolveVerifiedOfficialStorefront, replaceManaged
 import { DEFAULT_OFFICIAL_STOREFRONT_REGISTRY } from "../../awin-feed-service/src/official-storefront-registry.js";
 import { EMBEDDED_MERCHANT_TRUST_REGISTRY } from "../../../packages/contracts/src/merchant-trust-registry.js";
 import { createOfficialShopifySearchPort } from "../src/shopify-official-store-search.js";
-import { connectReplay, searchResult } from "./fixtures/conversation-replay-support.js";
+import { connectReplay, product, searchResult } from "./fixtures/conversation-replay-support.js";
 
 describe("R10 medicube source coverage without weakening requirements", () => {
+  it("deduplicates Catalog and official offers before limits and recomputes final comparison counts", async () => {
+    const mild = product({ merchantId: "shopify-15639052336", merchant: "MEDICUBE US", sourceHost: "medicube.us",
+      title: "medicube Zero Pore Pad Mild 70 pads 155g", brand: "medicube", productType: "toner pads",
+      description: "Net wt. 155g (70 pads)", handle: "41268489650224",
+      merchantUrl: "https://medicube.us/products/zero-pore-pads-mild?variant=41268489650224" });
+    const official = { ...mild, merchantId: "official-medicube.us" };
+    const replay = await connectReplay(async () => ({ ...searchResult([mild, official]),
+      comparison: { status: "SAME_PRODUCT", identityType: "UPID", evidence: ["raw upstream group"], merchantCount: 6, offerCount: 9 } }));
+    try {
+      const response = await replay.client.callTool({ name: "search_products", arguments: {
+        query: "medicube Zero Pore Pad 70 pads 155g", brand: "medicube", productType: "toner pads",
+        requiredFeatures: ["70 pads", "155 g"], comparisonMode: "SAME_PRODUCT", compareMerchants: true, responseLocale: "zh-CN"
+      } });
+      expect(response.isError).not.toBe(true);
+      expect(response.structuredContent).toMatchObject({ products: [expect.objectContaining({ requestIdentityStatus: "NEEDS_VERIFICATION" })],
+        comparison: { status: "DISCOVERY_ONLY", merchantCount: 1, offerCount: 1 }, recommendation: { state: "RESEARCH_ONLY" } });
+      expect((response.structuredContent as { message: string }).message).toContain("来自 1 家商家");
+      expect((response.structuredContent as { questions: string[] }).questions).toEqual(["请确认具体版本，或提供对应的官网商品链接。"]);
+    } finally { await replay.close(); }
+  });
+  it.each([false, true])("assesses the requested edition across cards and comparison (explicit Mild: %s)", async explicit => {
+    const mild = product({ merchantId: "shopify-15639052336", merchant: "MEDICUBE US", sourceHost: "medicube.us",
+      title: "Zero Pore Madecassoside Pads (Mild)", brand: "SHOPIFY_ME", productType: "toner pads",
+      description: "medicube Zero Pore Pad Mild. Net wt. 5.46 fl.oz. / 155g (70 pads)",
+      handle: "41268489650224", merchantUrl: "https://medicube.us/products/zero-pore-pads-mild?variant=41268489650224",
+      matchStatus: "EXACT", matchEvidence: ["Shopify Universal Product ID exact"],
+      merchantTrust: { level: "OFFICIAL", verification: "INDEPENDENT", evidence: ["synthetic reviewed official host"] }
+    });
+    const replay = await connectReplay(async () => searchResult([mild]));
+    try {
+      const response = await replay.client.callTool({ name: "search_products", arguments: {
+        query: `medicube Zero Pore Pad${explicit ? " Mild" : ""} 70 pads 155g`, brand: "medicube", productType: "toner pads",
+        requiredFeatures: ["70 pads", "155 g"], comparisonMode: "SAME_PRODUCT", responseLocale: "zh-CN"
+      } });
+      expect(response.isError).not.toBe(true);
+      const result = response.structuredContent as { products: Record<string, unknown>[]; recommendation: { state: string }; message: string };
+      expect(result.products).toHaveLength(1);
+      expect(result.products[0]).toMatchObject({ matchStatus: "DISCOVERY_MATCH", card: { matchBadge: "DISCOVERY_MATCH" },
+        requestIdentityStatus: explicit ? "CONFIRMED" : "NEEDS_VERIFICATION" });
+      expect(result.recommendation.state).toBe(explicit ? "READY" : "RESEARCH_ONLY");
+      if (!explicit) expect(response.structuredContent).toMatchObject({ recovery: {
+        reason: "IDENTITY_UNVERIFIED", qualified: 0, recommendable: 0, awaitingVerification: 1
+      } });
+      expect(result.products[0]!.matchEvidence).not.toContain("Shopify Universal Product ID exact");
+      if (!explicit) expect(result.message).toContain("版本身份待确认");
+    } finally { await replay.close(); }
+  });
   afterEach(resetManagedMerchantTrustRecords);
   it("does not call a newly embedded official host absent from current authoritative trust", async () => {
     replaceManagedMerchantTrustRecords(EMBEDDED_MERCHANT_TRUST_REGISTRY.merchants.filter(entry => entry.host !== "medicube.us"), "older-registry");

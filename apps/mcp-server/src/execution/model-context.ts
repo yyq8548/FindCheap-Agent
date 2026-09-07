@@ -49,7 +49,7 @@ function referenceRows(value: unknown, snapshotPositions = false): Record<string
   return value.map((entry, index) => {
     const row = pick(entry, [
       "selectionId", "candidateId", "variantId", "quoteReference", "source", "mimeType",
-      "itemPrice", "condition", "availability", "matchStatus", "quoteCapability", "variantDimensions",
+      "itemPrice", "condition", "availability", "matchStatus", "requestIdentityStatus", "quoteCapability", "variantDimensions",
       "presentationGroup", "deliveredTotal", "deliveredTotalStatus",
       "visualMatchGroup", "availabilityScope"
     ]);

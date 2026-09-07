@@ -4,7 +4,7 @@ import { countComparableMerchants, countDisplayEligibleCandidates, countRecommen
 
 export const TextSearchRecoverySchema = z.object({
   action: z.enum(["NONE", "REQUEST_WEB_SEARCH", "REPORT_UNVERIFIED_MERCHANT", "REPORT_INCOMPLETE"]),
-  reason: z.enum(["MATCH_FOUND", "COMPARISON_INCOMPLETE", "NO_QUALIFIED_MATCH", "REQUIREMENTS_UNVERIFIED", "MERCHANT_UNVERIFIED", "SOURCE_UNAVAILABLE", "BUDGET_EXHAUSTED"]),
+  reason: z.enum(["MATCH_FOUND", "COMPARISON_INCOMPLETE", "NO_QUALIFIED_MATCH", "IDENTITY_UNVERIFIED", "REQUIREMENTS_UNVERIFIED", "MERCHANT_UNVERIFIED", "SOURCE_UNAVAILABLE", "BUDGET_EXHAUSTED"]),
   comparableMerchants: z.number().int().nonnegative().optional(),
   qualified: z.number().int().nonnegative(), recommendable: z.number().int().nonnegative(),
   awaitingVerification: z.number().int().nonnegative()
@@ -18,6 +18,9 @@ export function textSearchRecovery(execution: UnifiedSearchExecution, allowAlter
   const base = { qualified, recommendable, awaitingVerification, ...(compareMerchants ? { comparableMerchants } : {}) };
   if (execution.searchRun?.diagnostics().budgetExhausted) return { ...base,
     action: "REPORT_INCOMPLETE" as const, reason: "BUDGET_EXHAUSTED" as const };
+  if (recommendable === 0 && execution.candidates.some(candidate => candidate.requestIdentityStatus === "NEEDS_VERIFICATION")) return { ...base,
+    action: execution.chromeFallbackEligible ? "REQUEST_WEB_SEARCH" as const : "REPORT_INCOMPLETE" as const,
+    reason: "IDENTITY_UNVERIFIED" as const };
   if (compareMerchants && comparableMerchants < 2) return { ...base,
     action: execution.chromeFallbackEligible ? "REQUEST_WEB_SEARCH" as const : "REPORT_INCOMPLETE" as const,
     reason: "COMPARISON_INCOMPLETE" as const };

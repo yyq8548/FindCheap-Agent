@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { RequestIdentityStatus } from "./shopify-match.js";
 import { RECOMMENDATION_REASON_CODES, choosePrimaryRecommendation } from "./product-recommendation.js";
 import { DealAssessmentSchema, DealSummarySchema, type DealAssessment, type DealSummary } from "./deal-assessment.js";
 import { DealLookupStatusSchema } from "./deal-client.js";
@@ -45,9 +46,11 @@ const ComparisonEntrySchema = z.object({
   purchaseUrl: z.string().url(),
   brand: z.string().optional(),
   sku: z.string().optional(),
+  mpn: z.string().optional(),
   gtins: z.array(z.string()),
   variantDimensions: z.record(z.string(), z.string()),
   matchStatus: z.enum(["EXACT", "DISCOVERY_MATCH", "SIMILAR"]),
+  requestIdentityStatus: z.enum(["CONFIRMED", "NEEDS_VERIFICATION"]).optional(),
   visualMatchGroup: z.enum(["POSSIBLE_SAME_ITEM", "HIGHLY_SIMILAR", "SAME_STYLE"]).optional(),
   visualReviewRequired: z.boolean().optional(),
   visualMatchEvidence: z.array(z.string()).optional(),
@@ -141,9 +144,11 @@ export type ComparableProduct = ValueProduct & {
   purchaseLink?: { url: string };
   brand?: string;
   sku?: string;
+  mpn?: string;
   gtins: string[];
   variantDimensions: Record<string, string>;
   matchStatus: "EXACT" | "DISCOVERY_MATCH" | "SIMILAR";
+  requestIdentityStatus?: RequestIdentityStatus | undefined;
   visualMatchGroup?: "POSSIBLE_SAME_ITEM" | "HIGHLY_SIMILAR" | "SAME_STYLE" | undefined;
   visualReviewRequired?: boolean | undefined;
   visualReviewAssessment?: VisualReviewAssessment | undefined;
@@ -196,7 +201,8 @@ export function buildProductComparison(
   identity: { comparisonId: string; renderId: string; expiresAt: string; evaluatedAt: string; requirementsVersion?: number }
 ): ProductComparisonOutput {
   const evaluatedAtMs = Date.parse(identity.evaluatedAt);
-  const sameProduct = products.length >= 2 && products.slice(1).every(product => comparableSameProduct(products[0]!, product));
+  const sameProduct = products.length >= 2 && products.every(product => product.requestIdentityStatus !== "NEEDS_VERIFICATION") &&
+    products.every((product, index) => products.slice(index + 1).every(peer => comparableSameProduct(product, peer)));
   if (input.mode === "SAME_PRODUCT_OFFERS" && !sameProduct) {
     return {
       status: "SAME_PRODUCT_IDENTITY_UNVERIFIED",
@@ -332,9 +338,11 @@ function comparisonEntry(
     purchaseUrl: product.purchaseLink?.url ?? product.merchantUrl,
     ...(product.brand === undefined ? {} : { brand: product.brand }),
     ...(product.sku === undefined ? {} : { sku: product.sku }),
+    ...(product.mpn === undefined ? {} : { mpn: product.mpn }),
     gtins: product.gtins,
     variantDimensions: product.variantDimensions,
     matchStatus: product.matchStatus,
+    ...(product.requestIdentityStatus === undefined ? {} : { requestIdentityStatus: product.requestIdentityStatus }),
     ...(product.visualMatchGroup === undefined ? {} : { visualMatchGroup: product.visualMatchGroup }),
     ...(product.visualReviewRequired === undefined ? {} : { visualReviewRequired: product.visualReviewRequired }),
     ...(product.visualReviewAssessment === undefined ? {} : { visualReviewAssessment: product.visualReviewAssessment }),

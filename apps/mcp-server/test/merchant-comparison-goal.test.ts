@@ -20,6 +20,9 @@ describe("explicit merchant comparison is distinct from finding a product", () =
       const result = await replay.client.callTool({ name: "search_products", arguments: request });
       expect(result.structuredContent).toMatchObject({ products: [expect.objectContaining({ brand: "Sony" })],
         recommendation: { state: "READY" }, recovery: { action: "REQUEST_WEB_SEARCH", reason: "COMPARISON_INCOMPLETE", comparableMerchants: 1 } });
+      expect(result.structuredContent).toMatchObject({ comparison: { merchantCount: 1, offerCount: 1, status: "DISCOVERY_ONLY" } });
+      expect((result.structuredContent as { message: string }).message).not.toContain("没有返回符合要求的同款");
+      expect((result.structuredContent as { message: string }).message).toContain("跨商家比价尚未完成");
     } finally { await replay.close(); }
   });
 

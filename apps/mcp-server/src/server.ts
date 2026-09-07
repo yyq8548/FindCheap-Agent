@@ -18,7 +18,7 @@ import { searchDiagnostics, type SearchOutcome } from "./search-diagnostics.js";
 import { textSearchRecovery, TextSearchRecoverySchema } from "./text-search-recovery.js";
 import { WebRecoverySessions, WebConsentStatusSchema, WebProductUrlSchema, WEB_SEARCH_LIMITS, webSearchQueries, readWebCandidates, type WebProductPagePort } from "./web-product-recovery.js";
 import { awaitWithSignal } from "./await-with-signal.js";
-import { evaluateRecoveredProducts } from "./search-products.js";
+import { evaluateRecoveredProducts, productIdentityBrand } from "./search-products.js";
 import { createExecutedToolRegistrar } from "./execution/tool-registry.js";
 import {
   ProductComparisonInputSchema,
@@ -43,7 +43,8 @@ import {
   type ShopifyProduct,
   type ShopifySearchResult
 } from "./shopify-client.js";
-import { hasSpecificProductIdentity } from "./shopify-match.js";
+import { assessRequestIdentity, classifyShopifyCandidate, hasSpecificProductIdentity } from "./shopify-match.js";
+import { searchFallbackExplanation, summarizeSearchProducts } from "./search-result-summary.js";
 import {
   ShopifyCartQuoteError,
   validateShopifyCartQuoteTarget,
@@ -609,6 +610,7 @@ const ShopifyProductOutputSchema = z.object({
   preferenceEvidence: z.array(z.string()).optional(),
   requiredFeatureLimitations: z.array(z.string()).optional(),
   requirementAssessment: RequirementAssessmentSchema.optional(),
+  requestIdentityStatus: z.enum(["CONFIRMED", "NEEDS_VERIFICATION"]).optional(),
   resultGroup: z.enum(["REQUESTED_PRODUCT", "DISCOVERY", "ALTERNATIVE"]).optional(),
   presentationGroup: z.enum(["OFFICIAL_STORE", "TRUSTED_MATCH", "BEST_VALUE", "RESEARCH_ONLY"]).optional(),
   displayFamilyKey: z.string().max(2048).optional(),
@@ -642,6 +644,7 @@ const ShopifyProductOutputSchema = z.object({
   description: z.string().optional(),
   brand: z.string().optional(),
   sku: z.string().optional(),
+  mpn: z.string().optional(),
   gtins: z.array(z.string()),
   variantDimensions: z.record(z.string(), z.string()),
   matchStatus: z.enum(["EXACT", "DISCOVERY_MATCH", "SIMILAR"]),
@@ -1216,6 +1219,9 @@ function unifiedResult(
     return card === undefined ? [] : [withVerifiedCoupons({
       ...card,
       ...candidateValueOutput(candidate),
+      matchStatus: candidate.identityStatus,
+      matchEvidence: candidate.identityEvidence,
+      card: { ...card.card, matchBadge: candidate.identityStatus },
       sourceKind: candidate.shopifyProduct.sourceKind ?? "SHOPIFY_GLOBAL_CATALOG" as const,
       affiliateState: card.purchaseLink.kind === "APPROVED_AFFILIATE"
         ? "APPROVED" as const
@@ -1262,21 +1268,13 @@ function unifiedResult(
   const preferenceEvidenceCount = products.filter((product) =>
     (product.preferenceEvidence?.length ?? 0) > 0
   ).length;
-  const merchantCount = new Set(products.map((product) => product.merchantId)).size;
+  const summary = summarizeSearchProducts(products);
+  const { merchantCount, recommendation } = summary;
   const coverage = unavailableSource || partialSource ? "PARTIAL" as const : "COMPLETE" as const;
-  const recommendation = choosePrimaryRecommendation(products);
   const locale = input.responseLocale ?? (/\p{Script=Han}/u.test(input.query) ? "zh-CN" as const : "en-US" as const);
   const localized = (english: string, chinese: string) => locale === "zh-CN" ? chinese : english;
   const chromeAdvice = execution.searchIntent !== "VISUAL_DISCOVERY" && execution.chromeFallbackEligible
-    ? execution.searchIntent === "EXACT_PRODUCT"
-      ? localized(
-          "No configured source returned a qualifying match for the requested product; unrelated alternatives were not substituted. The user may authorize one bounded Chrome whole-web fallback.",
-          "现有来源没有返回符合要求的同款商品，也没有用无关替代品凑数。用户可以授权一次受限的 Chrome 全网搜索。"
-        )
-      : localized(
-          "No configured source returned a qualifying product. The user may authorize one bounded Chrome whole-web fallback.",
-          "现有来源没有返回已核实符合要求的商品。可以授权一次受限的 Chrome 全网补搜，扩大搜索范围。"
-        )
+    ? searchFallbackExplanation(summary, input.compareMerchants === true, locale)
     : "";
   const sourceFailureMessage = execution.sourceErrors?.shopify === "CATALOG_SCHEMA_CHANGED"
     ? localized(
@@ -1437,14 +1435,10 @@ function unifiedResult(
             : ["requested preferences were not independently verified by returned product evidence"])
         ]
       },
-      comparison: execution.candidates.some((candidate) => candidate.source !== "SHOPIFY_GLOBAL_CATALOG")
-        ? {
-            status: "DISCOVERY_ONLY" as const,
-            evidence: ["cross-source results are product recommendations, not independently verified same-product offers"],
-            merchantCount: new Set(products.map((product) => product.merchantId)).size,
-            offerCount: products.length
-          }
-        : shopifyResponse.structuredContent.comparison,
+      comparison: summary.comparison,
+      questions: summary.identityUnverified > 0 && recommendation.state !== "READY"
+        ? [localized("Please confirm the product edition or provide its official product link.", "请确认具体版本，或提供对应的官网商品链接。")]
+        : [],
       diagnostics: {
         ...shopifyResponse.structuredContent.diagnostics,
         featureProductsExcluded: execution.featureProductsExcluded,
@@ -1453,9 +1447,6 @@ function unifiedResult(
         identityProductsExcluded: shopifyResponse.structuredContent.diagnostics.identityProductsExcluded + execution.identityProductsExcluded,
         chromeFallbackEligible: execution.chromeFallbackEligible
       },
-      // Provider questions describe an intermediate catalog pass, not the merged
-      // result. Missing user fields are handled before search by clarification.
-      questions: [],
       products
     }
   };
@@ -1463,7 +1454,8 @@ function unifiedResult(
 
 function candidateValueOutput(candidate: UnifiedCandidate) {
   const product = candidate.awinProduct ?? candidate.shopifyProduct ?? candidate.ebayProduct;
-  return { valueEvidence: candidate.valueEvidence, unitPrice: unitPriceEvidence(product),
+  return { requestIdentityStatus: candidate.requestIdentityStatus,
+    valueEvidence: candidate.valueEvidence, unitPrice: unitPriceEvidence(product),
     qualityEvidence: assessQualityEvidence({ productRating: candidate.shopifyProduct?.productRating }) };
 }
 
@@ -1502,7 +1494,7 @@ function awinCardProduct(candidate: UnifiedCandidate): ProductCardProduct {
     title: product.title,
     gtins: [],
     variantDimensions: merchantReportedVariant({ ...product, sourceHost, handle: product.merchantProductId }),
-    matchStatus: candidate.identityStatus === "SIMILAR" ? "SIMILAR" : product.matchStatus,
+    matchStatus: candidate.identityStatus,
     matchEvidence: product.matchEvidence,
     condition: product.condition,
     ...(product.imageUrl === undefined ? {} : { imageUrl: product.imageUrl }),
@@ -1535,7 +1527,7 @@ function awinCardProduct(candidate: UnifiedCandidate): ProductCardProduct {
       primaryPrice: product.itemPrice,
       priceLabel: "Verified item price",
       itemPrice: product.itemPrice,
-      matchBadge: candidate.identityStatus === "SIMILAR" ? "SIMILAR" : product.matchStatus,
+      matchBadge: candidate.identityStatus,
       conditionBadge: product.condition,
       availability: product.availability,
       merchantTrustBadge: "TRUSTED_MERCHANT",
@@ -1587,7 +1579,7 @@ function ebayCardProduct(candidate: UnifiedCandidate): ProductCardProduct {
     productType: product.category,
     gtins: [],
     variantDimensions: {},
-    matchStatus: candidate.identityStatus === "SIMILAR" ? "SIMILAR" : product.matchStatus,
+    matchStatus: candidate.identityStatus,
     matchEvidence: product.matchEvidence,
     condition: product.condition,
     ...(product.imageUrl === undefined ? {} : { imageUrl: product.imageUrl }),
@@ -1623,7 +1615,7 @@ function ebayCardProduct(candidate: UnifiedCandidate): ProductCardProduct {
       primaryPrice: product.itemPrice,
       priceLabel: "Live item price",
       itemPrice: product.itemPrice,
-      matchBadge: candidate.identityStatus === "SIMILAR" ? "SIMILAR" : product.matchStatus,
+      matchBadge: candidate.identityStatus,
       conditionBadge: product.condition,
       availability: product.availability,
       merchantTrustBadge: "MERCHANT_UNVERIFIED",
@@ -2545,7 +2537,7 @@ export function createShoppingServer(
     });
     const returned = response.structuredContent.products.length;
     const recovery = textSearchRecovery(execution, input.allowAlternatives, input.compareMerchants);
-    const terminalOutcome = outcome ?? (input.visualInput === undefined && recovery.qualified === 0 && recovery.awaitingVerification > 0
+    const terminalOutcome = outcome ?? (recovery.reason === "IDENTITY_UNVERIFIED" ? "IDENTITY_UNVERIFIED" : input.visualInput === undefined && recovery.qualified === 0 && recovery.awaitingVerification > 0
       ? "REQUIREMENTS_UNVERIFIED" : returned > 0 ? "MATCH_FOUND"
       : Object.values(execution.sourceStatus).includes("UNAVAILABLE") ? "SOURCE_UNAVAILABLE" : "NO_CANDIDATES");
     const diagnostics = searchDiagnostics(execution, terminalOutcome);
@@ -3815,7 +3807,15 @@ export function createShoppingServer(
         const visualDerived = snapshot.request?.visualInput !== undefined || previousCard?.visualReviewAssessment !== undefined ||
           previousCard?.visualReviewRequired === true;
         const inspectedCards: ProductCardContent["products"] = internalResponse.structuredContent.products.map(product => {
-          if (!visualDerived || previousCard === undefined) return product;
+          if (!visualDerived || previousCard === undefined) {
+            if (previousCard?.requestIdentityStatus === undefined) return product;
+            const identityProduct = { ...product, ...(productIdentityBrand(product) === undefined ? {} : { brand: productIdentityBrand(product)! }) };
+            const match = classifyShopifyCandidate(snapshot.request?.query ?? "", identityProduct);
+            const status = match.status === "IRRELEVANT" ? "SIMILAR" as const : match.status;
+            return { ...product, matchStatus: status, matchEvidence: match.evidence,
+              card: { ...product.card, matchBadge: status },
+              requestIdentityStatus: assessRequestIdentity(snapshot.request?.query ?? "", identityProduct, match.status) };
+          }
           const sameVisualEvidence = productReferenceKey(product) === productReferenceKey(previousCard) &&
             product.imageUrl === previousCard.imageUrl &&
             JSON.stringify(Object.entries(product.variantDimensions).sort()) === JSON.stringify(Object.entries(previousCard.variantDimensions).sort());

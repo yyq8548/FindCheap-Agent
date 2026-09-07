@@ -3,6 +3,7 @@ import type { RecommendationReasonCode } from "./product-recommendation.js";
 
 const LIMITATIONS: Record<"zh-CN" | "en-US", Record<PrimaryBlockReasonCode, string>> = {
   "zh-CN": {
+    IDENTITY_UNVERIFIED: "商品名称或版本身份待确认；请确认具体版本或提供商品链接",
     VARIANT_OUT_OF_STOCK: "所选变体缺货；其他规格库存未据此判断",
     UNVERIFIED_MERCHANT: "商家可信证据不足",
     UNFULFILLED_REQUIREMENTS: "必要要求尚未满足或核实",
@@ -11,6 +12,7 @@ const LIMITATIONS: Record<"zh-CN" | "en-US", Record<PrimaryBlockReasonCode, stri
     VISUAL_REVIEW_REQUIRED: "所选变体的图片匹配尚未复核"
   },
   "en-US": {
+    IDENTITY_UNVERIFIED: "product name or edition needs confirmation; confirm the edition or provide a product link",
     VARIANT_OUT_OF_STOCK: "the selected variant is out of stock; other variants' availability is not established by this",
     UNVERIFIED_MERCHANT: "merchant verification is insufficient",
     UNFULFILLED_REQUIREMENTS: "required features are unmet or unverified",

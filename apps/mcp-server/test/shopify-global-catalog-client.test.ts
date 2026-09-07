@@ -10,6 +10,19 @@ const profileUrl = "https://cdn.jsdelivr.net/gh/yyq8548/FindCheap-Agent@24267014
 const now = "2026-08-18T12:00:00.000Z";
 
 describe("Shopify Global Catalog client", () => {
+  it("does not turn package weight or shared UPID into proof of the requested edition", async () => {
+    const title = "medicube Zero Pore Pad Mild 70 pads 155g";
+    const port = createShopifyGlobalCatalogPort({ SHOPIFY_AGENT_PROFILE_URL: profileUrl }, {
+      fetch: async () => catalogResponse([
+        product({ shopId: "33", merchant: "MEDICUBE", host: "medicube.us", price: 2400, title }),
+        product({ shopId: "34", merchant: "Other Store", host: "other.example", price: 2500, title })
+      ])
+    });
+    const result = await port.search({ query: "medicube Zero Pore Pad 70 pads 155g", comparisonMode: "SAME_PRODUCT", limit: 3 });
+    expect(result.products).toHaveLength(2);
+    expect(result.products.every(entry => entry.matchStatus === "DISCOVERY_MATCH")).toBe(true);
+    expect(result.products.flatMap(entry => entry.matchEvidence)).not.toContain("Shopify Universal Product ID exact");
+  });
   it.each(["description", "variantDescription"] as const)("keeps core offer facts when optional %s exceeds its limit", async field => {
     const candidate = product({ shopId: "33", merchant: "Audio Store", host: "audio.example", price: 39999,
       title: "Sony WH-1000XM6 Black Headphones", [field]: { plain: "long prose ".repeat(2001) } });
@@ -213,8 +226,9 @@ describe("Shopify Global Catalog client", () => {
       merchantUrl: "https://skybygramophone.com/products/sony-wh-1000xm5?variant=42797821853913",
       checkedAt: now
     });
-    expect(result.products.every((entry) => entry.matchStatus === "EXACT")).toBe(true);
-    expect(result.products[0]?.matchEvidence).toContain("Shopify Universal Product ID exact");
+    // Title overlap is useful discovery evidence, not an independently bound MPN.
+    expect(result.products.every((entry) => entry.matchStatus === "DISCOVERY_MATCH")).toBe(true);
+    expect(result.products[0]?.matchEvidence).not.toContain("Shopify Universal Product ID exact");
   });
 
   it("returns reviewed merchants before unknown sellers without discarding relevant products", async () => {

@@ -1,5 +1,7 @@
 import { resolveMerchantTrust } from "./merchant-trust.js";
 import { productReferenceKey } from "./product-reference.js";
+import { deduplicateCandidateOffers } from "./offer-equivalence.js";
+import { countComparableOfferMerchants } from "./search-result-summary.js";
 import { merchantVariantStyleKey } from "./merchant-variant.js";
 import { assessRanking, compareRankingAssessments, hasEquivalentFitEvidence } from "./ranking-assessment.js";
 import { costAdvantage, isCurrentDeal, type ValueEvidence, type ValueProduct } from "./product-value-evidence.js";
@@ -47,6 +49,7 @@ function candidateRanking(candidate: UnifiedCandidate, evaluatedAtMs: number) {
   return assessRanking({
     ...candidateValueProduct(candidate, evaluatedAtMs),
     title: candidateTitle(candidate), matchStatus: candidate.identityStatus,
+    requestIdentityStatus: candidate.requestIdentityStatus,
     recommendationTier: candidate.recommendationTier, merchantTrust: trust,
     availability: source.availability, requiredFeatureLimitations: candidate.requiredFeatureLimitations,
     requirementAssessment: candidate.requirementAssessment,
@@ -66,6 +69,7 @@ export function selectPresentationCandidates(
   evaluatedAtMs = Date.now(),
   preferDistinctStyles = false
 ): Array<UnifiedCandidate & { valueEvidence?: ValueEvidence }> {
+  candidates = deduplicateCandidateOffers(candidates);
   const eligible = candidates.filter(candidate => candidateRanking(candidate, evaluatedAtMs).primaryEligible);
   const officialInTier = (candidate: UnifiedCandidate) => requestedBrand && isOfficialCandidate(candidate);
   const official = eligible
@@ -221,6 +225,7 @@ export function countDisplayEligibleCandidates(
   allowAlternatives: boolean
 ): number {
   return candidates.filter((candidate) => passesVisualDisplayGate(candidate, allowAlternatives) &&
+    candidate.requestIdentityStatus !== "NEEDS_VERIFICATION" &&
     candidate.requiredFeatureLimitations.length === 0 && candidate.requirementAssessment?.status !== "CONFLICT").length;
 }
 
@@ -233,11 +238,11 @@ export function countRecommendationEligibleCandidates(candidates: UnifiedCandida
 /** Count qualified source domains, not variants, merchant labels or research leads. */
 export function countComparableMerchants(candidates: UnifiedCandidate[]): number {
   const evaluatedAtMs = Date.now();
-  return new Set(candidates.filter(candidate => candidate.identityStatus !== "SIMILAR" &&
+  return countComparableOfferMerchants(candidates.filter(candidate => candidate.identityStatus !== "SIMILAR" &&
     candidateRanking(candidate, evaluatedAtMs).primaryEligible).map(candidate => {
       const product = candidate.awinProduct ?? candidate.shopifyProduct ?? candidate.ebayProduct;
-      return new URL(product!.merchantUrl).hostname.toLowerCase().replace(/^www\./u, "");
-    })).size;
+      return { ...product, merchantId: "merchantId" in product ? product.merchantId : product.itemId };
+    }));
 }
 
 export function compareLowestPrice(left: UnifiedCandidate, right: UnifiedCandidate, evaluatedAtMs = Date.now()): number {

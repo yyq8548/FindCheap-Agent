@@ -34,6 +34,7 @@ export type ValueProduct = {
   productType?: string | undefined;
   brand?: string | undefined;
   sku?: string | undefined;
+  mpn?: string | undefined;
   gtins?: readonly string[] | undefined;
   variantDimensions?: Readonly<Record<string, string>> | undefined;
   condition?: "NEW" | "USED" | "REFURBISHED" | "OPEN_BOX" | "UNKNOWN" | undefined;
@@ -91,8 +92,11 @@ function packageQuantity(product: ValueProduct): Pick<UnitPriceEvidence, "quanti
 /** A stable identity never overrides variant, condition or packaging conflicts. */
 export function comparableSameProduct(left: ValueProduct, right: ValueProduct): boolean {
   if (!left.condition || left.condition === "UNKNOWN" || left.condition !== right.condition) return false;
+  if (normalized(left.mpn) !== "" && normalized(right.mpn) !== "" && normalized(left.mpn) !== normalized(right.mpn)) return false;
   const stable = (left.gtins ?? []).some(gtin => gtin !== "" && right.gtins?.includes(gtin)) ||
-    normalized(left.brand) !== "" && normalized(left.sku) !== "" && normalized(left.brand) === normalized(right.brand) && normalized(left.sku) === normalized(right.sku);
+    normalized(left.brand) !== "" && normalized(left.brand) === normalized(right.brand) && (
+      normalized(left.mpn) !== "" && normalized(left.mpn) === normalized(right.mpn) ||
+      normalized(left.sku) !== "" && normalized(left.sku) === normalized(right.sku));
   if (!stable || variantKey(left) !== variantKey(right)) return false;
   const packageLeft = packageQuantity(left);
   const packageRight = packageQuantity(right);

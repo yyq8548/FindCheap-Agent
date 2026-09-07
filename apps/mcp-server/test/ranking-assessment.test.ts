@@ -9,6 +9,12 @@ const input: RankingInput = {
 };
 
 describe("shared ranking assessment", () => {
+  it("blocks unresolved request identity without blocking ordinary discovery", () => {
+    expect(assessRanking({ ...input, matchStatus: "DISCOVERY_MATCH", requestIdentityStatus: "NEEDS_VERIFICATION" }))
+      .toMatchObject({ primaryEligible: false, primaryBlockReasons: ["IDENTITY_UNVERIFIED"] });
+    expect(assessRanking({ ...input, matchStatus: "DISCOVERY_MATCH", requestIdentityStatus: "CONFIRMED" }).primaryEligible).toBe(true);
+    expect(assessRanking({ ...input, matchStatus: "DISCOVERY_MATCH" }).primaryEligible).toBe(true);
+  });
   it("retains fail-closed primary eligibility independently of display layout", () => {
     expect(assessRanking(input).primaryEligible).toBe(true);
     for (const override of [

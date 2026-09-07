@@ -301,6 +301,7 @@ export const PRODUCT_COMPARISON_HTML = String.raw`<!doctype html>
             ...(entry.requirementAssessment?.entries || []).filter(item => item.status !== "MATCHED").map(item => item.requirement + ": " +
               (item.status === "UNKNOWN" ? text(locale, "Not verified", "待核验") : text(locale, "Conflicting evidence", "证据冲突"))),
             ...(entry.visualMatchEvidence || []), ...(entry.visualReviewRequired ? [displayValue("VISUAL_REVIEW_REQUIRED", locale)] : []),
+            ...(entry.requestIdentityStatus === "NEEDS_VERIFICATION" ? [text(locale, "Product name or edition needs confirmation", "商品名称或版本身份待确认")] : []),
             ...(entry.limitations || [])
           ];
           if (warnings.length) section.append(list(warnings, locale));

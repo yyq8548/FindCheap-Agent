@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { SearchRun } from "./search-run.js";
+import { deduplicateCandidateOffers, type OfferObservation } from "./offer-equivalence.js";
 import { resolveKnownProductUrl } from "./known-product-url.js";
 import { compileSourceQuery, discoveryTarget, isExplicitCategoryQuery } from "./retrieval-plan.js";
 import { classifySourceFailure, type SourceFailure } from "./source-failure.js";
@@ -57,6 +58,8 @@ import {
   hasNamedProductIntent,
   hasSpecificProductIdentity,
   hasStrongProductIdentifier,
+  assessRequestIdentity,
+  type RequestIdentityStatus,
   type ShopifyMatchCandidate,
   type ShopifyMatchStatus
 } from "./shopify-match.js";
@@ -164,6 +167,7 @@ export type SearchProductsExecutionInput = SearchProductsInput & {
 };
 
 type CandidateBase = {
+  offerObservations?: readonly OfferObservation[];
   valueEvidence?: ValueEvidence;
   affiliateState: "APPROVED" | "NONE";
   recommendationTier: MerchantRecommendationTier;
@@ -174,6 +178,7 @@ type CandidateBase = {
   verifiedCoupons: VerifiedDeal[];
   dealLookupStatus?: DealLookupResult["status"];
   identityStatus: Exclude<ShopifyMatchStatus, "IRRELEVANT">;
+  requestIdentityStatus?: RequestIdentityStatus | undefined;
   identityEvidence: string[];
   resultGroup: "REQUESTED_PRODUCT" | "DISCOVERY" | "ALTERNATIVE";
   visualMatchGroup?: VisualMatchGroup | undefined;
@@ -902,7 +907,9 @@ export async function searchProducts(
         evidence: [`manually verified approved Awin merchant ${[...merchants][0]} on the same source domain`] }
     } };
   });
-  const rawCandidates = [...affiliateCandidates, ...shopifyCandidates, ...ebayCandidates, ...retainedPrevious()];
+  const sourceCandidates = [...affiliateCandidates, ...shopifyCandidates, ...ebayCandidates, ...retainedPrevious()];
+  // Different images still receive their own visual review before offer grouping.
+  const rawCandidates = input.deferVisualFiltering === true ? sourceCandidates : deduplicateCandidateOffers(sourceCandidates);
   const enrichedCandidates = input.deferVisualFiltering === true ? rawCandidates : await addVerifiedCoupons(
     rawCandidates, ports.deals, input.membershipIds ?? [], searchRun
   );
@@ -1166,6 +1173,7 @@ function awinCandidate(
     requirementAssessment: evidence.assessment,
     verifiedCoupons: [],
     identityStatus: visualIdentityStatus(identity.status, visual),
+    requestIdentityStatus: input.visualInput === undefined ? identity.requestIdentityStatus : undefined,
     identityEvidence: unique([...categoryEvidence, ...identity.evidence, ...brand.matchEvidence, ...(visual?.evidence ?? [])]),
     resultGroup: candidateResultGroup(searchIntent, identity.status, visual),
     ...(visual === undefined ? {} : {
@@ -1189,6 +1197,13 @@ function awinCandidate(
       ])
     }
   };
+}
+
+/** The exact reviewed official host can supply identity-brand evidence when
+ * storefront vendor fields use an internal name. This never changes source facts. */
+export function productIdentityBrand(product: Pick<ShopifyProduct, "merchantTrust" | "sourceHost" | "brand">): string | undefined {
+  return (product.merchantTrust.level === "OFFICIAL" && product.merchantTrust.verification === "INDEPENDENT"
+    ? resolveVerifiedOfficialStorefrontByHost(product.sourceHost)?.brand : undefined) ?? product.brand;
 }
 
 function shopifyCandidate(
@@ -1224,7 +1239,7 @@ function shopifyCandidate(
     identityQuery,
     {
       title: product.title,
-      ...(product.brand === undefined ? {} : { brand: product.brand }),
+      ...(productIdentityBrand(product) === undefined ? {} : { brand: productIdentityBrand(product)! }),
       ...(product.description === undefined ? {} : { description: product.description }),
       ...(product.sku === undefined ? {} : { sku: product.sku }),
       ...(product.mpn === undefined ? {} : { mpn: product.mpn }),
@@ -1259,6 +1274,7 @@ function shopifyCandidate(
     requirementAssessment: evidence.assessment,
     verifiedCoupons: [],
     identityStatus: visualIdentityStatus(identity.status, visual),
+    requestIdentityStatus: input.visualInput === undefined ? identity.requestIdentityStatus : undefined,
     identityEvidence: unique([...identity.evidence, ...brand.matchEvidence, ...(visual?.evidence ?? [])]),
     resultGroup: candidateResultGroup(searchIntent, identity.status, visual),
     ...(visual === undefined ? {} : {
@@ -1268,6 +1284,7 @@ function shopifyCandidate(
     }),
     shopifyProduct: evidence.unknown.length === 0 ? {
       ...product,
+      matchStatus: visualIdentityStatus(identity.status, visual),
       matchEvidence: unique([...product.matchEvidence, ...identity.evidence, ...brand.matchEvidence, ...(visual?.evidence ?? [])])
     } : {
       ...product,
@@ -1311,7 +1328,8 @@ function candidateIdentity(
   key: string,
   excluded: Set<string>,
   allowConfigurationDiscovery = false
-): { status: Exclude<ShopifyMatchStatus, "IRRELEVANT">; evidence: string[] } | undefined {
+): { status: Exclude<ShopifyMatchStatus, "IRRELEVANT">; evidence: string[];
+  requestIdentityStatus?: RequestIdentityStatus } | undefined {
   if (isPartialPriceListing(candidate) && classifyShopifyCandidate(query, candidate).status === "IRRELEVANT") {
     excluded.add(key);
     return undefined;
@@ -1336,7 +1354,9 @@ function candidateIdentity(
       ])
     };
   }
-  return { status: identity.status, evidence: identity.evidence };
+  const requestIdentityStatus = assessRequestIdentity(query, candidate, identity.status);
+  return { status: identity.status, requestIdentityStatus, evidence: [...identity.evidence,
+    ...(requestIdentityStatus === "NEEDS_VERIFICATION" ? ["requested product name or edition identity not verified"] : [])] };
 }
 
 function allowsConfigurationDiscovery(
@@ -1428,6 +1448,7 @@ function ebayCandidate(
     requirementAssessment: evidence.assessment,
     verifiedCoupons: [],
     identityStatus: visualIdentityStatus(identity.status, visual),
+    requestIdentityStatus: input.visualInput === undefined ? identity.requestIdentityStatus : undefined,
     identityEvidence: unique([...identity.evidence, ...brand.matchEvidence, ...(visual?.evidence ?? [])]),
     resultGroup: candidateResultGroup(searchIntent, identity.status, visual),
     ...(visual === undefined ? {} : {
