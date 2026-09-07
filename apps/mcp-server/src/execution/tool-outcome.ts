@@ -4,6 +4,8 @@ import type { SafeInputIssue } from "./input-validation.js";
 export const TOOL_ERROR_CODES = [
   "INVALID_ARGUMENTS",
   "MISSING_REFERENCE_CONTEXT",
+  "REFERENCE_STATE_UNAVAILABLE",
+  "REFERENCE_EXPIRED",
   "TOOL_NOT_AVAILABLE",
   "TOOL_OUTPUT_REJECTED",
   "TOOL_REQUEST_REJECTED",
@@ -16,6 +18,8 @@ export type ToolFailurePhase = "CAPABILITY_CHECK" | "INPUT_VALIDATION" | "DOMAIN
 const TOOL_ERROR_MESSAGES: Record<ToolErrorCode, string> = {
   INVALID_ARGUMENTS: "Tool arguments were invalid.",
   MISSING_REFERENCE_CONTEXT: "Tool call omitted required prior-product reference context.",
+  REFERENCE_STATE_UNAVAILABLE: "The supplied reference is unavailable in this server state. Repeating it cannot restore missing state. Ask the user to restate the requirements or explicitly request a fresh search; do not silently switch to NEW_PRODUCT.",
+  REFERENCE_EXPIRED: "The supplied reference has expired. Ask the user before a fresh search; do not reuse old prices or permissions.",
   TOOL_NOT_AVAILABLE: "This tool is not available in the current FindCheap configuration.",
   TOOL_OUTPUT_REJECTED: "Tool output did not satisfy FindCheap safety requirements.",
   TOOL_REQUEST_REJECTED: "The requested FindCheap operation was rejected.",
@@ -42,6 +46,7 @@ export function toolError(
         : code === "TOOL_NOT_AVAILABLE" ? "CAPABILITY_CHECK" : "DOMAIN_EXECUTION"),
     recovery: code === "INVALID_ARGUMENTS" ? { action: "CORRECT_ARGUMENTS", maxAttempts: 1 }
       : code === "MISSING_REFERENCE_CONTEXT" ? { action: "REUSE_ORIGINAL_REFERENCE", maxAttempts: 1 }
+        : code === "REFERENCE_STATE_UNAVAILABLE" || code === "REFERENCE_EXPIRED" ? { action: "ASK_USER_TO_RESTATE", maxAttempts: 0 }
         : { action: "NONE", maxAttempts: 0 },
     ...(options.issues === undefined ? {} : { issues: options.issues.slice(0, 5) })
   };

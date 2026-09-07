@@ -48,6 +48,32 @@ const directInput = () => input({ sourcePageUrl: `https://${host}${path}wh1000xm
 const directSource = (value: unknown) => vi.fn<OfficialShopifyFetch>(async url => ({ response: Response.json(value), finalUrl: url }));
 
 describe("Sony public official product reads", () => {
+  it.each([false, true])("filters unrelated search observations before URL hydration; matching unsafe URL=%s", async matching => {
+    const fetchOriginal = source();
+    const fetchDocument: OfficialShopifyFetch = async (...args) => {
+      if (new URL(args[0]).pathname.endsWith("/search")) return { finalUrl: args[0], response: Response.json({ products: [
+        { code: "wh1000xm6-b", url: path + "wh1000xm6-b" },
+        { code: matching ? "wh1000xm6-l" : "fdaep15", url: "/imaging/cameras/p/fdaep15" }
+      ] }) };
+      return fetchOriginal(...args);
+    };
+    const pending = createSonyOfficialSearchPort({ fetchDocument }).search(input());
+    if (matching) await expect(pending).rejects.toThrow("SONY_PRODUCT_URL_INVALID");
+    else await expect(pending).resolves.toMatchObject([{ sku: "wh1000xm6-b" }]);
+  });
+  it.each(["unavailable", "in-stock", "foreign", "selected", "visible"])("handles incomplete legacy sibling metadata: %s", async mode => {
+    const product = detail();
+    const legacy = { code: mode === "foreign" ? "wh1000xm5-ples" : mode === "selected" ? product.code : "wh1000xm6-ples",
+      url: path + (mode === "foreign" ? "wh1000xm5-ples" : mode === "selected" ? product.code : "wh1000xm6-ples"),
+      priceData: { currencyIso: "USD", value: 399.99 },
+      stock: { status: mode === "in-stock" ? "instock" : "outofstock", hideSimilarProducts: mode !== "visible" } };
+    const payload = { ...product, baseOptions: [{ ...product.baseOptions[0],
+      options: [...product.baseOptions[0]!.options, legacy] }] };
+    const pending = createSonyOfficialSearchPort({ fetchDocument: directSource(payload) }).search(directInput());
+    if (mode === "unavailable") await expect(pending).resolves.toMatchObject([{ sku: product.code,
+      itemPrice: { amountCents: 39800 }, variantDimensions: { Color: "Black" } }]);
+    else await expect(pending).rejects.toThrow();
+  });
   it("routes the existing official factory to Sony and returns one exact recommended official card through MCP", async () => {
     const fetchDocument = source();
     const officialShopify = createOfficialShopifySearchPort({ fetchDocument });

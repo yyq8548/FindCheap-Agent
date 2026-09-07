@@ -3768,8 +3768,17 @@
           "kind": "import-statement",
           "original": "../../../config/version.js",
           "path": "../../config/version.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./transport-failure.js",
+          "path": "../../packages/network-safety/src/transport-failure.ts"
         }
       ]
+    },
+    "../../packages/network-safety/src/transport-failure.ts": {
+      "format": "esm",
+      "imports": []
     },
     "src/affiliate-links.ts": {
       "format": "esm",
@@ -4932,6 +4941,11 @@
           "kind": "import-statement",
           "original": "./search-run.js",
           "path": "src/search-run.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "../../../packages/network-safety/src/transport-failure.js",
+          "path": "../../packages/network-safety/src/transport-failure.ts"
         }
       ]
     },
@@ -5077,6 +5091,11 @@
           "kind": "import-statement",
           "original": "../../../packages/network-safety/src/safe-fetch.js",
           "path": "../../packages/network-safety/src/safe-fetch.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "../../../packages/network-safety/src/transport-failure.js",
+          "path": "../../packages/network-safety/src/transport-failure.ts"
         }
       ]
     },
@@ -5243,7 +5262,7 @@
   },
   "outputs": {
     "../../plugins/findcheap-agent/dist/mcp-server.js": {
-      "bytes": 1003819,
+      "bytes": 1007219,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
@@ -5450,7 +5469,7 @@
           "bytesInOutput": 1536
         },
         "../../node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/types.js": {
-          "bytesInOutput": 12541
+          "bytesInOutput": 12609
         },
         "../../node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/validation/ajv-provider.js": {
           "bytesInOutput": 450
@@ -5825,7 +5844,7 @@
           "bytesInOutput": 44
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v4/classic/schemas.js": {
-          "bytesInOutput": 10401
+          "bytesInOutput": 10402
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v4/core/api.js": {
           "bytesInOutput": 4774
@@ -5888,13 +5907,16 @@
           "bytesInOutput": 0
         },
         "../../packages/contracts/src/merchant-trust-registry.ts": {
-          "bytesInOutput": 4078
+          "bytesInOutput": 4144
         },
         "../../packages/contracts/src/official-storefront.ts": {
           "bytesInOutput": 2432
         },
         "../../packages/network-safety/src/safe-fetch.ts": {
-          "bytesInOutput": 8344
+          "bytesInOutput": 8384
+        },
+        "../../packages/network-safety/src/transport-failure.ts": {
+          "bytesInOutput": 789
         },
         "src/affiliate-links.ts": {
           "bytesInOutput": 2966
@@ -5939,7 +5961,7 @@
           "bytesInOutput": 2309
         },
         "src/execution/tool-outcome.ts": {
-          "bytesInOutput": 1561
+          "bytesInOutput": 2098
         },
         "src/execution/tool-registry.ts": {
           "bytesInOutput": 942
@@ -5957,7 +5979,7 @@
           "bytesInOutput": 1367
         },
         "src/merchant-trust.ts": {
-          "bytesInOutput": 9792
+          "bytesInOutput": 9931
         },
         "src/merchant-variant.ts": {
           "bytesInOutput": 831
@@ -6014,19 +6036,19 @@
           "bytesInOutput": 1784
         },
         "src/search-diagnostics.ts": {
-          "bytesInOutput": 3700
+          "bytesInOutput": 3773
         },
         "src/search-products.ts": {
-          "bytesInOutput": 42755
+          "bytesInOutput": 42831
         },
         "src/search-requirements-context.ts": {
           "bytesInOutput": 4713
         },
         "src/search-run.ts": {
-          "bytesInOutput": 7594
+          "bytesInOutput": 7832
         },
         "src/server.ts": {
-          "bytesInOutput": 182911
+          "bytesInOutput": 183117
         },
         "src/shopify-cart-quote.ts": {
           "bytesInOutput": 12428
@@ -6050,10 +6072,10 @@
           "bytesInOutput": 6011
         },
         "src/sony-official-store-search.ts": {
-          "bytesInOutput": 10130
+          "bytesInOutput": 10637
         },
         "src/source-failure.ts": {
-          "bytesInOutput": 1625
+          "bytesInOutput": 1691
         },
         "src/stdio.ts": {
           "bytesInOutput": 930
@@ -6062,7 +6084,7 @@
           "bytesInOutput": 1632
         },
         "src/visual-candidate-images.ts": {
-          "bytesInOutput": 6366
+          "bytesInOutput": 6960
         },
         "src/visual-product-discovery.ts": {
           "bytesInOutput": 21436

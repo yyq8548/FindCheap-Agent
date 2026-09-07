@@ -10,6 +10,7 @@ import { candidateFingerprint, sourceProductFingerprint } from "../src/visual-so
 import { mergeSearchRequirements } from "../src/search-requirements-context.js";
 import { boundNamedIdentityRequirement } from "../src/named-product-identity.js";
 import { evaluateFeature } from "../src/product-constraint-matcher.js";
+import { safeFetch } from "../../../packages/network-safety/src/safe-fetch.js";
 
 const checkedAt = "2026-09-05T12:00:00.000Z";
 const emptyShopify: ShopifyPort = { search: async () => ({ source: "SHOPIFY_GLOBAL_CATALOG", coverage: "COMPLETE", products: [],
@@ -134,6 +135,31 @@ describe("bounded source retrieval regression", () => {
     });
     expect(execution.chromeFallbackEligible).toBe(true);
     expect(execution.sourceFailures).toContainEqual({ source: "AWIN", kind: "TIMEOUT", retryable: true });
+  });
+
+  it.each([
+    ["DNS", "EAI_AGAIN", "CONNECTION_FAILED", true],
+    ["REQUEST", "ECONNRESET", "CONNECTION_FAILED", true],
+    ["BODY", "ECONNRESET", "CONNECTION_FAILED", true],
+    ["REQUEST", "ETIMEDOUT", "TIMEOUT", true],
+    ["REQUEST", "CERT_HAS_EXPIRED", "SECURITY_REJECTED", false],
+    ["DNS", "ENOTFOUND", "CONNECTION_FAILED", false]
+  ] as const)("carries actual %s %s transport failures through search recovery", async (phase, code, kind, retryable) => {
+    const failure = () => Object.assign(new Error("private provider URL and response"), { code });
+    const execution = await searchProducts(SearchProductsInputSchema.parse({ query: "wig" }), {
+      awin: { search: async () => {
+        await safeFetch({ url: "https://shop.example/private?token=secret" }, { allowedHosts: ["shop.example"],
+          resolve: async () => { if (phase === "DNS") throw failure(); return [{ address: "93.184.216.34", family: 4 }]; },
+          request: async () => {
+            if (phase === "REQUEST") throw failure();
+            return new Response(new ReadableStream({ start(controller) { controller.error(failure()); } }));
+          } });
+        throw new Error("FAILURE_FIXTURE_DID_NOT_FAIL");
+      } }, shopify: emptyShopify
+    });
+    expect(execution.chromeFallbackEligible).toBe(retryable);
+    expect(execution.sourceFailures).toContainEqual({ source: "AWIN", kind, retryable, phase });
+    expect(JSON.stringify(execution.sourceFailures)).not.toMatch(/private|secret|token/iu);
   });
 
   it.each([

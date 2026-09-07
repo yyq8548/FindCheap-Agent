@@ -172,7 +172,8 @@ describe("model-visible context replay (network forbidden)", () => {
         if (parentRenderId === first.renderId) current = new Date(current.getTime() + PRODUCT_SELECTION_SNAPSHOT_TTL_MS + 1);
         const result = await replay.client.callTool({ name: "search_products", arguments: { query: "wig", contextMode: "CONTINUE_PREVIOUS_PRODUCT", parentRenderId, maxItemPriceCents: 3000 } });
         expect(result.isError).toBe(true);
-        expect(visibleText(result)).toContain("MISSING_REFERENCE_CONTEXT");
+        expect(visibleText(result)).toContain(parentRenderId === first.renderId ? "REFERENCE_EXPIRED" : "REFERENCE_STATE_UNAVAILABLE");
+        expect(result._meta?.["findcheap/errorDetails"]).toMatchObject({ recovery: { action: "ASK_USER_TO_RESTATE", maxAttempts: 0 } });
         expect(visibleText(result)).not.toContain("findcheapContext");
       }
       expect(search.mock.calls.length).toBe(calls);

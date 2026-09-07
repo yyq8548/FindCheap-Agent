@@ -3,6 +3,8 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createShoppingServer, type ShoppingServerDependencies, type ShopifyPort } from "../src/server.js";
 import type { ShopifyProduct, ShopifySearchResult } from "../src/shopify-client.js";
+import { TransportFailure } from "../../../packages/network-safety/src/transport-failure.js";
+import { VisualCandidateImageError } from "../src/visual-candidate-images.js";
 
 // Synthetic provider records and observation text only: no user images, live URLs, or account data.
 const now = new Date("2026-09-04T19:51:00.000Z");
@@ -269,6 +271,25 @@ describe("sanitized conversational workflow replay", () => {
     expect(response.isError).not.toBe(true);
     expect(response.structuredContent).toMatchObject({ status: "NO_IMAGE_CANDIDATES", visualSearchFailure: { code: "NO_LOADABLE_IMAGES", message: expect.stringContaining("参考图片已接受") } });
     expect(response._meta).toMatchObject({ "findcheap/visualImageLoadDiagnostics": { loaded: 0, failures: [{ sourceHost: "cdn.shopify.com", code: "REQUEST_FAILED" }] } });
+  });
+
+  it.each([false, true])("uses execution-owned image recovery through the MCP workflow; recovery succeeds=%s", async succeeds => {
+    const failure = new VisualCandidateImageError("CONNECTION_FAILED", "cdn.shopify.com", {
+      cause: new TransportFailure("BODY", Object.assign(new Error("secret private response"), { code: "ECONNRESET" }))
+    });
+    const load = vi.fn(async () => {
+      if (!succeeds || load.mock.calls.length === 1) throw failure;
+      return { data: Buffer.from("synthetic-candidate").toString("base64"), mimeType: "image/jpeg" as const };
+    });
+    const client = await connect(async () => result([visualProduct("transient-image")]), { visualCandidateImages: { load } });
+    const response = await client.callTool({ name: "search_visual_candidates", arguments: blackDressRequest });
+    expect(response.isError).not.toBe(true);
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(response._meta?.["findcheap/searchTrace"]).toMatchObject({ imageRequests: 2, imageRetryRequests: 1 });
+    expect(response._meta?.["findcheap/visualImageLoadDiagnostics"]).toMatchObject(succeeds
+      ? { loaded: 1, failures: [] }
+      : { loaded: 0, failures: [{ code: "CONNECTION_FAILED", sourceHost: "cdn.shopify.com", phase: "BODY", count: 1 }] });
+    expect(JSON.stringify(response._meta)).not.toMatch(/secret|private response/iu);
   });
 
   it.each([true, false])("retains an unreviewed variant while deduplicating an identical variant and image (new variant: %s)", async (newVariant) => {

@@ -3,6 +3,24 @@ import { connectReplay, product, searchResult, REPLAY_NOW } from "./fixtures/con
 import { PRODUCT_SELECTION_SNAPSHOT_TTL_MS, type ProductCardContent } from "../src/server.js";
 
 describe("shopping goal continuity", () => {
+  it("distinguishes omitted receipt from unavailable process-local state without a reuse loop", async () => {
+    const first = await connectReplay(async () => searchResult([]));
+    const receipt = (await first.client.callTool({ name: "search_products", arguments: { query: "MacBook Pro" } })).structuredContent as ProductCardContent;
+    await first.close();
+    const restarted = await connectReplay(async () => searchResult([]));
+    try {
+      const omitted = await restarted.client.callTool({ name: "search_products", arguments: {
+        query: "MacBook Pro", contextMode: "CONTINUE_PREVIOUS_PRODUCT", maxItemPriceCents: 250000
+      } });
+      expect(omitted._meta?.["findcheap/errorCode"]).toBe("MISSING_REFERENCE_CONTEXT");
+      const lost = await restarted.client.callTool({ name: "search_products", arguments: {
+        query: "MacBook Pro", parentRenderId: receipt.renderId, contextMode: "CONTINUE_PREVIOUS_PRODUCT", maxItemPriceCents: 250000
+      } });
+      expect(lost.isError).toBe(true);
+      expect(lost._meta).toMatchObject({ "findcheap/errorCode": "REFERENCE_STATE_UNAVAILABLE",
+        "findcheap/errorDetails": { recovery: { action: "ASK_USER_TO_RESTATE", maxAttempts: 0 } } });
+    } finally { await restarted.close(); }
+  });
   it("does not revive an expired goal revision through another reference field", async () => {
     let time = REPLAY_NOW.getTime();
     const replay = await connectReplay(async () => searchResult([]), { now: () => new Date(time) });
@@ -14,6 +32,7 @@ describe("shopping goal continuity", () => {
           query: "wig", contextMode: "CONTINUE_PREVIOUS_PRODUCT", ...reference
         } });
         expect(result.isError).toBe(true);
+        expect(result._meta?.["findcheap/errorCode"]).toBe("REFERENCE_EXPIRED");
       }
     } finally { await replay.close(); }
   });

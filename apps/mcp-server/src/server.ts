@@ -58,6 +58,7 @@ import type { OfficialStorefrontRegistryPort } from "./official-storefront-regis
 import type { MerchantTrustRegistryPort } from "./merchant-trust-registry-client.js";
 import {
   VisualCandidateImageError,
+  isRetryableVisualImageFailure,
   type VisualCandidateImageFailureCode,
   type VisualCandidateImagePort
 } from "./visual-candidate-images.js";
@@ -786,6 +787,7 @@ const ShopifyProductsOutputShape = {
   sourceFailures: z.array(z.object({
     source: z.enum(["AWIN", "SHOPIFY", "EBAY", "OFFICIAL"]),
     kind: z.enum(["INVALID_QUERY", "SOURCE_REJECTED", "TIMEOUT", "RATE_LIMITED", "UPSTREAM_ERROR", "CONNECTION_FAILED", "SCHEMA_INVALID", "SECURITY_REJECTED", "BUDGET_EXHAUSTED", "UNKNOWN"]),
+    phase: z.enum(["DNS", "REQUEST", "BODY"]).optional(),
     retryable: z.boolean()
   }).strict()).max(40).optional(),
   renderId: z.string().uuid().optional(),
@@ -2335,10 +2337,13 @@ export function createShoppingServer(
       ? [renderSnapshots.get(input.parentRenderId)].filter(snapshot => snapshot !== undefined)
       : input.goalId === undefined ? [] : [...renderSnapshots.values()].filter(snapshot =>
         snapshot.content.goalId === input.goalId && snapshot.content.goalRevision === input.goalRevision);
-    const matches = candidates.filter(snapshot => snapshot.request !== undefined && snapshot.expiresAt > now().getTime() &&
+    const matches = candidates.filter(snapshot => snapshot.request !== undefined &&
       (input.goalId === undefined || snapshot.content.goalId === input.goalId && snapshot.content.goalRevision === input.goalRevision));
     return matches.length === 1 ? matches[0] : undefined;
   };
+  const unavailableReference = (snapshot?: { expiresAt: number }) => toolError(
+    snapshot !== undefined && snapshot.expiresAt <= now().getTime() ? "REFERENCE_EXPIRED" : "REFERENCE_STATE_UNAVAILABLE"
+  );
   const resolveSelectionReference = (reference: {
     selectionId?: string | undefined;
     renderId?: string | undefined;
@@ -2610,7 +2615,7 @@ export function createShoppingServer(
       downloaded: 0,
       outputBudgetSkipped: 0,
       duplicateContentSkipped: 0,
-      failures: [] as Array<{ code: VisualCandidateImageFailureCode; sourceHost?: string; count: number }>
+      failures: [] as Array<{ code: VisualCandidateImageFailureCode; sourceHost?: string; phase?: "DNS" | "REQUEST" | "BODY"; count: number }>
     };
     if (visualCandidateImages === undefined) return { entries: [], diagnostics: emptyDiagnostics, attemptedKeys };
     const seen = new Set(excludedKeys);
@@ -2622,7 +2627,7 @@ export function createShoppingServer(
     });
     const pool = eligiblePool.slice(0, Math.min(options.maxAttempts ?? 12, execution.searchRun?.remainingImageRequests() ?? 12));
     const selected: Array<{ candidate: UnifiedCandidate; image: Awaited<ReturnType<VisualCandidateImagePort["load"]>> }> = [];
-    const failures: Array<{ code: VisualCandidateImageFailureCode; sourceHost?: string }> = [];
+    const failures: Array<{ code: VisualCandidateImageFailureCode; sourceHost?: string; phase?: "DNS" | "REQUEST" | "BODY" }> = [];
     let attempted = 0;
     let downloaded = 0;
     let outputBudgetSkipped = 0;
@@ -2644,13 +2649,15 @@ export function createShoppingServer(
             ...(signal === undefined ? {} : { signal }),
             maxDataChars: Math.floor(((options.maxDataChars ?? MAX_VISUAL_CANDIDATE_OUTPUT_DATA_CHARS) - encodedChars) / batch.length)
           });
-          const image = await (execution.searchRun === undefined ? read() : execution.searchRun.read("IMAGE", imageUrl, read));
+          const image = await (execution.searchRun === undefined ? read() : execution.searchRun.read("IMAGE", imageUrl, read,
+            { retryTransient: isRetryableVisualImageFailure }));
           return { candidate, image };
         } catch (error) {
           let sourceHost: string | undefined;
           try { sourceHost = new URL(imageUrl).hostname.toLocaleLowerCase("en-US"); } catch { /* safe code only */ }
           failures.push(error instanceof VisualCandidateImageError
-            ? { code: error.code, ...(error.sourceHost === undefined ? {} : { sourceHost: error.sourceHost }) }
+            ? { code: error.code, ...(error.phase === undefined ? {} : { phase: error.phase }),
+              ...(error.sourceHost === undefined ? {} : { sourceHost: error.sourceHost }) }
             : { code: error instanceof SearchReadTimeoutError ? "REQUEST_TIMEOUT"
               : error instanceof SearchBudgetError ? "REQUEST_ABORTED" : "REQUEST_FAILED", ...(sourceHost === undefined ? {} : { sourceHost }) });
           return undefined;
@@ -2685,9 +2692,9 @@ export function createShoppingServer(
     execution.searchRun?.throwIfCancelled();
     execution.searchRun?.noteUnattemptedImages(eligiblePool.filter((candidate) =>
       !attemptedKeys.has(visualCandidateKey(candidate))).length);
-    const failureCounts = new Map<string, { code: VisualCandidateImageFailureCode; sourceHost?: string; count: number }>();
+    const failureCounts = new Map<string, { code: VisualCandidateImageFailureCode; sourceHost?: string; phase?: "DNS" | "REQUEST" | "BODY"; count: number }>();
     for (const failure of failures) {
-      const key = `${failure.code}:${failure.sourceHost ?? ""}`;
+      const key = `${failure.code}:${failure.sourceHost ?? ""}:${failure.phase ?? ""}`;
       const existing = failureCounts.get(key);
       if (existing === undefined) failureCounts.set(key, { ...failure, count: 1 });
       else existing.count += 1;
@@ -2717,13 +2724,13 @@ export function createShoppingServer(
       downloaded: number;
       outputBudgetSkipped: number;
       duplicateContentSkipped: number;
-      failures: Array<{ code: VisualCandidateImageFailureCode; sourceHost?: string; count: number }>;
+      failures: Array<{ code: VisualCandidateImageFailureCode; sourceHost?: string; phase?: "DNS" | "REQUEST" | "BODY"; count: number }>;
     }>
   ) => {
-    const failureCounts = new Map<string, { code: VisualCandidateImageFailureCode; sourceHost?: string; count: number }>();
+    const failureCounts = new Map<string, { code: VisualCandidateImageFailureCode; sourceHost?: string; phase?: "DNS" | "REQUEST" | "BODY"; count: number }>();
     for (const item of items) {
       for (const failure of item.failures) {
-        const key = `${failure.code}:${failure.sourceHost ?? ""}`;
+        const key = `${failure.code}:${failure.sourceHost ?? ""}:${failure.phase ?? ""}`;
         const existing = failureCounts.get(key);
         if (existing === undefined) failureCounts.set(key, { ...failure });
         else existing.count += failure.count;
@@ -2819,8 +2826,9 @@ export function createShoppingServer(
         parsedInput.goalId !== undefined || parsedInput.goalRevision !== undefined)) return toolError("INVALID_ARGUMENTS");
       if (parsedInput.removeRequiredFeatures.length > 0 && parsedInput.contextMode !== "CONTINUE_PREVIOUS_PRODUCT") return toolError("INVALID_ARGUMENTS");
       if (["CONTINUE_PREVIOUS_PRODUCT", "CORRECT_PREVIOUS_PRODUCT"].includes(parsedInput.contextMode)) {
+        if (parsedInput.parentRenderId === undefined && parsedInput.goalId === undefined) return toolError("MISSING_REFERENCE_CONTEXT");
         const parent = resolveSearchParent(parsedInput);
-        if (parent?.request === undefined || parent.expiresAt <= now().getTime()) return toolError("MISSING_REFERENCE_CONTEXT");
+        if (parent?.request === undefined || parent.expiresAt <= now().getTime()) return unavailableReference(parent);
         try { parsedInput = mergeSearchRequirements({ ...parsedInput, parentRenderId: parent.content.renderId }, parent.request); }
         catch { return toolError("INVALID_ARGUMENTS"); }
       }
@@ -2923,7 +2931,7 @@ export function createShoppingServer(
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }
     }, async ({ renderId }, extra) => {
       const parent = renderSnapshots.get(renderId);
-      if (parent?.request === undefined || parent.expiresAt <= now().getTime()) return toolError("MISSING_REFERENCE_CONTEXT");
+      if (parent?.request === undefined || parent.expiresAt <= now().getTime()) return unavailableReference(parent);
       if (parent.content.recovery?.action !== "REQUEST_WEB_SEARCH") return toolError("TOOL_REQUEST_REJECTED");
       const searchRun = parent.searchRun;
       if (searchRun === undefined) return toolError("TOOL_REQUEST_REJECTED");
@@ -2987,7 +2995,7 @@ export function createShoppingServer(
         searchRun.throwIfCancelled();
         if (lease.status !== "READY") return reply(lease.status, lease.retryable, lease.attempt);
         if (renderSnapshots.get(renderId) !== parent || parent.expiresAt <= now().getTime()) {
-          webSessions.forget(renderId); return toolError("MISSING_REFERENCE_CONTEXT");
+          webSessions.forget(renderId); return unavailableReference(parent);
         }
         const message = zh ? "已获授权。用 Chrome 搜索所给查询；提交最多 5 个不同商家的直接商品链接给 complete_web_search。不得把摘要当作价格或功效证据；到期即停。"
           : "Authorized. Discover with Chrome using the supplied queries; submit up to 5 direct product URLs from distinct merchants to complete_web_search. Snippets are not price or efficacy evidence. Stop at expiry.";
@@ -3008,7 +3016,7 @@ export function createShoppingServer(
       _meta: { ui: { resourceUri: PRODUCT_CARD_UI_URI }, "openai/outputTemplate": PRODUCT_CARD_UI_URI }
     }, async ({ renderId, webSessionId, urls }, extra) => {
       const parent = renderSnapshots.get(renderId);
-      if (parent?.request === undefined || parent.expiresAt <= now().getTime()) return toolError("MISSING_REFERENCE_CONTEXT");
+      if (parent?.request === undefined || parent.expiresAt <= now().getTime()) return unavailableReference(parent);
       const searchRun = parent.searchRun;
       if (searchRun === undefined) return toolError("TOOL_REQUEST_REJECTED");
       return searchRun.withRequestSignal(extra.signal, async () => {
@@ -3156,8 +3164,9 @@ export function createShoppingServer(
       if (parsedInput.contextMode === "NEW_PRODUCT" && (parsedInput.parentRenderId !== undefined ||
         parsedInput.goalId !== undefined || parsedInput.goalRevision !== undefined)) return toolError("INVALID_ARGUMENTS");
       if (["CONTINUE_PREVIOUS_PRODUCT", "CORRECT_PREVIOUS_PRODUCT"].includes(parsedInput.contextMode)) {
+        if (parsedInput.parentRenderId === undefined && parsedInput.goalId === undefined) return toolError("MISSING_REFERENCE_CONTEXT");
         const parent = resolveSearchParent({ ...parsedInput, limit: 3 });
-        if (parent?.request === undefined || parent.expiresAt <= now().getTime()) return toolError("MISSING_REFERENCE_CONTEXT");
+        if (parent?.request === undefined || parent.expiresAt <= now().getTime()) return unavailableReference(parent);
         parentRun = parent.searchRun;
         if (parent.request.visualInput !== undefined && parentRun === undefined) return toolError("TOOL_REQUEST_REJECTED");
         try {

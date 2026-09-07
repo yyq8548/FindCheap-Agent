@@ -21,12 +21,26 @@ const Stock = z.object({ status: z.enum(["instock", "outofstock"]).optional(),
     (value.status === "instock") === (value.stockLevelStatus === "inStock")));
 const Option = z.object({ code: Code, url: z.string().max(4096), priceData: Price, stock: Stock,
   variants: z.array(z.object({ variant: z.string().max(200), value: z.string().max(200) })).max(20) }).passthrough();
+const InactiveSibling = Option.omit({ variants: true }).extend({ variants: z.undefined(),
+  stock: Stock.refine(stock => !inStock(stock) && stock.hideSimilarProducts === true) });
+const BaseOptions = z.object({ selected: Option, options: z.array(z.union([Option, InactiveSibling])).min(1).max(30),
+  variantType: z.literal("SNAProductVariant") }).transform((base, context) => {
+  const prefix = base.selected.code.replace(/-[a-z]$/u, "-");
+  for (const option of base.options) if (option.variants === undefined &&
+    (option.code === base.selected.code || !prefix.endsWith("-") || !option.code.startsWith(prefix) ||
+      productCode(option.url) !== option.code)) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "SONY_INACTIVE_SIBLING_IDENTITY_INVALID" });
+    return z.NEVER;
+  }
+  // Observed retired XM5 siblings have no color metadata. They cannot be chosen,
+  // priced or used as evidence; the selected SKU still passes the full contract.
+  return { ...base, options: base.options.filter((option): option is z.infer<typeof Option> => option.variants !== undefined) };
+});
 const Detail = z.object({ code: Code, name: z.string().min(1).max(1000), summary: z.string().min(1).max(5000),
   description: z.string().max(100_000).default(""), baseProduct: Code, url: z.string().max(4096), canonicalUrl: z.string().max(4096),
   gwModel: z.string().min(1).max(100).optional(), superModelName: z.string().min(1).max(100).optional(),
   price: Price, stock: Stock, purchasable: z.boolean(), notSellable: z.boolean(),
-  baseOptions: z.array(z.object({ selected: Option, options: z.array(Option).min(1).max(30),
-    variantType: z.literal("SNAProductVariant") })).length(1),
+  baseOptions: z.array(BaseOptions).length(1),
   upc: z.string().regex(/^\d{8,14}$/u).optional(),
   images: z.array(z.object({ imageType: z.string(), format: z.string(), url: z.string().max(4096) })).max(100).optional()
 }).passthrough();
@@ -106,10 +120,10 @@ export function createSonyOfficialSearchPort(dependencies: { fetchDocument?: Off
       search.searchParams.set("pageSize", "6");
       search.searchParams.set("fields", "products(code,name,summary,url),pagination");
       const data = z.object({ products: z.array(z.object({ code: Code, url: z.string().max(4096) })).max(6) }).parse(await read(search.href));
-      codes = [...new Set(data.products.map(product => {
+      codes = [...new Set(data.products.filter(product => matchesRequestedModel(product.code, input.query)).map(product => {
         if (productCode(product.url) !== product.code) throw new Error("SONY_PRODUCT_IDENTITY_INVALID");
         return product.code;
-      }))].filter(code => matchesRequestedModel(code, input.query)).slice(0, Math.min(3, Math.max(1, input.limit)));
+      }))].slice(0, Math.min(3, Math.max(1, input.limit)));
     }
     const products: ShopifyProduct[] = [];
     // Two workers share one bounded request/byte ledger. Failures are never converted to a successful empty search.

@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { Worker } from "node:worker_threads";
 import { safeFetchWithProvenance } from "../../../packages/network-safety/src/safe-fetch.js";
+import { TransportFailure, type TransportPhase } from "../../../packages/network-safety/src/transport-failure.js";
 
 const MAX_IMAGE_BYTES = 1_500_000;
 const SHOPIFY_CANDIDATE_WIDTH = 512;
@@ -22,6 +23,11 @@ export type VisualCandidateImageFailureCode =
   | "REQUEST_FAILED"
   | "REQUEST_ABORTED"
   | "REQUEST_TIMEOUT"
+  | "DNS_FAILED"
+  | "CONNECTION_FAILED"
+  | "TLS_REJECTED"
+  | "HTTP_RATE_LIMITED"
+  | "HTTP_UNAVAILABLE"
   | "HTTP_ERROR"
   | "REDIRECT_NOT_APPROVED"
   | "UNSUPPORTED_CONTENT_TYPE"
@@ -35,6 +41,7 @@ export type VisualCandidateImageFailureCode =
   | "EMPTY_BODY";
 
 export class VisualCandidateImageError extends Error {
+  readonly phase?: TransportPhase;
   constructor(
     readonly code: VisualCandidateImageFailureCode,
     readonly sourceHost?: string,
@@ -42,7 +49,14 @@ export class VisualCandidateImageError extends Error {
   ) {
     super(code, options);
     this.name = "VisualCandidateImageError";
+    if (options?.cause instanceof TransportFailure) this.phase = options.cause.phase;
   }
+}
+
+/** Retry permission comes from the transport boundary, never upstream text. */
+export function isRetryableVisualImageFailure(error: unknown): boolean {
+  return error instanceof VisualCandidateImageError && error.cause instanceof TransportFailure &&
+    error.cause.retryable && ["DNS_FAILED", "CONNECTION_FAILED", "REQUEST_TIMEOUT"].includes(error.code);
 }
 
 export type VisualCandidateImage = {
@@ -92,10 +106,15 @@ export function createVisualCandidateImagePort(
         );
       } catch (error) {
         const code = options.signal?.aborted === true ? "REQUEST_ABORTED" as const
+          : error instanceof TransportFailure ? error.kind === "SECURITY_REJECTED" ? "TLS_REJECTED" as const
+            : error.kind === "TIMEOUT" ? "REQUEST_TIMEOUT" as const
+              : error.kind === "CONNECTION_FAILED" ? error.phase === "DNS" ? "DNS_FAILED" as const : "CONNECTION_FAILED" as const
+                : "REQUEST_FAILED" as const
           : error instanceof Error && error.name === "TimeoutError" ? "REQUEST_TIMEOUT" as const
           : error instanceof Error && error.message.includes("response too large") ? "RESPONSE_TOO_LARGE" as const
           : error instanceof Error && error.message.includes("redirect blocked host")
           ? "REDIRECT_NOT_APPROVED" as const
+          : error instanceof Error && /^(?:redirect )?(?:blocked |DNS blocked|request blocked)/u.test(error.message) ? "UNSAFE_URL" as const
           : "REQUEST_FAILED" as const;
         throw new VisualCandidateImageError(code, sourceHost, { cause: error });
       }
@@ -108,7 +127,8 @@ export function createVisualCandidateImagePort(
         throw new VisualCandidateImageError(code, sourceHost);
       };
       if (options.signal?.aborted === true) fail("REQUEST_ABORTED");
-      if (!result.response.ok) fail("HTTP_ERROR");
+      if (!result.response.ok) fail(result.response.status === 429 ? "HTTP_RATE_LIMITED"
+        : result.response.status >= 500 ? "HTTP_UNAVAILABLE" : "HTTP_ERROR");
       if (!allowedHosts.includes(finalUrl.hostname.toLocaleLowerCase("en-US"))) {
         fail("REDIRECT_NOT_APPROVED");
       }

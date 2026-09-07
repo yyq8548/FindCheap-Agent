@@ -4,6 +4,13 @@ import { SearchRun, SearchBudgetError, SearchReadTimeoutError } from "../src/sea
 import type { UnifiedSearchExecution } from "../src/search-products.js";
 
 describe("search outcome telemetry", () => {
+  it("retains a safe transport phase but never an arbitrary phase string", () => {
+    const execution = executionFor(new SearchRun());
+    execution.sourceFailures = [{ source: "OFFICIAL", kind: "CONNECTION_FAILED", retryable: true, phase: "DNS" }];
+    expect(searchDiagnostics(execution, "SOURCE_UNAVAILABLE").sourceFailures).toEqual(execution.sourceFailures);
+    Reflect.set(execution.sourceFailures[0]!, "phase", "PRIVATE_URL");
+    expect(JSON.stringify(searchDiagnostics(execution, "SOURCE_UNAVAILABLE"))).not.toContain("PRIVATE_URL");
+  });
   it("labels current retrieval and image batches separately from cumulative visual review and final cards", () => {
     const run = new SearchRun();
     run.recordVisualStage("REVIEW_ACCEPTED", [{ productHash: "a".repeat(64) }], { round: 1 });

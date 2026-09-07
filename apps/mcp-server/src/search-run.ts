@@ -31,7 +31,7 @@ export class SearchCancelledError extends Error {
 }
 
 /** One interactive search, including its second visual round. No global cache,
- * raw-query telemetry, network retries, or extension of provider timeouts. */
+ * raw-query telemetry, automatic provider retries, or extension of provider timeouts. */
 export class SearchRun {
   readonly traceId = randomUUID();
   readonly #options: SearchRunOptions;
@@ -45,6 +45,7 @@ export class SearchRun {
   readonly #reviewedProducts = new Set<string>();
   #catalogRequests = 0;
   #imageRequests = 0;
+  #imageRetryRequests = 0;
   #visualReviewRounds = 0;
   #dealRequests = 0;
   #registryRequests = 0;
@@ -240,7 +241,8 @@ export class SearchRun {
           : this.#catalogRequests >= this.#options.maxCatalogRequests;
   }
 
-  async read<T>(kind: ReadKind, key: string, operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  async read<T>(kind: ReadKind, key: string, operation: (signal: AbortSignal) => Promise<T>,
+    options: { retryTransient?: (error: unknown) => boolean } = {}): Promise<T> {
     this.throwIfCancelled();
     if (this.isWaiting()) throw new Error("SEARCH_WAIT_NOT_ALLOWED");
     const cacheKey = `${kind}:${key}`;
@@ -251,6 +253,20 @@ export class SearchRun {
       this.throwIfCancelled();
       return value;
     }
+    const result = this.readAttempt(kind, operation).catch(error => {
+      // Opt-in only for interactive images. Quotes, Watch and source adapters do
+      // not acquire hidden retries. Each attempt uses the existing shared ledger.
+      if (kind !== "IMAGE" || options.retryTransient?.(error) !== true || !this.canRead(kind)) throw error;
+      this.#imageRetryRequests += 1;
+      return this.readAttempt(kind, operation);
+    });
+    this.#reads.set(cacheKey, result);
+    if (kind === "IMAGE") void result.then(() => { this.#reads.delete(cacheKey); }, () => {});
+    return result;
+  }
+
+  private async readAttempt<T>(kind: ReadKind, operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
+    this.throwIfCancelled();
     const remaining = Math.min(this.#options.activeBudgetMs - this.activeDuration(), this.remainingServiceMs());
     if (remaining <= 0 || this.limitReached(kind)) {
       if (kind === "DEALS" && remaining > 0) this.#enrichmentLimited = true;
@@ -291,10 +307,6 @@ export class SearchRun {
       clearTimeout(timer);
       if (--this.#active === 0) this.#elapsed += Math.max(0, this.#options.monotonicNow() - this.#activeSince);
     });
-    // Share in-flight images and failed reads across variants, but release successful
-    // image bytes before the next model turn. Transport safety remains provider-owned.
-    this.#reads.set(cacheKey, result);
-    if (kind === "IMAGE") void result.then(() => { this.#reads.delete(cacheKey); }, () => {});
     return result;
   }
 
@@ -316,6 +328,7 @@ export class SearchRun {
       officialHttpBytes: this.#officialHttpBytes,
       officialDocumentCacheHits: this.#officialDocumentCacheHits,
       imageRequests: this.#imageRequests,
+      imageRetryRequests: this.#imageRetryRequests,
       visualReviewRounds: this.#visualReviewRounds,
       variantRequests: this.#variantRequests,
       dealRequests: this.#dealRequests,

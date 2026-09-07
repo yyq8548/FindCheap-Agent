@@ -58,6 +58,7 @@ let managedMerchantTrustVersion: string | undefined;
 // Open marketplaces stay excluded until their individual seller identity can be verified.
 const MERCHANT_TRUST_RECORDS: readonly MerchantTrustRecord[] = [
   // Official brand stores.
+  { host: "medicube.us", level: "OFFICIAL", evidenceUrl: "https://medicube.us/pages/notice", reviewedAt: "2026-09-07", storefrontBrands: ["medicube"] },
   { host: "electronics.sony.com", level: "OFFICIAL", evidenceUrl: "https://electronics.sony.com/", reviewedAt: "2026-08-20",
     storefrontBrands: ["Sony"], storefrontPlatform: "SONY_OCC", productPathPrefixes: ["/audio/"],
     imageHosts: ["d1ncau8tqf99kp.cloudfront.net"] },

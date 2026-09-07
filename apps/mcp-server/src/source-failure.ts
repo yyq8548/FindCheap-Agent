@@ -1,10 +1,12 @@
 import { SearchBudgetError, SearchReadTimeoutError } from "./search-run.js";
+import { TransportFailure, type TransportPhase } from "../../../packages/network-safety/src/transport-failure.js";
 
 export type SourceFailure = {
   source: "AWIN" | "SHOPIFY" | "EBAY" | "OFFICIAL";
   kind: "INVALID_QUERY" | "SOURCE_REJECTED" | "TIMEOUT" | "RATE_LIMITED" | "UPSTREAM_ERROR" |
     "CONNECTION_FAILED" | "SCHEMA_INVALID" | "SECURITY_REJECTED" | "BUDGET_EXHAUSTED" | "UNKNOWN";
   retryable: boolean;
+  phase?: TransportPhase;
 };
 
 /** Only locally owned error types/messages map to safe public reason codes.
@@ -12,6 +14,7 @@ export type SourceFailure = {
 export function classifySourceFailure(source: SourceFailure["source"], error: unknown): SourceFailure {
   const result = (kind: SourceFailure["kind"], retryable = false): SourceFailure => ({ source, kind, retryable });
   if (error instanceof SearchBudgetError) return result("BUDGET_EXHAUSTED");
+  if (error instanceof TransportFailure) return { ...result(error.kind, error.retryable), phase: error.phase };
   if (!(error instanceof Error)) return result("UNKNOWN");
   if (error instanceof SearchReadTimeoutError || error.name === "TimeoutError" ||
     error.message === "catalog search deadline exceeded" || error.message === "Awin Search service exceeded its retry budget") return result("TIMEOUT", true);

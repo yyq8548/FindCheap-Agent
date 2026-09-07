@@ -6,8 +6,9 @@ import {
 } from "../../../packages/contracts/src/index.js";
 
 export const DEFAULT_OFFICIAL_STOREFRONT_REGISTRY: OfficialStorefrontRegistry = OfficialStorefrontRegistrySchema.parse({
-  version: "official-storefronts-2026-09-06",
+  version: "official-storefronts-2026-09-07",
   stores: [
+    shopify("medicube", [], "medicube.us", undefined, "https://medicube.us/pages/notice", "2026-09-07"),
     shopify("DÔEN", [], "shopdoen.com", "www.shopdoen.com", "https://www.shopdoen.com/", "2026-08-20"),
     shopify("SKIMS", ["NikeSKIMS"], "skims.com", undefined, "https://skims.com/", "2026-08-27"),
     shopify("Death Wish Coffee", ["Death Wish"], "deathwishcoffee.com", "www.deathwishcoffee.com", "https://www.deathwishcoffee.com/", "2026-08-27"),

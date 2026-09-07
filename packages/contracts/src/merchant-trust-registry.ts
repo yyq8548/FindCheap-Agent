@@ -42,8 +42,9 @@ export type ManagedMerchantTrustRecord = z.infer<typeof ManagedMerchantTrustReco
 export type ManagedMerchantTrustRegistry = z.infer<typeof ManagedMerchantTrustRegistrySchema>;
 
 export const EMBEDDED_MERCHANT_TRUST_REGISTRY: ManagedMerchantTrustRegistry = ManagedMerchantTrustRegistrySchema.parse({
-  version: "merchant-trust-2026-08-28",
+  version: "merchant-trust-2026-09-07",
   merchants: [
+    official("medicube.us", "https://medicube.us/pages/notice", "2026-09-07"),
     official("electronics.sony.com", "https://electronics.sony.com/", "2026-08-20"),
     official("shopdoen.com", "https://www.shopdoen.com/", "2026-08-20"),
     official("skims.com", "https://skims.com/", "2026-08-27"),

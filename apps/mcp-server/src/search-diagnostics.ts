@@ -13,7 +13,8 @@ export function searchDiagnostics(execution: UnifiedSearchExecution, outcome: Se
   const snapshotTime = execution.awinResult?.snapshotAt;
   const snapshotAt = snapshotTime !== undefined && Number.isFinite(Date.parse(snapshotTime))
     ? new Date(snapshotTime).toISOString() : undefined;
-  const sourceFailures = execution.sourceFailures?.map(({ source, kind, retryable }) => ({ source, kind, retryable }));
+  const sourceFailures = execution.sourceFailures?.map(({ source, kind, retryable, phase }) => ({ source, kind, retryable,
+    ...(phase !== undefined && ["DNS", "REQUEST", "BODY"].includes(phase) ? { phase } : {}) }));
   const nonTransientFailure = ["SECURITY_REJECTED", "SCHEMA_INVALID", "INVALID_QUERY", "SOURCE_REJECTED", "BUDGET_EXHAUSTED", "UNKNOWN"]
     .map(kind => sourceFailures?.find(failure => !failure.retryable && failure.kind === kind)).find(Boolean);
   const sourceObservations = execution.sourcePassDiagnostics.reduce((total, pass) =>

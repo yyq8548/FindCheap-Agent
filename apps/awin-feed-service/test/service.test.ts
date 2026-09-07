@@ -410,7 +410,7 @@ describe("Awin Feed service", () => {
       const registry = await fetch(`${origin}/v1/official-storefronts`);
       expect(registry.status).toBe(200);
       expect(await registry.json()).toMatchObject({
-        version: "official-storefronts-2026-09-06",
+        version: "official-storefronts-2026-09-07",
         stores: expect.arrayContaining([expect.objectContaining({
           brand: "Free People",
           officialHost: "freepeople.com",
@@ -424,7 +424,7 @@ describe("Awin Feed service", () => {
       const merchantTrust = await fetch(`${origin}/v1/merchant-trust`);
       expect(merchantTrust.status).toBe(200);
       expect(await merchantTrust.json()).toMatchObject({
-        version: "merchant-trust-2026-08-28",
+        version: "merchant-trust-2026-09-07",
         merchants: expect.arrayContaining([expect.objectContaining({
           host: "bestbuy.com",
           level: "ESTABLISHED_RETAILER",

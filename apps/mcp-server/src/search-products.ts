@@ -1685,6 +1685,8 @@ function officialStoreSeed(
   });
   const storefront = sourceStore ?? (brand === undefined ? undefined : resolveVerifiedOfficialStorefront(brand));
   if (storefront === undefined) return observed;
+  const trust = resolveMerchantTrust(storefront.host);
+  if (trust.level !== "OFFICIAL" || trust.verification !== "INDEPENDENT") return undefined;
   return {
     merchantId: `official-${storefront.host}`,
     merchant: storefront.brand,

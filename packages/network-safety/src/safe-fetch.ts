@@ -5,6 +5,7 @@ import { isIP } from "node:net";
 import { Readable } from "node:stream";
 import { domainToASCII } from "node:url";
 import { FINDCHEAP_VERSION } from "../../../config/version.js";
+import { TransportFailure } from "./transport-failure.js";
 
 export const MAX_RESPONSE_BYTES = 5_000_000;
 export const REQUEST_TIMEOUT_MS = 8_000;
@@ -221,8 +222,8 @@ export async function safeFetchWithProvenance(
     const addresses = await resolveAndValidate(resolve, hostname, redirectContext, signal);
     let response: Response;
 
+    policy.onRead?.({ requests: 1 });
     try {
-      policy.onRead?.({ requests: 1 });
       response = await abortable(() => request(
         current,
         { redirect: "manual", signal },
@@ -230,7 +231,9 @@ export async function safeFetchWithProvenance(
       ), signal, (lateResponse) => { void lateResponse.body?.cancel().catch(() => undefined); });
     } catch (error) {
       signal.throwIfAborted();
-      throw new Error(`${redirectContext ? "redirect " : ""}request blocked`, { cause: error });
+      // Pinned-transport policy denials remain terminal, including on redirects.
+      if (error instanceof Error && error.message.startsWith("request blocked")) throw error;
+      throw new TransportFailure("REQUEST", error);
     }
 
     if (isRedirect(response.status)) {
@@ -321,7 +324,7 @@ async function resolveAndValidate(
     addresses = await abortable(() => resolve(hostname), signal);
   } catch (error) {
     signal.throwIfAborted();
-    throw new Error(`${redirect ? "redirect " : ""}DNS blocked`, { cause: error });
+    throw new TransportFailure("DNS", error);
   }
 
   if (addresses.length === 0) {
@@ -469,7 +472,10 @@ async function bufferResponse(response: Response, maximum: number, signal: Abort
   signal.addEventListener("abort", cancel, { once: true });
   try {
     while (true) {
-      const { done, value } = await abortable(() => reader.read(), signal);
+      const { done, value } = await abortable(() => reader.read(), signal).catch(error => {
+        signal.throwIfAborted();
+        throw new TransportFailure("BODY", error);
+      });
       signal.throwIfAborted();
       if (done) break;
       size += value.byteLength;
