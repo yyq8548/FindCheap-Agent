@@ -130,6 +130,44 @@ describe("bounded web recovery safety", () => {
     expect(await sessions.begin("parent", async () => "ACCEPT")).toMatchObject({ status: "APPROVAL_PENDING" });
     accept("ACCEPT"); expect(await pending).toMatchObject({ status: "READY" });
   });
+  it("shares terminal denial across derived renders without sharing a permission token", async () => {
+    const sessions = new WebRecoverySessions();
+    const approve = vi.fn(async () => "ACCEPT" as const);
+    await sessions.begin("first", async () => "DECLINE", undefined, "goal");
+    sessions.forget("first");
+    expect(await sessions.begin("inspected", approve, undefined, "goal")).toMatchObject({ status: "PERMISSION_DENIED", attempt: 1 });
+    expect(approve).not.toHaveBeenCalled();
+    const lease = await sessions.begin("independent", approve, undefined, "other-goal");
+    expect(sessions.consume("inspected", lease.token!)).toBeUndefined();
+    expect(sessions.consume("independent", lease.token!)).toBeGreaterThan(0);
+  });
+  it("prevents concurrent derived-render prompts and does not move an accepted lease", async () => {
+    const sessions = new WebRecoverySessions();
+    let accept!: (value: "ACCEPT") => void;
+    const pending = sessions.begin("first", () => new Promise(resolve => { accept = resolve; }), undefined, "goal");
+    const approve = vi.fn(async () => "ACCEPT" as const);
+    expect(await sessions.begin("derived", approve, undefined, "goal")).toMatchObject({ status: "APPROVAL_PENDING" });
+    accept("ACCEPT");
+    const lease = await pending;
+    expect(sessions.consume("derived", lease.token!)).toBeUndefined();
+    expect(sessions.consume("first", lease.token!)).toBeGreaterThan(0);
+    expect(approve).not.toHaveBeenCalled();
+  });
+  it("counts transient attempts across renders and invalidates a pending forgotten owner", async () => {
+    const sessions = new WebRecoverySessions();
+    const fail = vi.fn(async (): Promise<"ACCEPT"> => { throw new McpError(ErrorCode.RequestTimeout, "private"); });
+    await sessions.begin("first", fail, undefined, "goal");
+    expect(await sessions.begin("second", fail, undefined, "goal")).toMatchObject({ status: "PERMISSION_TIMEOUT", attempt: 2, retryable: false });
+    await sessions.begin("third", fail, undefined, "goal");
+    expect(fail).toHaveBeenCalledTimes(2);
+    let accept!: (value: "ACCEPT") => void;
+    const pending = sessions.begin("owner", () => new Promise(resolve => { accept = resolve; }), undefined, "pending-goal");
+    sessions.forget("owner"); accept("ACCEPT");
+    expect(await pending).toMatchObject({ status: "EXPIRED" });
+    expect(sessions.current("pending-goal")).toMatchObject({ status: "EXPIRED" });
+    sessions.forgetGoal("pending-goal");
+    expect(sessions.current("pending-goal")).toBeUndefined();
+  });
   it("caps a lease by the original service flow before and after verified approval", async () => {
     const sessions = new WebRecoverySessions(() => 1_000);
     let remaining = 0;

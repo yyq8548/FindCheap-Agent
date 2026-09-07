@@ -2,7 +2,7 @@ import { FINDCHEAP_VERSION } from "../../../config/version.js";
 import { QUOTE_UI_FEEDBACK_SCRIPT } from "./quote-ui-feedback.js";
 import { MAX_PRODUCT_CARDS } from "./product-candidate-ranking.js";
 
-export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v37.html";
+export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v38.html";
 
 export const PRODUCT_CARD_RESOURCE_DOMAINS = [
   "https://cdn.shopify.com",

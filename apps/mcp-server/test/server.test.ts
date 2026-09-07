@@ -154,12 +154,12 @@ describe("shopping MCP server", () => {
     const selectionTool = tools.tools.find((candidate) => candidate.name === "sync_product_card_selection");
     const metricsTool = tools.tools.find((candidate) => candidate.name === "report_product_card_metrics");
     expect(searchTool?._meta).toMatchObject({
-      ui: { resourceUri: "ui://findcheap/product-cards/v37.html" },
-      "openai/outputTemplate": "ui://findcheap/product-cards/v37.html"
+      ui: { resourceUri: "ui://findcheap/product-cards/v38.html" },
+      "openai/outputTemplate": "ui://findcheap/product-cards/v38.html"
     });
     expect(renderTool?._meta).toMatchObject({
       ui: {
-        resourceUri: "ui://findcheap/product-cards/v37.html",
+        resourceUri: "ui://findcheap/product-cards/v38.html",
         visibility: ["app"]
       }
     });
@@ -178,15 +178,15 @@ describe("shopping MCP server", () => {
     expect(resources.resources).toHaveLength(2);
     expect(resources.resources).toEqual(expect.arrayContaining([expect.objectContaining({
       name: "findcheap-product-cards",
-      uri: "ui://findcheap/product-cards/v37.html",
+      uri: "ui://findcheap/product-cards/v38.html",
       mimeType: "text/html;profile=mcp-app"
     }), expect.objectContaining({
       name: "findcheap-product-comparison",
-      uri: "ui://findcheap/product-comparison/v7.html",
+      uri: "ui://findcheap/product-comparison/v8.html",
       mimeType: "text/html;profile=mcp-app"
     })]));
 
-    const resource = await client.readResource({ uri: "ui://findcheap/product-cards/v37.html" });
+    const resource = await client.readResource({ uri: "ui://findcheap/product-cards/v38.html" });
     const content = resource.contents[0];
     const html = content !== undefined && "text" in content ? content.text : "";
     expect(html).toContain("ui/notifications/tool-result");
@@ -457,7 +457,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.17.31",
+        version: "0.17.32",
         terminalStage: "DOM_RENDERED",
         stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
       }
@@ -466,7 +466,7 @@ describe("shopping MCP server", () => {
     expect(result.structuredContent).toEqual({ status: "RECORDED" });
     expect(record).toHaveBeenCalledWith(expect.objectContaining({
       renderId,
-      version: "0.17.31",
+      version: "0.17.32",
       terminalStage: "DOM_RENDERED",
       stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
     }));
@@ -474,7 +474,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.17.31",
+        version: "0.17.32",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 14 }
       }
@@ -484,7 +484,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.17.31",
+        version: "0.17.32",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 300_001 }
       }
@@ -495,7 +495,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId: "22222222-2222-4222-8222-222222222222",
-        version: "0.17.31",
+        version: "0.17.32",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 1 }
       }
@@ -1053,8 +1053,12 @@ describe("shopping MCP server", () => {
   });
 
   it("reports independently verified same-product comparison evidence", async () => {
-    const search = vi.fn(async () => ({
-      ...await shopifyPort.search({ query: "Sony WH-1000XM5", limit: 3 }),
+    const search = vi.fn(async () => {
+      const original = await shopifyPort.search({ query: "Sony WH-1000XM5", limit: 3 });
+      const product = { ...original.products[0]!, condition: "NEW" as const };
+      return {
+      ...original,
+      products: [product, { ...product, merchantId: "other", sourceHost: "other.example", merchantUrl: "https://other.example/products/pods" }],
       comparison: {
         status: "SAME_PRODUCT" as const,
         identityType: "GTIN" as const,
@@ -1062,7 +1066,7 @@ describe("shopping MCP server", () => {
         merchantCount: 2,
         offerCount: 2
       }
-    }));
+    }; });
     const client = await connect( { search });
 
     const result = await client.callTool({
@@ -1075,6 +1079,19 @@ describe("shopping MCP server", () => {
     });
     expect(JSON.stringify(result.content)).toContain("Same-product comparison verified across 2 merchants");
     expect(search).toHaveBeenCalledWith(expect.objectContaining({ comparisonMode: "SAME_PRODUCT" }));
+  });
+
+  it("does not repeat inflated source comparison claims when only one offer exists", async () => {
+    const client = await connect({ search: async () => ({
+      ...await shopifyPort.search({ query: "pods", limit: 3 }),
+      comparison: { status: "SAME_PRODUCT", identityType: "GTIN", evidence: ["claimed GTIN group"], merchantCount: 2, offerCount: 2 }
+    }) });
+    const result = await client.callTool({ name: "search_shopify_products", arguments: {
+      query: "pods", limit: 3, comparisonMode: "DISCOVERY", selectionMode: "MERCHANT_DIVERSE"
+    } });
+    expect(result.isError).not.toBe(true);
+    expect(result.structuredContent).toMatchObject({ comparison: { status: "DISCOVERY_ONLY", merchantCount: 1, offerCount: 1 } });
+    expect(JSON.stringify(result.content)).not.toContain("Same-product comparison verified across 2 merchants");
   });
 
   it.each([

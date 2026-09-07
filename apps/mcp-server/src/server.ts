@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { ErrorCode, McpError, type CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { productReferenceKey } from "./product-reference.js";
 import { RequirementAssessmentSchema, ambiguousShoeSize, evaluateProductRequirements, normalizedSizeRequirement } from "./product-requirements.js";
@@ -45,7 +45,7 @@ import {
   type ShopifySearchResult
 } from "./shopify-client.js";
 import { assessRequestIdentity, classifyShopifyCandidate, hasSpecificProductIdentity } from "./shopify-match.js";
-import { searchFallbackExplanation, summarizeSearchProducts } from "./search-result-summary.js";
+import { finalizeSnapshotProducts, reconcileComparison, searchFallbackExplanation, summarizeSearchProducts } from "./search-result-summary.js";
 import {
   ShopifyCartQuoteError,
   validateShopifyCartQuoteTarget,
@@ -964,6 +964,8 @@ function shopifyResult(
   affiliateLinks: AffiliateLinkResolver,
   cartQuoteCoverage: { attempted: number; succeeded: number } = { attempted: 0, succeeded: 0 }
 ) {
+  const computedComparison = summarizeSearchProducts(result.products.map(product => ({ ...product, coupons: { verified: [] } }))).comparison;
+  result = { ...result, comparison: reconcileComparison(result.comparison, computedComparison) };
   const linkedProducts = result.products.map((product) => ({
     product,
     purchaseLink: affiliateLinks.resolve({
@@ -2187,6 +2189,8 @@ export function createShoppingServer(
     }
     cardSelections.delete(renderId);
     renderSnapshots.delete(renderId);
+    const scope = snapshot?.content.goalId ?? renderId;
+    if (![...renderSnapshots.values()].some(value => value.content.goalId === scope)) webSessions.forgetGoal(scope);
   };
   const preflightQuoteCapabilities = async (content: ProductCardContent, searchRun: SearchRun) => {
     const resolvedAwinProducts = new Map<string, ShopifyProduct>();
@@ -2262,7 +2266,23 @@ export function createShoppingServer(
   ): ProductCardContent & { renderId: string } => {
     const renderId = randomUUID();
     const parent = request?.parentRenderId === undefined ? undefined : renderSnapshots.get(request.parentRenderId);
+    const finalizedProducts = finalizeSnapshotProducts(content.products, request?.brand !== undefined, now().getTime());
+    const summary = summarizeSearchProducts(finalizedProducts, now().getTime());
+    // A clarification is an explicit no-recommendation state, not an empty search.
+    const decision = content.recommendation?.state === "NEEDS_CLARIFICATION" ? undefined : summary.recommendation;
+    primaryProductIndex = decision?.primaryProductIndex;
+    content = { ...content, products: finalizedProducts, comparison: reconcileComparison(content.comparison, summary.comparison),
+      quality: { ...content.quality, cardsReturned: finalizedProducts.length },
+      ...(decision === undefined ? {} : { recommendation: { state: decision.state, reasonCodes: decision.reasonCodes } }) };
     const goalId = request === undefined ? undefined : parent?.content.goalId ?? randomUUID();
+    const consent = webSessions.current(goalId ?? renderId);
+    if (content.recovery?.action === "REQUEST_WEB_SEARCH" && consent !== undefined && !consent.retryable) {
+      const message = content.locale === "zh-CN"
+        ? "本次结果已保留；同一购物目标不能重复申请网页授权，查看规格或修改预算不重置授权状态。检索仍不完整，不能据此判断商品不存在。"
+        : "Current results are retained. Web authorization cannot be requested again for this shopping goal; inspecting variants or changing budget does not reset consent. Coverage remains incomplete, not proof of product absence.";
+      content = { ...content, message, recovery: { ...content.recovery, action: "REPORT_INCOMPLETE",
+        reason: "AUTHORIZATION_STOPPED", consentStatus: consent.status } };
+    }
     // Scope revision allocation to the explicitly referenced goal, not a global latest search.
     const goalRevision = goalId === undefined ? undefined : Math.max(0, ...[...renderSnapshots.values()]
       .filter(snapshot => snapshot.content.goalId === goalId)
@@ -2309,7 +2329,7 @@ export function createShoppingServer(
       content: snapshot,
       sourceResult,
       resolvedAwinProducts,
-      ...(searchRun === undefined ? {} : { searchRun }),
+      ...(searchRun === undefined && parent?.searchRun === undefined ? {} : { searchRun: searchRun ?? parent!.searchRun! }),
       chargingClarificationAsked: askedChargingCompatibility || parent?.chargingClarificationAsked === true,
       ...(candidates === undefined ? {} : { candidates: structuredClone(candidates.slice(0, 18)) }),
       ...(request === undefined ? {} : { request: SearchProductsInputSchema.parse(request) })
@@ -2890,8 +2910,10 @@ export function createShoppingServer(
         searchRun.throwIfCancelled();
         const { response, enriched } = await buildUnifiedResponse(input, execution);
         searchRun.throwIfCancelled();
-        if (response.structuredContent.products.length === 0) return { ...response,
-          structuredContent: rememberSnapshot(response.structuredContent, enriched.result, undefined, undefined, input, execution.candidates, false, searchRun) };
+        if (response.structuredContent.products.length === 0) {
+          const content = rememberSnapshot(response.structuredContent, enriched.result, undefined, undefined, input, execution.candidates, false, searchRun);
+          return { ...response, content: [{ type: "text" as const, text: content.message }], structuredContent: content };
+        }
         const preflight = await preflightQuoteCapabilities(response.structuredContent, searchRun);
         searchRun.throwIfCancelled();
         const recommendation = choosePrimaryRecommendation(preflight.content.products, now().getTime());
@@ -2908,7 +2930,7 @@ export function createShoppingServer(
             "findcheap/quotePreflight": preflight.diagnostics },
           content: [{
             type: "text" as const,
-            text: `${response.content[0]!.text}\n${recommendationInstruction(content)}\nUse structured selection references for follow-ups; never print them or search titles.`
+            text: `${content.message}\n${recommendationInstruction(content)}\nUse structured selection references for follow-ups; never print them or search titles.`
           }],
           structuredContent: content
         };
@@ -2930,7 +2952,6 @@ export function createShoppingServer(
     }, async ({ renderId }, extra) => {
       const parent = renderSnapshots.get(renderId);
       if (parent?.request === undefined || parent.expiresAt <= now().getTime()) return unavailableReference(parent);
-      if (parent.content.recovery?.action !== "REQUEST_WEB_SEARCH") return toolError("TOOL_REQUEST_REJECTED");
       const searchRun = parent.searchRun;
       if (searchRun === undefined) return toolError("TOOL_REQUEST_REJECTED");
       const zh = parent.content.locale === "zh-CN";
@@ -2944,7 +2965,7 @@ export function createShoppingServer(
       const reply = (status: z.infer<typeof WebConsentStatusSchema>, retryable = false, attempt = 0) => {
         const messages: Record<z.infer<typeof WebConsentStatusSchema>, [string, string]> = {
           READY: ["Authorized.", "已获授权。"],
-          PERMISSION_DENIED: ["The host did not grant permission. We cannot confirm whether the authorization form was displayed or infer a user action from this response. No recovery started; do not request again for these results.", "宿主未授予本次授权。无法确认授权表单是否显示，也不能据此判断用户操作。未启动补搜；不再为这批结果重复申请。"],
+          PERMISSION_DENIED: ["The host did not grant permission. We cannot confirm whether the authorization form was displayed or infer a user action from this response. No recovery started; do not request again for this shopping goal, including derived snapshots.", "宿主未授予本次授权。无法确认授权表单是否显示，也不能据此判断用户操作。未启动补搜；不再为同一购物目标及其派生快照重复申请。"],
           PERMISSION_CANCELLED: ["The authorization request was cancelled. No recovery started.", "授权请求已取消，未启动补搜。"],
           PERMISSION_UNAVAILABLE: ["Host consent is unavailable. No recovery started; this does not prove product absence.", "当前宿主不支持本次授权请求，未启动补搜；这不代表商品不存在。"],
           PERMISSION_TIMEOUT: ["The authorization request timed out. No recovery started.", "授权请求超时，未启动补搜。"],
@@ -2960,17 +2981,22 @@ export function createShoppingServer(
         logConsent(status, retryable, attempt);
         return { content: [{ type: "text" as const, text: message }], structuredContent: { status, message, retryable, attempt, diagnostics: consentDiagnostics() } };
       };
+      const scope = parent.content.goalId ?? renderId;
+      if (parent.content.recovery?.action !== "REQUEST_WEB_SEARCH" && parent.content.recovery?.reason !== "AUTHORIZATION_STOPPED") {
+        return toolError("TOOL_REQUEST_REJECTED");
+      }
+      const currentConsent = webSessions.current(scope);
       if (searchRun.signal.aborted) return reply("PERMISSION_CANCELLED");
       if (searchRun.remainingServiceMs() <= 0) return reply("EXPIRED");
+      if (currentConsent !== undefined && !currentConsent.retryable) return reply(currentConsent.status, false, currentConsent.attempt);
+      if (parent.content.recovery?.action !== "REQUEST_WEB_SEARCH") return toolError("TOOL_REQUEST_REJECTED");
       if (parent.request.visualInput !== undefined && (parent.visualRecovery === undefined ||
         parent.visualRecovery.expiresAt <= now().getTime() || parent.visualRecovery.attempt !== 1 ||
         !searchRun.canRead("IMAGE"))) return toolError("TOOL_REQUEST_REJECTED");
-      if (!formSupported) {
-        return reply("PERMISSION_UNAVAILABLE");
-      }
       return searchRun.withRequestSignal(extra.signal, async () => {
         const queries = webSearchQueries(parent.request!);
         const lease = await webSessions.begin(renderId, async () => {
+          if (!formSupported) throw new McpError(ErrorCode.MethodNotFound, "Host form consent unavailable");
           const answer = await searchRun.withVerifiedUserWait(() => server.server.elicitInput({ mode: "form",
             message: (zh ? `${parent.content.recovery?.reason === "COMPARISON_INCOMPLETE"
               ? "已保留核实的商品，但可信商家比价尚不完整。" : "现有来源尚未完成符合要求的商品核验。"}允许一次 Chrome 全网补搜吗？授权后最多 60 秒、2 次检索、5 个商家商品页；只读、不购买。检索：${queries.join(" / ")}`
@@ -2989,7 +3015,7 @@ export function createShoppingServer(
           const content = z.object({ approved: z.boolean() }).strict().parse(answer.content);
           hostAction = content.approved ? "ACCEPT_TRUE" : "ACCEPT_FALSE";
           return content.approved ? "ACCEPT" : "DECLINE";
-        }, () => searchRun.remainingServiceMs());
+        }, () => searchRun.remainingServiceMs(), scope);
         searchRun.throwIfCancelled();
         if (lease.status !== "READY") return reply(lease.status, lease.retryable, lease.attempt);
         if (renderSnapshots.get(renderId) !== parent || parent.expiresAt <= now().getTime()) {
@@ -3855,18 +3881,29 @@ export function createShoppingServer(
           if (nextRequest.maxItemPriceCents !== undefined &&
             (product.itemPrice === undefined || product.itemPrice.amountCents > nextRequest.maxItemPriceCents)) limitations.push("maximum item price");
           return { ...product, requirementAssessment: checked.assessment,
-            featureEvidence: checked.matched, requiredFeatureLimitations: limitations,
-            presentationGroup: limitations.length > 0 || product.visualReviewRequired === true ? "RESEARCH_ONLY" as const
-              : product.merchantTrust.verification === "INDEPENDENT" ? "TRUSTED_MATCH" as const : "BEST_VALUE" as const };
+            featureEvidence: checked.matched, requiredFeatureLimitations: limitations };
+        });
+        const derivedCandidates = snapshot.candidates?.flatMap((candidate): UnifiedCandidate[] => {
+          if (candidate.source !== "SHOPIFY_GLOBAL_CATALOG" || productReferenceKey(candidate.shopifyProduct) !== reference.productKey) {
+            return inspection.variants.length === 1 ? [candidate] : [];
+          }
+          return inspection.variants.map(source => {
+            const card = assessedProducts.find(product => productReferenceKey(product) === productReferenceKey(source))!;
+            return { ...candidate, shopifyProduct: source, identityStatus: card.matchStatus, identityEvidence: card.matchEvidence,
+              requestIdentityStatus: card.requestIdentityStatus, requiredFeatureLimitations: card.requiredFeatureLimitations ?? [],
+              ...(card.requirementAssessment === undefined ? {} : { requirementAssessment: card.requirementAssessment }),
+              featureEvidence: card.featureEvidence ?? [] };
+          });
         });
         const decision = choosePrimaryRecommendation(assessedProducts, now().getTime());
         const remembered = rememberSnapshot({
           ...internalResponse.structuredContent,
           ...(snapshot.content.locale === undefined ? {} : { locale: snapshot.content.locale }),
+          ...(snapshot.content.recovery === undefined ? {} : { recovery: snapshot.content.recovery }),
           products: assessedProducts,
           quality: { ...internalResponse.structuredContent.quality, cardsReturned: assessedProducts.length },
           recommendation: { state: decision.state, reasonCodes: decision.reasonCodes }
-        }, derivedSource, snapshot.resolvedAwinProducts, decision.primaryProductIndex, nextRequest);
+        }, derivedSource, snapshot.resolvedAwinProducts, decision.primaryProductIndex, nextRequest, derivedCandidates, false, snapshot.searchRun);
         const variants = remembered.products.filter(product => inspectedKeys.has(productReferenceKey(product))).map((product) => ({
           variantId: product.handle,
           title: product.title,

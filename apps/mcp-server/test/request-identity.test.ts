@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assessRequestIdentity, hasStrongProductIdentifier } from "../src/shopify-match.js";
+import { assessRequestIdentity, classifyShopifyCandidate, hasStrongProductIdentifier } from "../src/shopify-match.js";
 
 describe("product identifiers exclude measurements", () => {
   it.each(["155g", "500g", "1.5kg", "500mg", "100ml", "5.46 fl oz", "70pcs", "70count", "70pads", "155grams", "5000mah", "100w", "120hz", "2pack", "14inch", "50mm", "100cm", "1tb"])("does not treat %s as a model", query => {
@@ -25,5 +25,28 @@ describe("request identity is distinct from same-product identity", () => {
   });
   it("does not turn measurements alone into a verified named request", () => {
     expect(assessRequestIdentity("155g", mild, "DISCOVERY_MATCH")).toBe("NEEDS_VERIFICATION");
+  });
+  it("does not match a requested edition from cross-sell copy", () => {
+    expect(classifyShopifyCandidate("medicube Zero Pore Pad Mild", {
+      title: "medicube Zero Pore Pad", description: "For gentler exfoliation try Zero Pore Pad Mild."
+    })).toMatchObject({ status: "SIMILAR", missingTerms: ["mild"] });
+  });
+  it("rejects an explicit opposing edition even with shared copy", () => {
+    expect(classifyShopifyCandidate("medicube Zero Pore Pad Mild", {
+      title: "medicube Zero Pore Pad Regular", description: "Compare with Zero Pore Pad Mild."
+    })).toMatchObject({ status: "IRRELEVANT" });
+  });
+  it("accepts an edition in a selected option but not a descriptive adjective", () => {
+    expect(classifyShopifyCandidate("medicube Zero Pore Pad Mild", {
+      title: "medicube Zero Pore Pad", variantDimensions: { Edition: "Mild" }
+    })).toMatchObject({ status: "DISCOVERY_MATCH" });
+    expect(classifyShopifyCandidate("mild shampoo", {
+      title: "Daily shampoo", description: "A mild shampoo for daily use."
+    })).toMatchObject({ status: "DISCOVERY_MATCH" });
+  });
+  it("retains mini length in garment discovery instead of interpreting a model edition", () => {
+    expect(classifyShopifyCandidate("DOEN black lace mini dress", {
+      title: "Cornella Dress Black", brand: "DOEN", description: "Black lace mini dress"
+    }).status).toBe("DISCOVERY_MATCH");
   });
 });

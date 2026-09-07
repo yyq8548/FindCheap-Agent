@@ -44,6 +44,9 @@ try {
     const merchants = new Set(products.map(product => new URL(product.merchantUrl).hostname.replace(/^www\./u, "")));
     check("final_merchant_count", result.comparison?.merchantCount === merchants.size);
     check("badge_agrees", products.every(product => product.card?.matchBadge === product.matchStatus));
+    check("unresolved_or_untrusted_is_research", products.every(product =>
+      product.requestIdentityStatus !== "NEEDS_VERIFICATION" && product.merchantTrust?.verification === "INDEPENDENT" && product.itemPrice !== undefined ||
+      product.presentationGroup === "RESEARCH_ONLY"));
     check("no_false_zero_result_copy", !/没有返回符合要求的同款|没有找到符合要求的同款/u.test(result.message ?? ""));
     if (id === "UNSPECIFIED_EDITION") {
       check("no_unverified_primary", result.recommendation?.state === "RESEARCH_ONLY");
@@ -51,6 +54,7 @@ try {
       check("identity_recovery", result.recovery?.reason === "IDENTITY_UNVERIFIED" && result.recovery?.awaitingVerification === products.length);
     } else {
       check("explicit_identity_remains_usable", result.recommendation?.state === "READY");
+      if (id === "EXPLICIT_MILD") check("no_other_edition_cards", products.every(product => /\bmild\b/iu.test(product.title)));
     }
     if (assertions.some(assertion => !assertion.passed)) process.exitCode = 1;
     emit({ case: id, status: assertions.every(assertion => assertion.passed) ? "PASS" : "FAIL", assertions,
@@ -71,15 +75,25 @@ try {
   if (mild !== undefined) {
     const inspection = await call("inspect_selected_shopify_product", { renderId: initial.renderId, selectionId: mild.selectionId });
     check("exact_inspection", inspection.isError !== true && inspection.structuredContent?.status === "OK");
+    const inspected = inspection.structuredContent?.updatedSnapshot ?? {};
+    check("inspection_keeps_research_groups", inspected.products?.every(product =>
+      product.requestIdentityStatus !== "NEEDS_VERIFICATION" || product.presentationGroup === "RESEARCH_ONLY"));
+    check("inspection_final_offer_count", Array.isArray(inspected.products) && inspected.comparison?.offerCount === inspected.products.length);
+    check("inspection_final_merchant_count", Array.isArray(inspected.products) && inspected.comparison?.merchantCount ===
+      new Set(inspected.products.map(product => new URL(product.merchantUrl).hostname.replace(/^www\./u, ""))).size);
     if (inspection.isError === true) emit({ phase: "EXACT_INSPECTION", failure: inspection._meta?.["findcheap/inspectionFailure"] ??
       { reason: inspection._meta?.["findcheap/errorCode"] ?? "UNKNOWN" } });
-    const continued = await call("search_products", { query: "medicube Zero Pore Madecassoside Pads (Mild)",
-      parentRenderId: initial.renderId, contextMode: "CONTINUE_PREVIOUS_PRODUCT", responseLocale: "zh-CN" });
+    const continued = typeof inspected.renderId !== "string" ? { isError: true } : await call("search_products", {
+      query: "medicube Zero Pore Madecassoside Pads (Mild)",
+      parentRenderId: inspected.renderId, contextMode: "CONTINUE_PREVIOUS_PRODUCT", responseLocale: "zh-CN" });
     const next = continued.structuredContent ?? {};
     check("continuation_success", continued.isError !== true);
     check("same_goal", typeof initial.goalId === "string" && next.goalId === initial.goalId);
     check("mild_confirmed_with_package", next.products?.some(product => /\bmild\b/iu.test(product.title) &&
       product.requestIdentityStatus === "CONFIRMED" && product.requirementAssessment?.status === "SATISFIED"));
+    check("no_regular_edition_after_confirmation", next.products?.length > 0 && next.products.every(product => /\bmild\b/iu.test(product.title)));
+    check("no_unreviewed_value_recommendation", next.products?.every(product => product.presentationGroup === "RESEARCH_ONLY" ||
+      product.merchantTrust?.verification === "INDEPENDENT" && product.itemPrice !== undefined && product.requestIdentityStatus === "CONFIRMED"));
     const original = await call("render_product_cards", { renderId: initial.renderId });
     check("historical_selection_and_identity_unchanged", original.structuredContent?.products?.some(product =>
       product.selectionId === mild.selectionId && product.requestIdentityStatus === "NEEDS_VERIFICATION"));

@@ -28,6 +28,10 @@ responses, security rejection, exhausted budgets and explicit no-Chrome stay blo
    permissions, or repackage a declined request to obtain permission. Never claim
    absence or switch browsers. If Chrome capability
    itself is unavailable, say so; do not invent installation instructions.
+   Terminal consent applies to the server-owned shopping goal, including snapshots
+   derived by inspection, identity refinement or budget continuation. Follow
+   `AUTHORIZATION_STOPPED` and `consentStatus`; do not request again just because
+   renderId changed. A permitted transient retry still uses the original renderId.
 3. Use installed Chrome for discovery only. Perform the first returned query;
    if fewer than three plausible direct product URLs and a second query was returned, use it once.
    No third search. Finish within returned `expiresAt` (60 seconds after approval).

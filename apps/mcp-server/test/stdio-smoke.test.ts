@@ -138,10 +138,10 @@ describe("installed plugin stdio", () => {
       const tools = await client.listTools();
       const resources = await client.listResources();
       const productCards = await client.readResource({
-        uri: "ui://findcheap/product-cards/v37.html"
+        uri: "ui://findcheap/product-cards/v38.html"
       });
       const productComparison = await client.readResource({
-        uri: "ui://findcheap/product-comparison/v7.html"
+        uri: "ui://findcheap/product-comparison/v8.html"
       });
       expect(tools.tools.map((tool) => tool.name)).toEqual([
         "search_products",
@@ -177,59 +177,59 @@ describe("installed plugin stdio", () => {
       const compareTool = tools.tools.find((tool) => tool.name === "compare_selected_products");
       const renderComparisonTool = tools.tools.find((tool) => tool.name === "render_product_comparison");
       expect(shopifyTool?._meta).toMatchObject({
-        ui: { resourceUri: "ui://findcheap/product-cards/v37.html" },
-        "openai/outputTemplate": "ui://findcheap/product-cards/v37.html"
+        ui: { resourceUri: "ui://findcheap/product-cards/v38.html" },
+        "openai/outputTemplate": "ui://findcheap/product-cards/v38.html"
       });
       expect(renderTool?._meta).toMatchObject({
         ui: {
-          resourceUri: "ui://findcheap/product-cards/v37.html",
+          resourceUri: "ui://findcheap/product-cards/v38.html",
           visibility: ["app"]
         }
       });
       expect(quoteTool?._meta).toMatchObject({
-        ui: { resourceUri: "ui://findcheap/product-cards/v37.html" },
-        "openai/outputTemplate": "ui://findcheap/product-cards/v37.html"
+        ui: { resourceUri: "ui://findcheap/product-cards/v38.html" },
+        "openai/outputTemplate": "ui://findcheap/product-cards/v38.html"
       });
       expect(quotedComparisonTool?._meta).toMatchObject({
-        ui: { resourceUri: "ui://findcheap/product-comparison/v7.html" },
-        "openai/outputTemplate": "ui://findcheap/product-comparison/v7.html"
+        ui: { resourceUri: "ui://findcheap/product-comparison/v8.html" },
+        "openai/outputTemplate": "ui://findcheap/product-comparison/v8.html"
       });
       expect(quotedComparisonTool?.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: false });
       expect(visualFinalizeTool?._meta).toMatchObject({
-        ui: { resourceUri: "ui://findcheap/product-cards/v37.html" },
-        "openai/outputTemplate": "ui://findcheap/product-cards/v37.html"
+        ui: { resourceUri: "ui://findcheap/product-cards/v38.html" },
+        "openai/outputTemplate": "ui://findcheap/product-cards/v38.html"
       });
       expect(compareTool?._meta).toMatchObject({
-        ui: { resourceUri: "ui://findcheap/product-comparison/v7.html" },
-        "openai/outputTemplate": "ui://findcheap/product-comparison/v7.html"
+        ui: { resourceUri: "ui://findcheap/product-comparison/v8.html" },
+        "openai/outputTemplate": "ui://findcheap/product-comparison/v8.html"
       });
       expect(compareTool?.annotations).toMatchObject({ readOnlyHint: true, destructiveHint: false });
       expect(renderComparisonTool?._meta).toMatchObject({
         ui: {
-          resourceUri: "ui://findcheap/product-comparison/v7.html",
+          resourceUri: "ui://findcheap/product-comparison/v8.html",
           visibility: ["app"]
         }
       });
       expect(resources.resources).toEqual(expect.arrayContaining([
         expect.objectContaining({
           name: "findcheap-product-cards",
-          uri: "ui://findcheap/product-cards/v37.html",
+          uri: "ui://findcheap/product-cards/v38.html",
           mimeType: "text/html;profile=mcp-app"
         }),
         expect.objectContaining({
           name: "findcheap-product-comparison",
-          uri: "ui://findcheap/product-comparison/v7.html",
+          uri: "ui://findcheap/product-comparison/v8.html",
           mimeType: "text/html;profile=mcp-app"
         })
       ]));
       expect(resources.resources).toHaveLength(2);
       expect(productCards.contents).toEqual([expect.objectContaining({
-        uri: "ui://findcheap/product-cards/v37.html",
+        uri: "ui://findcheap/product-cards/v38.html",
         mimeType: "text/html;profile=mcp-app",
         text: expect.stringContaining("ui/notifications/tool-result")
       })]);
       expect(productComparison.contents).toEqual([expect.objectContaining({
-        uri: "ui://findcheap/product-comparison/v7.html",
+        uri: "ui://findcheap/product-comparison/v8.html",
         mimeType: "text/html;profile=mcp-app",
         text: expect.stringContaining('make("table")')
       })]);

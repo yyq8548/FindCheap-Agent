@@ -1,9 +1,53 @@
-import { choosePrimaryRecommendation } from "./product-recommendation.js";
-import { comparableSameProduct, type ValueProduct } from "./product-value-evidence.js";
+import { assessProductRecommendation, choosePrimaryRecommendation } from "./product-recommendation.js";
+import { comparableSameProduct, costAdvantage, type ValueEvidence, type ValueProduct } from "./product-value-evidence.js";
+import { hasEquivalentFitEvidence } from "./ranking-assessment.js";
+import { resolveMerchantTrust } from "./merchant-trust.js";
 
 type Product = Parameters<typeof choosePrimaryRecommendation>[0][number] & {
-  merchantUrl: string; merchantId: string; sellerName?: string | undefined;
+  merchantUrl: string; merchantId: string; sellerName?: string | undefined; valueEvidence?: ValueEvidence | undefined;
 };
+
+/** A final safety projection, not a new ranking pass. Never reorder offers or
+ * move their prices/IDs. Every derived snapshot shares the recommendation gate. */
+export function finalizeSnapshotProducts<T extends Product>(products: T[], requestedBrand: boolean, evaluatedAtMs: number):
+  Array<Omit<T, "presentationGroup" | "valueEvidence"> & Pick<Product, "presentationGroup" | "valueEvidence">> {
+  const assessments = products.map(product => assessProductRecommendation(product, evaluatedAtMs));
+  return products.map((product, index) => {
+    const assessment = assessments[index]!;
+    let group = product.presentationGroup;
+    let valueEvidence: ValueEvidence | undefined;
+    if (!assessment.primaryEligible) group = "RESEARCH_ONLY";
+    else {
+      let official = false;
+      try {
+        const trust = resolveMerchantTrust(new URL(product.merchantUrl).hostname);
+        official = requestedBrand && product.merchantTrust.level === "OFFICIAL" &&
+          trust.level === "OFFICIAL" && trust.verification === "INDEPENDENT";
+      } catch { /* Invalid merchant URLs never establish official status. */ }
+      if (group === "BEST_VALUE" || product.valueEvidence !== undefined) {
+        const couponSaving = assessment.couponRank === 2 && assessment.effectivePriceCents < assessment.itemPriceCents;
+        valueEvidence = products.map((peer, peerIndex) => {
+          const other = assessments[peerIndex]!;
+          const rating = assessment.qualityEvidence.rating;
+          const peerRating = other.qualityEvidence.rating;
+          if (index === peerIndex || !other.primaryEligible || !hasEquivalentFitEvidence(assessment, other) ||
+            (peerRating && (!rating || rating.value < peerRating.value || rating.count < peerRating.count))) return undefined;
+          return costAdvantage({ ...product, itemPrice: { amountCents: assessment.effectivePriceCents, currency: "USD" } },
+            { ...peer, itemPrice: { amountCents: other.effectivePriceCents, currency: "USD" } });
+        }).find(value => value !== undefined);
+        if (valueEvidence === undefined && couponSaving) valueEvidence = { reason: "CONFIRMED_COUPON_SAVINGS",
+          amountCents: assessment.itemPriceCents - assessment.effectivePriceCents, currency: "USD", basis: "ITEM_PRICE" };
+        if (valueEvidence === undefined && group === "BEST_VALUE") group = "TRUSTED_MATCH";
+      }
+      if (official) group = "OFFICIAL_STORE";
+      else if (group === undefined || group === "OFFICIAL_STORE") group = "TRUSTED_MATCH";
+    }
+    const finalized = { ...product, presentationGroup: group };
+    if (valueEvidence === undefined) delete finalized.valueEvidence;
+    else finalized.valueEvidence = valueEvidence;
+    return finalized;
+  });
+}
 
 export function resultMerchantKey(product: Pick<Product, "merchantUrl" | "merchantId" | "sellerName">): string {
   try {
@@ -40,6 +84,15 @@ export function summarizeSearchProducts(products: Product[], evaluatedAtMs = Dat
       merchantCount, offerCount: products.length
     }
   };
+}
+
+/** Preserve useful provider evidence only when it agrees with the actual offers. */
+export function reconcileComparison<T extends { status: string; merchantCount: number; offerCount: number; evidence: string[] }>(
+  previous: T, computed: ReturnType<typeof summarizeSearchProducts>["comparison"]
+): T | typeof computed {
+  if (computed.offerCount === 0 && ["NEEDS_CLARIFICATION", "UNAVAILABLE"].includes(previous.status)) return previous;
+  return previous.status === computed.status && previous.merchantCount === computed.merchantCount && previous.offerCount === computed.offerCount
+    ? previous : computed;
 }
 
 export function searchFallbackExplanation(summary: ReturnType<typeof summarizeSearchProducts>, compareMerchants: boolean,

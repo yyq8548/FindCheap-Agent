@@ -120,15 +120,15 @@ export function highVarianceClarification(input: SearchProductsInput): {
   };
 }
 
+export function assessProductRecommendation(product: RecommendationProduct, evaluatedAtMs = Date.now()) {
+  return assessRanking({ ...product, itemPriceCents: product.itemPrice?.amountCents,
+    confirmedCouponPriceCents: currentCouponEstimate(product, evaluatedAtMs), couponRank: couponRank(product, evaluatedAtMs) });
+}
+
 export function choosePrimaryRecommendation(products: RecommendationProduct[], evaluatedAtMs = Date.now()): RecommendationDecision {
   if (products.length === 0) return { state: "NO_MATCH", reasonCodes: [] };
   const assessed = products
-    .map((product, index) => ({ product, index, assessment: assessRanking({
-      ...product,
-      itemPriceCents: product.itemPrice?.amountCents,
-      confirmedCouponPriceCents: currentCouponEstimate(product, evaluatedAtMs),
-      couponRank: couponRank(product, evaluatedAtMs)
-    }) }));
+    .map((product, index) => ({ product, index, assessment: assessProductRecommendation(product, evaluatedAtMs) }));
   const eligible = assessed.filter(({ assessment }) => assessment.primaryEligible);
   if (eligible.length === 0) {
     const blockers = new Set(assessed.flatMap(({ assessment }) => assessment.primaryBlockReasons));

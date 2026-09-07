@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { countComparableOfferMerchants, searchFallbackExplanation, summarizeSearchProducts } from "../src/search-result-summary.js";
+import { countComparableOfferMerchants, finalizeSnapshotProducts, searchFallbackExplanation, summarizeSearchProducts } from "../src/search-result-summary.js";
 import { product } from "./fixtures/conversation-replay-support.js";
 
 describe("final result summary", () => {
@@ -27,5 +27,26 @@ describe("final result summary", () => {
   it("does not promote unresolved identity into an exact comparison group", () => {
     const summary = summarizeSearchProducts([offer("a.example"), { ...offer("b.example"), requestIdentityStatus: "NEEDS_VERIFICATION" as const }]);
     expect(summary.comparison).toMatchObject({ status: "DISCOVERY_ONLY", offerCount: 2, merchantCount: 2 });
+  });
+  it("downgrades unsupported value labels without changing prices, order or IDs", () => {
+    const first = { ...offer("a.example"), presentationGroup: "BEST_VALUE" as const, selectionId: "original-a" };
+    const second = { ...offer("b.example"), presentationGroup: "TRUSTED_MATCH" as const, selectionId: "original-b",
+      requestIdentityStatus: "NEEDS_VERIFICATION" as const };
+    const result = finalizeSnapshotProducts([first, second], false, Date.now());
+    expect(result.map(product => product.presentationGroup)).toEqual(["TRUSTED_MATCH", "RESEARCH_ONLY"]);
+    expect(result.map(product => product.selectionId)).toEqual(["original-a", "original-b"]);
+    expect(result.map(product => product.itemPrice)).toEqual([first.itemPrice, second.itemPrice]);
+    expect(first.presentationGroup).toBe("BEST_VALUE");
+  });
+  it("retains a proved same-variant price advantage but removes stale value after a price change", () => {
+    const first = { ...offer("a.example"), featureEvidence: ["size verified"], presentationGroup: "BEST_VALUE" as const,
+      valueEvidence: { reason: "LOWER_SAME_PRODUCT_PRICE" as const, amountCents: 1000, currency: "USD" as const, basis: "ITEM_PRICE" as const },
+      itemPrice: { amountCents: 1000, currency: "USD" as const } };
+    const second = { ...offer("b.example"), featureEvidence: ["size verified"],
+      itemPrice: { amountCents: 2000, currency: "USD" as const } };
+    expect(finalizeSnapshotProducts([first, second], false, Date.now())[0]?.presentationGroup).toBe("BEST_VALUE");
+    expect(finalizeSnapshotProducts([{ ...first, itemPrice: { amountCents: 1500, currency: "USD" } }, second], false, Date.now())[0]?.valueEvidence?.amountCents).toBe(500);
+    expect(finalizeSnapshotProducts([{ ...first, itemPrice: second.itemPrice }, second], false, Date.now())[0]?.presentationGroup).toBe("TRUSTED_MATCH");
+    expect(finalizeSnapshotProducts([{ ...first, itemPrice: second.itemPrice }, second], false, Date.now())[0]?.valueEvidence).toBeUndefined();
   });
 });

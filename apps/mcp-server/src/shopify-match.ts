@@ -2,6 +2,7 @@ export type ShopifyMatchStatus = "EXACT" | "DISCOVERY_MATCH" | "SIMILAR" | "IRRE
 export type RequestIdentityStatus = "CONFIRMED" | "NEEDS_VERIFICATION";
 const MEASUREMENT_UNITS = "g|grams?|kg|mg|l|ml|cl|oz|lb|lbs|gb|tb|mb|pads?|count|ct|pcs|pc|pieces?|pack|pk|inch|inches|in|mm|cm|m|w|kw|v|mv|ma|mah|ah|hz|khz|mhz|ghz|wh|kwh";
 const MEASUREMENT_TOKEN = new RegExp(`^\\d+(?:${MEASUREMENT_UNITS})$`, "u");
+const PRODUCT_EDITIONS = new Set(["mild", "regular", "pro", "max", "ultra", "plus", "lite", "mini"]);
 
 export type ShopifyMatchCandidate = {
   title: string;
@@ -133,9 +134,8 @@ export function assessRequestIdentity(query: string, candidate: ShopifyMatchCand
   if (status !== "DISCOVERY_MATCH") return "NEEDS_VERIFICATION";
   const singular = (token: string) => token === "pads" ? "pad" : token;
   const requested = tokenize(query).map(singular);
-  const primary = new Set(tokenize([candidate.title, candidate.brand, candidate.mpn, candidate.sku].filter(Boolean).join(" ")).map(singular));
-  const editions = ["mild", "regular", "pro", "max", "ultra", "plus", "lite", "mini"];
-  if (editions.some(edition => primary.has(edition) && !requested.includes(edition))) return "NEEDS_VERIFICATION";
+  const primary = new Set(primaryProductTokens(candidate).map(singular));
+  if ([...PRODUCT_EDITIONS].some(edition => primary.has(edition) && !requested.includes(edition))) return "NEEDS_VERIFICATION";
   const unit = new RegExp(`^(?:fl|${MEASUREMENT_UNITS})$`, "u");
   const anchors = requested.filter(token => !IGNORED_QUERY_TERMS.has(token) &&
     !CONDITION_TERMS.has(token) && !/^\d+$/u.test(token) && !MEASUREMENT_TOKEN.test(token) && !unit.test(token));
@@ -189,6 +189,16 @@ export function classifyShopifyCandidate(
   const productTypeTokens = new Set(tokenize(candidate.productType ?? ""));
   const searchableCandidateText = candidateText(candidate);
   const candidateTokens = new Set(tokenize(searchableCandidateText));
+  // Named editions must describe this offer, not a FAQ, comparison or cross-sell.
+  // Generic adjectives (e.g. "mild shampoo") retain ordinary discovery semantics.
+  const garmentQuery = /\b(?:dress(?:es)?|skirts?|pants?|trousers?|shirts?|jeans?|bags?)\b/u.test(queryTokens.join(" "));
+  const requestedEditions = new Set(hasNamedProductIntent(query) ? queryTokens.filter(token => PRODUCT_EDITIONS.has(token) &&
+    !(garmentQuery && (token === "mini" || token === "regular"))) : []);
+  const editionTokens = new Set(primaryProductTokens(candidate));
+  if ((requestedEditions.has("mild") && editionTokens.has("regular") && !editionTokens.has("mild")) ||
+    (requestedEditions.has("regular") && editionTokens.has("mild") && !editionTokens.has("regular"))) {
+    return irrelevant("requested product edition conflicts with primary product evidence");
+  }
   if (hasPetFoodSpeciesConflict(queryTokens, candidateTokens)) {
     return irrelevant("requested pet-food species does not match");
   }
@@ -264,7 +274,7 @@ export function classifyShopifyCandidate(
   ))];
   const matched = required.filter((token) => requestedVariantTerms.has(token)
     ? variantTermMatches(token)
-    : termMatches(token, candidateTokens, candidateIdentifiers));
+    : requestedEditions.has(token) ? editionTokens.has(token) : termMatches(token, candidateTokens, candidateIdentifiers));
   const missingTerms = required.filter((token) => !matched.includes(token));
   const brandTokens = tokenize(candidate.brand ?? "");
   const brandExact = brandTokens.length > 0 && brandTokens.every((token) => queryTokens.includes(token));
@@ -298,6 +308,11 @@ export function classifyShopifyCandidate(
     };
   }
   return irrelevant("no meaningful query overlap");
+}
+
+function primaryProductTokens(candidate: ShopifyMatchCandidate): string[] {
+  return tokenize([candidate.title, candidate.brand, candidate.mpn, candidate.sku,
+    ...Object.values(candidate.variantDimensions ?? {})].filter(Boolean).join(" "));
 }
 
 function candidateText(candidate: ShopifyMatchCandidate): string {
