@@ -1,0 +1,259 @@
+{
+  "checkedAt": "2026-09-08T21:08:01.410Z",
+  "runtimeVersion": "0.18.1",
+  "packageVersion": "0.18.1+codex.20260908204926",
+  "runtimeCommit": "f4fc7ecf8050a6a06c061449e727c01ee172157e",
+  "counts": {
+    "reviewed": 200,
+    "official": 137,
+    "retailer": 45,
+    "searchOnly": 18
+  },
+  "ci": [
+    {
+      "conclusion": "success",
+      "databaseId": 34278082527,
+      "status": "completed",
+      "url": "https://github.com/yyq8548/FindCheap-Agent/actions/runs/34278082527",
+      "workflowName": "windows-installer-ci"
+    },
+    {
+      "conclusion": "success",
+      "databaseId": 34278082601,
+      "status": "completed",
+      "url": "https://github.com/yyq8548/FindCheap-Agent/actions/runs/34278082601",
+      "workflowName": "plugin-ci"
+    }
+  ],
+  "local": {
+    "builds": [
+      "mcp",
+      "awin-feed"
+    ],
+    "typecheck": "PASS",
+    "lint": "PASS",
+    "testFiles": 162,
+    "assertions": 2589,
+    "bundledStdio": 4,
+    "diffCheck": "PASS"
+  },
+  "prospective": {
+    "total": 47,
+    "passed": 47,
+    "networkAttempts": 0,
+    "mode": "OFFLINE_SAVED_SOURCE_REPLAY_WITH_PROSPECTIVE_REGISTRIES",
+    "initialHarnessFailure": "46/47; invalid condition request property corrected to conditionPreference, with original log retained"
+  },
+  "database": {
+    "collection": {
+      "checkedAt": "2026-09-08T21:04:31.920Z",
+      "mode": "collect",
+      "state": "CANDIDATES_AND_PROBES_RECORDED",
+      "records": 319,
+      "baselineVersion": "registry-2026-09-07-medicube"
+    },
+    "publication": {
+      "checkedAt": "2026-09-08T21:04:44.051Z",
+      "mode": "publish",
+      "state": "PUBLISHED_AND_VERIFIED",
+      "version": "registry-2026-09-08-woo-trust",
+      "approved": 319,
+      "official": 248,
+      "trusted": 393,
+      "officialSha256": "aeccf016d8c5ad44c02b08fd1b09297729e85a5dc358f80ed5134392a13172f5",
+      "trustSha256": "a567ab9b167c999ed355ecedbddfd8213580d65fa49ae0ba3c2cc5d40a19ad2d",
+      "unrelatedApprovedRowsPreserved": true,
+      "oldReleaseRetained": "registry-2026-09-07-medicube"
+    },
+    "postPublicationReadOnly": {
+      "checkedAt": "2026-09-08T21:07:00.486Z",
+      "mode": "audit",
+      "state": "ALREADY_PUBLISHED_AND_VERIFIED",
+      "version": "registry-2026-09-08-woo-trust"
+    }
+  },
+  "deployments": {
+    "compatibility": {
+      "checkedAt": "2026-09-08T21:04:20.461Z",
+      "project": "9bf7a976-a5ca-4524-bb9b-457d1a4750b5",
+      "service": "FindCheap-Agent",
+      "environment": "production",
+      "id": "cc9aba39-0fb4-40e4-baa5-145f42428115",
+      "status": "SUCCESS",
+      "createdAt": "2026-09-08T21:02:38.898Z",
+      "node": "v24.19.0",
+      "sourceSha256": "d98795de79eb54f1e91e46a930b3c4ae8753fca8b38f6be42d4a9ba1395fb343",
+      "wooEnabled": true,
+      "registryDatabaseConfigured": true
+    },
+    "final": {
+      "checkedAt": "2026-09-08T21:05:42.711Z",
+      "project": "9bf7a976-a5ca-4524-bb9b-457d1a4750b5",
+      "service": "FindCheap-Agent",
+      "environment": "production",
+      "id": "2c10d1e4-7a83-4f3d-810a-8c9304c6d9c3",
+      "status": "SUCCESS",
+      "createdAt": "2026-09-08T21:04:58.977Z",
+      "node": "v24.19.0",
+      "sourceSha256": "d98795de79eb54f1e91e46a930b3c4ae8753fca8b38f6be42d4a9ba1395fb343",
+      "wooEnabled": true,
+      "registryDatabaseConfigured": true
+    }
+  },
+  "installed": {
+    "version": "0.18.1+codex.20260908204926",
+    "installed": true,
+    "enabled": true,
+    "parity": {
+      "matched": 13,
+      "total": 13
+    },
+    "stdioPassed": 4,
+    "mcpSha256": "b3c809de4b5bf6973e8a384bd6de0a9b01b58876d0764c033333d07d1978f41d",
+    "cacheBackup": "The CLI reported Access Denied backing up an occupied old cache. Independent plugin list confirmed the new version installed/enabled; all 13 new-cache files match. No old cache was deleted."
+  },
+  "suites": {
+    "live-registry": {
+      "checkedAt": "2026-09-08T21:05:55.279Z",
+      "total": 6,
+      "passed": 6,
+      "cases": [
+        {
+          "name": "/health",
+          "status": "PASS"
+        },
+        {
+          "name": "/ready",
+          "status": "PASS"
+        },
+        {
+          "name": "legacy_registry_preserves_111_supported_stores",
+          "status": "PASS",
+          "count": 111
+        },
+        {
+          "name": "schema_2_exact_248_official_stores",
+          "status": "PASS",
+          "count": 248
+        },
+        {
+          "name": "schema_2_conditional_304",
+          "status": "PASS"
+        },
+        {
+          "name": "trusted_registry_exact_393_preserving_existing",
+          "status": "PASS",
+          "count": 393
+        }
+      ]
+    },
+    "production-smoke": {
+      "checkedAt": "2026-09-08T21:05:55.458Z",
+      "total": 8,
+      "passed": 8,
+      "cases": [
+        {
+          "name": "health",
+          "status": "PASS"
+        },
+        {
+          "name": "ready",
+          "status": "PASS"
+        },
+        {
+          "name": "registry_200_bounded_search",
+          "status": "PASS"
+        },
+        {
+          "name": "general-pencil_url_search",
+          "status": "PASS"
+        },
+        {
+          "name": "restoration-games_url_search",
+          "status": "PASS"
+        },
+        {
+          "name": "exact_new_paint_variant",
+          "status": "PASS"
+        },
+        {
+          "name": "new_merchant_cdn_image_proxy",
+          "status": "PASS"
+        },
+        {
+          "name": "unknown_merchant_rejected",
+          "status": "PASS"
+        }
+      ]
+    },
+    "installed-live": {
+      "checkedAt": "2026-09-08T21:06:16.062Z",
+      "total": 6,
+      "passed": 6,
+      "cases": [
+        {
+          "name": "installed_version_and_source_contract",
+          "status": "PASS"
+        },
+        {
+          "name": "general-pencil_installed_search",
+          "status": "PASS",
+          "cardCount": 1,
+          "recommendation": "READY",
+          "trustLevel": "OFFICIAL",
+          "eligibleStores": 200,
+          "plannedStores": 1,
+          "physicalRequests": 1
+        },
+        {
+          "name": "restoration-games_installed_search",
+          "status": "PASS",
+          "cardCount": 1,
+          "recommendation": "READY",
+          "trustLevel": "OFFICIAL",
+          "eligibleStores": 200,
+          "plannedStores": 1,
+          "physicalRequests": 1
+        },
+        {
+          "name": "root-science_installed_search",
+          "status": "PASS",
+          "cardCount": 1,
+          "recommendation": "READY",
+          "trustLevel": "OFFICIAL",
+          "eligibleStores": 200,
+          "plannedStores": 1,
+          "physicalRequests": 1
+        },
+        {
+          "name": "pine-store_installed_trust_gate",
+          "status": "PASS",
+          "cardCount": 1,
+          "recommendation": "READY",
+          "trustLevel": "ESTABLISHED_RETAILER",
+          "eligibleStores": 200,
+          "plannedStores": 1,
+          "physicalRequests": 1
+        },
+        {
+          "name": "alaska-honey-collective_installed_trust_gate",
+          "status": "PASS",
+          "cardCount": 1,
+          "recommendation": "RESEARCH_ONLY",
+          "trustLevel": "UNKNOWN",
+          "eligibleStores": 200,
+          "plannedStores": 1,
+          "physicalRequests": 1
+        }
+      ]
+    }
+  },
+  "reviewLedgerSha256": "8668950620637bd32559b3a752745f6f937ead0e40ff38951a6fe06ad6953b0e",
+  "limits": {
+    "accessStores": 200,
+    "storesPerPass": 6,
+    "maxWooPassesPerSearch": 2,
+    "nativeHostAcceptance": "NOT_RUN",
+    "realWatchOrAutomationCreated": false
+  }
+}
