@@ -18,6 +18,7 @@ const REFERENCE_CONTEXT_FIELDS: Readonly<Record<string, readonly string[]>> = {
   complete_web_search: ["renderId"],
   compare_selected_products: ["renderId"],
   quote_and_compare_selected_products: ["renderId"],
+  inspect_selected_product: ["renderId"],
   inspect_selected_shopify_product: ["renderId"],
   quote_selected_shopify_product: ["renderId"],
   research_selected_product_deal: ["renderId"]

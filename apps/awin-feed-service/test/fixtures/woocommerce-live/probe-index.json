@@ -1,0 +1,446 @@
+{
+  "observedDate": "2026-09-08",
+  "logicalProductGetRequests": 27,
+  "candidateMerchants": 8,
+  "probes": [
+    {
+      "merchant": "burrowpress",
+      "url": "https://burrowpress.com/wp-json/wc/store/v1/products?per_page=3",
+      "observedAt": "2026-09-08T15:32:09Z",
+      "status": 200,
+      "finalUrl": "https://burrowpress.com/wp-json/wc/store/v1/products?per_page=3",
+      "contentType": "application/json; charset=UTF-8",
+      "bytes": 11980,
+      "headers": {
+        "X-WP-Total": "79",
+        "X-WP-TotalPages": "27"
+      },
+      "elapsedMs": 1292,
+      "returnedProductIds": [
+        24041,
+        23939,
+        23672
+      ]
+    },
+    {
+      "key": "burrowpress-search",
+      "url": "https://burrowpress.com/wp-json/wc/store/v1/products?search=mother&per_page=3",
+      "observedAt": "2026-09-08T15:33:20Z",
+      "status": 200,
+      "contentType": "application/json; charset=UTF-8",
+      "bytes": 3939,
+      "total": "1",
+      "totalPages": "1",
+      "elapsedMs": 1255,
+      "returnedProductIds": [
+        23939
+      ]
+    },
+    {
+      "key": "burrowpress-single",
+      "url": "https://burrowpress.com/wp-json/wc/store/v1/products/23939",
+      "observedAt": "2026-09-08T15:34:17Z",
+      "status": 200,
+      "contentType": "application/json; charset=UTF-8",
+      "bytes": 3909,
+      "total": null,
+      "totalPages": null,
+      "elapsedMs": 1193,
+      "returnedProductIds": [
+        23939
+      ],
+      "fixture": "burrowpress-relative-link.json"
+    },
+    {
+      "key": "lamarzocco-parent",
+      "url": "https://home.lamarzoccousa.com/wp-json/wc/store/v1/products/355289",
+      "observedAt": "2026-09-08T15:34:17Z",
+      "status": 200,
+      "contentType": "application/json; charset=UTF-8",
+      "bytes": 13811,
+      "total": null,
+      "totalPages": null,
+      "elapsedMs": 1246,
+      "returnedProductIds": [
+        355289
+      ],
+      "fixture": "lamarzocco-parent.json"
+    },
+    {
+      "merchant": "lamarzocco",
+      "url": "https://home.lamarzoccousa.com/wp-json/wc/store/v1/products?per_page=3",
+      "observedAt": "2026-09-08T15:32:11Z",
+      "status": 200,
+      "finalUrl": "https://home.lamarzoccousa.com/wp-json/wc/store/v1/products?per_page=3",
+      "contentType": "application/json; charset=UTF-8",
+      "bytes": 28419,
+      "headers": {
+        "x-wp-totalpages": "34",
+        "x-wp-total": "101"
+      },
+      "elapsedMs": 1439,
+      "returnedProductIds": [
+        391480,
+        391489,
+        391488
+      ]
+    },
+    {
+      "key": "lamarzocco-search",
+      "url": "https://home.lamarzoccousa.com/wp-json/wc/store/v1/products?search=portafilter&per_page=3",
+      "observedAt": "2026-09-08T15:33:22Z",
+      "status": 200,
+      "contentType": "application/json; charset=UTF-8",
+      "bytes": 26373,
+      "total": "6",
+      "totalPages": "2",
+      "elapsedMs": 1368,
+      "returnedProductIds": [
+        355289,
+        356873,
+        273042
+      ]
+    },
+    {
+      "key": "lamarzocco-variants",
+      "url": "https://home.lamarzoccousa.com/wp-json/wc/store/v1/products?type=variation&parent=355289&per_page=5",
+      "observedAt": "2026-09-08T15:34:17Z",
+      "status": 200,
+      "contentType": "application/json; charset=UTF-8",
+      "bytes": 11448,
+      "total": "3",
+      "totalPages": "1",
+      "elapsedMs": 1358,
+      "returnedProductIds": [
+        355293,
+        355292,
+        355291
+      ],
+      "fixture": "lamarzocco-price-variants.json"
+    },
+    {
+      "merchant": "landyachtz",
+      "url": "https://landyachtz.com/wp-json/wc/store/v1/products?per_page=3",
+      "observedAt": "2026-09-08T15:32:08Z",
+      "status": 403,
+      "error": "HTTP Error 403: Forbidden",
+      "retryAfter": null,
+      "elapsedMs": 200
+    },
+    {
+      "key": "nalgene-parent",
+      "url": "https://nalgene.com/wp-json/wc/store/v1/products/877583",
+      "observedAt": "2026-09-08T15:34:13Z",
+      "status": 200,
+      "contentType": "application/json; charset=UTF-8",
+      "bytes": 6394,
+      "total": null,
+      "totalPages": null,
+      "elapsedMs": 3965,
+      "returnedProductIds": [
+        877583
+      ]
+    },
+    {
+      "merchant": "nalgene",
+      "url": "https://nalgene.com/wp-json/wc/store/v1/products?per_page=3",
+      "observedAt": "2026-09-08T15:32:07Z",
+      "status": 200,
+      "finalUrl": "https://nalgene.com/wp-json/wc/store/v1/products?per_page=3",
+      "contentType": "application/json; charset=UTF-8",
+      "bytes": 23842,
+      "headers": {
+        "X-Wp-Total": "100",
+        "X-Wp-Totalpages": "34"
+      },
+      "elapsedMs": 3982,
+      "returnedProductIds": [
+        905247,
+        881690,
+        881652
+      ]
+    },
+    {
+      "key": "nalgene-search",
+      "url": "https://nalgene.com/wp-json/wc/store/v1/products?search=wide%20mouth&per_page=3",
+      "observedAt": "2026-09-08T15:33:19Z",
+      "status": 200,
+      "contentType": "application/json; charset=UTF-8",
+      "bytes": 23586,
+      "total": "27",
+      "totalPages": "9",
+      "elapsedMs": 4013,
+      "returnedProductIds": [
+        877583,
+        876400,
+        851239
+      ],
+      "fixture": "nalgene-search.json"
+    },
+    {
+      "key": "nalgene-variants",
+      "url": "https://nalgene.com/wp-json/wc/store/v1/products?type=variation&parent=877583&per_page=5",
+      "observedAt": "2026-09-08T15:34:13Z",
+      "status": 200,
+      "contentType": "application/json; charset=UTF-8",
+      "bytes": 35656,
+      "total": "3",
+      "totalPages": "1",
+      "elapsedMs": 3929,
+      "returnedProductIds": [
+        877592,
+        877591,
+        877590
+      ],
+      "fixture": "nalgene-variants.json"
+    },
+    {
+      "key": "nutribullet-no-match",
+      "url": "https://www.nutribullet.com/wp-json/wc/store/v1/products?search=findcheapnonexistentxyz987&per_page=3",
+      "observedAt": "2026-09-08T15:34:15Z",
+      "status": 200,
+      "contentType": "application/json; charset=UTF-8",
+      "bytes": 27538,
+      "total": "179",
+      "totalPages": "60",
+      "elapsedMs": 2288,
+      "returnedProductIds": [
+        1032067,
+        1032066,
+        1031146
+      ],
+      "fixture": "nutribullet-ignored-search.json"
+    },
+    {
+      "merchant": "nutribullet",
+      "url": "https://www.nutribullet.com/wp-json/wc/store/v1/products?per_page=3",
+      "observedAt": "2026-09-08T15:32:07Z",
+      "status": 200,
+      "finalUrl": "https://www.nutribullet.com/wp-json/wc/store/v1/products?per_page=3",
+      "contentType": "application/json; charset=UTF-8",
+      "bytes": 27538,
+      "headers": {
+        "X-WP-Total": "179",
+        "X-WP-TotalPages": "60"
+      },
+      "elapsedMs": 4138,
+      "returnedProductIds": [
+        1032067,
+        1032066,
+        1031146
+      ]
+    },
+    {
+      "key": "nutribullet-search",
+      "url": "https://www.nutribullet.com/wp-json/wc/store/v1/products?search=personal%20blender&per_page=3",
+      "observedAt": "2026-09-08T15:33:20Z",
+      "status": 200,
+      "contentType": "application/json; charset=UTF-8",
+      "bytes": 27538,
+      "total": "179",
+      "totalPages": "60",
+      "elapsedMs": 2031,
+      "returnedProductIds": [
+        1032067,
+        1032066,
+        1031146
+      ]
+    },
+    {
+      "key": "offerman-parent",
+      "url": "https://offermanwoodshop.com/wp-json/wc/store/v1/products/43848",
+      "observedAt": "2026-09-08T15:33:18Z",
+      "status": 200,
+      "contentType": "application/json; charset=UTF-8",
+      "bytes": 18478,
+      "total": null,
+      "totalPages": null,
+      "elapsedMs": 400,
+      "returnedProductIds": [
+        43848
+      ]
+    },
+    {
+      "merchant": "offerman",
+      "url": "https://offermanwoodshop.com/wp-json/wc/store/v1/products?per_page=3",
+      "observedAt": "2026-09-08T15:32:07Z",
+      "status": 200,
+      "finalUrl": "https://offermanwoodshop.com/wp-json/wc/store/v1/products?per_page=3",
+      "contentType": "application/json; charset=UTF-8",
+      "bytes": 30787,
+      "headers": {
+        "X-Wp-Total": "56",
+        "X-Wp-Totalpages": "19"
+      },
+      "elapsedMs": 517,
+      "returnedProductIds": [
+        43848,
+        43807,
+        43790
+      ]
+    },
+    {
+      "key": "offerman-search",
+      "url": "https://offermanwoodshop.com/wp-json/wc/store/v1/products?search=trivet&per_page=3",
+      "observedAt": "2026-09-08T15:33:18Z",
+      "status": 200,
+      "contentType": "application/json; charset=UTF-8",
+      "bytes": 18480,
+      "total": "1",
+      "totalPages": "1",
+      "elapsedMs": 492,
+      "returnedProductIds": [
+        43848
+      ],
+      "fixture": "offerman-parent.json"
+    },
+    {
+      "key": "offerman-variant-single",
+      "url": "https://offermanwoodshop.com/wp-json/wc/store/v1/products/43860",
+      "observedAt": "2026-09-08T15:34:13Z",
+      "status": 200,
+      "contentType": "application/json; charset=UTF-8",
+      "bytes": 3843,
+      "total": null,
+      "totalPages": null,
+      "elapsedMs": 890,
+      "returnedProductIds": [
+        43860
+      ],
+      "fixture": "offerman-out-of-stock-variant.json"
+    },
+    {
+      "key": "offerman-variants",
+      "url": "https://offermanwoodshop.com/wp-json/wc/store/v1/products?type=variation&parent=43848&per_page=10",
+      "observedAt": "2026-09-08T15:33:18Z",
+      "status": 200,
+      "contentType": "application/json; charset=UTF-8",
+      "bytes": 22804,
+      "total": "6",
+      "totalPages": "1",
+      "elapsedMs": 565,
+      "returnedProductIds": [
+        43863,
+        43862,
+        43861,
+        43860,
+        43858,
+        43857
+      ],
+      "fixture": "offerman-variants.json"
+    },
+    {
+      "key": "root-science-firm-search",
+      "url": "https://www.shoprootscience.com/wp-json/wc/store/v1/products?search=firm&per_page=3",
+      "observedAt": "2026-09-08T15:34:14Z",
+      "status": 200,
+      "contentType": "application/json; charset=UTF-8",
+      "bytes": 39748,
+      "total": "1",
+      "totalPages": "1",
+      "elapsedMs": 921,
+      "returnedProductIds": [
+        69439
+      ],
+      "fixture": "root-science-firm-search.json"
+    },
+    {
+      "merchant": "root-science",
+      "url": "https://www.shoprootscience.com/wp-json/wc/store/v1/products?per_page=3",
+      "observedAt": "2026-09-08T15:32:07Z",
+      "status": 200,
+      "finalUrl": "https://www.shoprootscience.com/wp-json/wc/store/v1/products?per_page=3",
+      "contentType": "application/json; charset=UTF-8",
+      "bytes": 98916,
+      "headers": {
+        "X-WP-Total": "14",
+        "X-WP-TotalPages": "5"
+      },
+      "elapsedMs": 1563,
+      "returnedProductIds": [
+        69439,
+        62540,
+        59284
+      ]
+    },
+    {
+      "key": "root-science-search",
+      "url": "https://www.shoprootscience.com/wp-json/wc/store/v1/products?search=serum&per_page=3",
+      "observedAt": "2026-09-08T15:33:19Z",
+      "status": 200,
+      "contentType": "application/json; charset=UTF-8",
+      "bytes": 2,
+      "total": "0",
+      "totalPages": "0",
+      "elapsedMs": 831,
+      "returnedProductIds": [],
+      "fixture": "root-science-category-zero.json"
+    },
+    {
+      "key": "root-science-single",
+      "url": "https://www.shoprootscience.com/wp-json/wc/store/v1/products/69439",
+      "observedAt": "2026-09-08T15:33:19Z",
+      "status": 200,
+      "contentType": "application/json; charset=UTF-8",
+      "bytes": 39720,
+      "total": null,
+      "totalPages": null,
+      "elapsedMs": 827,
+      "returnedProductIds": [
+        69439
+      ]
+    },
+    {
+      "merchant": "scrubdaddy",
+      "url": "https://smileshop.scrubdaddy.com/wp-json/wc/store/v1/products?per_page=3",
+      "observedAt": "2026-09-08T15:32:10Z",
+      "status": 200,
+      "finalUrl": "https://scrubdaddy.com/wp-json/wc/store/v1/products?per_page=3",
+      "contentType": "application/json; charset=UTF-8",
+      "bytes": 69046,
+      "headers": {
+        "x-wp-total": "162",
+        "x-wp-totalpages": "54"
+      },
+      "elapsedMs": 802,
+      "returnedProductIds": [
+        834907,
+        834910,
+        834763
+      ]
+    },
+    {
+      "key": "scrubdaddy-search",
+      "url": "https://scrubdaddy.com/wp-json/wc/store/v1/products?search=scrub%20daddy&per_page=3",
+      "observedAt": "2026-09-08T15:33:21Z",
+      "status": 200,
+      "contentType": "application/json; charset=UTF-8",
+      "bytes": 69118,
+      "total": "86",
+      "totalPages": "29",
+      "elapsedMs": 520,
+      "returnedProductIds": [
+        834907,
+        834910,
+        834763
+      ]
+    },
+    {
+      "key": "scrubdaddy-sponge-search",
+      "url": "https://scrubdaddy.com/wp-json/wc/store/v1/products?search=original&per_page=3",
+      "observedAt": "2026-09-08T15:34:18Z",
+      "status": 200,
+      "contentType": "application/json; charset=UTF-8",
+      "bytes": 30916,
+      "total": "4",
+      "totalPages": "2",
+      "elapsedMs": 651,
+      "returnedProductIds": [
+        769455,
+        275529,
+        16677
+      ],
+      "fixture": "scrubdaddy-original-search.json"
+    }
+  ]
+}

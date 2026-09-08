@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-type ReadKind = "AWIN" | "SHOPIFY" | "EBAY" | "OFFICIAL" | "IMAGE" | "DEALS" | "REGISTRY" | "VARIANT";
+type ReadKind = "AWIN" | "SHOPIFY" | "EBAY" | "WOOCOMMERCE" | "OFFICIAL" | "IMAGE" | "DEALS" | "REGISTRY" | "VARIANT";
 type SearchRunOptions = { maxCatalogRequests: number; activeBudgetMs: number; readTimeoutMs: number;
   serviceBudgetMs: number; monotonicNow: () => number };
 export type VisualStage = "NORMALIZED" | "ELIGIBLE" | "REVIEW_POOL" | "IMAGES_PRESENTED" |
@@ -8,7 +8,7 @@ export type VisualStage = "NORMALIZED" | "ELIGIBLE" | "REVIEW_POOL" | "IMAGES_PR
 export type VisualFingerprint = { productHash: string; styleHash?: string; colorwayHash?: string;
   imageUrlHash?: string; imageSha256?: string };
 type VisualStageOptions = {
-  source?: "AWIN" | "SHOPIFY" | "EBAY" | "OFFICIAL";
+  source?: "AWIN" | "SHOPIFY" | "EBAY" | "WOOCOMMERCE" | "OFFICIAL";
   queryHash?: string;
   round?: 1 | 2;
   counts?: Partial<Record<"identity" | "brand" | "requirements" | "visual" | "outOfStock" | "malformed", number>>;
@@ -17,7 +17,7 @@ type VisualStageEvent = VisualStageOptions & { stage: VisualStage; count: number
   fingerprints: VisualFingerprint[]; fingerprintsTruncated?: true };
 const visualStages = new Set<VisualStage>(["NORMALIZED", "ELIGIBLE", "REVIEW_POOL", "IMAGES_PRESENTED",
   "IMAGES_DUPLICATED", "REVIEW_ACCEPTED", "REVIEW_CONFLICT", "REVIEW_INSUFFICIENT", "FINAL"]);
-const visualSources = new Set(["AWIN", "SHOPIFY", "EBAY", "OFFICIAL"]);
+const visualSources = new Set(["AWIN", "SHOPIFY", "EBAY", "WOOCOMMERCE", "OFFICIAL"]);
 const validHash = (value: unknown): value is string => typeof value === "string" && /^[a-f0-9]{64}$/u.test(value);
 
 export class SearchBudgetError extends Error {
@@ -44,6 +44,9 @@ export class SearchRun {
   readonly #officialQueries = new Set<string>();
   readonly #reviewedProducts = new Set<string>();
   #catalogRequests = 0;
+  #wooRequests = 0;
+  #wooHttpRequests = 0;
+  #wooHttpBytes = 0;
   #imageRequests = 0;
   #imageRetryRequests = 0;
   #visualReviewRounds = 0;
@@ -182,6 +185,11 @@ export class SearchRun {
 
   wasVisuallyReviewed(hash: string): boolean { return this.#reviewedProducts.has(hash); }
 
+  recordWooRead(delta: { physicalRequests: number; responseBytes: number }): void {
+    this.#wooHttpRequests += delta.physicalRequests;
+    this.#wooHttpBytes += delta.responseBytes;
+  }
+
   recordOfficialRead(delta: { requests?: number; bytes?: number; cacheHits?: number }): void {
     this.#officialHttpRequests += delta.requests ?? 0;
     this.#officialHttpBytes += delta.bytes ?? 0;
@@ -234,6 +242,7 @@ export class SearchRun {
   }
 
   private limitReached(kind: ReadKind): boolean {
+    if (kind === "WOOCOMMERCE" && this.#wooRequests >= 2) return true;
     if (kind === "VARIANT" && this.#variantRequests >= 4) return true;
     return kind === "IMAGE" ? this.remainingImageRequests() === 0
       : kind === "DEALS" ? this.#dealRequests >= 8
@@ -276,7 +285,7 @@ export class SearchRun {
     if (kind === "IMAGE") this.#imageRequests += 1;
     else if (kind === "DEALS") this.#dealRequests += 1;
     else if (kind === "REGISTRY") this.#registryRequests += 1;
-    else { this.#catalogRequests += 1; if (kind === "VARIANT") this.#variantRequests += 1; }
+    else { this.#catalogRequests += 1; if (kind === "WOOCOMMERCE") this.#wooRequests += 1; if (kind === "VARIANT") this.#variantRequests += 1; }
     if (this.#active++ === 0) this.#activeSince = this.#options.monotonicNow();
     const controller = new AbortController();
     const readDuration = Math.min(remaining, this.#options.readTimeoutMs);
@@ -324,6 +333,7 @@ export class SearchRun {
     return {
       traceId: this.traceId,
       catalogRequests: this.#catalogRequests,
+      ...(this.#wooRequests === 0 ? {} : { woocommerceRequests: this.#wooRequests, woocommerceHttpRequests: this.#wooHttpRequests, woocommerceHttpBytes: this.#wooHttpBytes }),
       officialHttpRequests: this.#officialHttpRequests,
       officialHttpBytes: this.#officialHttpBytes,
       officialDocumentCacheHits: this.#officialDocumentCacheHits,

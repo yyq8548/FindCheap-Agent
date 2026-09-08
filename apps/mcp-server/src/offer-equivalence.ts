@@ -1,8 +1,9 @@
 import type { UnifiedCandidate } from "./search-products.js";
+import { matchesWooProductUrl } from "./woocommerce-product.js";
 
-type SourceProduct = NonNullable<UnifiedCandidate["shopifyProduct"] | UnifiedCandidate["awinProduct"] | UnifiedCandidate["ebayProduct"]>;
+type SourceProduct = NonNullable<UnifiedCandidate["shopifyProduct"] | UnifiedCandidate["awinProduct"] | UnifiedCandidate["ebayProduct"] | UnifiedCandidate["woocommerceProduct"]>;
 export type OfferObservation = { source: UnifiedCandidate["source"]; product: SourceProduct };
-const productOf = (candidate: UnifiedCandidate): SourceProduct => candidate.shopifyProduct ?? candidate.awinProduct ?? candidate.ebayProduct;
+const productOf = (candidate: UnifiedCandidate): SourceProduct => candidate.shopifyProduct ?? candidate.awinProduct ?? candidate.ebayProduct ?? candidate.woocommerceProduct;
 
 /** Unknown parameters, unbound variants and marketplace listings have no
  * cross-source equivalence proof. This is not general URL normalization. */
@@ -25,7 +26,7 @@ function offerKey(candidate: UnifiedCandidate): string | undefined {
 
 function compatible(left: SourceProduct, right: SourceProduct): boolean {
   if (left.condition !== "UNKNOWN" && right.condition !== "UNKNOWN" && left.condition !== right.condition) return false;
-  const dimensions = (product: SourceProduct) => new Map(Object.entries("variantDimensions" in product ? product.variantDimensions : {})
+  const dimensions = (product: SourceProduct) => new Map(Object.entries("selectedAttributes" in product ? product.selectedAttributes : "variantDimensions" in product ? product.variantDimensions : {})
     .map(([key, value]) => [key.normalize("NFKC").trim().toLowerCase(), value.normalize("NFKC").trim().toLowerCase()]));
   const a = dimensions(left), b = dimensions(right);
   if ([...a].some(([key, value]) => b.has(key) && b.get(key) !== value)) return false;
@@ -38,9 +39,23 @@ function compatible(left: SourceProduct, right: SourceProduct): boolean {
 /** Keep one complete observation, not a synthetic cheapest/in-stock offer.
  * Private observations retain source references; historical snapshots are untouched. */
 export function deduplicateCandidateOffers(candidates: readonly UnifiedCandidate[]): UnifiedCandidate[] {
+  const woo = candidates.filter(candidate => candidate.source === "WOOCOMMERCE_STORE_API");
+  const wooKey = (candidate: UnifiedCandidate): string | undefined => {
+    const own = candidate.woocommerceProduct;
+    const product = own ?? (candidate.source !== "AWIN_PRODUCT_FEED" ? undefined : woo.find(reference => {
+      const raw = reference.woocommerceProduct!;
+      const normalize = (text: string) => text.normalize("NFKC").toLowerCase().replace(/\s+/gu, " ").trim();
+      if (normalize(raw.title) !== normalize(candidate.awinProduct.title) || !matchesWooProductUrl(raw, candidate.awinProduct.merchantUrl)) return false;
+      // A parent URL from a feed never proves a selected child. Require an
+      // explicit numeric child in the affiliate URL before joining a variation.
+      return raw.productType === "simple" || (raw.productType === "variation" &&
+        new URL(candidate.awinProduct.merchantUrl).searchParams.get("variation_id") === String(raw.variationId));
+    })?.woocommerceProduct);
+    return product === undefined ? undefined : JSON.stringify(["WOOCOMMERCE", product.sourceHost, product.productId, product.variationId ?? null]);
+  };
   const groups: Array<{ key?: string | undefined; entries: UnifiedCandidate[] }> = [];
   for (const candidate of candidates) {
-    const key = offerKey(candidate);
+    const key = wooKey(candidate) ?? offerKey(candidate);
     const group = key === undefined ? undefined : groups.find(group => group.key === key &&
       group.entries.every(entry => compatible(productOf(entry), productOf(candidate))) &&
       group.entries.flatMap(entry => entry.offerObservations ?? []).every(observation => compatible(observation.product, productOf(candidate))));

@@ -22,7 +22,7 @@ export class SourceValidationError extends Error {
 }
 
 export type SourceFailure = {
-  source: "AWIN" | "SHOPIFY" | "EBAY" | "OFFICIAL";
+  source: "AWIN" | "SHOPIFY" | "EBAY" | "WOOCOMMERCE" | "OFFICIAL";
   kind: "INVALID_QUERY" | "SOURCE_REJECTED" | "TIMEOUT" | "RATE_LIMITED" | "UPSTREAM_ERROR" |
     "CONNECTION_FAILED" | "SCHEMA_INVALID" | "SECURITY_REJECTED" | "BUDGET_EXHAUSTED" | "UNKNOWN";
   retryable: boolean;
@@ -44,8 +44,8 @@ export function classifySourceFailure(source: SourceFailure["source"], error: un
   if (/^unapproved Awin (?:merchant )?URL$|^invalid Awin image URL$|^UNSAFE_URL$|^SSRF_BLOCKED$/u.test(error.message) ||
     /^(?:redirect )?(?:blocked (?:URL|protocol|port|host|address)|DNS blocked|request blocked)|^redirect (?:blocked|limit exceeded)/u.test(error.message)) return result("SECURITY_REJECTED");
   if (error.message === "CATALOG_SCHEMA_CHANGED" || error.name === "ZodError" || error.name === "SyntaxError" ||
-    /^(?:Awin|eBay) (?:Search|search) (?:service |result |diagnostics |products )/u.test(error.message) && /invalid|unsupported|inconsistent|too large|empty body/u.test(error.message)) return result("SCHEMA_INVALID");
-  const status = /^(?:(?:Awin|eBay) Search|Shopify Catalog) service returned HTTP (\d{3})$/u.exec(error.message)?.[1];
+    /^(?:Awin|eBay|WooCommerce) (?:Search|search) (?:service |result |diagnostics |products )/u.test(error.message) && /invalid|unsupported|inconsistent|too large|empty body/u.test(error.message)) return result("SCHEMA_INVALID");
+  const status = /^(?:(?:Awin|eBay|WooCommerce) Search|Shopify Catalog) service returned HTTP (\d{3})$/u.exec(error.message)?.[1];
   if (status === "429") return result("RATE_LIMITED", true);
   if (status !== undefined) return Number(status) >= 500 ? result("UPSTREAM_ERROR", true) : result("SOURCE_REJECTED");
   const code = "code" in error ? error.code : undefined;

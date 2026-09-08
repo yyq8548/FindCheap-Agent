@@ -2,6 +2,7 @@ import { isAbsolute } from "node:path";
 
 import { parseDatabaseUrl } from "../../../packages/db/src/environment.js";
 import { parseEbayBrowseEnvironment, type EbayBrowseEnvironment } from "./ebay-browse.js";
+import { wooRegistryFromEnvironment, type WooRegistry } from "./woocommerce-registry.js";
 import {
   officialStorefrontRegistryFromEnvironment,
   type ServedOfficialStorefrontRegistry
@@ -33,6 +34,7 @@ export type AwinFeedServiceEnvironment = {
     sourceTimeoutMs: number;
   };
   ebay?: EbayBrowseEnvironment;
+  woocommerce?: WooRegistry;
   officialStorefronts: ServedOfficialStorefrontRegistry;
   merchantTrust: ServedMerchantTrustRegistry;
   registryDatabase?: {
@@ -145,6 +147,7 @@ export function parseAwinFeedServiceEnvironment(
         )
       };
   const ebay = parseEbayBrowseEnvironment(input);
+  const woocommerce = wooRegistryFromEnvironment(input);
   const officialStorefronts = officialStorefrontRegistryFromEnvironment(input);
   const merchantTrust = merchantTrustRegistryFromEnvironment(input);
   const nodeEnvironment = input.NODE_ENV ?? "development";
@@ -188,6 +191,7 @@ export function parseAwinFeedServiceEnvironment(
     staleAfterMs: staleAfterMs * 60_000,
     ...(offers === undefined ? {} : { offers }),
     ...(ebay === undefined ? {} : { ebay }),
+    ...(woocommerce === undefined ? {} : { woocommerce }),
     officialStorefronts,
     merchantTrust,
     ...(registryDatabase === undefined ? {} : { registryDatabase }),

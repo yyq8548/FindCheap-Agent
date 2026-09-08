@@ -4,7 +4,7 @@ import { namedIdentityRetrievalQuery } from "./named-product-identity.js";
 
 /** Retrieval terms are not eligibility rules. Never write compiled terms back
  * into the user request, identity assessment or requirement ledger. */
-export type CatalogSource = "AWIN" | "SHOPIFY" | "EBAY";
+export type CatalogSource = "AWIN" | "SHOPIFY" | "EBAY" | "WOOCOMMERCE";
 
 export function compileSourceQuery(source: CatalogSource, query: string, options: {
   pass: 1 | 2;

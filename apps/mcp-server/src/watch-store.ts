@@ -64,7 +64,7 @@ export const WatchQuoteReferenceSchema = z.object({
   variantId: z.string().regex(/^\d{1,30}$/u).optional()
 }).strict();
 
-export const WatchSelectedProductSchema = z.object({
+const ShopifyWatchSelectedProductSchema = z.object({
   sourceKind: z.literal("SHOPIFY_GLOBAL_CATALOG"),
   merchantId: z.string().trim().min(1).max(160),
   merchant: z.string().trim().min(1).max(160),
@@ -77,6 +77,18 @@ export const WatchSelectedProductSchema = z.object({
   selectedAt: z.string().datetime({ offset: true })
 }).strict();
 
+export const WooWatchSelectedProductSchema = ShopifyWatchSelectedProductSchema.omit({ variantId: true }).extend({
+  sourceKind: z.literal("WOOCOMMERCE_STORE_API"),
+  productId: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+  parentProductId: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
+  variationId: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
+  productType: z.enum(["simple", "variation"])
+}).strict();
+
+export const WatchSelectedProductSchema = z.discriminatedUnion("sourceKind", [
+  ShopifyWatchSelectedProductSchema, WooWatchSelectedProductSchema
+]);
+
 export const WatchSpecInputSchema = z.object({
   ...WatchSpecShape,
   quoteReference: WatchQuoteReferenceSchema.optional()
@@ -88,6 +100,15 @@ const PersistedWatchSpecSchema = z.object({
 }).strict();
 
 export const WatchSpecSchema = PersistedWatchSpecSchema.superRefine((spec, context) => {
+  const selected = spec.selectedProduct;
+  if (selected?.sourceKind === "WOOCOMMERCE_STORE_API") {
+    const validTarget = selected.productType === "simple"
+      ? selected.variationId === undefined && selected.parentProductId === undefined
+      : selected.variationId !== undefined && selected.variationId !== selected.productId &&
+        selected.parentProductId === selected.productId;
+    if (!validTarget) context.addIssue({ code: z.ZodIssueCode.custom,
+      message: "Woo Watch requires a simple product or an explicitly selected variation" });
+  }
   if (["PRICE_BELOW", "DISCOUNT_AT_LEAST", "CASHBACK_AT_LEAST"].includes(spec.condition) && spec.threshold === undefined) {
     context.addIssue({ code: z.ZodIssueCode.custom, message: `${spec.condition} requires threshold` });
   }
@@ -178,9 +199,10 @@ export const WatchRecordSchema = z.object({
 });
 
 export type WatchRecord = z.infer<typeof WatchRecordSchema>;
+export type WatchInitialObservation = { checkedAt: string; data: Record<string, unknown> };
 
 export interface WatchStore {
-  create(spec: WatchSpec, now: string): Promise<WatchRecord>;
+  create(spec: WatchSpec, now: string, initialObservation?: WatchInitialObservation): Promise<WatchRecord>;
   get(watchId: string): Promise<WatchRecord | undefined>;
   list(): Promise<WatchRecord[]>;
   save(record: WatchRecord): Promise<WatchRecord>;
@@ -205,7 +227,9 @@ function nextRevision(existing: WatchRecord | undefined, requested: WatchRecord,
     (existing.completionEventId !== undefined && existing.completionEventId !== requested.completionEventId) ||
     (["EXPIRED", "COMPLETED"].includes(existing.status) && requested.status !== existing.status) ||
     (existing.stopIntent !== undefined && JSON.stringify(existing.stopIntent) !== JSON.stringify(requested.stopIntent)) ||
-    (existing.automationId !== undefined && existing.automationId !== requested.automationId)) throw new WatchStateConflictError();
+    (existing.automationId !== undefined && existing.automationId !== requested.automationId) ||
+    ((isWooWatch(existing.spec) || isWooWatch(requested.spec)) &&
+      JSON.stringify(existing.spec.selectedProduct) !== JSON.stringify(requested.spec.selectedProduct))) throw new WatchStateConflictError();
   if (requested.automationId !== undefined &&
     (records.some(record => record.watchId !== requested.watchId && record.automationId === requested.automationId) ||
       stops.some(stop => stop.watchId !== requested.watchId && stop.automationId === requested.automationId))) throw new WatchStateConflictError();
@@ -214,9 +238,15 @@ function nextRevision(existing: WatchRecord | undefined, requested: WatchRecord,
 
 function matchesActiveWatch(record: WatchRecord, requested: WatchSpec, now: string): boolean {
   const previous = requested.expiresAt === undefined ? { ...record.spec, expiresAt: undefined } : record.spec;
+  const comparable = (spec: WatchSpec) => spec.selectedProduct?.sourceKind === "WOOCOMMERCE_STORE_API"
+    ? { ...spec, selectedProduct: { ...spec.selectedProduct, selectedAt: undefined } } : spec;
   return (record.status === "ACTIVE" || record.status === "PAUSED") &&
     (record.spec.expiresAt === undefined || Date.parse(record.spec.expiresAt) > Date.parse(now)) &&
-    JSON.stringify(previous) === JSON.stringify(requested);
+    JSON.stringify(comparable(previous)) === JSON.stringify(comparable(requested));
+}
+
+function isWooWatch(spec: WatchSpec): boolean {
+  return spec.selectedProduct?.sourceKind === "WOOCOMMERCE_STORE_API";
 }
 
 export function createMemoryWatchStore(): WatchStore {
@@ -224,7 +254,7 @@ export function createMemoryWatchStore(): WatchStore {
   const deletedStops = new Map<string, WatchStopIntent>();
   const pendingStops = () => [...deletedStops.values(), ...[...records.values()].flatMap(record => record.stopIntent ?? [])];
   return {
-    async create(spec, now) {
+    async create(spec, now, initialObservation) {
       const normalized = WatchSpecSchema.parse(spec);
       const existing = [...records.values()].find((record) => matchesActiveWatch(record, normalized, now));
       if (existing !== undefined) return structuredClone(existing);
@@ -236,7 +266,10 @@ export function createMemoryWatchStore(): WatchStore {
         spec: { ...normalized, expiresAt: normalized.expiresAt ?? new Date(Date.parse(now) + DEFAULT_WATCH_DURATION_MS).toISOString() },
         status: "ACTIVE",
         createdAt: now,
-        updatedAt: now
+        updatedAt: now,
+        ...(initialObservation === undefined ? {} : {
+          lastCheckedAt: initialObservation.checkedAt, lastObservation: structuredClone(initialObservation.data)
+        })
       });
       records.set(record.watchId, record);
       return structuredClone(record);
@@ -263,8 +296,10 @@ export function createMemoryWatchStore(): WatchStore {
 export function createJsonWatchStore(directory: string): WatchStore {
   const maxRecordBytes = 256 * 1024;
   const maxDirectoryEntries = 2048;
-  const fileFor = (watchId: string) => join(directory, `${WatchIdSchema.parse(watchId)}.json`);
-  const deletedFileFor = (watchId: string) => join(directory, `${WatchIdSchema.parse(watchId)}.deleted.json`);
+  const fileFor = (watchId: string, woo: boolean) => join(directory,
+    `${WatchIdSchema.parse(watchId)}${woo ? ".woocommerce-v1" : ""}.json`);
+  const deletedFileFor = (watchId: string, woo: boolean) => join(directory,
+    `${WatchIdSchema.parse(watchId)}${woo ? ".woocommerce-v1" : ""}.deleted.json`);
   const TombstoneSchema = z.object({ watchId: WatchIdSchema, deletedAt: z.string().datetime({ offset: true }),
     stopIntent: WatchStopIntentSchema.optional() }).strict().refine(value =>
     value.stopIntent === undefined || value.stopIntent.watchId === value.watchId);
@@ -290,39 +325,44 @@ export function createJsonWatchStore(directory: string): WatchStore {
       return JSON.parse(buffer.subarray(0, length).toString("utf8"));
     } finally { await handle.close(); }
   };
-  const readTombstone = async (watchId: string) => {
-    const value = await readJson(deletedFileFor(watchId));
-    if (value === undefined) return undefined;
-    const tombstone = TombstoneSchema.parse(value);
-    if (tombstone.watchId !== watchId) throw new Error("WATCH_STORE_RECORD_INVALID");
-    return tombstone;
-  };
-  const read = async (watchId: string) => {
-    if (await readTombstone(watchId) !== undefined) return undefined;
-    const value = await readJson(fileFor(watchId));
-    if (value === undefined) return undefined;
+  const readState = async (watchId: string) => {
+    const [legacyValue, wooValue, legacyDeleted, wooDeleted] = await Promise.all([
+      readJson(fileFor(watchId, false)), readJson(fileFor(watchId, true)),
+      readJson(deletedFileFor(watchId, false)), readJson(deletedFileFor(watchId, true))
+    ]);
+    const woo = wooValue !== undefined || wooDeleted !== undefined;
+    if (woo && (legacyValue !== undefined || legacyDeleted !== undefined)) throw new Error("WATCH_STORE_RECORD_INVALID");
+    const deleted = woo ? wooDeleted : legacyDeleted;
+    if (deleted !== undefined) {
+      const tombstone = TombstoneSchema.parse(deleted);
+      if (tombstone.watchId !== watchId) throw new Error("WATCH_STORE_RECORD_INVALID");
+      return { woo, tombstone, record: undefined };
+    }
+    const value = woo ? wooValue : legacyValue;
+    if (value === undefined) return { woo, record: undefined, tombstone: undefined };
     const record = WatchRecordSchema.parse(value);
-    if (record.watchId !== watchId) throw new Error("WATCH_STORE_RECORD_INVALID");
-    return record;
+    if (record.watchId !== watchId || isWooWatch(record.spec) !== woo) throw new Error("WATCH_STORE_RECORD_INVALID");
+    return { woo, record, tombstone: undefined };
   };
+  const read = async (watchId: string) => (await readState(watchId)).record;
   const listState = async () => {
     await ensure();
     const entries = await opendir(directory);
     const records: WatchRecord[] = [];
     const stops = new Map<string, WatchStopIntent>();
+    const watchIds = new Set<string>();
     let count = 0;
     for await (const entry of entries) {
       if (++count > maxDirectoryEntries) throw new Error("WATCH_STORE_DIRECTORY_LIMIT");
-      if (/^[0-9a-f-]{36}\.deleted\.json$/u.test(entry.name)) {
-        const tombstone = await readTombstone(entry.name.slice(0, -13));
-        if (tombstone?.stopIntent !== undefined) stops.set(tombstone.watchId, tombstone.stopIntent);
-      } else if (/^[0-9a-f-]{36}\.json$/u.test(entry.name)) {
-        const record = await read(entry.name.slice(0, -5));
-        if (record !== undefined) {
-          records.push(record);
-          if (record.stopIntent !== undefined) stops.set(record.watchId, record.stopIntent);
-        }
+      if (/^[0-9a-f-]{36}(?:\.woocommerce-v1)?(?:\.deleted)?\.json$/u.test(entry.name)) {
+        watchIds.add(entry.name.slice(0, 36));
       }
+    }
+    for (const watchId of watchIds) {
+      const { record, tombstone } = await readState(watchId);
+      if (record !== undefined) records.push(record);
+      const stop = tombstone?.stopIntent ?? record?.stopIntent;
+      if (stop !== undefined) stops.set(watchId, stop);
     }
     return { records: records.sort((a, b) => a.createdAt.localeCompare(b.createdAt)), stops: [...stops.values()] };
   };
@@ -354,7 +394,7 @@ export function createJsonWatchStore(directory: string): WatchStore {
     } finally { await rm(temporary, { force: true }); }
   };
   return {
-    async create(spec, now) {
+    async create(spec, now, initialObservation) {
       const normalized = WatchSpecSchema.parse(spec);
       return locked(async () => {
         const { records } = await listState();
@@ -363,8 +403,11 @@ export function createJsonWatchStore(directory: string): WatchStore {
         if (records.length >= MAX_WATCHES) throw new Error("watch limit reached");
         const record = WatchRecordSchema.parse({ watchId: randomUUID(), revision: 0, schedulingState: "PENDING",
           spec: { ...normalized, expiresAt: normalized.expiresAt ?? new Date(Date.parse(now) + DEFAULT_WATCH_DURATION_MS).toISOString() },
-          status: "ACTIVE", createdAt: now, updatedAt: now });
-        await writeAtomic(fileFor(record.watchId), record);
+          status: "ACTIVE", createdAt: now, updatedAt: now,
+          ...(initialObservation === undefined ? {} : {
+            lastCheckedAt: initialObservation.checkedAt, lastObservation: structuredClone(initialObservation.data)
+          }) });
+        await writeAtomic(fileFor(record.watchId, isWooWatch(record.spec)), record);
         return record;
       });
     },
@@ -375,22 +418,21 @@ export function createJsonWatchStore(directory: string): WatchStore {
       return locked(async () => {
         const { records, stops } = await listState();
         const saved = nextRevision(await read(validated.watchId), validated, records, stops);
-        await writeAtomic(fileFor(saved.watchId), saved);
+        await writeAtomic(fileFor(saved.watchId, isWooWatch(saved.spec)), saved);
         return saved;
       });
     },
     async delete(watchId) {
       WatchIdSchema.parse(watchId);
       return locked(async () => {
-        const tombstone = await readTombstone(watchId);
-        const record = tombstone === undefined ? await read(watchId) : undefined;
+        const { woo, tombstone, record } = await readState(watchId);
         if (tombstone === undefined && record === undefined) return false;
         if (tombstone === undefined) {
           const deletedAt = new Date().toISOString();
           const stopIntent = watchStopIntent(record!, "DELETED", deletedAt);
-          await writeAtomic(deletedFileFor(watchId), { watchId, deletedAt, ...(stopIntent === undefined ? {} : { stopIntent }) });
+          await writeAtomic(deletedFileFor(watchId, woo), { watchId, deletedAt, ...(stopIntent === undefined ? {} : { stopIntent }) });
         }
-        try { await rm(fileFor(watchId)); return true; }
+        try { await rm(fileFor(watchId, woo)); return true; }
         catch (error) {
           if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
           throw error;

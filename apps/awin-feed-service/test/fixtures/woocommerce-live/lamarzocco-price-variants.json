@@ -1,0 +1,271 @@
+{
+  "fixtureKind": "SANITIZED_LIVE_OBSERVATION",
+  "observedAt": "2026-09-08T15:34:17Z",
+  "request": {
+    "method": "GET",
+    "url": "https://home.lamarzoccousa.com/wp-json/wc/store/v1/products?type=variation&parent=355289&per_page=5"
+  },
+  "response": {
+    "status": 200,
+    "contentType": "application/json; charset=UTF-8",
+    "bytes": 11448,
+    "total": "3",
+    "totalPages": "1",
+    "elapsedMs": 1358
+  },
+  "sanitization": "Retained public product fields; omitted descriptions, extensions, cookies and request headers; images limited to three references per product. No image binary fetched.",
+  "body": [
+    {
+      "id": 355293,
+      "name": "Convertible Portafilter",
+      "slug": "convertible-portafilter-maple",
+      "parent": 355289,
+      "type": "variation",
+      "variation": "Option: Maple",
+      "permalink": "https://home.lamarzoccousa.com/product/convertible-portafilter/?attribute_option=Maple",
+      "sku": "A.5.186.MW.K",
+      "is_purchasable": true,
+      "is_in_stock": true,
+      "is_on_backorder": false,
+      "low_stock_remaining": null,
+      "on_sale": false,
+      "prices": {
+        "price": "28500",
+        "regular_price": "28500",
+        "sale_price": "28500",
+        "price_range": null,
+        "currency_code": "USD",
+        "currency_symbol": "$",
+        "currency_minor_unit": 2,
+        "currency_decimal_separator": ".",
+        "currency_thousand_separator": ",",
+        "currency_prefix": "$",
+        "currency_suffix": ""
+      },
+      "average_rating": "0",
+      "review_count": 0,
+      "images": [
+        {
+          "id": 355295,
+          "src": "https://home.lamarzoccousa.com/wp-content/uploads/2025/07/LM-Linea-Portafilter-Maple-2-copy.png",
+          "thumbnail": "https://home.lamarzoccousa.com/wp-content/uploads/2025/07/LM-Linea-Portafilter-Maple-2-copy-400x400.png",
+          "name": "LM-Linea-Portafilter-Maple-2 copy",
+          "alt": "La Marzocco Linea portafilter with maple wood handle and basket, top view"
+        }
+      ],
+      "categories": [],
+      "brands": [],
+      "attributes": [],
+      "variations": [],
+      "stock_availability": {
+        "text": "",
+        "class": "in-stock"
+      },
+      "add_to_cart": {
+        "text": "Add to cart",
+        "description": "Add to cart: &ldquo;Convertible Portafilter &#8211; Maple&rdquo;",
+        "url": "https://home.lamarzoccousa.com/product/convertible-portafilter/?attribute_option=Maple&#038;variation_id=355293&#038;add-to-cart=355289",
+        "single_text": "Add to cart",
+        "minimum": 1,
+        "maximum": 9999,
+        "multiple_of": 1
+      },
+      "_links": {
+        "self": [
+          {
+            "href": "https://home.lamarzoccousa.com/wp-json/wc/store/v1/products/355293",
+            "targetHints": {
+              "allow": [
+                "GET"
+              ]
+            }
+          }
+        ],
+        "collection": [
+          {
+            "href": "https://home.lamarzoccousa.com/wp-json/wc/store/v1/products"
+          }
+        ],
+        "up": [
+          {
+            "href": "https://home.lamarzoccousa.com/wp-json/wc/store/v1/products/355289"
+          }
+        ],
+        "related": [
+          {
+            "embeddable": true,
+            "href": "https://home.lamarzoccousa.com/wp-json/wc/store/v1/products?related=355293&per_page=10"
+          }
+        ]
+      }
+    },
+    {
+      "id": 355292,
+      "name": "Convertible Portafilter",
+      "slug": "convertible-portafilter-walnut",
+      "parent": 355289,
+      "type": "variation",
+      "variation": "Option: Walnut",
+      "permalink": "https://home.lamarzoccousa.com/product/convertible-portafilter/?attribute_option=Walnut",
+      "sku": "A.5.186.WW.K",
+      "is_purchasable": true,
+      "is_in_stock": true,
+      "is_on_backorder": false,
+      "low_stock_remaining": null,
+      "on_sale": false,
+      "prices": {
+        "price": "28500",
+        "regular_price": "28500",
+        "sale_price": "28500",
+        "price_range": null,
+        "currency_code": "USD",
+        "currency_symbol": "$",
+        "currency_minor_unit": 2,
+        "currency_decimal_separator": ".",
+        "currency_thousand_separator": ",",
+        "currency_prefix": "$",
+        "currency_suffix": ""
+      },
+      "average_rating": "0",
+      "review_count": 0,
+      "images": [
+        {
+          "id": 355297,
+          "src": "https://home.lamarzoccousa.com/wp-content/uploads/2025/07/LM-Linea-Portafilter-Walnut-2-copy.png",
+          "thumbnail": "https://home.lamarzoccousa.com/wp-content/uploads/2025/07/LM-Linea-Portafilter-Walnut-2-copy-400x400.png",
+          "name": "LM-Linea-Portafilter-Walnut-2 copy",
+          "alt": "La Marzocco Linea portafilter with walnut handle, displayed with basket and tamper"
+        }
+      ],
+      "categories": [],
+      "brands": [],
+      "attributes": [],
+      "variations": [],
+      "stock_availability": {
+        "text": "",
+        "class": "in-stock"
+      },
+      "add_to_cart": {
+        "text": "Add to cart",
+        "description": "Add to cart: &ldquo;Convertible Portafilter &#8211; Walnut&rdquo;",
+        "url": "https://home.lamarzoccousa.com/product/convertible-portafilter/?attribute_option=Walnut&#038;variation_id=355292&#038;add-to-cart=355289",
+        "single_text": "Add to cart",
+        "minimum": 1,
+        "maximum": 9999,
+        "multiple_of": 1
+      },
+      "_links": {
+        "self": [
+          {
+            "href": "https://home.lamarzoccousa.com/wp-json/wc/store/v1/products/355292",
+            "targetHints": {
+              "allow": [
+                "GET"
+              ]
+            }
+          }
+        ],
+        "collection": [
+          {
+            "href": "https://home.lamarzoccousa.com/wp-json/wc/store/v1/products"
+          }
+        ],
+        "up": [
+          {
+            "href": "https://home.lamarzoccousa.com/wp-json/wc/store/v1/products/355289"
+          }
+        ],
+        "related": [
+          {
+            "embeddable": true,
+            "href": "https://home.lamarzoccousa.com/wp-json/wc/store/v1/products?related=355292&per_page=10"
+          }
+        ]
+      }
+    },
+    {
+      "id": 355291,
+      "name": "Convertible Portafilter",
+      "slug": "convertible-portafilter-standard",
+      "parent": 355289,
+      "type": "variation",
+      "variation": "Option: Standard",
+      "permalink": "https://home.lamarzoccousa.com/product/convertible-portafilter/?attribute_option=Standard",
+      "sku": "A.5.186.K",
+      "is_purchasable": true,
+      "is_in_stock": true,
+      "is_on_backorder": false,
+      "low_stock_remaining": null,
+      "on_sale": false,
+      "prices": {
+        "price": "25000",
+        "regular_price": "25000",
+        "sale_price": "25000",
+        "price_range": null,
+        "currency_code": "USD",
+        "currency_symbol": "$",
+        "currency_minor_unit": 2,
+        "currency_decimal_separator": ".",
+        "currency_thousand_separator": ",",
+        "currency_prefix": "$",
+        "currency_suffix": ""
+      },
+      "average_rating": "0",
+      "review_count": 0,
+      "images": [
+        {
+          "id": 355290,
+          "src": "https://home.lamarzoccousa.com/wp-content/uploads/2025/07/LM-Portafilter-Stock-2-copy.png",
+          "thumbnail": "https://home.lamarzoccousa.com/wp-content/uploads/2025/07/LM-Portafilter-Stock-2-copy-400x400.png",
+          "name": "LM-Portafilter-Stock-2 copy",
+          "alt": "La Marzocco portafilter and basket set with black handle"
+        }
+      ],
+      "categories": [],
+      "brands": [],
+      "attributes": [],
+      "variations": [],
+      "stock_availability": {
+        "text": "",
+        "class": "in-stock"
+      },
+      "add_to_cart": {
+        "text": "Add to cart",
+        "description": "Add to cart: &ldquo;Convertible Portafilter &#8211; Standard&rdquo;",
+        "url": "https://home.lamarzoccousa.com/product/convertible-portafilter/?attribute_option=Standard&#038;variation_id=355291&#038;add-to-cart=355289",
+        "single_text": "Add to cart",
+        "minimum": 1,
+        "maximum": 9999,
+        "multiple_of": 1
+      },
+      "_links": {
+        "self": [
+          {
+            "href": "https://home.lamarzoccousa.com/wp-json/wc/store/v1/products/355291",
+            "targetHints": {
+              "allow": [
+                "GET"
+              ]
+            }
+          }
+        ],
+        "collection": [
+          {
+            "href": "https://home.lamarzoccousa.com/wp-json/wc/store/v1/products"
+          }
+        ],
+        "up": [
+          {
+            "href": "https://home.lamarzoccousa.com/wp-json/wc/store/v1/products/355289"
+          }
+        ],
+        "related": [
+          {
+            "embeddable": true,
+            "href": "https://home.lamarzoccousa.com/wp-json/wc/store/v1/products?related=355291&per_page=10"
+          }
+        ]
+      }
+    }
+  ]
+}

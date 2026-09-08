@@ -18,6 +18,7 @@ const TOOL_CAPABILITIES: Readonly<Record<string, BackendCapability>> = {
   finalize_visual_search: "VISUAL_SEARCH",
   search_shopify_products: "CATALOG",
   search_awin_products: "CATALOG",
+  inspect_selected_product: "PRODUCT_INSPECTION",
   inspect_selected_shopify_product: "PRODUCT_INSPECTION",
   quote_selected_shopify_product: "PRODUCT_QUOTE",
   quote_and_compare_selected_products: "PRODUCT_QUOTE",

@@ -36,7 +36,7 @@ describe("shopping friend guidance", () => {
   it("routes inspection directly and chains snapshots for accumulated checks", () => {
     const selected = skill.split("## Selected")[1]!.split("## Chrome fallback")[0]!;
     expect(selected).toContain("do not compare first to inspect one");
-    expect(selected).toContain("Check multiple products sequentially");
+    expect(selected).toContain("Check sequentially with each");
     expect(selected).toContain("updatedSnapshot");
     expect(selected).toContain("never mix IDs");
   });

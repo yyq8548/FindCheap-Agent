@@ -3736,6 +3736,16 @@
         }
       ]
     },
+    "../../packages/contracts/src/woocommerce.ts": {
+      "format": "esm",
+      "imports": [
+        {
+          "kind": "import-statement",
+          "original": "zod",
+          "path": "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/index.js"
+        }
+      ]
+    },
     "../../packages/network-safety/src/safe-fetch.ts": {
       "format": "esm",
       "imports": [
@@ -4084,7 +4094,13 @@
     },
     "src/offer-equivalence.ts": {
       "format": "esm",
-      "imports": []
+      "imports": [
+        {
+          "kind": "import-statement",
+          "original": "./woocommerce-product.js",
+          "path": "src/woocommerce-product.ts"
+        }
+      ]
     },
     "src/official-storefront-registry-client.ts": {
       "format": "esm",
@@ -4113,6 +4129,11 @@
     "src/product-candidate-ranking.ts": {
       "format": "esm",
       "imports": [
+        {
+          "kind": "import-statement",
+          "original": "./woocommerce-product.js",
+          "path": "src/woocommerce-product.ts"
+        },
         {
           "kind": "import-statement",
           "original": "./merchant-trust.js",
@@ -4461,6 +4482,11 @@
         },
         {
           "kind": "import-statement",
+          "original": "./woocommerce-product.js",
+          "path": "src/woocommerce-product.ts"
+        },
+        {
+          "kind": "import-statement",
           "original": "./source-failure.js",
           "path": "src/source-failure.ts"
         },
@@ -4619,6 +4645,26 @@
     "src/server.ts": {
       "format": "esm",
       "imports": [
+        {
+          "kind": "import-statement",
+          "original": "./visual-source-fingerprints.js",
+          "path": "src/visual-source-fingerprints.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./woocommerce-product.js",
+          "path": "src/woocommerce-product.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./snapshot-products.js",
+          "path": "src/snapshot-products.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "../../../packages/contracts/src/woocommerce.js",
+          "path": "../../packages/contracts/src/woocommerce.ts"
+        },
         {
           "external": true,
           "kind": "import-statement",
@@ -5046,6 +5092,21 @@
         }
       ]
     },
+    "src/snapshot-products.ts": {
+      "format": "esm",
+      "imports": [
+        {
+          "kind": "import-statement",
+          "original": "./product-reference.js",
+          "path": "src/product-reference.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./woocommerce-product.js",
+          "path": "src/woocommerce-product.ts"
+        }
+      ]
+    },
     "src/sony-official-store-search.ts": {
       "format": "esm",
       "imports": [
@@ -5203,6 +5264,11 @@
           "kind": "import-statement",
           "original": "./web-product-recovery.js",
           "path": "src/web-product-recovery.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./woocommerce-client.js",
+          "path": "src/woocommerce-client.ts"
         }
       ]
     },
@@ -5296,6 +5362,11 @@
       "imports": [
         {
           "kind": "import-statement",
+          "original": "./woocommerce-product.js",
+          "path": "src/woocommerce-product.ts"
+        },
+        {
+          "kind": "import-statement",
           "original": "zod",
           "path": "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/index.js"
         }
@@ -5304,6 +5375,11 @@
     "src/visual-source-fingerprints.ts": {
       "format": "esm",
       "imports": [
+        {
+          "kind": "import-statement",
+          "original": "./woocommerce-product.js",
+          "path": "src/woocommerce-product.ts"
+        },
         {
           "external": true,
           "kind": "import-statement",
@@ -5343,6 +5419,11 @@
           "kind": "import-statement",
           "original": "./watch-store.js",
           "path": "src/watch-store.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "../../../packages/contracts/src/woocommerce.js",
+          "path": "../../packages/contracts/src/woocommerce.ts"
         }
       ]
     },
@@ -5415,11 +5496,36 @@
           "path": "src/visual-retrieval-query.ts"
         }
       ]
+    },
+    "src/woocommerce-client.ts": {
+      "format": "esm",
+      "imports": [
+        {
+          "kind": "import-statement",
+          "original": "../../../packages/awin-feed/src/index.js",
+          "path": "../../packages/awin-feed/src/index.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "../../../packages/contracts/src/woocommerce.js",
+          "path": "../../packages/contracts/src/woocommerce.ts"
+        }
+      ]
+    },
+    "src/woocommerce-product.ts": {
+      "format": "esm",
+      "imports": [
+        {
+          "kind": "import-statement",
+          "original": "./merchant-trust.js",
+          "path": "src/merchant-trust.ts"
+        }
+      ]
     }
   },
   "outputs": {
     "../../plugins/findcheap-agent/dist/mcp-server.js": {
-      "bytes": 1042056,
+      "bytes": 1075023,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
@@ -5441,12 +5547,17 @@
         {
           "external": true,
           "kind": "import-statement",
+          "path": "node:net"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
           "path": "node:crypto"
         },
         {
           "external": true,
           "kind": "import-statement",
-          "path": "node:net"
+          "path": "node:crypto"
         },
         {
           "external": true,
@@ -5477,11 +5588,6 @@
           "external": true,
           "kind": "import-statement",
           "path": "node:zlib"
-        },
-        {
-          "external": true,
-          "kind": "import-statement",
-          "path": "node:crypto"
         },
         {
           "external": true,
@@ -5584,7 +5690,7 @@
           "bytesInOutput": 39
         },
         "../../config/version.ts": {
-          "bytesInOutput": 17
+          "bytesInOutput": 16
         },
         "../../node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/experimental/tasks/helpers.js": {
           "bytesInOutput": 703
@@ -5695,7 +5801,7 @@
           "bytesInOutput": 1981
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/core.js": {
-          "bytesInOutput": 12297
+          "bytesInOutput": 12301
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/refs/data.json": {
           "bytesInOutput": 359
@@ -5779,7 +5885,7 @@
           "bytesInOutput": 2382
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/discriminator/index.js": {
-          "bytesInOutput": 2291
+          "bytesInOutput": 2294
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/discriminator/types.js": {
           "bytesInOutput": 182
@@ -5788,7 +5894,7 @@
           "bytesInOutput": 236
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/format/format.js": {
-          "bytesInOutput": 1951
+          "bytesInOutput": 1954
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/format/index.js": {
           "bytesInOutput": 122
@@ -5968,13 +6074,13 @@
           "bytesInOutput": 54
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/external.js": {
-          "bytesInOutput": 1774
+          "bytesInOutput": 1775
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/helpers/errorUtil.js": {
           "bytesInOutput": 132
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/helpers/parseUtil.js": {
-          "bytesInOutput": 1468
+          "bytesInOutput": 1469
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/helpers/util.js": {
           "bytesInOutput": 1722
@@ -5983,7 +6089,7 @@
           "bytesInOutput": 3030
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/types.js": {
-          "bytesInOutput": 50147
+          "bytesInOutput": 50221
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v4/classic/checks.js": {
           "bytesInOutput": 0
@@ -6031,7 +6137,7 @@
           "bytesInOutput": 649
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v4/core/schemas.js": {
-          "bytesInOutput": 18932
+          "bytesInOutput": 18935
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v4/core/to-json-schema.js": {
           "bytesInOutput": 11445
@@ -6069,6 +6175,9 @@
         "../../packages/contracts/src/official-storefront.ts": {
           "bytesInOutput": 2432
         },
+        "../../packages/contracts/src/woocommerce.ts": {
+          "bytesInOutput": 6287
+        },
         "../../packages/network-safety/src/safe-fetch.ts": {
           "bytesInOutput": 8384
         },
@@ -6085,7 +6194,7 @@
           "bytesInOutput": 4340
         },
         "src/backend.ts": {
-          "bytesInOutput": 501
+          "bytesInOutput": 541
         },
         "src/deal-assessment.ts": {
           "bytesInOutput": 4682
@@ -6103,7 +6212,7 @@
           "bytesInOutput": 3881
         },
         "src/execution/capabilities.ts": {
-          "bytesInOutput": 906
+          "bytesInOutput": 952
         },
         "src/execution/external-data-fence.ts": {
           "bytesInOutput": 1969
@@ -6112,10 +6221,10 @@
           "bytesInOutput": 2051
         },
         "src/execution/model-context.ts": {
-          "bytesInOutput": 2936
+          "bytesInOutput": 2963
         },
         "src/execution/tool-executor.ts": {
-          "bytesInOutput": 2309
+          "bytesInOutput": 2347
         },
         "src/execution/tool-outcome.ts": {
           "bytesInOutput": 2527
@@ -6124,10 +6233,10 @@
           "bytesInOutput": 942
         },
         "src/functional-requirements.ts": {
-          "bytesInOutput": 7864
+          "bytesInOutput": 7867
         },
         "src/generic-official-store-search.ts": {
-          "bytesInOutput": 15809
+          "bytesInOutput": 15811
         },
         "src/known-product-url.ts": {
           "bytesInOutput": 1650
@@ -6148,7 +6257,7 @@
           "bytesInOutput": 940
         },
         "src/offer-equivalence.ts": {
-          "bytesInOutput": 1898
+          "bytesInOutput": 2553
         },
         "src/official-storefront-registry-client.ts": {
           "bytesInOutput": 1410
@@ -6157,13 +6266,13 @@
           "bytesInOutput": 712
         },
         "src/product-candidate-ranking.ts": {
-          "bytesInOutput": 7808
+          "bytesInOutput": 7977
         },
         "src/product-card-telemetry.ts": {
           "bytesInOutput": 814
         },
         "src/product-card-ui.ts": {
-          "bytesInOutput": 76643
+          "bytesInOutput": 76726
         },
         "src/product-comparison-ui.ts": {
           "bytesInOutput": 26557
@@ -6181,7 +6290,7 @@
           "bytesInOutput": 128
         },
         "src/product-requirements.ts": {
-          "bytesInOutput": 6398
+          "bytesInOutput": 6406
         },
         "src/product-value-evidence.ts": {
           "bytesInOutput": 4807
@@ -6205,34 +6314,34 @@
           "bytesInOutput": 1784
         },
         "src/search-diagnostics.ts": {
-          "bytesInOutput": 3850
+          "bytesInOutput": 4053
         },
         "src/search-products.ts": {
-          "bytesInOutput": 44048
+          "bytesInOutput": 48217
         },
         "src/search-requirements-context.ts": {
-          "bytesInOutput": 6241
+          "bytesInOutput": 6243
         },
         "src/search-result-summary.ts": {
           "bytesInOutput": 5412
         },
         "src/search-run.ts": {
-          "bytesInOutput": 7832
+          "bytesInOutput": 8103
         },
         "src/server.ts": {
-          "bytesInOutput": 194938
+          "bytesInOutput": 204072
         },
         "src/shopify-cart-quote.ts": {
-          "bytesInOutput": 12437
+          "bytesInOutput": 12440
         },
         "src/shopify-client.ts": {
           "bytesInOutput": 181
         },
         "src/shopify-global-catalog-client.ts": {
-          "bytesInOutput": 22189
+          "bytesInOutput": 22195
         },
         "src/shopify-match.ts": {
-          "bytesInOutput": 12394
+          "bytesInOutput": 12399
         },
         "src/shopify-official-store-search.ts": {
           "bytesInOutput": 14636
@@ -6241,16 +6350,19 @@
           "bytesInOutput": 1432
         },
         "src/shopify-selected-product.ts": {
-          "bytesInOutput": 6848
+          "bytesInOutput": 6859
+        },
+        "src/snapshot-products.ts": {
+          "bytesInOutput": 826
         },
         "src/sony-official-store-search.ts": {
           "bytesInOutput": 11978
         },
         "src/source-failure.ts": {
-          "bytesInOutput": 2337
+          "bytesInOutput": 2361
         },
         "src/stdio.ts": {
-          "bytesInOutput": 930
+          "bytesInOutput": 1090
         },
         "src/text-search-recovery.ts": {
           "bytesInOutput": 2019
@@ -6268,19 +6380,25 @@
           "bytesInOutput": 4512
         },
         "src/visual-search-outcome.ts": {
-          "bytesInOutput": 3301
+          "bytesInOutput": 3172
         },
         "src/visual-source-fingerprints.ts": {
-          "bytesInOutput": 644
+          "bytesInOutput": 897
         },
         "src/watch-service.ts": {
-          "bytesInOutput": 7108
+          "bytesInOutput": 11769
         },
         "src/watch-store.ts": {
-          "bytesInOutput": 11137
+          "bytesInOutput": 12680
         },
         "src/web-product-recovery.ts": {
           "bytesInOutput": 5959
+        },
+        "src/woocommerce-client.ts": {
+          "bytesInOutput": 2190
+        },
+        "src/woocommerce-product.ts": {
+          "bytesInOutput": 2189
         }
       }
     }

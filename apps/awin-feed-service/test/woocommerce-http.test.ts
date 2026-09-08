@@ -1,0 +1,62 @@
+import { once } from "node:events";
+import { request as httpRequest, type Server } from "node:http";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { createAwinFeedController, createAwinFeedHttpServer } from "../src/service.js";
+import { parseAwinFeedServiceEnvironment } from "../src/environment.js";
+import type { WooCommerceController } from "../src/woocommerce.js";
+import type { WooSearchResult } from "../../../packages/contracts/src/woocommerce.js";
+
+const servers: Server[] = [];
+afterEach(async () => { await Promise.all(servers.splice(0).map((server) => new Promise<void>((resolve) => { server.closeAllConnections(); server.close(() => resolve()); }))); });
+async function start(woocommerce?: WooCommerceController) {
+  const env = parseAwinFeedServiceEnvironment({ AWIN_SOURCE_FEED_URL: "https://productdata.awin.com/test.csv.gz", AWIN_FEED_API_TOKEN: "a".repeat(32) });
+  const server = createAwinFeedHttpServer(createAwinFeedController(env), env.apiToken, { ...(woocommerce === undefined ? {} : { woocommerce }) });
+  servers.push(server); server.listen(0, "127.0.0.1"); await once(server, "listening");
+  const address = server.address(); if (address === null || typeof address === "string") throw new Error("listen failed");
+  return `http://127.0.0.1:${address.port}`;
+}
+function controller(): WooCommerceController {
+  return {
+    search: vi.fn(), lookup: vi.fn(async () => ({ source: "WOOCOMMERCE_STORE_API" as const, registryVersion: "test", status: "NOT_FOUND" as const, checkedAt: "2026-09-08T12:00:00.000Z" })),
+    inspect: vi.fn(async () => ({ source: "WOOCOMMERCE_STORE_API" as const, registryVersion: "test", status: "COMPLETE" as const, products: [], checkedAt: "2026-09-08T12:00:00.000Z", truncated: false })),
+    image: vi.fn(async () => new Response(new Uint8Array([137, 80, 78, 71]), { headers: { "content-type": "image/png" } }))
+  };
+}
+async function post(base: string, path: string, body: unknown) { return fetch(`${base}/v1/woocommerce/${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }); }
+describe("Woo service HTTP boundary", () => {
+  it("is absent by default and leaves existing endpoint methods intact", async () => {
+    const base = await start();
+    expect((await post(base, "search", { query: "desk" })).status).toBe(404);
+    expect((await fetch(`${base}/v1/woocommerce/search`)).status).toBe(405);
+    expect((await fetch(`${base}/v1/search`)).status).toBe(405);
+    expect(parseAwinFeedServiceEnvironment({ AWIN_SOURCE_FEED_URL: "https://productdata.awin.com/test.csv.gz", AWIN_FEED_API_TOKEN: "a".repeat(32) })).not.toHaveProperty("woocommerce");
+  });
+  it("validates target and request bytes before invoking readers", async () => {
+    const woo = controller(); const base = await start(woo);
+    expect((await post(base, "products/lookup", { merchantId: "a", productId: 12 })).status).toBe(200);
+    expect(woo.lookup).toHaveBeenCalledWith({ merchantId: "a", productId: 12 }, expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    expect((await post(base, "products/lookup", { merchantId: "a", productId: 12, url: "https://evil.example" })).status).toBe(400);
+    expect((await post(base, "search", { query: "a".repeat(5_000) })).status).toBe(413);
+    expect(woo.search).not.toHaveBeenCalled();
+    expect((await post(base, "products/variants", { target: { merchantId: "a", productId: 12 }, requirements: { color: "Black" } })).status).toBe(200);
+    expect(woo.inspect).toHaveBeenCalledTimes(1);
+  });
+  it("serves only supported image MIME and rejects an arbitrary URL proxy", async () => {
+    const woo = controller(); const base = await start(woo);
+    expect((await fetch(`${base}/v1/woocommerce/images?merchantId=a&imageId=${"f".repeat(64)}`)).status).toBe(200);
+    expect((await fetch(`${base}/v1/woocommerce/images?url=https://evil.example/a.png`)).status).toBe(400);
+    woo.image = vi.fn(async () => new Response("<html>error</html>", { headers: { "content-type": "text/html" } }));
+    expect((await fetch(`${base}/v1/woocommerce/images?merchantId=a&imageId=${"f".repeat(64)}`)).status).toBe(502);
+  });
+  it("cancels in-flight merchant work when the client disconnects", async () => {
+    const woo = controller();
+    let started!: () => void; const startRead = new Promise<void>((resolve) => { started = resolve; });
+    let stopped!: () => void; const stopRead = new Promise<void>((resolve) => { stopped = resolve; });
+    woo.search = vi.fn(async (_input, options) => { started(); return new Promise<WooSearchResult>((_resolve, reject) => { options!.signal!.addEventListener("abort", () => { stopped(); reject(new Error("aborted")); }, { once: true }); }); });
+    const base = await start(woo);
+    const request = httpRequest(`${base}/v1/woocommerce/search`, { method: "POST", headers: { "content-type": "application/json" } });
+    request.on("error", () => {}); request.end(JSON.stringify({ query: "desk" }));
+    await startRead; request.destroy(); await stopRead;
+    expect(woo.search).toHaveBeenCalledTimes(1);
+  });
+});

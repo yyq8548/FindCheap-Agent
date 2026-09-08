@@ -2,6 +2,7 @@ import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { mkdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { dirname } from "node:path";
+import { z } from "zod";
 
 import {
   createAwinFeedIndex,
@@ -17,6 +18,9 @@ import {
   type AwinSearchResult
 } from "../../../packages/awin-feed/src/index.js";
 import { safeFetch } from "../../../packages/network-safety/src/safe-fetch.js";
+import { WooSearchInputSchema, WooLookupInputSchema, WooInspectionInputSchema } from "../../../packages/contracts/src/woocommerce.js";
+import type { WooCommerceController } from "./woocommerce.js";
+import { WooReadError } from "./woocommerce-store.js";
 import { validateAwinSourceUrl, type AwinFeedServiceEnvironment } from "./environment.js";
 import {
   parseEbaySearchInput,
@@ -809,6 +813,7 @@ export function createAwinFeedHttpServer(
     imageFetch?: (url: string) => Promise<Response>;
     offers?: AwinOffersController;
     ebay?: EbayBrowseController;
+    woocommerce?: WooCommerceController;
     officialStorefronts?: ServedOfficialStorefrontRegistry;
     merchantTrust?: ServedMerchantTrustRegistry;
   } = {}
@@ -830,6 +835,7 @@ export function createAwinFeedHttpServer(
       options.imageFetch ?? fetchValidatedImage,
       options.offers,
       options.ebay,
+      options.woocommerce,
       options.officialStorefronts,
       options.merchantTrust,
       request,
@@ -853,6 +859,7 @@ async function handleRequest(
   imageFetch: (url: string) => Promise<Response>,
   offers: AwinOffersController | undefined,
   ebay: EbayBrowseController | undefined,
+  woocommerce: WooCommerceController | undefined,
   officialStorefronts: ServedOfficialStorefrontRegistry | undefined,
   merchantTrust: ServedMerchantTrustRegistry | undefined,
   request: IncomingMessage,
@@ -860,6 +867,45 @@ async function handleRequest(
 ): Promise<void> {
   const requestUrl = new URL(request.url ?? "/", "http://localhost");
   const path = requestUrl.pathname;
+  if (["/v1/woocommerce/search", "/v1/woocommerce/products/lookup", "/v1/woocommerce/products/variants", "/v1/woocommerce/images"].includes(path)) {
+    const isImage = path === "/v1/woocommerce/images";
+    if (request.method !== (isImage ? "GET" : "POST")) { json(response, 405, { error: "METHOD_NOT_ALLOWED" }); return; }
+    const rate = (isImage ? publicImageLimiter : publicSearchLimiter).take(publicSearchClientKey(request));
+    if (!rate.allowed) { response.setHeader("retry-after", String(rate.retryAfterSeconds)); json(response, 429, { error: "RATE_LIMITED" }); return; }
+    if (woocommerce === undefined) { json(response, 404, { error: "WOOCOMMERCE_NOT_CONFIGURED" }); return; }
+    const abort = new AbortController();
+    const disconnect = () => { if (!response.writableEnded) abort.abort(); };
+    request.once("aborted", disconnect);
+    response.once("close", disconnect);
+    try {
+      if (isImage) {
+        const merchantId = requestUrl.searchParams.get("merchantId") ?? "";
+        const imageId = requestUrl.searchParams.get("imageId") ?? "";
+        if (!/^[a-z0-9][a-z0-9_-]{0,79}$/u.test(merchantId) || !/^[a-f0-9]{64}$/u.test(imageId) || [...requestUrl.searchParams.keys()].some((key) => !["merchantId", "imageId"].includes(key))) {
+          json(response, 400, { error: "INVALID_IMAGE_REQUEST" }); return;
+        }
+        const upstream = await woocommerce.image(merchantId, imageId, { signal: abort.signal });
+        const contentType = upstream.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
+        if (!upstream.ok || contentType === undefined || !ALLOWED_IMAGE_CONTENT_TYPES.has(contentType)) {
+          json(response, 502, { error: "IMAGE_UPSTREAM_UNAVAILABLE" }); return;
+        }
+        const image = await readLimitedBody(upstream, MAX_OFFICIAL_IMAGE_BYTES, "Woo image");
+        response.writeHead(200, { "content-type": contentType, "content-length": String(image.byteLength), "x-content-type-options": "nosniff", "cache-control": "public, max-age=300" });
+        response.end(image); return;
+      }
+      const body = await readJsonRequest(request);
+      if (path === "/v1/woocommerce/search") json(response, 200, await woocommerce.search(WooSearchInputSchema.parse(body), { signal: abort.signal }));
+      else if (path === "/v1/woocommerce/products/lookup") json(response, 200, await woocommerce.lookup(WooLookupInputSchema.parse(body), { signal: abort.signal }));
+      else { const input = WooInspectionInputSchema.parse(body); json(response, 200, await woocommerce.inspect(input.target, input.requirements, { signal: abort.signal })); }
+    } catch (error) {
+      if (abort.signal.aborted) return;
+      const status = error instanceof RequestBodyTooLargeError ? 413 : error instanceof WooReadError ? error.reason === "SECURITY_REJECTED" ? 400 : 503 : error instanceof z.ZodError || error instanceof SyntaxError || (error instanceof Error && /request body|content type/u.test(error.message)) ? 400 : 503;
+      json(response, status, { error: status === 413 ? "REQUEST_TOO_LARGE" : status === 400 ? "INVALID_WOOCOMMERCE_REQUEST" : "WOOCOMMERCE_UPSTREAM_UNAVAILABLE" });
+    } finally {
+      request.removeListener("aborted", disconnect); response.removeListener("close", disconnect);
+    }
+    return;
+  }
   if (path === "/v1/merchant-trust") {
     if (request.method !== "GET") {
       json(response, 405, { error: "METHOD_NOT_ALLOWED" });

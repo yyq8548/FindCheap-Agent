@@ -3,6 +3,7 @@ import { once } from "node:events";
 import { createDatabase, type Database } from "../../../packages/db/src/client.js";
 import { parseAwinFeedServiceEnvironment } from "./environment.js";
 import { createEbayBrowseController } from "./ebay-browse.js";
+import { createWooCommerceController } from "./woocommerce.js";
 import { createAwinOffersController } from "./offers.js";
 import { createAwinFeedController, createAwinFeedHttpServer } from "./service.js";
 import { refreshServedRegistriesFromDatabase } from "./registry-database.js";
@@ -37,6 +38,7 @@ export async function startAwinFeedRuntime(
   });
   const offers = environment.offers === undefined ? undefined : createAwinOffersController(environment.offers);
   const ebay = environment.ebay === undefined ? undefined : createEbayBrowseController(environment.ebay);
+  const woocommerce = environment.woocommerce === undefined ? undefined : createWooCommerceController(environment.woocommerce);
   const registryDatabase: Database | undefined = environment.registryDatabase === undefined
     ? undefined
     : createDatabase(environment.registryDatabase.url, {
@@ -59,6 +61,7 @@ export async function startAwinFeedRuntime(
     {
       ...(offers === undefined ? {} : { offers }),
       ...(ebay === undefined ? {} : { ebay }),
+      ...(woocommerce === undefined ? {} : { woocommerce }),
       officialStorefronts: environment.officialStorefronts,
       merchantTrust: environment.merchantTrust
     }

@@ -1,0 +1,507 @@
+{
+  "fixtureKind": "SANITIZED_LIVE_OBSERVATION",
+  "observedAt": "2026-09-08T15:33:19Z",
+  "request": {
+    "method": "GET",
+    "url": "https://nalgene.com/wp-json/wc/store/v1/products?search=wide%20mouth&per_page=3"
+  },
+  "response": {
+    "status": 200,
+    "contentType": "application/json; charset=UTF-8",
+    "bytes": 23586,
+    "total": "27",
+    "totalPages": "9",
+    "elapsedMs": 4013
+  },
+  "sanitization": "Retained public product fields; omitted descriptions, extensions, cookies and request headers; images limited to three references per product. No image binary fetched. Retained first two of three returned products; omitted large cap variation family.",
+  "body": [
+    {
+      "id": 877583,
+      "name": "32oz Wide Mouth Mythical Creatures Bottles",
+      "slug": "32oz-wide-mouth-mythical-creatures",
+      "parent": 0,
+      "type": "variable",
+      "variation": "",
+      "permalink": "https://nalgene.com/product/32oz-wide-mouth-mythical-creatures/",
+      "sku": "32oz-Mythical-Creatures",
+      "is_purchasable": true,
+      "is_in_stock": true,
+      "is_on_backorder": false,
+      "low_stock_remaining": null,
+      "on_sale": false,
+      "prices": {
+        "price": "1899",
+        "regular_price": "1899",
+        "sale_price": "1899",
+        "price_range": null,
+        "currency_code": "USD",
+        "currency_symbol": "$",
+        "currency_minor_unit": 2,
+        "currency_decimal_separator": ".",
+        "currency_thousand_separator": ",",
+        "currency_prefix": "$",
+        "currency_suffix": ""
+      },
+      "average_rating": "0",
+      "review_count": 0,
+      "images": [
+        {
+          "id": 877595,
+          "src": "https://nalgene.com/wp-content/uploads/2026/04/Sasquatch_Front-667x1000-1.jpg",
+          "thumbnail": "https://nalgene.com/wp-content/uploads/2026/04/Sasquatch_Front-667x1000-1-300x450.jpg",
+          "name": "Sasquatch_Front-667&#215;1000",
+          "alt": ""
+        }
+      ],
+      "categories": [
+        {
+          "id": 846,
+          "name": "By Shape",
+          "slug": "by-shape",
+          "link": "https://nalgene.com/product-category/by-shape/"
+        },
+        {
+          "id": 847,
+          "name": "By Size",
+          "slug": "by-size",
+          "link": "https://nalgene.com/product-category/by-size/"
+        },
+        {
+          "id": 848,
+          "name": "Collections",
+          "slug": "collections",
+          "link": "https://nalgene.com/product-category/collections/"
+        },
+        {
+          "id": 25,
+          "name": "Water Bottles",
+          "slug": "bottles",
+          "link": "https://nalgene.com/product-category/bottles/"
+        }
+      ],
+      "brands": [],
+      "attributes": [
+        {
+          "id": 1,
+          "name": "Bottle Color",
+          "taxonomy": "pa_color",
+          "has_variations": false,
+          "terms": [
+            {
+              "id": 43,
+              "name": "Clear",
+              "slug": "clear"
+            },
+            {
+              "id": 44,
+              "name": "Purple",
+              "slug": "purple"
+            },
+            {
+              "id": 888,
+              "name": "Cornflower",
+              "slug": "cornflower"
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "name": "Bottle Volume",
+          "taxonomy": "pa_size",
+          "has_variations": false,
+          "terms": [
+            {
+              "id": 140,
+              "name": "32oz",
+              "slug": "32oz"
+            }
+          ]
+        },
+        {
+          "id": 5,
+          "name": "Material",
+          "taxonomy": "pa_material",
+          "has_variations": false,
+          "terms": [
+            {
+              "id": 770,
+              "name": "Tritan Renew",
+              "slug": "tritan-renew"
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "name": "Lid Type",
+          "taxonomy": "pa_lid_type",
+          "has_variations": false,
+          "terms": [
+            {
+              "id": 62,
+              "name": "Wide Mouth",
+              "slug": "wide-mouth"
+            }
+          ]
+        },
+        {
+          "id": 12,
+          "name": "Cap Diameter",
+          "taxonomy": "pa_cap-diameter",
+          "has_variations": false,
+          "terms": [
+            {
+              "id": 765,
+              "name": "2.5 inches (63mm)",
+              "slug": "2-5-inches-63mm"
+            }
+          ]
+        },
+        {
+          "id": 13,
+          "name": "Country of Origin",
+          "taxonomy": "pa_country-of-origin",
+          "has_variations": false,
+          "terms": [
+            {
+              "id": 781,
+              "name": "USA",
+              "slug": "usa"
+            }
+          ]
+        },
+        {
+          "id": 6,
+          "name": "Graphic",
+          "taxonomy": "pa_graphic",
+          "has_variations": true,
+          "terms": [
+            {
+              "id": 1091,
+              "name": "Clear with Black Sasquatch",
+              "slug": "clear-with-black-sasquatch",
+              "default": true
+            },
+            {
+              "id": 1093,
+              "name": "Cornflower with Yellow Werewolf",
+              "slug": "cornflower-with-yellow-werewolf",
+              "default": false
+            },
+            {
+              "id": 1092,
+              "name": "Purple with White Aliens",
+              "slug": "purple-with-white-aliens",
+              "default": false
+            }
+          ]
+        }
+      ],
+      "variations": [
+        {
+          "id": 877590,
+          "attributes": [
+            {
+              "name": "Graphic",
+              "value": "clear-with-black-sasquatch"
+            }
+          ]
+        },
+        {
+          "id": 877592,
+          "attributes": [
+            {
+              "name": "Graphic",
+              "value": "purple-with-white-aliens"
+            }
+          ]
+        },
+        {
+          "id": 877591,
+          "attributes": [
+            {
+              "name": "Graphic",
+              "value": "cornflower-with-yellow-werewolf"
+            }
+          ]
+        }
+      ],
+      "stock_availability": {
+        "text": "In stock",
+        "class": "in-stock"
+      },
+      "add_to_cart": {
+        "text": "Select options",
+        "description": "Select options for &ldquo;32oz Wide Mouth Mythical Creatures Bottles&rdquo;",
+        "url": "https://nalgene.com/product/32oz-wide-mouth-mythical-creatures/",
+        "single_text": "Add to cart",
+        "minimum": 1,
+        "maximum": 1,
+        "multiple_of": 1
+      },
+      "_links": {
+        "self": [
+          {
+            "href": "https://nalgene.com/wp-json/wc/store/v1/products/877583",
+            "targetHints": {
+              "allow": [
+                "GET"
+              ]
+            }
+          }
+        ],
+        "collection": [
+          {
+            "href": "https://nalgene.com/wp-json/wc/store/v1/products"
+          }
+        ],
+        "upsells": [
+          {
+            "embeddable": true,
+            "href": "https://nalgene.com/wp-json/wc/store/v1/products?include=957"
+          }
+        ],
+        "cross_sells": [
+          {
+            "embeddable": true,
+            "href": "https://nalgene.com/wp-json/wc/store/v1/products?include=1040,1045"
+          }
+        ],
+        "related": [
+          {
+            "embeddable": true,
+            "href": "https://nalgene.com/wp-json/wc/store/v1/products?related=877583&per_page=10"
+          }
+        ]
+      }
+    },
+    {
+      "id": 876400,
+      "name": "32oz Wide Mouth “Public Lands: Forests Are for Us” Bottle",
+      "slug": "32oz-wide-mouth-forest-bottle",
+      "parent": 0,
+      "type": "simple",
+      "variation": "",
+      "permalink": "https://nalgene.com/product/32oz-wide-mouth-forest-bottle/",
+      "sku": "682026-0140",
+      "is_purchasable": true,
+      "is_in_stock": true,
+      "is_on_backorder": false,
+      "low_stock_remaining": null,
+      "on_sale": false,
+      "prices": {
+        "price": "1999",
+        "regular_price": "1999",
+        "sale_price": "1999",
+        "price_range": null,
+        "currency_code": "USD",
+        "currency_symbol": "$",
+        "currency_minor_unit": 2,
+        "currency_decimal_separator": ".",
+        "currency_thousand_separator": ",",
+        "currency_prefix": "$",
+        "currency_suffix": ""
+      },
+      "average_rating": "0",
+      "review_count": 0,
+      "images": [
+        {
+          "id": 876608,
+          "src": "https://nalgene.com/wp-content/uploads/2026/04/UFS-MockupsUFS-Front-view.jpeg",
+          "thumbnail": "https://nalgene.com/wp-content/uploads/2026/04/UFS-MockupsUFS-Front-view-300x482.jpeg",
+          "name": "UFS MockupsUFS-Front-view",
+          "alt": "Forests Are for Us Bottle"
+        },
+        {
+          "id": 876609,
+          "src": "https://nalgene.com/wp-content/uploads/2026/04/UFS-MockupsUFS-Back-View.jpeg",
+          "thumbnail": "https://nalgene.com/wp-content/uploads/2026/04/UFS-MockupsUFS-Back-View-300x482.jpeg",
+          "name": "UFS MockupsUFS-Back-View",
+          "alt": "UFS MockupsUFS-Back-View"
+        },
+        {
+          "id": 897662,
+          "src": "https://nalgene.com/wp-content/uploads/2026/04/NFF_LOGO_FULLCOLOR_HORZ_PRIMARY-scaled.png",
+          "thumbnail": "https://nalgene.com/wp-content/uploads/2026/04/NFF_LOGO_FULLCOLOR_HORZ_PRIMARY-300x122.png",
+          "name": "NFF_LOGO_FULLCOLOR_HORZ_PRIMARY",
+          "alt": ""
+        }
+      ],
+      "categories": [
+        {
+          "id": 846,
+          "name": "By Shape",
+          "slug": "by-shape",
+          "link": "https://nalgene.com/product-category/by-shape/"
+        },
+        {
+          "id": 847,
+          "name": "By Size",
+          "slug": "by-size",
+          "link": "https://nalgene.com/product-category/by-size/"
+        },
+        {
+          "id": 25,
+          "name": "Water Bottles",
+          "slug": "bottles",
+          "link": "https://nalgene.com/product-category/bottles/"
+        }
+      ],
+      "brands": [],
+      "attributes": [
+        {
+          "id": 1,
+          "name": "Bottle Color",
+          "taxonomy": "pa_color",
+          "has_variations": false,
+          "terms": [
+            {
+              "id": 861,
+              "name": "Jade",
+              "slug": "jade"
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "name": "Bottle Volume",
+          "taxonomy": "pa_size",
+          "has_variations": false,
+          "terms": [
+            {
+              "id": 140,
+              "name": "32oz",
+              "slug": "32oz"
+            }
+          ]
+        },
+        {
+          "id": 7,
+          "name": "Filter Color",
+          "taxonomy": "pa_filter-color",
+          "has_variations": false,
+          "terms": [
+            {
+              "id": 915,
+              "name": "Jade",
+              "slug": "jade"
+            }
+          ]
+        },
+        {
+          "id": 0,
+          "name": "Bottle Diameter",
+          "taxonomy": null,
+          "has_variations": false,
+          "terms": [
+            {
+              "id": 0,
+              "name": "3.5 inches",
+              "slug": "3.5 inches"
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "name": "Lid Type",
+          "taxonomy": "pa_lid_type",
+          "has_variations": false,
+          "terms": [
+            {
+              "id": 62,
+              "name": "Wide Mouth",
+              "slug": "wide-mouth"
+            }
+          ]
+        },
+        {
+          "id": 12,
+          "name": "Cap Diameter",
+          "taxonomy": "pa_cap-diameter",
+          "has_variations": false,
+          "terms": [
+            {
+              "id": 765,
+              "name": "2.5 inches (63mm)",
+              "slug": "2-5-inches-63mm"
+            }
+          ]
+        },
+        {
+          "id": 5,
+          "name": "Material",
+          "taxonomy": "pa_material",
+          "has_variations": false,
+          "terms": [
+            {
+              "id": 770,
+              "name": "Tritan Renew",
+              "slug": "tritan-renew"
+            }
+          ]
+        },
+        {
+          "id": 13,
+          "name": "Country of Origin",
+          "taxonomy": "pa_country-of-origin",
+          "has_variations": false,
+          "terms": [
+            {
+              "id": 781,
+              "name": "USA",
+              "slug": "usa"
+            }
+          ]
+        }
+      ],
+      "variations": [],
+      "stock_availability": {
+        "text": "In stock (can be backordered)",
+        "class": "in-stock"
+      },
+      "add_to_cart": {
+        "text": "Add to cart",
+        "description": "Add to cart: &ldquo;32oz Wide Mouth “Public Lands: Forests Are for Us” Bottle&rdquo;",
+        "url": "/wp-json/wc/store/v1/products?search=wide+mouth&#038;per_page=3&#038;add-to-cart=876400",
+        "single_text": "Add to cart",
+        "minimum": 1,
+        "maximum": 300,
+        "multiple_of": 1
+      },
+      "_links": {
+        "self": [
+          {
+            "href": "https://nalgene.com/wp-json/wc/store/v1/products/876400",
+            "targetHints": {
+              "allow": [
+                "GET"
+              ]
+            }
+          }
+        ],
+        "collection": [
+          {
+            "href": "https://nalgene.com/wp-json/wc/store/v1/products"
+          }
+        ],
+        "upsells": [
+          {
+            "embeddable": true,
+            "href": "https://nalgene.com/wp-json/wc/store/v1/products?include=771353,1045"
+          }
+        ],
+        "cross_sells": [
+          {
+            "embeddable": true,
+            "href": "https://nalgene.com/wp-json/wc/store/v1/products?include=1040,1045"
+          }
+        ],
+        "related": [
+          {
+            "embeddable": true,
+            "href": "https://nalgene.com/wp-json/wc/store/v1/products?related=876400&per_page=10"
+          }
+        ]
+      }
+    }
+  ]
+}

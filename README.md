@@ -9,13 +9,13 @@ English | [简体中文](README.zh-CN.md)
 
 Product form: **Codex Plugin Agent**.
 
-Current package: **v0.17.34** — reliable search follow-ups, evidence-based merchant requirements, selected Coupon lookup and compact search headers.
+Current source package: **v0.18.0** — optional WooCommerce catalog, exact product follow-ups and selected-product Watch. Deployment and installed-plugin state are separate from this source version.
 Nine-row comparisons and immutable selections remain.
-[Release scope, verification and remaining design gaps](docs/releases/v0.17.34.md).
+[WooCommerce implementation and verification](docs/engineering/changes/2026-09-08-woocommerce-independent-source.md). [Release and delivery evidence](docs/releases/v0.18.0.md).
 
 FindCheap Agent is a shopping-research Codex plugin for product search, offer matching, price checks, product cards, evidence-backed comparison views, verified deals, and shopping watches. Search is read-only; quotes and Watches have separate authorization boundaries. It returns up to eight products in three tiers: 2 official-store matches, 3 trusted matches, and 3 best-value high-match options.
 
-Codex starts text product discovery with `search_products` through a local stdio MCP server; image, comparison and follow-up operations have their own tools. Eligible Awin, Shopify, configured eBay and official-store sources can run in parallel. Insufficient recommendable results may trigger bounded complementary retrieval; the card limit is not a quota. An authorized bounded Chrome search requires a server-issued recovery action and host authorization, not merely an empty result.
+Codex starts text product discovery with `search_products` through a local stdio MCP server; image, comparison and follow-up operations have their own tools. Eligible Awin, Shopify, configured eBay/WooCommerce and official-store sources can run in parallel. Insufficient recommendable results may trigger bounded complementary retrieval; the card limit is not a quota. An authorized bounded Chrome search requires a server-issued recovery action and host authorization, not merely an empty result.
 
 The plugin does not order, check out, or submit payment. Inventory reservation is outside the permitted product scope. Anonymous-cart quotes have separate approval and side-effect requirements; their target rules and verification gaps are recorded in the Agent design.
 
@@ -67,7 +67,7 @@ For a follow-up quote, refer to a result by its number or choose it from the car
 
 ## Product search
 
-The plugin uses one constrained search request with parallel, eligible Awin, Shopify, eBay and known official sources. Source-specific short queries preserve identity anchors; all final results must still satisfy the original category, variant, budget and required-feature checks. A query compiler separates retrieval wording from eligibility, and typed failures distinguish local invalid queries, source rejection, timeout, rate limiting, schema and security errors.
+The plugin uses one constrained search request with parallel, eligible Awin, Shopify, eBay, WooCommerce and known official sources. Source-specific short queries preserve identity anchors; all final results must still satisfy the original category, variant, budget and required-feature checks. A query compiler separates retrieval wording from eligibility, and typed failures distinguish local invalid queries, source rejection, timeout, rate limiting, schema and security errors.
 
 Continuations bind an explicit `parentRenderId` or server-issued `goalId` plus exact `goalRevision`. Requirements and prior candidates are rechecked without mutating old cards or treating old prices as fresh observations. Correcting product identity does not silently withdraw unrelated requirements. No global latest-result lookup or persistent product catalog is used.
 
@@ -221,3 +221,9 @@ See [sharing and installation](docs/product/findcheap-agent-share-package.md) fo
 Registry expansion never turns an Awin relationship or technical storefront response into merchant trust. See [Registry Builder](docs/product/registry-builder.md).
 
 The unified router uses eligible configured sources; bounded Chrome recovery follows server eligibility and host consent. See the Agent design for target behavior and current gaps.
+
+### Optional WooCommerce catalog
+
+WooCommerce joins the existing Backend search, visual candidates, comparisons, selected-product inspection, deals and item-price/stock Watch. Its Store API is per merchant: FindCheap supplies the access registry and aggregation. Registration or a WooCommerce platform key is not required for public product GETs; merchant access restrictions still apply. The five configured merchants do not represent all WooCommerce stores or verified merchant trust.
+
+The source service remains disabled unless `WOOCOMMERCE_SOURCE_ENABLED=true`. The v0.18.0 distributed plugin config points `WOOCOMMERCE_API_BASE_URL` to the public FindCheap source gateway; standalone MCP processes can supply a compatible HTTPS origin. An explicit MCP `WOOCOMMERCE_SOURCE_ENABLED=false` also disables this source. No checkout, account or administrative credentials are needed. Setup, merchant scope, response budgets and rollback are in the [WooCommerce runbook](docs/product/woocommerce-source-setup.md).

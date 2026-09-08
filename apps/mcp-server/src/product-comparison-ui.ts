@@ -1,7 +1,7 @@
 import { FINDCHEAP_VERSION } from "../../../config/version.js";
 import { QUOTE_UI_FEEDBACK_SCRIPT } from "./quote-ui-feedback.js";
 
-export const PRODUCT_COMPARISON_UI_URI = "ui://findcheap/product-comparison/v10.html";
+export const PRODUCT_COMPARISON_UI_URI = "ui://findcheap/product-comparison/v11.html";
 
 export const PRODUCT_COMPARISON_HTML = String.raw`<!doctype html>
 <html>

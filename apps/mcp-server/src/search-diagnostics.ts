@@ -23,7 +23,7 @@ export function searchDiagnostics(execution: UnifiedSearchExecution, outcome: Se
   const nonTransientFailure = ["SECURITY_REJECTED", "SCHEMA_INVALID", "INVALID_QUERY", "SOURCE_REJECTED", "BUDGET_EXHAUSTED", "UNKNOWN"]
     .map(kind => sourceFailures?.find(failure => !failure.retryable && failure.kind === kind)).find(Boolean);
   const sourceObservations = execution.sourcePassDiagnostics.reduce((total, pass) =>
-    total + pass.rawProducts.awin + pass.rawProducts.shopify + pass.rawProducts.ebay, 0) + (execution.webRecovery?.verified ?? 0);
+    total + pass.rawProducts.awin + pass.rawProducts.shopify + pass.rawProducts.ebay + (pass.rawProducts.woocommerce ?? 0), 0) + (execution.webRecovery?.verified ?? 0);
   const funnel = execution.candidateFunnel;
   const retrieved = execution.retrievedProductHashes;
   return {
@@ -45,6 +45,7 @@ export function searchDiagnostics(execution: UnifiedSearchExecution, outcome: Se
     outcome: run?.budgetExhausted === true && outcome !== "MATCH_FOUND" && outcome !== "REVIEW_REQUIRED"
       ? "BUDGET_EXHAUSTED" as const : outcome,
     sources: execution.sourceStatus,
+    ...(execution.woocommerceResult === undefined ? {} : { woocommerce: { registryVersion: execution.woocommerceResult.registryVersion, status: execution.woocommerceResult.status, ...execution.woocommerceResult.diagnostics } }),
     ...(retrieved === undefined ? {} : { retrieval: {
       origin: "SERVER_TRACE" as const,
       order: "SOURCE_OBSERVATION_ORDER" as const,

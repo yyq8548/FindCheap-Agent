@@ -4,6 +4,8 @@ import { randomUUID } from "node:crypto";
 import type { ShopifyPort, ShopifyProduct } from "./shopify-client.js";
 import { ShopifyCartQuoteError, type ShopifyCartQuotePort } from "./shopify-cart-quote.js";
 import { productWatchClarificationQuestions, WatchStateConflictError, watchStopIntent, type WatchRecord, type WatchStore } from "./watch-store.js";
+import type { WooCommerceProductPort } from "./woocommerce-client.js";
+import { WooLookupResultSchema, type WooProduct } from "../../../packages/contracts/src/woocommerce.js";
 
 export type WatchEvaluation = {
   status: "TRIGGERED" | "NOT_TRIGGERED" | "PAUSED" | "EXPIRED" | "COMPLETED" | "NEEDS_CLARIFICATION" | "DATA_SOURCE_UNAVAILABLE";
@@ -18,8 +20,10 @@ export async function evaluateWatch(
   shopify: ShopifyPort,
   deals: DealPort,
   _cartQuotes: ShopifyCartQuotePort | undefined,
-  now: Date
+  now: Date,
+  woocommerceProducts?: WooCommerceProductPort
 ): Promise<WatchEvaluation> {
+  const started = performance.now();
   if (watch.status === "COMPLETED") return { status: "COMPLETED", message: "Restock Watch is locally completed; no new notification. Host scheduler stop remains unverified.", watch };
   if (watch.status === "EXPIRED" || (watch.spec.expiresAt !== undefined && Date.parse(watch.spec.expiresAt) <= now.getTime())) {
     const stopIntent = watchStopIntent(watch, "EXPIRED", now.toISOString());
@@ -50,7 +54,9 @@ export async function evaluateWatch(
   try {
     const observation = isDealCondition(watch)
       ? await observeDeals(watch, deals, now)
-      : await observeProducts(watch, shopify, now);
+      : watch.spec.selectedProduct?.sourceKind === "WOOCOMMERCE_STORE_API"
+        ? await observeWooProduct(watch, woocommerceProducts, new Date(now.getTime() + Math.ceil(performance.now() - started)))
+        : await observeProducts(watch, shopify, now);
     const triggered = observation.satisfied && watch.wasSatisfied !== true;
     const complete = triggered && watch.spec.condition === "RESTOCKED";
     const stopIntent = complete ? watchStopIntent(watch, "RESTOCKED", now.toISOString()) : undefined;
@@ -86,6 +92,115 @@ export async function evaluateWatch(
 
 function isDealCondition(watch: WatchRecord) {
   return ["DISCOUNT_AT_LEAST", "COUPON_AVAILABLE", "CASHBACK_AT_LEAST"].includes(watch.spec.condition);
+}
+
+type WooSelectedProduct = Extract<NonNullable<WatchRecord["spec"]["selectedProduct"]>, { sourceKind: "WOOCOMMERCE_STORE_API" }>;
+type WooWatchTarget = Pick<WatchRecord, "spec" | "lastCheckedAt" | "lastObservation">;
+export type WooWatchObservation = {
+  satisfied: boolean;
+  triggerMessage: string;
+  statusMessage: string;
+  data: Record<string, unknown>;
+};
+
+/** Reads and verifies the locked target; callers own persistence and notification. */
+export async function observeWooProduct(watch: WooWatchTarget, source: WooCommerceProductPort | undefined, now: Date): Promise<WooWatchObservation> {
+  const started = performance.now();
+  const selected = watch.spec.selectedProduct;
+  if (source === undefined || selected?.sourceKind !== "WOOCOMMERCE_STORE_API") throw new Error("DATA_SOURCE_UNAVAILABLE");
+  const result = WooLookupResultSchema.parse(await source.lookup({
+    merchantId: selected.merchantId, productId: selected.productId,
+    ...(selected.parentProductId === undefined ? {} : { parentProductId: selected.parentProductId }),
+    ...(selected.variationId === undefined ? {} : { variationId: selected.variationId })
+  }, { signal: AbortSignal.timeout(9_000) }));
+  if (result.status !== "FOUND" || result.product === undefined) throw new Error("DATA_SOURCE_UNAVAILABLE");
+  now = new Date(now.getTime() + Math.ceil(performance.now() - started));
+  const product = result.product;
+  const checkedAt = Date.parse(product.checkedAt);
+  const previousSourceTime = typeof watch.lastObservation?.["checkedAt"] === "string"
+    ? Date.parse(watch.lastObservation["checkedAt"]) : NaN;
+  const previous = matchingWooInventoryObservation(watch, selected, now);
+  if (!wooTargetMatches(product, selected) || !wooRequirementsMatch(product, watch) ||
+    checkedAt > now.getTime() || checkedAt < now.getTime() - 900_000 ||
+    checkedAt < Date.parse(selected.selectedAt) ||
+    (watch.lastCheckedAt !== undefined && checkedAt < Date.parse(watch.lastCheckedAt)) ||
+    (Number.isFinite(previousSourceTime) && checkedAt < previousSourceTime) ||
+    (previous !== undefined && checkedAt < Date.parse(previous.checkedAt))) throw new Error("DATA_SOURCE_UNAVAILABLE");
+  const data = {
+    sourceKind: product.sourceKind, merchantId: product.merchantId, sourceHost: product.sourceHost,
+    productId: product.productId, productType: product.productType,
+    ...(product.parentProductId === undefined ? {} : { parentProductId: product.parentProductId }),
+    ...(product.variationId === undefined ? {} : { variationId: product.variationId }),
+    title: product.title, merchant: product.merchantName, merchantUrl: product.merchantUrl,
+    variantDimensions: { ...product.selectedAttributes }, condition: product.condition,
+    availability: product.availability, availabilityScope: product.availabilityScope,
+    ...(product.itemPrice === undefined ? {} : { itemPrice: product.itemPrice }),
+    checkedAt: product.checkedAt
+  };
+  if (watch.spec.condition === "PRICE_BELOW") {
+    if (product.itemPrice === undefined || product.priceEvidence.scope !==
+      (selected.productType === "variation" ? "VARIANT" : "PRODUCT")) throw new Error("DATA_SOURCE_UNAVAILABLE");
+    const satisfied = product.itemPrice.amountCents < (watch.spec.threshold ?? 0);
+    const price = `$${(product.itemPrice.amountCents / 100).toFixed(2)}`;
+    return { satisfied, triggerMessage: `${product.title} is ${price}, below the watch target.`,
+      statusMessage: `${product.title} is ${price}; target not reached.`, data: { ...data, priceBasis: "ITEM_PRICE" } };
+  }
+  if (!["IN_STOCK", "OUT_OF_STOCK"].includes(product.availability) || product.availabilityScope !==
+    (selected.productType === "variation" ? "VARIANT" : "PRODUCT")) throw new Error("DATA_SOURCE_UNAVAILABLE");
+  const inStock = product.availability === "IN_STOCK";
+  const satisfied = inStock && (watch.spec.condition !== "RESTOCKED" || previous?.availability === "OUT_OF_STOCK");
+  return { satisfied, triggerMessage: `${product.title} is now in stock at ${product.merchantName}.`,
+    statusMessage: inStock ? `${product.title} is in stock; no new transition to alert.` : `${product.title} is not currently in stock.`, data };
+}
+
+function sameDimensions(first: Record<string, string>, second: Record<string, string>): boolean {
+  return Object.keys(first).length === Object.keys(second).length && Object.entries(first).every(([key, value]) =>
+    Object.entries(second).some(([otherKey, otherValue]) => normalizeIdentity(key) === normalizeIdentity(otherKey) &&
+      normalizeIdentity(value) === normalizeIdentity(otherValue)));
+}
+
+function wooTargetMatches(product: WooProduct, selected: WooSelectedProduct): boolean {
+  return product.merchantId === selected.merchantId && product.sourceHost.toLowerCase() === selected.sourceHost.toLowerCase() &&
+    product.productId === selected.productId && product.parentProductId === selected.parentProductId &&
+    product.variationId === selected.variationId && product.productType === selected.productType &&
+    product.condition === selected.condition && sameDimensions(product.selectedAttributes, selected.variantDimensions);
+}
+
+function wooRequirementsMatch(product: WooProduct, watch: Pick<WatchRecord, "spec">): boolean {
+  const spec = watch.spec;
+  if (spec.merchant !== undefined && normalizeIdentity(spec.merchant) !== normalizeIdentity(product.merchantName)) return false;
+  if (spec.conditionPreference !== "ANY" && spec.conditionPreference !== product.condition) return false;
+  const identity = spec.identity;
+  if (identity === undefined) return true;
+  if (identity.gtin !== undefined && identity.gtin !== product.gtin) return false;
+  if (identity.modelNumber !== undefined && ![product.mpn, product.sku].some(value =>
+    normalizeIdentity(value) === normalizeIdentity(identity.modelNumber)) &&
+    !normalizeIdentity(product.title).includes(normalizeIdentity(identity.modelNumber))) return false;
+  if (identity.generation !== undefined && !normalizeIdentity(product.title).includes(normalizeIdentity(identity.generation))) return false;
+  return Object.entries(identity.variantDimensions ?? {}).every(([key, value]) => Object.entries(product.selectedAttributes)
+    .some(([otherKey, otherValue]) => normalizeIdentity(key) === normalizeIdentity(otherKey) && normalizeIdentity(value) === normalizeIdentity(otherValue)));
+}
+
+const WooInventoryObservationSchema = z.object({
+  sourceKind: z.literal("WOOCOMMERCE_STORE_API"), merchantId: z.string().min(1), sourceHost: z.string().min(1),
+  productId: z.number().int().positive(), parentProductId: z.number().int().positive().optional(),
+  variationId: z.number().int().positive().optional(), productType: z.enum(["simple", "variation"]),
+  variantDimensions: z.record(z.string(), z.string()),
+  condition: z.enum(["NEW", "USED", "REFURBISHED", "OPEN_BOX", "UNKNOWN"]),
+  availability: z.enum(["OUT_OF_STOCK", "IN_STOCK"]), availabilityScope: z.enum(["PRODUCT", "VARIANT"]),
+  checkedAt: z.string().datetime({ offset: true })
+});
+
+function matchingWooInventoryObservation(watch: Pick<WatchRecord, "lastObservation">, selected: WooSelectedProduct, now: Date) {
+  const parsed = WooInventoryObservationSchema.safeParse(watch.lastObservation);
+  if (!parsed.success) return undefined;
+  const previous = parsed.data;
+  return Date.parse(previous.checkedAt) <= now.getTime() && previous.merchantId === selected.merchantId &&
+    previous.sourceHost.toLowerCase() === selected.sourceHost.toLowerCase() && previous.productId === selected.productId &&
+    previous.parentProductId === selected.parentProductId && previous.variationId === selected.variationId &&
+    previous.productType === selected.productType && previous.condition === selected.condition &&
+    previous.availabilityScope === (selected.productType === "variation" ? "VARIANT" : "PRODUCT") &&
+    sameDimensions(previous.variantDimensions, selected.variantDimensions) ? previous : undefined;
 }
 
 async function observeProducts(

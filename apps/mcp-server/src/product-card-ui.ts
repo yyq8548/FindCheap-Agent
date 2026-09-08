@@ -2,7 +2,7 @@ import { FINDCHEAP_VERSION } from "../../../config/version.js";
 import { QUOTE_UI_FEEDBACK_SCRIPT } from "./quote-ui-feedback.js";
 import { MAX_PRODUCT_CARDS } from "./product-candidate-ranking.js";
 
-export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v40.html";
+export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v41.html";
 
 export const PRODUCT_CARD_RESOURCE_DOMAINS = [
   "https://cdn.shopify.com",
@@ -298,7 +298,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       ? ({ "long hair": "长发", "short hair": "短发", "straight hair": "直发", "curly hair": "卷发" }[value] || value) : value;
     const badgeText = (value) => currentLocale !== "zh-CN" ? ({
       TRUSTED_MERCHANT: "Trusted merchant",
-      SHOPIFY_HIGH_RATED: "Highly rated product"
+      SHOPIFY_HIGH_RATED: "Highly rated product", PRODUCT_HIGH_RATED: "Highly rated product"
     })[value] || value : ({
       EXACT: "精确匹配",
       DISCOVERY_MATCH: "发现匹配",
@@ -308,7 +308,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       AUTHORIZED_RETAILER: "授权零售商",
       ESTABLISHED_RETAILER: "成熟零售商",
       TRUSTED_MERCHANT: "可信商家",
-      SHOPIFY_HIGH_RATED: "高评分商品",
+      SHOPIFY_HIGH_RATED: "高评分商品", PRODUCT_HIGH_RATED: "高评分商品",
       NEW: "全新",
       USED: "二手",
       REFURBISHED: "翻新",

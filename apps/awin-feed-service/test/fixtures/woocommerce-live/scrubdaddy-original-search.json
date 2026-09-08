@@ -1,0 +1,325 @@
+{
+  "fixtureKind": "SANITIZED_LIVE_OBSERVATION",
+  "observedAt": "2026-09-08T15:34:18Z",
+  "request": {
+    "method": "GET",
+    "url": "https://scrubdaddy.com/wp-json/wc/store/v1/products?search=original&per_page=3"
+  },
+  "response": {
+    "status": 200,
+    "contentType": "application/json; charset=UTF-8",
+    "bytes": 30916,
+    "total": "4",
+    "totalPages": "2",
+    "elapsedMs": 651
+  },
+  "sanitization": "Retained public product fields; omitted descriptions, extensions, cookies and request headers; images limited to three references per product. No image binary fetched.",
+  "body": [
+    {
+      "id": 769455,
+      "name": "Scrub Daddy Original Scrubber and Sponge &#8211; 6 count",
+      "slug": "scrub-daddy-original-scrubber-and-sponge-6-count",
+      "parent": 0,
+      "type": "simple",
+      "variation": "",
+      "permalink": "https://scrubdaddy.com/product/scrub-daddy-original-scrubber-and-sponge-6-count/",
+      "sku": "FG0100101006PD0FR01",
+      "is_purchasable": true,
+      "is_in_stock": true,
+      "is_on_backorder": false,
+      "low_stock_remaining": null,
+      "on_sale": false,
+      "prices": {
+        "price": "1999",
+        "regular_price": "1999",
+        "sale_price": "1999",
+        "price_range": null,
+        "currency_code": "USD",
+        "currency_symbol": "$",
+        "currency_minor_unit": 2,
+        "currency_decimal_separator": ".",
+        "currency_thousand_separator": ",",
+        "currency_prefix": "$",
+        "currency_suffix": ""
+      },
+      "average_rating": "0",
+      "review_count": 0,
+      "images": [
+        {
+          "id": 769718,
+          "src": "https://scrubdaddy.com/wp-content/uploads/2025/01/The-Original-Scrub-Daddy_1ct-x6_PDQ-1.jpg",
+          "thumbnail": "https://scrubdaddy.com/wp-content/uploads/2025/01/The-Original-Scrub-Daddy_1ct-x6_PDQ-1-300x300.jpg",
+          "name": "The-Original-Scrub-Daddy_1ct-x6_PDQ-1",
+          "alt": "6 count original scrub daddy PDQ"
+        },
+        {
+          "id": 722031,
+          "src": "https://scrubdaddy.com/wp-content/uploads/2024/06/Original-2-7.jpg",
+          "thumbnail": "https://scrubdaddy.com/wp-content/uploads/2024/06/Original-2-7-300x300.jpg",
+          "name": "Original-2-7",
+          "alt": "Scrub Daddy Original"
+        },
+        {
+          "id": 722086,
+          "src": "https://scrubdaddy.com/wp-content/uploads/2024/06/ScrubDaddy-083.jpg",
+          "thumbnail": "https://scrubdaddy.com/wp-content/uploads/2024/06/ScrubDaddy-083-300x300.jpg",
+          "name": "ScrubDaddy-083",
+          "alt": "Scrub Daddy Original"
+        }
+      ],
+      "categories": [
+        {
+          "id": 132,
+          "name": "Bundles",
+          "slug": "bundles",
+          "link": "https://scrubdaddy.com/product-category/bundles/"
+        },
+        {
+          "id": 19,
+          "name": "Scrubbers and Sponges",
+          "slug": "scrubbers-sponges",
+          "link": "https://scrubdaddy.com/product-category/scrubbers-sponges/"
+        }
+      ],
+      "brands": [],
+      "attributes": [],
+      "variations": [],
+      "stock_availability": {
+        "text": "In stock",
+        "class": "in-stock"
+      },
+      "add_to_cart": {
+        "text": "Add to cart",
+        "description": "Add to cart: &ldquo;Scrub Daddy Original Scrubber and Sponge &#8211; 6 count&rdquo;",
+        "url": "/wp-json/wc/store/v1/products?search=original&#038;per_page=3&#038;add-to-cart=769455",
+        "single_text": "Add to cart",
+        "minimum": 1,
+        "maximum": 134,
+        "multiple_of": 1
+      },
+      "_links": {
+        "self": [
+          {
+            "href": "https://scrubdaddy.com/wp-json/wc/store/v1/products/769455",
+            "targetHints": {
+              "allow": [
+                "GET"
+              ]
+            }
+          }
+        ],
+        "collection": [
+          {
+            "href": "https://scrubdaddy.com/wp-json/wc/store/v1/products"
+          }
+        ],
+        "related": [
+          {
+            "embeddable": true,
+            "href": "https://scrubdaddy.com/wp-json/wc/store/v1/products?related=769455&per_page=10"
+          }
+        ]
+      }
+    },
+    {
+      "id": 275529,
+      "name": "Scrub Daddy Original (4ct Pack)",
+      "slug": "scrub-daddy-4ct-pack",
+      "parent": 0,
+      "type": "simple",
+      "variation": "",
+      "permalink": "https://scrubdaddy.com/product/scrub-daddy-4ct-pack/",
+      "sku": "FG0100104001EA0EN02",
+      "is_purchasable": true,
+      "is_in_stock": true,
+      "is_on_backorder": false,
+      "low_stock_remaining": null,
+      "on_sale": false,
+      "prices": {
+        "price": "1499",
+        "regular_price": "1499",
+        "sale_price": "1499",
+        "price_range": null,
+        "currency_code": "USD",
+        "currency_symbol": "$",
+        "currency_minor_unit": 2,
+        "currency_decimal_separator": ".",
+        "currency_thousand_separator": ",",
+        "currency_prefix": "$",
+        "currency_suffix": ""
+      },
+      "average_rating": "0",
+      "review_count": 0,
+      "images": [
+        {
+          "id": 722089,
+          "src": "https://scrubdaddy.com/wp-content/uploads/2024/06/ScrubDaddy-4Pack-080.jpg",
+          "thumbnail": "https://scrubdaddy.com/wp-content/uploads/2024/06/ScrubDaddy-4Pack-080-300x300.jpg",
+          "name": "ScrubDaddy-4Pack-080",
+          "alt": "Scrub Daddy Original 4 Pack"
+        },
+        {
+          "id": 722088,
+          "src": "https://scrubdaddy.com/wp-content/uploads/2024/06/ScrubDaddy-086.jpg",
+          "thumbnail": "https://scrubdaddy.com/wp-content/uploads/2024/06/ScrubDaddy-086-300x300.jpg",
+          "name": "ScrubDaddy-086",
+          "alt": "Front Side of Scrub Daddy Original"
+        },
+        {
+          "id": 722086,
+          "src": "https://scrubdaddy.com/wp-content/uploads/2024/06/ScrubDaddy-083.jpg",
+          "thumbnail": "https://scrubdaddy.com/wp-content/uploads/2024/06/ScrubDaddy-083-300x300.jpg",
+          "name": "ScrubDaddy-083",
+          "alt": "Scrub Daddy Original"
+        }
+      ],
+      "categories": [
+        {
+          "id": 19,
+          "name": "Scrubbers and Sponges",
+          "slug": "scrubbers-sponges",
+          "link": "https://scrubdaddy.com/product-category/scrubbers-sponges/"
+        }
+      ],
+      "brands": [],
+      "attributes": [],
+      "variations": [],
+      "stock_availability": {
+        "text": "In stock",
+        "class": "in-stock"
+      },
+      "add_to_cart": {
+        "text": "Add to cart",
+        "description": "Add to cart: &ldquo;Scrub Daddy Original (4ct Pack)&rdquo;",
+        "url": "/wp-json/wc/store/v1/products?search=original&#038;per_page=3&#038;add-to-cart=275529",
+        "single_text": "Add to cart",
+        "minimum": 1,
+        "maximum": 401,
+        "multiple_of": 1
+      },
+      "_links": {
+        "self": [
+          {
+            "href": "https://scrubdaddy.com/wp-json/wc/store/v1/products/275529",
+            "targetHints": {
+              "allow": [
+                "GET"
+              ]
+            }
+          }
+        ],
+        "collection": [
+          {
+            "href": "https://scrubdaddy.com/wp-json/wc/store/v1/products"
+          }
+        ],
+        "related": [
+          {
+            "embeddable": true,
+            "href": "https://scrubdaddy.com/wp-json/wc/store/v1/products?related=275529&per_page=10"
+          }
+        ]
+      }
+    },
+    {
+      "id": 16677,
+      "name": "Screen Daddy Original (2ct)",
+      "slug": "screen-daddy-original-2ct",
+      "parent": 0,
+      "type": "simple",
+      "variation": "",
+      "permalink": "https://scrubdaddy.com/product/screen-daddy-original-2ct/",
+      "sku": "FG8000002001EA0EN01",
+      "is_purchasable": true,
+      "is_in_stock": false,
+      "is_on_backorder": false,
+      "low_stock_remaining": null,
+      "on_sale": false,
+      "prices": {
+        "price": "199",
+        "regular_price": "199",
+        "sale_price": "199",
+        "price_range": null,
+        "currency_code": "USD",
+        "currency_symbol": "$",
+        "currency_minor_unit": 2,
+        "currency_decimal_separator": ".",
+        "currency_thousand_separator": ",",
+        "currency_prefix": "$",
+        "currency_suffix": ""
+      },
+      "average_rating": "4.83",
+      "review_count": 6,
+      "images": [
+        {
+          "id": 721799,
+          "src": "https://scrubdaddy.com/wp-content/uploads/2024/06/screen-daddy-1-4.jpg",
+          "thumbnail": "https://scrubdaddy.com/wp-content/uploads/2024/06/screen-daddy-1-4-300x300.jpg",
+          "name": "screen-daddy-1-4",
+          "alt": "Screen Daddy 2 count"
+        },
+        {
+          "id": 721802,
+          "src": "https://scrubdaddy.com/wp-content/uploads/2024/06/screen-daddy-3-4.jpg",
+          "thumbnail": "https://scrubdaddy.com/wp-content/uploads/2024/06/screen-daddy-3-4-300x300.jpg",
+          "name": "screen-daddy-3-4",
+          "alt": "Person using a Screen Daddy to clean a phone"
+        },
+        {
+          "id": 721800,
+          "src": "https://scrubdaddy.com/wp-content/uploads/2024/06/screen-daddy-2-4.jpg",
+          "thumbnail": "https://scrubdaddy.com/wp-content/uploads/2024/06/screen-daddy-2-4-300x300.jpg",
+          "name": "screen-daddy-2-4",
+          "alt": "Sticking Screen Daddy to the back of a phone"
+        }
+      ],
+      "categories": [
+        {
+          "id": 42,
+          "name": "Accessories and Refills",
+          "slug": "accessories-refills",
+          "link": "https://scrubdaddy.com/product-category/accessories-refills/"
+        }
+      ],
+      "brands": [],
+      "attributes": [],
+      "variations": [],
+      "stock_availability": {
+        "text": "Out of stock",
+        "class": "out-of-stock"
+      },
+      "add_to_cart": {
+        "text": "Get notified",
+        "description": "Read more about &ldquo;Screen Daddy Original (2ct)&rdquo;",
+        "url": "https://scrubdaddy.com/product/screen-daddy-original-2ct/",
+        "single_text": "Add to cart",
+        "minimum": 1,
+        "maximum": 150,
+        "multiple_of": 1
+      },
+      "_links": {
+        "self": [
+          {
+            "href": "https://scrubdaddy.com/wp-json/wc/store/v1/products/16677",
+            "targetHints": {
+              "allow": [
+                "GET"
+              ]
+            }
+          }
+        ],
+        "collection": [
+          {
+            "href": "https://scrubdaddy.com/wp-json/wc/store/v1/products"
+          }
+        ],
+        "related": [
+          {
+            "embeddable": true,
+            "href": "https://scrubdaddy.com/wp-json/wc/store/v1/products?related=16677&per_page=10"
+          }
+        ]
+      }
+    }
+  ]
+}

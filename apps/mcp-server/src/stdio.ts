@@ -18,12 +18,14 @@ import { createMerchantTrustRegistryPortFromEnvironment } from "./merchant-trust
 import { createFindCheapBackend } from "./backend.js";
 import { createAffiliateLinkResolver } from "./affiliate-links.js";
 import { createWebProductPagePort } from "./web-product-recovery.js";
+import { createWooCommercePortFromEnvironment } from "./woocommerce-client.js";
 
 const shopifyPort = createShopifyPortFromEnvironment(process.env);
 const dealPort = createDealPortFromEnvironment(process.env);
 const cartQuotePort = createShopifyCartQuotePort(process.env);
 const awinPort = createAwinFeedPort(process.env);
 const ebayPort = createEbayPortFromEnvironment(process.env);
+const woocommercePort = createWooCommercePortFromEnvironment(process.env);
 const officialStorefrontRegistry = createOfficialStorefrontRegistryPortFromEnvironment(process.env);
 const merchantTrustRegistry = createMerchantTrustRegistryPortFromEnvironment(process.env);
 const affiliateLinks = createAffiliateLinkResolver();
@@ -36,6 +38,7 @@ const backend = createFindCheapBackend({
     shopify: shopifyPort,
     awin: awinPort,
     ...(ebayPort === undefined ? {} : { ebay: ebayPort }),
+    ...(woocommercePort === undefined ? {} : { woocommerce: woocommercePort }),
     officialShopify,
     ...(officialStorefrontRegistry === undefined ? {} : { officialStorefrontRegistry }),
     ...(merchantTrustRegistry === undefined ? {} : { merchantTrustRegistry })
@@ -45,7 +48,8 @@ const backend = createFindCheapBackend({
     affiliateLinks,
     awinShopifyQuotes: createAwinShopifyQuoteResolver(),
     cartQuotes: cartQuotePort,
-    selectedProducts: createShopifySelectedProductInspector()
+    selectedProducts: createShopifySelectedProductInspector(),
+    ...(woocommercePort === undefined ? {} : { woocommerceProducts: woocommercePort })
   },
   deals: dealPort,
   watches: createJsonWatchStore(stateDirectory),
@@ -54,7 +58,7 @@ const backend = createFindCheapBackend({
 });
 const server = createShoppingServer(shopifyPort, affiliateLinks, {
   backend,
-  productCardResourceDomains: productCardResourceDomains(process.env.AWIN_PRODUCT_SEARCH_URL),
+  productCardResourceDomains: [...new Set([...productCardResourceDomains(process.env.AWIN_PRODUCT_SEARCH_URL), ...productCardResourceDomains(process.env.WOOCOMMERCE_API_BASE_URL)])],
 });
 
 try {

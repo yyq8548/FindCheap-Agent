@@ -13,11 +13,13 @@ import type { WatchStore } from "./watch-store.js";
 import type { AwinProductPort } from "../../../packages/awin-feed/src/index.js";
 import type { BackendCapability } from "./execution/capabilities.js";
 import type { WebProductPagePort } from "./web-product-recovery.js";
+import type { WooCommerceCatalogPort, WooCommerceProductPort } from "./woocommerce-client.js";
 
 export type CatalogBackend = {
   shopify: ShopifyPort;
   awin: AwinProductPort;
   ebay?: EbayBrowsePort;
+  woocommerce?: WooCommerceCatalogPort;
   officialShopify?: OfficialShopifySearchPort;
   officialStorefrontRegistry?: OfficialStorefrontRegistryPort;
   merchantTrustRegistry?: MerchantTrustRegistryPort;
@@ -29,6 +31,7 @@ export type ProductBackend = {
   awinShopifyQuotes?: AwinShopifyQuoteResolver;
   cartQuotes?: ShopifyCartQuotePort;
   selectedProducts?: ShopifySelectedProductInspector;
+  woocommerceProducts?: WooCommerceProductPort;
 };
 
 export type FindCheapBackend = {
@@ -49,7 +52,7 @@ export function createFindCheapBackend(input: FindCheapBackendInput): FindCheapB
     "CATALOG",
     "WATCHES",
     ...(input.product.webProducts === undefined ? [] : ["WEB_RECOVERY" as const]),
-    ...(input.product.selectedProducts === undefined ? [] : ["PRODUCT_INSPECTION" as const]),
+    ...(input.product.selectedProducts === undefined && input.product.woocommerceProducts === undefined ? [] : ["PRODUCT_INSPECTION" as const]),
     ...(input.product.cartQuotes === undefined ? [] : ["PRODUCT_QUOTE" as const]),
     ...(input.visualCandidateImages === undefined ? [] : ["VISUAL_SEARCH" as const]),
     ...(input.verifiedDeals ? ["VERIFIED_DEALS" as const] : [])

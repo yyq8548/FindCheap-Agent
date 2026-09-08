@@ -84,7 +84,7 @@ describe("FindCheap Agent plugin contract", () => {
     expect(skill).toContain("Never call `render_product_cards`");
     expect(skill).toContain("Call `search_products` exactly once");
     expect(skill).toContain("`quote_selected_shopify_product`");
-    expect(skill).toContain("`inspect_selected_shopify_product`");
+    expect(skill).toContain("`inspect_selected_product`");
     expect(skill).toContain("Never call `search_products` or title-search");
     expect(skill).toContain("Pass prior `renderId`, current `responseLocale`");
     expect(skill).toContain("prior `renderId`");
@@ -284,7 +284,7 @@ describe("FindCheap Agent plugin contract", () => {
     };
 
     expect(manifest.name).toBe("findcheap-agent");
-    expect(manifest.version).toMatch(/^0\.17\.34(?:\+codex\.)?/u);
+    expect(manifest.version).toMatch(/^0\.18\.0(?:\+codex\.)?/u);
     expect(manifest.interface.displayName).toBe("FindCheap Agent");
     expect(manifest.interface.longDescription).toMatch(/Codex Plugin Agent/u);
     expect(manifest.interface.longDescription).toMatch(/[Aa]uthorized.*Chrome/u);

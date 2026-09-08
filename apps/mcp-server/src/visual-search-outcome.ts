@@ -1,3 +1,4 @@
+import { candidateProductFacts } from "./woocommerce-product.js";
 import type { UnifiedCandidate } from "./search-products.js";
 import { z } from "zod";
 
@@ -45,9 +46,9 @@ export function describeVisualOutcome(products: ReadonlyArray<{
 export function needsMoreVisualReview(candidates: readonly UnifiedCandidate[], hasUnreviewedPool: boolean): boolean {
   const possible = candidates.filter(hasSameItemEvidence);
   const available = possible.some(candidate =>
-    (candidate.awinProduct ?? candidate.shopifyProduct ?? candidate.ebayProduct).availability === "IN_STOCK");
+    candidateProductFacts(candidate).availability === "IN_STOCK");
   const unavailable = possible.some(candidate =>
-    (candidate.awinProduct ?? candidate.shopifyProduct ?? candidate.ebayProduct).availability === "OUT_OF_STOCK");
+    candidateProductFacts(candidate).availability === "OUT_OF_STOCK");
   return candidates.length === 0 || (!available && (hasUnreviewedPool || unavailable));
 }
 
@@ -56,7 +57,7 @@ export function selectVisualResults(candidates: readonly UnifiedCandidate[], lim
   if (limit <= 0) return [];
   const selected = candidates.slice(0, limit);
   const anchor = candidates.find(candidate => hasSameItemEvidence(candidate) &&
-    (candidate.awinProduct ?? candidate.shopifyProduct ?? candidate.ebayProduct).availability === "OUT_OF_STOCK");
+    candidateProductFacts(candidate).availability === "OUT_OF_STOCK");
   return anchor === undefined || selected.includes(anchor) ? selected : [...selected.slice(0, limit - 1), anchor];
 }
 

@@ -1,3 +1,4 @@
+import { candidateProductFacts, wooProductFacts, dealProductId } from "./woocommerce-product.js";
 import { resolveMerchantTrust } from "./merchant-trust.js";
 import { productReferenceKey } from "./product-reference.js";
 import { deduplicateCandidateOffers } from "./offer-equivalence.js";
@@ -25,7 +26,7 @@ export const MAX_PRODUCT_CARDS =
 export function candidateMerchant(candidate: UnifiedCandidate): string {
   if (candidate.source === "AWIN_PRODUCT_FEED") return candidate.awinProduct.merchant;
   if (candidate.source === "EBAY_BROWSE") return "eBay";
-  return candidate.shopifyProduct.merchant;
+  return candidate.shopifyProduct?.merchant ?? candidate.woocommerceProduct!.merchantName;
 }
 
 export function compareRankedCandidates(left: UnifiedCandidate, right: UnifiedCandidate, evaluatedAtMs = Date.now()): number {
@@ -40,9 +41,9 @@ export function compareRankedCandidates(left: UnifiedCandidate, right: UnifiedCa
 }
 
 function candidateRanking(candidate: UnifiedCandidate, evaluatedAtMs: number) {
-  const source = candidate.awinProduct ?? candidate.shopifyProduct ?? candidate.ebayProduct;
+  const source = candidateProductFacts(candidate);
   const registered = resolveMerchantTrust(new URL(source.merchantUrl).hostname, candidateMerchant(candidate));
-  const trust = candidate.shopifyProduct?.merchantTrust ?? (candidate.source === "AWIN_PRODUCT_FEED" &&
+  const trust = (candidate.source === "WOOCOMMERCE_STORE_API" ? wooProductFacts(candidate.woocommerceProduct).merchantTrust : candidate.shopifyProduct?.merchantTrust) ?? (candidate.source === "AWIN_PRODUCT_FEED" &&
     registered.level !== "RISKY" && registered.verification !== "INDEPENDENT"
     ? { level: "ESTABLISHED_RETAILER" as const, verification: "INDEPENDENT" as const }
     : registered);
@@ -110,7 +111,7 @@ export function selectPresentationCandidates(
 }
 
 function candidateValueProduct(candidate: UnifiedCandidate, evaluatedAtMs: number): ValueProduct {
-  const source = candidate.awinProduct ?? candidate.shopifyProduct ?? candidate.ebayProduct;
+  const source = candidateProductFacts(candidate);
   return { ...source, itemPrice: source.itemPrice === undefined ? undefined : { ...source.itemPrice, amountCents: candidateEffectivePrice(candidate, evaluatedAtMs) } };
 }
 
@@ -153,7 +154,7 @@ export function selectVisualReviewCandidates(
   );
   const colorway = visual === undefined ? { colors: [], patterns: [] } : visualColorwayTerms(visual);
   const colorwayScore = (candidate: UnifiedCandidate): number => {
-    const product = candidate.awinProduct ?? candidate.shopifyProduct ?? candidate.ebayProduct;
+    const product = candidateProductFacts(candidate);
     const text = [product.title, "description" in product ? product.description : undefined,
       ...(candidate.shopifyProduct === undefined ? [] : Object.values(candidate.shopifyProduct.variantDimensions))]
       .filter((entry): entry is string => typeof entry === "string").join(" ").normalize("NFKC")
@@ -246,7 +247,7 @@ export function countComparableMerchants(candidates: UnifiedCandidate[]): number
   const evaluatedAtMs = Date.now();
   return countComparableOfferMerchants(candidates.filter(candidate => candidate.identityStatus !== "SIMILAR" &&
     candidateRanking(candidate, evaluatedAtMs).displayEligible).map(candidate => {
-      const product = candidate.awinProduct ?? candidate.shopifyProduct ?? candidate.ebayProduct;
+      const product = candidateProductFacts(candidate);
       return { ...product, merchantId: "merchantId" in product ? product.merchantId : product.itemId };
     }));
 }
@@ -264,17 +265,18 @@ export function compareLowestPrice(left: UnifiedCandidate, right: UnifiedCandida
 export function candidateTitle(candidate: UnifiedCandidate): string {
   if (candidate.source === "AWIN_PRODUCT_FEED") return candidate.awinProduct.title;
   if (candidate.source === "EBAY_BROWSE") return candidate.ebayProduct.title;
-  return candidate.shopifyProduct.title;
+  return candidateProductFacts(candidate).title;
 }
 
 function isOfficialCandidate(candidate: UnifiedCandidate): boolean {
-  if (candidate.source !== "SHOPIFY_GLOBAL_CATALOG") return false;
+  if (candidate.source !== "SHOPIFY_GLOBAL_CATALOG" && candidate.source !== "WOOCOMMERCE_STORE_API") return false;
+  const product = candidate.source === "WOOCOMMERCE_STORE_API" ? wooProductFacts(candidate.woocommerceProduct) : candidate.shopifyProduct;
   try {
-    const merchantUrl = new URL(candidate.shopifyProduct.merchantUrl);
-    const websiteTrust = resolveMerchantTrust(merchantUrl.hostname, candidate.shopifyProduct.merchant);
+    const merchantUrl = new URL(product.merchantUrl);
+    const websiteTrust = resolveMerchantTrust(merchantUrl.hostname, product.merchant);
     return merchantUrl.protocol === "https:" &&
-      candidate.shopifyProduct.merchantTrust.level === "OFFICIAL" &&
-      candidate.shopifyProduct.merchantTrust.verification === "INDEPENDENT" &&
+      product.merchantTrust.level === "OFFICIAL" &&
+      product.merchantTrust.verification === "INDEPENDENT" &&
       websiteTrust.level === "OFFICIAL" &&
       websiteTrust.verification === "INDEPENDENT";
   } catch {
@@ -294,7 +296,7 @@ export function candidateKey(candidate: UnifiedCandidate): string {
     return `${candidate.source}:${candidate.awinProduct.merchantId}:${candidate.awinProduct.merchantProductId}`;
   }
   if (candidate.source === "EBAY_BROWSE") return `${candidate.source}:${candidate.ebayProduct.itemId}`;
-  return productReferenceKey(candidate.shopifyProduct);
+  return productReferenceKey(candidate.source === "WOOCOMMERCE_STORE_API" ? wooProductFacts(candidate.woocommerceProduct) : candidate.shopifyProduct);
 }
 
 function candidateMerchantKey(candidate: UnifiedCandidate): string {
@@ -324,7 +326,7 @@ function selectMerchantDiverse(
   }
   const styleKey = (candidate: UnifiedCandidate): string => {
     if (candidate.source === "EBAY_BROWSE") return candidateKey(candidate);
-    const product = candidate.awinProduct ?? candidate.shopifyProduct;
+    const product = candidate.source === "WOOCOMMERCE_STORE_API" ? wooProductFacts(candidate.woocommerceProduct) : candidate.awinProduct ?? candidate.shopifyProduct;
     return merchantVariantStyleKey({ sourceKind: candidate.source, merchantId: product.merchantId,
       sourceHost: new URL(product.merchantUrl).hostname, handle: candidateProductId(candidate), merchantUrl: product.merchantUrl }) ?? candidateKey(candidate);
   };
@@ -357,7 +359,7 @@ function resultGroupRank(group: UnifiedCandidate["resultGroup"]): number {
 function candidatePrice(candidate: UnifiedCandidate): number {
   if (candidate.source === "AWIN_PRODUCT_FEED") return candidate.awinProduct.itemPrice.amountCents;
   if (candidate.source === "EBAY_BROWSE") return candidate.ebayProduct.itemPrice.amountCents;
-  return candidate.shopifyProduct.itemPrice?.amountCents ?? Number.MAX_SAFE_INTEGER;
+  return candidateProductFacts(candidate).itemPrice?.amountCents ?? Number.MAX_SAFE_INTEGER;
 }
 
 function candidateEffectivePrice(candidate: UnifiedCandidate, evaluatedAtMs: number): number {
@@ -392,5 +394,5 @@ function assessCandidateDeal(candidate: UnifiedCandidate, deal: UnifiedCandidate
 function candidateProductId(candidate: UnifiedCandidate): string {
   if (candidate.source === "AWIN_PRODUCT_FEED") return candidate.awinProduct.merchantProductId;
   if (candidate.source === "EBAY_BROWSE") return candidate.ebayProduct.productRef;
-  return candidate.shopifyProduct.handle;
+  return candidate.source === "WOOCOMMERCE_STORE_API" ? dealProductId(wooProductFacts(candidate.woocommerceProduct)) : candidate.shopifyProduct.handle;
 }

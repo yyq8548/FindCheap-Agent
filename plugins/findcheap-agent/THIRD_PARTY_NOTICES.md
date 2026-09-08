@@ -6,7 +6,7 @@ Bundle: `plugins/findcheap-agent/dist/mcp-server.js`
 
 Metafile: `plugins/findcheap-agent/dist/mcp-server.meta.json`
 
-Bundle SHA-256: `4a9133b75914e8dfabdaf207c5e5c073c189e852abeaf6d552dec64854bd37a3`
+Bundle SHA-256: `d2f0bb2fa66990ac3da12dde7eb19e33a7025d615817ef6993d6f788819fb0ba`
 
 Image worker: `plugins/findcheap-agent/dist/visual-image-worker.cjs`
 

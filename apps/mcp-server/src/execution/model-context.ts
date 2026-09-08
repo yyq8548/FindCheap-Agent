@@ -4,7 +4,7 @@ import { ToolOutputRejectedError } from "./tool-outcome.js";
 
 const CONTEXT_TOOLS = new Set([
   "search_products", "search_visual_candidates", "finalize_visual_search",
-  "begin_web_search", "complete_web_search", "inspect_selected_shopify_product",
+  "begin_web_search", "complete_web_search", "inspect_selected_shopify_product", "inspect_selected_product",
   "compare_selected_products", "quote_and_compare_selected_products",
   "quote_selected_shopify_product", "research_selected_product_deal"
 ]);

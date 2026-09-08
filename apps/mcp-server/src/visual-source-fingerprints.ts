@@ -1,3 +1,5 @@
+import type { WooProduct } from "../../../packages/contracts/src/woocommerce.js";
+import { wooProductFacts } from "./woocommerce-product.js";
 import { createHash } from "node:crypto";
 import type { AwinProduct } from "../../../packages/awin-feed/src/index.js";
 import type { EbayProduct } from "./ebay-client.js";
@@ -6,7 +8,7 @@ import type { UnifiedCandidate } from "./search-products.js";
 import { productReferenceKey } from "./product-reference.js";
 
 export const visualQueryHash = (value: string): string => createHash("sha256").update(value).digest("hex");
-export function sourceProductFingerprint(source: "AWIN" | "SHOPIFY" | "EBAY", product: AwinProduct | ShopifyProduct | EbayProduct): { productHash: string } {
+export function sourceProductFingerprint(source: "AWIN" | "SHOPIFY" | "EBAY" | "WOOCOMMERCE", product: AwinProduct | ShopifyProduct | EbayProduct | WooProduct): { productHash: string } {
   let reference;
   if (source === "AWIN") {
     const value = product as AwinProduct;
@@ -16,11 +18,17 @@ export function sourceProductFingerprint(source: "AWIN" | "SHOPIFY" | "EBAY", pr
     const value = product as EbayProduct;
     reference = { sourceKind: "EBAY_BROWSE" as const, merchantId: `ebay:${value.sellerName}`,
       sourceHost: value.environment === "SANDBOX" ? "www.sandbox.ebay.com" : "www.ebay.com", handle: value.itemId };
-  } else reference = product as ShopifyProduct;
+  } else if (source === "WOOCOMMERCE") {
+    const value = product as WooProduct;
+    return { productHash: visualQueryHash(JSON.stringify({ reference: productReferenceKey(wooProductFacts(value)),
+      productId: value.productId, parentProductId: value.parentProductId, variationId: value.variationId })) };
+  }
+  else reference = product as ShopifyProduct;
   return { productHash: visualQueryHash(productReferenceKey(reference)) };
 }
 export function candidateFingerprint(candidate: UnifiedCandidate): { productHash: string } {
-  return candidate.source === "AWIN_PRODUCT_FEED" ? sourceProductFingerprint("AWIN", candidate.awinProduct)
+  return candidate.source === "WOOCOMMERCE_STORE_API" ? sourceProductFingerprint("WOOCOMMERCE", candidate.woocommerceProduct)
+    : candidate.source === "AWIN_PRODUCT_FEED" ? sourceProductFingerprint("AWIN", candidate.awinProduct)
     : candidate.source === "EBAY_BROWSE" ? sourceProductFingerprint("EBAY", candidate.ebayProduct)
       : sourceProductFingerprint("SHOPIFY", candidate.shopifyProduct);
 }

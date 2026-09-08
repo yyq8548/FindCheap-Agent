@@ -1,0 +1,204 @@
+{
+  "fixtureKind": "SANITIZED_LIVE_OBSERVATION",
+  "observedAt": "2026-09-08T15:34:15Z",
+  "request": {
+    "method": "GET",
+    "url": "https://www.nutribullet.com/wp-json/wc/store/v1/products?search=findcheapnonexistentxyz987&per_page=3"
+  },
+  "response": {
+    "status": 200,
+    "contentType": "application/json; charset=UTF-8",
+    "bytes": 27538,
+    "total": "179",
+    "totalPages": "60",
+    "elapsedMs": 2288
+  },
+  "sanitization": "Retained public product fields; omitted descriptions, extensions, cookies and request headers; images limited to three references per product. No image binary fetched.",
+  "body": [
+    {
+      "id": 1032067,
+      "name": "nutribullet Personal Blender &#8211; Extended warranty",
+      "slug": "nutribullet-700w-blender-extended-warranty",
+      "parent": 0,
+      "type": "simple",
+      "variation": "",
+      "permalink": "https://www.nutribullet.com/shop/warranty/nutribullet-700w-blender-extended-warranty/",
+      "sku": "ECOM01657",
+      "is_purchasable": true,
+      "is_in_stock": true,
+      "is_on_backorder": false,
+      "low_stock_remaining": null,
+      "on_sale": false,
+      "prices": {
+        "price": "1499",
+        "regular_price": "1499",
+        "sale_price": "1499",
+        "price_range": null,
+        "currency_code": "USD",
+        "currency_symbol": "$",
+        "currency_minor_unit": 2,
+        "currency_decimal_separator": ".",
+        "currency_thousand_separator": ",",
+        "currency_prefix": "$",
+        "currency_suffix": ""
+      },
+      "average_rating": "0",
+      "review_count": 0,
+      "images": [
+        {
+          "id": 126455,
+          "src": "https://nbmedia.imgix.net/nb-extended-warranty-icon-rgb-382x382-1.png?auto=compress%2Cformat&ixlib=php-3.3.0",
+          "thumbnail": "https://nbmedia.imgix.net/nb-extended-warranty-icon-rgb-382x382-1.png?auto=compress%2Cformat&fit=crop&h=300&ixlib=php-3.3.0&w=300&wpsize=woocommerce_thumbnail",
+          "name": "nb-extended-warranty-icon-rgb-382&#215;382",
+          "alt": ""
+        }
+      ],
+      "categories": [
+        {
+          "id": 550,
+          "name": "Warranty",
+          "slug": "warranty",
+          "link": "https://www.nutribullet.com/shop/warranty/"
+        }
+      ],
+      "attributes": [],
+      "variations": [],
+      "add_to_cart": {
+        "text": "Add to cart",
+        "description": "Add &ldquo;nutribullet Personal Blender &#8211; Extended warranty&rdquo; to your cart",
+        "url": "?add-to-cart=1032067",
+        "minimum": 1,
+        "maximum": 9999,
+        "multiple_of": 1
+      }
+    },
+    {
+      "id": 1032066,
+      "name": "nutribullet Personal Blender",
+      "slug": "nutribullet-700w-blender",
+      "parent": 0,
+      "type": "simple",
+      "variation": "",
+      "permalink": "https://www.nutribullet.com/shop/blenders/nutribullet-700w-blender/",
+      "sku": "ECOM01652",
+      "is_purchasable": true,
+      "is_in_stock": true,
+      "is_on_backorder": false,
+      "low_stock_remaining": null,
+      "on_sale": false,
+      "prices": {
+        "price": "6999",
+        "regular_price": "6999",
+        "sale_price": "6999",
+        "price_range": null,
+        "currency_code": "USD",
+        "currency_symbol": "$",
+        "currency_minor_unit": 2,
+        "currency_decimal_separator": ".",
+        "currency_thousand_separator": ",",
+        "currency_prefix": "$",
+        "currency_suffix": ""
+      },
+      "average_rating": "0",
+      "review_count": 0,
+      "images": [
+        {
+          "id": 1031611,
+          "src": "https://nbmedia.imgix.net/NB50150-02_nutribullet-Personal-Blender_Ecomm_PDP-1_Config_1500x1201.jpg?auto=compress%2Cformat&ixlib=php-3.3.0",
+          "thumbnail": "https://nbmedia.imgix.net/NB50150-02_nutribullet-Personal-Blender_Ecomm_PDP-1_Config_1500x1201.jpg?auto=compress%2Cformat&fit=crop&h=300&ixlib=php-3.3.0&w=300&wpsize=woocommerce_thumbnail",
+          "name": "NB50150-02_nutribullet-Personal-Blender_Ecomm_PDP-1_Config_1500x1201",
+          "alt": "nutribullet personal blender with a blending cup filled with fruit, a handled tumbler filled with a pink smoothie, and an extractor blade."
+        },
+        {
+          "id": 1031611,
+          "src": "https://nbmedia.imgix.net/NB50150-02_nutribullet-Personal-Blender_Ecomm_PDP-1_Config_1500x1201.jpg?auto=compress%2Cformat&ixlib=php-3.3.0",
+          "thumbnail": "https://nbmedia.imgix.net/NB50150-02_nutribullet-Personal-Blender_Ecomm_PDP-1_Config_1500x1201.jpg?auto=compress%2Cformat&fit=crop&h=300&ixlib=php-3.3.0&w=300&wpsize=woocommerce_thumbnail",
+          "name": "NB50150-02_nutribullet-Personal-Blender_Ecomm_PDP-1_Config_1500x1201",
+          "alt": "nutribullet personal blender with a blending cup filled with fruit, a handled tumbler filled with a pink smoothie, and an extractor blade."
+        },
+        {
+          "id": 1031612,
+          "src": "https://nbmedia.imgix.net/NB50150-02_nutribullet-Personal-Blender_Ecomm_PDP-2_Config_1500x1201.jpg?auto=compress%2Cformat&ixlib=php-3.3.0",
+          "thumbnail": "https://nbmedia.imgix.net/NB50150-02_nutribullet-Personal-Blender_Ecomm_PDP-2_Config_1500x1201.jpg?auto=compress%2Cformat&fit=crop&h=300&ixlib=php-3.3.0&w=300&wpsize=woocommerce_thumbnail",
+          "name": "NB50150-02_nutribullet-Personal-Blender_Ecomm_PDP-2_Config_1500x1201",
+          "alt": "nutribullet personal blender with a 700-watt motor base, blending cup filled with fruit, and handled tumbler on a kitchen counter."
+        }
+      ],
+      "categories": [
+        {
+          "id": 558,
+          "name": "Blenders",
+          "slug": "blenders",
+          "link": "https://www.nutribullet.com/shop/blenders/"
+        }
+      ],
+      "attributes": [],
+      "variations": [],
+      "add_to_cart": {
+        "text": "Add to cart",
+        "description": "Add &ldquo;nutribullet Personal Blender&rdquo; to your cart",
+        "url": "?add-to-cart=1032066",
+        "minimum": 1,
+        "maximum": 9999,
+        "multiple_of": 1
+      }
+    },
+    {
+      "id": 1031146,
+      "name": "nutribullet Turbo Tumbler Edition &#8211; Extended warranty",
+      "slug": "nutribullet-turbo-tumbler-edition-extended-warranty",
+      "parent": 0,
+      "type": "simple",
+      "variation": "",
+      "permalink": "https://www.nutribullet.com/shop/warranty/nutribullet-turbo-tumbler-edition-extended-warranty/",
+      "sku": "ECOM01636",
+      "is_purchasable": true,
+      "is_in_stock": true,
+      "is_on_backorder": false,
+      "low_stock_remaining": null,
+      "on_sale": false,
+      "prices": {
+        "price": "1999",
+        "regular_price": "1999",
+        "sale_price": "1999",
+        "price_range": null,
+        "currency_code": "USD",
+        "currency_symbol": "$",
+        "currency_minor_unit": 2,
+        "currency_decimal_separator": ".",
+        "currency_thousand_separator": ",",
+        "currency_prefix": "$",
+        "currency_suffix": ""
+      },
+      "average_rating": "0",
+      "review_count": 0,
+      "images": [
+        {
+          "id": 126455,
+          "src": "https://nbmedia.imgix.net/nb-extended-warranty-icon-rgb-382x382-1.png?auto=compress%2Cformat&ixlib=php-3.3.0",
+          "thumbnail": "https://nbmedia.imgix.net/nb-extended-warranty-icon-rgb-382x382-1.png?auto=compress%2Cformat&fit=crop&h=300&ixlib=php-3.3.0&w=300&wpsize=woocommerce_thumbnail",
+          "name": "nb-extended-warranty-icon-rgb-382&#215;382",
+          "alt": ""
+        }
+      ],
+      "categories": [
+        {
+          "id": 550,
+          "name": "Warranty",
+          "slug": "warranty",
+          "link": "https://www.nutribullet.com/shop/warranty/"
+        }
+      ],
+      "attributes": [],
+      "variations": [],
+      "add_to_cart": {
+        "text": "Add to cart",
+        "description": "Add &ldquo;nutribullet Turbo Tumbler Edition &#8211; Extended warranty&rdquo; to your cart",
+        "url": "?add-to-cart=1031146",
+        "minimum": 1,
+        "maximum": 9999,
+        "multiple_of": 1
+      }
+    }
+  ]
+}

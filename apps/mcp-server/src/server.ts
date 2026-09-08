@@ -1,3 +1,7 @@
+import { candidateFingerprint } from "./visual-source-fingerprints.js";
+import { wooProductFacts, candidateProductFacts, dealProductId } from "./woocommerce-product.js";
+import { snapshotProductIndex, type SnapshotSourceProduct } from "./snapshot-products.js";
+import { WooSearchResultSchema, wooProductTarget } from "../../../packages/contracts/src/woocommerce.js";
 import { createHash, randomUUID } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { ErrorCode, McpError, type CallToolResult } from "@modelcontextprotocol/sdk/types.js";
@@ -20,7 +24,7 @@ import { SourceValidationDetailsSchema } from "./source-failure.js";
 import { textSearchRecovery, TextSearchRecoverySchema } from "./text-search-recovery.js";
 import { WebRecoverySessions, WebConsentStatusSchema, WebDiscoveryOutcomeSchema, WebProductUrlSchema, WEB_SEARCH_LIMITS, webSearchQueries, readWebCandidates, type WebProductPagePort } from "./web-product-recovery.js";
 import { awaitWithSignal } from "./await-with-signal.js";
-import { evaluateRecoveredProducts, productIdentityBrand } from "./search-products.js";
+import { evaluateRecoveredProducts, productIdentityBrand, woocommerceCandidate, resolveSearchIntent } from "./search-products.js";
 import { createExecutedToolRegistrar } from "./execution/tool-registry.js";
 import {
   ProductComparisonInputSchema,
@@ -106,7 +110,7 @@ import {
   createMemoryWatchStore,
   type WatchStore
 } from "./watch-store.js";
-import { evaluateWatch, type WatchEvaluation } from "./watch-service.js";
+import { evaluateWatch, observeWooProduct, type WatchEvaluation, type WooWatchObservation } from "./watch-service.js";
 import {
   currentMerchantTrustRegistryVersion,
   isTrustedMerchant,
@@ -202,16 +206,13 @@ function visualRetrievalSearchInput(input: SearchProductsInput, relaxed: boolean
 }
 
 function visualCandidateKey(candidate: UnifiedCandidate): string {
-  const productKey = candidate.source === "SHOPIFY_GLOBAL_CATALOG"
+  const productKey = candidate.source === "WOOCOMMERCE_STORE_API" ? candidateFingerprint(candidate).productHash
+    : candidate.source === "SHOPIFY_GLOBAL_CATALOG"
     ? productReferenceKey(candidate.shopifyProduct)
     : candidate.source === "AWIN_PRODUCT_FEED"
       ? JSON.stringify([candidate.source, candidate.awinProduct.merchantId, candidate.awinProduct.merchantProductId])
       : JSON.stringify([candidate.source, candidate.ebayProduct.itemId]);
-  const merchantUrl = candidate.source === "AWIN_PRODUCT_FEED"
-    ? candidate.awinProduct.merchantUrl
-    : candidate.source === "EBAY_BROWSE"
-      ? candidate.ebayProduct.merchantUrl
-      : candidate.shopifyProduct.merchantUrl;
+  const merchantUrl = candidateProductFacts(candidate).merchantUrl;
   try {
     const url = new URL(merchantUrl);
     url.hash = "";
@@ -229,6 +230,7 @@ function visualCandidateKey(candidate: UnifiedCandidate): string {
 }
 
 function visualProductHash(candidate: UnifiedCandidate): string {
+  if (candidate.source === "WOOCOMMERCE_STORE_API") return candidateFingerprint(candidate).productHash;
   const product = candidate.source === "SHOPIFY_GLOBAL_CATALOG" ? candidate.shopifyProduct
     : candidate.source === "AWIN_PRODUCT_FEED" ? awinCardProduct(candidate) : ebayCardProduct(candidate);
   return createHash("sha256").update(productReferenceKey(product)).digest("hex");
@@ -237,7 +239,11 @@ function visualProductHash(candidate: UnifiedCandidate): string {
 function visualEvaluationMeta(execution: UnifiedSearchExecution, retrieved: ReadonlySet<string>,
   entries: Array<{ candidateId: string; candidate: UnifiedCandidate; image: { data: string } }> = [],
   products?: ProductCardProduct[], primarySelectionId?: string) {
-  const hash = (product: ProductCardProduct) => createHash("sha256").update(productReferenceKey(product)).digest("hex");
+  const wooHashes = new Map([...(execution.reviewPool ?? []), ...execution.candidates]
+    .filter(candidate => candidate.source === "WOOCOMMERCE_STORE_API")
+    .map(candidate => [productReferenceKey(wooProductFacts(candidate.woocommerceProduct)), candidateFingerprint(candidate).productHash]));
+  const hash = (product: ProductCardProduct) => wooHashes.get(productReferenceKey(product)) ??
+    createHash("sha256").update(productReferenceKey(product)).digest("hex");
   const primary = primarySelectionId === undefined ? undefined : products?.find((product) => product.selectionId === primarySelectionId);
   return { "findcheap/visualEvaluation": {
     version: 1, traceId: execution.searchRun?.traceId,
@@ -438,7 +444,7 @@ const VisualCandidateDescriptorShape = z.object({
   candidateId: z.string().uuid(),
   title: z.string(),
   merchant: z.string(),
-  source: z.enum(["AWIN_PRODUCT_FEED", "SHOPIFY_GLOBAL_CATALOG", "EBAY_BROWSE"]),
+  source: z.enum(["AWIN_PRODUCT_FEED", "SHOPIFY_GLOBAL_CATALOG", "EBAY_BROWSE", "WOOCOMMERCE_STORE_API"]),
   mimeType: z.enum(["image/jpeg", "image/png", "image/webp"])
 }).strict();
 
@@ -619,7 +625,7 @@ const ShopifyProductOutputSchema = z.object({
   valueEvidence: ValueEvidenceSchema.optional(),
   unitPrice: UnitPriceSchema.optional(),
   qualityEvidence: QualityEvidenceSchema.optional(),
-  sourceKind: z.enum(["AWIN_PRODUCT_FEED", "SHOPIFY_GLOBAL_CATALOG", "EBAY_BROWSE", "WEB_PRODUCT_PAGE"]).optional(),
+  sourceKind: z.enum(["AWIN_PRODUCT_FEED", "SHOPIFY_GLOBAL_CATALOG", "EBAY_BROWSE", "WOOCOMMERCE_STORE_API", "WEB_PRODUCT_PAGE"]).optional(),
   sourceEnvironment: z.enum(["PRODUCTION", "SANDBOX"]).optional(),
   affiliateState: z.enum(["APPROVED", "NONE"]).optional(),
   featureEvidence: z.array(z.string()).optional(),
@@ -782,6 +788,7 @@ const ShopifyProductOutputSchema = z.object({
       "ESTABLISHED_RETAILER",
       "TRUSTED_MERCHANT",
       "SHOPIFY_HIGH_RATED",
+      "PRODUCT_HIGH_RATED",
       "MERCHANT_UNVERIFIED"
     ]),
     quoteCapability: z.enum(["DELIVERED_TOTAL_SUPPORTED", "ZIP_ESTIMATE_ONLY", "MERCHANT_CHECKOUT_ONLY", "NOT_CHECKED"]),
@@ -804,7 +811,7 @@ const ShopifyProductsOutputShape = {
   quoteOperation: QuoteOperationSchema.optional(),
   recovery: TextSearchRecoverySchema.optional(),
   sourceFailures: z.array(z.object({
-    source: z.enum(["AWIN", "SHOPIFY", "EBAY", "OFFICIAL"]),
+    source: z.enum(["AWIN", "SHOPIFY", "EBAY", "WOOCOMMERCE", "OFFICIAL"]),
     kind: z.enum(["INVALID_QUERY", "SOURCE_REJECTED", "TIMEOUT", "RATE_LIMITED", "UPSTREAM_ERROR", "CONNECTION_FAILED", "SCHEMA_INVALID", "SECURITY_REJECTED", "BUDGET_EXHAUSTED", "UNKNOWN"]),
     phase: z.enum(["DNS", "REQUEST", "BODY"]).optional(),
     retryable: z.boolean(),
@@ -838,13 +845,16 @@ const ShopifyProductsOutputShape = {
     awin: z.enum(["SKIPPED", "COMPLETE", "UNAVAILABLE"]),
     shopify: z.enum(["SKIPPED", "COMPLETE", "PARTIAL", "UNAVAILABLE"]),
     ebay: z.enum(["SKIPPED", "COMPLETE", "UNAVAILABLE"]),
+    woocommerce: z.enum(["SKIPPED", "COMPLETE", "PARTIAL", "UNAVAILABLE"]).optional(),
     web: z.enum(["COMPLETE", "PARTIAL"]).optional()
   }).optional(),
   searchIntent: z.enum(["EXACT_PRODUCT", "CATEGORY_DISCOVERY", "VISUAL_DISCOVERY"]).optional(),
+  woocommerceCoverage: WooSearchResultSchema.pick({ schemaVersion: true, registryVersion: true, status: true, stores: true, diagnostics: true }).optional(),
   sourceErrors: z.object({
     awin: z.literal("DATA_SOURCE_UNAVAILABLE").optional(),
     shopify: z.enum(["CATALOG_SCHEMA_CHANGED", "DATA_SOURCE_UNAVAILABLE"]).optional(),
-    ebay: z.literal("DATA_SOURCE_UNAVAILABLE").optional()
+    ebay: z.literal("DATA_SOURCE_UNAVAILABLE").optional(),
+    woocommerce: z.literal("DATA_SOURCE_UNAVAILABLE").optional()
   }).strict().optional(),
   priceScope: z.enum(["ITEM_PRICE_ONLY", "SHOPIFY_CART_ESTIMATE", "MIXED"]),
   cartQuoteCoverage: z.object({
@@ -1231,6 +1241,7 @@ function unifiedResult(
     shopifyResponse.structuredContent.products.map((product) => [productReferenceKey(product), product])
   );
   const products = execution.candidates.flatMap((candidate) => {
+    if (candidate.source === "WOOCOMMERCE_STORE_API") return [withVerifiedCoupons({ ...wooCardProduct(candidate), ...candidateValueOutput(candidate) }, candidate.verifiedCoupons, candidate.dealLookupStatus)];
     if (candidate.source === "AWIN_PRODUCT_FEED") {
       return [withVerifiedCoupons({ ...awinCardProduct(candidate), ...candidateValueOutput(candidate) }, candidate.verifiedCoupons, candidate.dealLookupStatus)];
     }
@@ -1391,6 +1402,7 @@ function unifiedResult(
         )
       ].join(" ");
   const dataUnavailable = products.length === 0 && (
+    execution.sourceStatus.woocommerce === "UNAVAILABLE" ||
     execution.sourceStatus.shopify === "UNAVAILABLE" ||
     execution.sourceStatus.ebay === "UNAVAILABLE" ||
     (execution.sourceStatus.awin === "UNAVAILABLE" && execution.sourceStatus.shopify === "SKIPPED" && execution.sourceStatus.ebay === "SKIPPED")
@@ -1404,6 +1416,9 @@ function unifiedResult(
       message,
       source: "UNIFIED_PRODUCT_SEARCH" as const,
       sources: execution.sourceStatus,
+      ...(execution.woocommerceResult === undefined ? {} : { woocommerceCoverage: { schemaVersion: execution.woocommerceResult.schemaVersion, registryVersion: execution.woocommerceResult.registryVersion, status: execution.woocommerceResult.status, stores: execution.woocommerceResult.stores, diagnostics: execution.woocommerceResult.diagnostics } }),
+      merchantsQueried: shopifyResponse.structuredContent.merchantsQueried + (execution.woocommerceResult?.diagnostics.attemptedStores ?? 0),
+      merchantsSucceeded: shopifyResponse.structuredContent.merchantsSucceeded + (execution.woocommerceResult?.diagnostics.succeededStores ?? 0),
       searchIntent: execution.searchIntent,
       ...(execution.sourceErrors === undefined ? {} : { sourceErrors: execution.sourceErrors }),
       recommendation: {
@@ -1479,10 +1494,10 @@ function unifiedResult(
 }
 
 function candidateValueOutput(candidate: UnifiedCandidate) {
-  const product = candidate.awinProduct ?? candidate.shopifyProduct ?? candidate.ebayProduct;
+  const product = candidateProductFacts(candidate);
   return { requestIdentityStatus: candidate.requestIdentityStatus,
     valueEvidence: candidate.valueEvidence, unitPrice: unitPriceEvidence(product),
-    qualityEvidence: assessQualityEvidence({ productRating: candidate.shopifyProduct?.productRating }) };
+    qualityEvidence: assessQualityEvidence({ productRating: "productRating" in product ? product.productRating : undefined }) };
 }
 
 function awinCardProduct(candidate: UnifiedCandidate): ProductCardProduct {
@@ -1560,6 +1575,33 @@ function awinCardProduct(candidate: UnifiedCandidate): ProductCardProduct {
       quoteCapability: "MERCHANT_CHECKOUT_ONLY",
       actionLabel: "View at merchant"
     }
+  };
+}
+
+function wooCardProduct(candidate: UnifiedCandidate): ProductCardProduct {
+  if (candidate.source !== "WOOCOMMERCE_STORE_API") throw new Error("WooCommerce candidate is missing its source product");
+  const product = wooProductFacts(candidate.woocommerceProduct);
+  const unavailable = { status: "UNAVAILABLE" as const, reason: "not supplied by the public WooCommerce product API" };
+  return {
+    ...product, affiliateState: "NONE", recommendationTier: candidate.recommendationTier,
+    featureEvidence: candidate.featureEvidence, preferenceEvidence: candidate.preferenceEvidence,
+    requiredFeatureLimitations: candidate.requiredFeatureLimitations, requirementAssessment: candidate.requirementAssessment,
+    requestIdentityStatus: candidate.requestIdentityStatus, resultGroup: candidate.resultGroup, presentationGroup: candidate.presentationGroup,
+    ...(candidate.visualMatchGroup === undefined ? {} : { visualMatchGroup: candidate.visualMatchGroup,
+      visualReviewAssessment: candidate.visualReviewAssessment, visualMatchEvidence: candidate.visualMatchEvidence ?? [] }),
+    matchStatus: candidate.identityStatus, matchEvidence: candidate.identityEvidence,
+    pricing: { scope: "ITEM_PRICE_ONLY", regularItemPrice: product.itemPrice ? { status: "VERIFIED", amount: product.itemPrice } : unavailable,
+      memberPrice: unavailable, shipping: unavailable, tax: unavailable, mandatoryFees: unavailable, deliveredPrice: unavailable },
+    freshness: { status: "OBSERVED_AT_QUERY", checkedAt: product.checkedAt }, coupons: { status: "UNAVAILABLE", verified: [] },
+    purchaseLink: { kind: "CANONICAL", url: product.merchantUrl }, quoteCapability: "MERCHANT_CHECKOUT_ONLY",
+    card: { title: product.title, merchant: product.merchant,
+      ...(product.imageUrl === undefined ? {} : { imageUrl: product.imageUrl }),
+      ...(product.itemPrice === undefined ? {} : { primaryPrice: product.itemPrice, itemPrice: product.itemPrice }),
+      priceLabel: "Item price", matchBadge: candidate.identityStatus, conditionBadge: product.condition, availability: product.availability,
+      merchantTrustBadge: product.merchantTrust.verification === "INDEPENDENT"
+        ? product.merchantTrust.level as "OFFICIAL" | "AUTHORIZED_RETAILER" | "ESTABLISHED_RETAILER"
+        : isHighRatedProduct(product.productRating) ? "PRODUCT_HIGH_RATED" : "MERCHANT_UNVERIFIED",
+      quoteCapability: "MERCHANT_CHECKOUT_ONLY", actionLabel: "View at merchant" }
   };
 }
 
@@ -1660,9 +1702,9 @@ function withVerifiedCoupons(
     kind: "COUPON" | "PROMO_CODE" | "BRAND_PROMOTION";
   } =>
     (deal.kind === "COUPON" || deal.kind === "PROMO_CODE" || deal.kind === "BRAND_PROMOTION") &&
-    dealAppliesToProduct(deal, product.handle)
+    dealAppliesToProduct(deal, dealProductId(product))
   ).map((deal) => ({ ...deal, assessment: assessSelectedProductDeal(deal, {
-    merchantProductId: product.handle, title: product.title,
+    merchantProductId: dealProductId(product), title: product.title,
     ...(product.itemPrice === undefined ? {} : { itemPrice: product.itemPrice })
   }) })));
   const preferred = rankedDeals.find((deal) => deal.assessment.recommendationEligible);
@@ -1708,7 +1750,7 @@ function withVerifiedCoupons(
   const estimatedPrice = product.itemPrice === undefined
     ? undefined
     : estimatedItemPriceAfterCoupon(product.itemPrice.amountCents,
-      rankedDeals.filter((deal) => deal.assessment.status === "CONFIRMED"), product.handle);
+      rankedDeals.filter((deal) => deal.assessment.status === "CONFIRMED"), dealProductId(product));
   return {
     ...product,
     coupons: {
@@ -2148,6 +2190,8 @@ export function createShoppingServer(
   const dealPort = backend.deals;
   const awinPort = backend.catalog.awin;
   const ebayPort = backend.catalog.ebay;
+  const woocommercePort = backend.catalog.woocommerce;
+  const woocommerceProducts = backend.product.woocommerceProducts;
   const watchStore = backend.watches;
   const cartQuotes = backend.product.cartQuotes;
   const awinShopifyQuotes = backend.product.awinShopifyQuotes;
@@ -2189,6 +2233,7 @@ export function createShoppingServer(
     expiresAt: number;
     content: ProductCardContent & { renderId: string };
     sourceResult: ShopifySearchResult;
+    sourceProductIndex: Map<string, SnapshotSourceProduct>;
     resolvedAwinProducts: Map<string, ShopifyProduct>;
     request?: SearchProductsInput;
     candidates?: UnifiedCandidate[];
@@ -2365,6 +2410,7 @@ export function createShoppingServer(
       expiresAt: now().getTime() + PRODUCT_SELECTION_SNAPSHOT_TTL_MS,
       content: snapshot,
       sourceResult,
+      sourceProductIndex: snapshotProductIndex(sourceResult.products, candidates),
       resolvedAwinProducts,
       ...(searchRun === undefined && parent?.searchRun === undefined ? {} : { searchRun: searchRun ?? parent!.searchRun! }),
       chargingClarificationAsked: askedChargingCompatibility || parent?.chargingClarificationAsked === true,
@@ -2551,6 +2597,7 @@ export function createShoppingServer(
     shopify: shopifyPort,
     ...(backend.product.selectedProducts === undefined ? {} : { selectedProducts: backend.product.selectedProducts }),
     ...(ebayPort === undefined ? {} : { ebay: ebayPort }),
+    ...(woocommercePort === undefined ? {} : { woocommerce: woocommercePort }),
     ...(toolAvailability.verifiedDeals ? { deals: dealPort } : {}),
     ...(officialShopify === undefined ? {} : { officialShopify }),
     ...(officialStorefrontRegistry === undefined ? {} : { officialStorefrontRegistry }),
@@ -3680,7 +3727,7 @@ export function createShoppingServer(
           visualSearchOutcome: describeVisualOutcome(execution.candidates.map(candidate => ({
             identityStatus: candidate.identityStatus, visualMatchGroup: candidate.visualMatchGroup,
             availabilityScope: candidate.shopifyProduct?.availabilityScope,
-            availability: (candidate.awinProduct ?? candidate.shopifyProduct ?? candidate.ebayProduct).availability
+            availability: candidateProductFacts(candidate).availability
           })), execution.searchRun?.diagnostics().budgetExhausted === true ||
             Object.values(execution.sourceStatus).some(status => status === "PARTIAL" || status === "UNAVAILABLE") ||
             execution.officialStoreFallback.status === "UNAVAILABLE" || execution.officialStoreFallback.status === "PARTIAL",
@@ -3777,11 +3824,10 @@ export function createShoppingServer(
     }
   );
 
-  if (backend.capabilities.has("PRODUCT_INSPECTION")) toolRegistrar.registerTool(
-    "inspect_selected_shopify_product",
-    {
-      title: "Inspect a selected Shopify product",
-      description: "Check size, color, other variants, or current availability for exactly one native Shopify catalog product returned by search_products. Pass the prior renderId and current responseLocale. Omit the selector only for exactly one UI-synced choice in that snapshot; otherwise use its exact selectionId, one-based position, or variantId. Do not call comparison first to inspect one. Unsynced, empty, multiple and expired selections have distinct errors. To accumulate multiple inspections, use each returned updatedSnapshot and that snapshot's own IDs for the next inspection; do not mix IDs or silently merge parallel branches. On MISSING_REFERENCE_CONTEXT, retry once with the prior search renderId; do not describe the reference as expired. Never call this when the current turn includes a newly attached image; that image starts NEW_PRODUCT through search_visual_candidates. Never scan task history, guess by title, or run another catalog search. Awin cards can be quoted when supported but cannot use this variant-inspection tool.",
+  if (backend.capabilities.has("PRODUCT_INSPECTION")) {
+    const inspectionConfig = {
+      title: "Inspect a selected product",
+      description: "Check size, color, other variants, or current availability for exactly one Shopify or WooCommerce product returned by search_products. The server dispatches by the original source. Pass the prior renderId and current responseLocale. Omit the selector only for exactly one UI-synced choice in that snapshot; otherwise use its exact selectionId, one-based position, or variantId. Do not call comparison first to inspect one. Unsynced, empty, multiple and expired selections have distinct errors. To accumulate multiple inspections, use each returned updatedSnapshot and that snapshot's own IDs for the next inspection; do not mix IDs or silently merge parallel branches. On MISSING_REFERENCE_CONTEXT, retry once with the prior search renderId; do not describe the reference as expired. Never call this when the current turn includes a newly attached image; that image starts NEW_PRODUCT through search_visual_candidates. Never scan task history, guess by title, or run another catalog search. Awin cards can be quoted when supported but cannot use this variant-inspection tool.",
       inputSchema: ShopifySelectedProductInputSchema,
       outputSchema: ShopifySelectedProductOutputShape,
       _meta: { ui: { resourceUri: PRODUCT_CARD_UI_URI }, "openai/outputTemplate": PRODUCT_CARD_UI_URI },
@@ -3791,8 +3837,8 @@ export function createShoppingServer(
         idempotentHint: true,
         openWorldHint: true
       }
-    },
-    async (input) => {
+    };
+    const inspectionHandler = async (input: z.infer<typeof ShopifySelectedProductInputSchema>) => {
       const parsed = ShopifySelectedProductInputSchema.parse(input);
       const snapshot = renderSnapshots.get(parsed.renderId);
       const locale = parsed.responseLocale ?? snapshot?.content.locale ?? "en-US";
@@ -3830,6 +3876,59 @@ export function createShoppingServer(
       }
       const { renderId, variantId } = reference;
       const { variantDimensions = {} } = parsed;
+      const sourceEntry = snapshot.sourceProductIndex.get(reference.productKey);
+      if (sourceEntry?.sourceKind === "WOOCOMMERCE_STORE_API") {
+        if (!woocommerceProducts) return failure("INSPECTION_SOURCE_UNAVAILABLE", "WooCommerce inspection is unavailable.", "WooCommerce 商品检查暂不可用。");
+        const selected = sourceEntry.product;
+        const inspectionSelection = { renderId, selectionId: snapshot.content.products.find(product => productReferenceKey(product) === reference.productKey)?.selectionId,
+          selectionSource: uiSelection ? "UI" as const : "EXPLICIT" as const, ...(uiSelection ? { selectionRevision: receipt!.revision } : {}) };
+        try {
+          const inspected = await woocommerceProducts.inspect(wooProductTarget(selected), { attributes: variantDimensions });
+          if (inspected.status === "UNAVAILABLE" || inspected.status === "UNSUPPORTED" || (inspected.status === "PARTIAL" && inspected.products.length === 0)) {
+            return failure("INSPECTION_SOURCE_UNAVAILABLE", "The original WooCommerce product could not be verified; no replacement was searched.", "原 WooCommerce 商品暂未核实；没有改搜其他商品。");
+          }
+          const size = Object.entries(variantDimensions).find(([key]) => /^(?:shoe )?size$/iu.test(key))?.[1];
+          const nextRequest = SearchProductsInputSchema.parse({ ...(snapshot.request ?? { query: selected.title }), parentRenderId: renderId,
+            responseLocale: locale, ...(size === undefined ? {} : { requiredSize: size }) });
+          const previousCard = snapshot.content.products.find(product => productReferenceKey(product) === reference.productKey);
+          const eligible = inspected.products.map(product => woocommerceCandidate(product,
+            { ...nextRequest, includeUnavailableVariants: true }, resolveSearchIntent(nextRequest), nextRequest.query,
+            new Set(), new Set(), new Set(), new Set())).filter((candidate): candidate is UnifiedCandidate => candidate !== undefined);
+          const changed = eligible.slice(0, 3);
+          const inspectedCards = changed.map(candidate => {
+            const card = { ...wooCardProduct(candidate), ...candidateValueOutput(candidate) };
+            if (previousCard?.visualReviewAssessment === undefined && snapshot.request?.visualInput === undefined) return card;
+            const same = previousCard !== undefined && productReferenceKey(card) === productReferenceKey(previousCard) &&
+              card.imageUrl === previousCard.imageUrl && JSON.stringify(card.variantDimensions) === JSON.stringify(previousCard.variantDimensions);
+            return same ? { ...card, visualReviewAssessment: previousCard.visualReviewAssessment, visualMatchGroup: previousCard.visualMatchGroup,
+              visualMatchEvidence: previousCard.visualMatchEvidence, visualReviewRequired: previousCard.visualReviewRequired }
+              : { ...card, visualReviewRequired: true, visualReviewAssessment: undefined, visualMatchGroup: undefined, visualMatchEvidence: undefined };
+          });
+          if (inspected.products.length === 0 || changed.length === 0) return {
+            content: [{ type: "text" as const, text: locale === "zh-CN" ? "未找到同时符合原要求且有已核实商品价的规格；原快照保留。" : "No variant with verified price meets the original requirements; the original snapshot is retained." }],
+            _meta: { "findcheap/inspectionSelection": inspectionSelection }, structuredContent: { status: "NO_MATCHING_VARIANT" as const,
+              message: "No eligible priced variant", sourceVariantId: variantId, merchant: selected.merchantName, sourceHost: selected.sourceHost,
+              productTitle: selected.title, canonicalProductUrl: selected.merchantUrl, variants: [] }
+          };
+          const onlyOne = changed.length === 1;
+          const keys = new Set(inspectedCards.map(productReferenceKey));
+          const products = onlyOne ? snapshot.content.products.flatMap(product => productReferenceKey(product) === reference.productKey ? inspectedCards : [product]) : inspectedCards;
+          const candidates = onlyOne ? (snapshot.candidates ?? []).flatMap(candidate => candidate.source === "WOOCOMMERCE_STORE_API" &&
+            productReferenceKey(wooProductFacts(candidate.woocommerceProduct)) === reference.productKey ? changed : [candidate]) : changed;
+          const remembered = rememberSnapshot({ ...snapshot.content, locale, products,
+            coverage: inspected.status === "PARTIAL" || inspected.truncated || eligible.length > 3 ? "PARTIAL" : snapshot.content.coverage },
+            snapshot.sourceResult, snapshot.resolvedAwinProducts, undefined, nextRequest, candidates, false, snapshot.searchRun);
+          const variants = remembered.products.filter(product => keys.has(productReferenceKey(product))).map(product => ({
+            variantId: product.handle, title: product.title, ...(product.sku === undefined ? {} : { sku: product.sku }),
+            variantDimensions: product.variantDimensions, ...(product.itemPrice === undefined ? {} : { itemPrice: product.itemPrice }),
+            availability: product.availability, merchantUrl: product.merchantUrl, checkedAt: product.checkedAt, quoteReference: product.quoteReference!
+          }));
+          const message = locale === "zh-CN" ? `已核验原 WooCommerce 商品的 ${variants.length} 个规格；新快照供后续选择，旧快照保留。` : `Verified ${variants.length} variants of the original WooCommerce product; use the new snapshot for subsequent selections. The old snapshot is retained.`;
+          return { content: [{ type: "text" as const, text: message }], _meta: { "findcheap/inspectionSelection": inspectionSelection },
+            structuredContent: { status: "OK" as const, message, sourceVariantId: variantId, merchant: selected.merchantName, sourceHost: selected.sourceHost,
+              productTitle: selected.title, canonicalProductUrl: selected.merchantUrl, updatedSnapshot: remembered, variants } };
+        } catch { return failure("INSPECTION_SOURCE_UNAVAILABLE", "WooCommerce inspection failed; the original snapshot is retained.", "WooCommerce 商品检查失败；原快照保留。"); }
+      }
       const selected = snapshot.sourceResult.products.find((product) => productReferenceKey(product) === reference.productKey);
       if (selected === undefined) {
         return {
@@ -4025,8 +4124,10 @@ export function createShoppingServer(
           content: [{ type: "text" as const, text: `[INSPECTION_${failure.reason}] ${message}` }],
           _meta: { "findcheap/inspectionFailure": { ...failure, host } } };
       }
-    }
-  );
+    };
+    toolRegistrar.registerTool("inspect_selected_product", inspectionConfig, inspectionHandler);
+    toolRegistrar.registerTool("inspect_selected_shopify_product", inspectionConfig, inspectionHandler);
+  }
 
   if (backend.capabilities.has("PRODUCT_QUOTE")) toolRegistrar.registerTool(
     "quote_selected_shopify_product",
@@ -4389,15 +4490,33 @@ export function createShoppingServer(
         selectionSource: uiSelection ? "UI" as const : "EXPLICIT" as const,
         ...(uiSelection && receipt !== undefined ? { selectionRevision: receipt.revision } : {})
       };
+      let dealProduct = selectedCard;
+      if (selectedCard.sourceKind === "WOOCOMMERCE_STORE_API") {
+        const entry = snapshot.sourceProductIndex.get(reference.productKey);
+        const { itemPrice: _oldPrice, ...withoutPrice } = selectedCard;
+        dealProduct = { ...withoutPrice, availability: "UNKNOWN" };
+        if (entry?.sourceKind === "WOOCOMMERCE_STORE_API" && woocommerceProducts !== undefined) {
+          try {
+            const lookup = await woocommerceProducts.lookup(wooProductTarget(entry.product));
+            const current = lookup.product === undefined ? undefined : wooProductFacts(lookup.product);
+            if (lookup.status === "FOUND" && current !== undefined && productReferenceKey(current) === reference.productKey &&
+              Date.parse(current.checkedAt) >= now().getTime() - 60_000 && Date.parse(current.checkedAt) <= now().getTime() + 120_000 &&
+              Object.entries(selectedCard.variantDimensions).every(([name, value]) => current.variantDimensions[name] === value)) {
+              dealProduct = { ...withoutPrice, ...(current.itemPrice === undefined ? {} : { itemPrice: current.itemPrice }),
+                availability: current.availability, checkedAt: current.checkedAt };
+            }
+          } catch { /* Merchant offers may still be researched; current product price remains unavailable. */ }
+        }
+      }
       const research = await researchSelectedProductDeal({
         responseLocale: locale,
         selected: {
-          merchantProductId: selectedCard.handle,
+          merchantProductId: dealProductId(selectedCard),
           merchant: selectedCard.merchant,
           title: selectedCard.title,
-          availability: selectedCard.availability,
-          ...(selectedCard.itemPrice === undefined ? {} : { itemPrice: selectedCard.itemPrice }),
-          checkedAt: selectedCard.checkedAt,
+          availability: dealProduct.availability,
+          ...(dealProduct.itemPrice === undefined ? {} : { itemPrice: dealProduct.itemPrice }),
+          checkedAt: dealProduct.checkedAt,
           quoteCapability: selectedCard.quoteCapability,
           ...(quoteProduct === undefined ? {} : { quoteProduct })
         },
@@ -4427,8 +4546,8 @@ export function createShoppingServer(
             text("checked at ", "核验时间：") + deal.checkedAt
           ].filter((part): part is string => part !== undefined).join("; ")).join(" | "));
       const message = [
-        text(`Selected product: ${selectedCard.title}; merchant: ${selectedCard.merchant}; availability: ${selectedCard.availability}.`,
-          `所选商品：${selectedCard.title}；商家：${selectedCard.merchant}；库存：${({ IN_STOCK: "有货", OUT_OF_STOCK: "缺货", UNKNOWN: "未知" })[selectedCard.availability]}。`),
+        text(`Selected product: ${selectedCard.title}; merchant: ${selectedCard.merchant}; availability: ${dealProduct.availability}.`,
+          `所选商品：${selectedCard.title}；商家：${selectedCard.merchant}；库存：${({ IN_STOCK: "有货", OUT_OF_STOCK: "缺货", UNKNOWN: "未知" })[dealProduct.availability]}。`),
         priceEvidence,
         dealEvidence,
         ...research.limitations.map((limitation) => text("Limit: ", "限制：") + limitation)
@@ -4447,9 +4566,9 @@ export function createShoppingServer(
           selectedProduct: {
             merchantId: selectedCard.merchantId,
             merchant: selectedCard.merchant,
-            merchantProductId: selectedCard.handle,
+            merchantProductId: dealProductId(selectedCard),
             title: selectedCard.title,
-            availability: selectedCard.availability,
+            availability: dealProduct.availability,
             merchantUrl: selectedCard.merchantUrl
           },
           ...(research.currentPrice === undefined ? {} : { currentPrice: research.currentPrice }),
@@ -4681,7 +4800,7 @@ export function createShoppingServer(
     "create_watch",
     {
       title: "Create a shopping watch",
-      description: "For a clear Watch request, call without Memory, repo scans, or sequence narration. Persist one rule and return Automation handoff. PRICE_BELOW requires explicit ITEM_PRICE. DELIVERED_TOTAL Watch is unavailable because one-shot consent does not authorize recurring Cart quotes; do not ask for ZIP or selected quote references. Binding alone records an Automation identifier, not verified host execution.",
+      description: "For a clear Watch request, call without Memory, repo scans, or sequence narration. Persist one rule and return Automation handoff. PRICE_BELOW requires explicit ITEM_PRICE. DELIVERED_TOTAL Watch is unavailable because one-shot consent does not authorize recurring Cart quotes; do not ask for ZIP or selected quote references. For a selected WooCommerce product, pass its exact quoteReference to pin merchant/product/variant IDs. Binding alone records an Automation identifier, not verified host execution.",
       inputSchema: WatchSpecInputSchema,
       outputSchema: {
         status: z.enum(["READY_TO_SCHEDULE", "ACTIVE", "PAUSED", "LEGACY_UNVERIFIED", "NEEDS_CLARIFICATION", "DATA_SOURCE_UNAVAILABLE"]),
@@ -4715,7 +4834,25 @@ export function createShoppingServer(
           questions: []
         } };
       }
-      const questions = productWatchClarificationQuestions(requested);
+      let selectedWoo: z.infer<typeof WatchSpecSchema>["selectedProduct"];
+      if (requested.quoteReference !== undefined) {
+        const selectedRender = requested.quoteReference.renderId ?? (requested.quoteReference.selectionId === undefined ? undefined : selections.get(requested.quoteReference.selectionId)?.renderId);
+        const reference = selectedRender === undefined ? undefined : resolveSingleSelectionReference({ ...requested.quoteReference, renderId: selectedRender });
+        const snapshot = reference === undefined ? undefined : renderSnapshots.get(reference.renderId);
+        const entry = reference === undefined ? undefined : snapshot?.sourceProductIndex.get(reference.productKey);
+        if (reference === undefined || snapshot === undefined || snapshot.expiresAt <= createdAt.getTime()) return {
+          isError: true, content: [{ type: "text" as const, text: "[WATCH_REFERENCE_UNAVAILABLE] The original selection is unavailable; no watch was created." }]
+        };
+        if (entry?.sourceKind === "WOOCOMMERCE_STORE_API") {
+          const product = entry.product;
+          if (product.productType === "variable" || !woocommerceProducts) return { isError: true,
+            content: [{ type: "text" as const, text: "[WATCH_TARGET_UNSUPPORTED] Select a verified simple product or exact variation; no watch was created." }] };
+          selectedWoo = { ...wooProductTarget(product), sourceKind: "WOOCOMMERCE_STORE_API", productType: product.productType,
+            merchant: product.merchantName, sourceHost: product.sourceHost, title: product.title, merchantUrl: product.merchantUrl,
+            condition: product.condition, variantDimensions: product.selectedAttributes, selectedAt: createdAt.toISOString() };
+        }
+      }
+      const questions = productWatchClarificationQuestions({ ...requested, ...(selectedWoo === undefined ? {} : { selectedProduct: selectedWoo }) });
       if (questions.length > 0) {
         const message = `More product detail is required before this watch can be created. ${questions.join(" ")}`;
         return { content: [{ type: "text" as const, text: message }], structuredContent: {
@@ -4724,11 +4861,24 @@ export function createShoppingServer(
         } };
       }
       const { quoteReference: _quoteReference, ...persistedInput } = requested;
-      const spec = WatchSpecSchema.parse(persistedInput);
+      const spec = WatchSpecSchema.parse({ ...persistedInput, ...(selectedWoo === undefined ? {} : { selectedProduct: selectedWoo }) });
       if (spec.expiresAt !== undefined && Date.parse(spec.expiresAt) <= createdAt.getTime()) {
         throw new Error("expiresAt must be in the future");
       }
-      const watch = await watchStore.create(spec, createdAt.toISOString());
+      let initialObservation: WooWatchObservation | undefined;
+      if (selectedWoo !== undefined) {
+        try {
+          initialObservation = await observeWooProduct({ spec }, woocommerceProducts, now());
+        } catch {
+          const message = "[WATCH_SOURCE_UNAVAILABLE] The exact selected WooCommerce product could not be verified with fresh price or inventory; no watch was created.";
+          return { content: [{ type: "text" as const, text: message }], structuredContent: {
+            status: "DATA_SOURCE_UNAVAILABLE" as const, message, questions: []
+          } };
+        }
+      }
+      const watch = await watchStore.create(spec, createdAt.toISOString(), initialObservation === undefined ? undefined : {
+        checkedAt: String(initialObservation.data["checkedAt"]), data: initialObservation.data
+      });
       const automationPrompt = `Call FindCheap Agent check_watch exactly once with watchId ${watch.watchId}. Notify only for TRIGGERED; include value, checkedAt and source link, and deduplicate any completionEventId. NOT_TRIGGERED is silent. COMPLETED/EXPIRED/PAUSED/NOT_FOUND must not produce a new product alert. For STOP_REQUIRED, verify this task's own host Automation identity/scope before stopping it; the returned ID is only an unverified reference. Never claim host stop without real host evidence. Do not purchase, reserve, submit forms, or use Chrome.`;
       const status = watch.status === "PAUSED" ? "PAUSED" as const
         : watch.schedulingState === undefined ? "LEGACY_UNVERIFIED" as const
@@ -4776,7 +4926,7 @@ export function createShoppingServer(
       const boundAt = now();
       if (watch.status === "COMPLETED" || watch.status === "EXPIRED" ||
         (watch.spec.expiresAt !== undefined && Date.parse(watch.spec.expiresAt) <= boundAt.getTime())) {
-        const terminal = (await evaluateWatch(watch, watchStore, shopifyPort, dealPort, cartQuotes, boundAt)).watch;
+        const terminal = (await evaluateWatch(watch, watchStore, shopifyPort, dealPort, cartQuotes, boundAt, woocommerceProducts)).watch;
         return {
           content: [{ type: "text" as const, text: "Watch is locally terminal and cannot bind or resume; host scheduling remains unverified." }],
           structuredContent: { status: terminal.status, watchId, automationId: terminal.automationId ?? automationId,
@@ -4855,7 +5005,7 @@ export function createShoppingServer(
       const check = ready.then(async () => {
         const latest = await watchStore.get(watchId);
         if (latest === undefined) throw new Error("Watch not found");
-        return evaluateWatch(latest, watchStore, shopifyPort, dealPort, cartQuotes, now());
+        return evaluateWatch(latest, watchStore, shopifyPort, dealPort, cartQuotes, now(), woocommerceProducts);
       });
       watchChecks.set(watchId, check);
       const result = await check.finally(() => {
@@ -4932,7 +5082,7 @@ export function createShoppingServer(
       const changedAt = now();
       if (watch.status === "COMPLETED" || watch.status === "EXPIRED" ||
         (watch.spec.expiresAt !== undefined && Date.parse(watch.spec.expiresAt) <= changedAt.getTime())) {
-        const terminal = (await evaluateWatch(watch, watchStore, shopifyPort, dealPort, cartQuotes, changedAt)).watch;
+        const terminal = (await evaluateWatch(watch, watchStore, shopifyPort, dealPort, cartQuotes, changedAt, woocommerceProducts)).watch;
         return { content: [{ type: "text" as const, text: "Watch is locally terminal and cannot resume; host scheduling remains unverified." }], structuredContent: {
           status: terminal.status, watchId, ...(terminal.automationId === undefined ? {} : { automationId: terminal.automationId }),
           ...(terminal.stopIntent === undefined ? {} : { stopIntent: terminal.stopIntent })

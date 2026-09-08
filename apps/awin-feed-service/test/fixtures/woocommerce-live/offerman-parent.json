@@ -1,0 +1,252 @@
+{
+  "fixtureKind": "SANITIZED_LIVE_OBSERVATION",
+  "observedAt": "2026-09-08T15:33:18Z",
+  "request": {
+    "method": "GET",
+    "url": "https://offermanwoodshop.com/wp-json/wc/store/v1/products?search=trivet&per_page=3"
+  },
+  "response": {
+    "status": 200,
+    "contentType": "application/json; charset=UTF-8",
+    "bytes": 18480,
+    "total": "1",
+    "totalPages": "1",
+    "elapsedMs": 492
+  },
+  "sanitization": "Retained public product fields; omitted descriptions, extensions, cookies and request headers; images limited to three references per product. No image binary fetched.",
+  "body": [
+    {
+      "id": 43848,
+      "name": "Dovetail &#038; Amorphous Kitchen Trivets",
+      "slug": "kitchen-trivets",
+      "parent": 0,
+      "type": "variable",
+      "variation": "",
+      "permalink": "https://offermanwoodshop.com/store/kindlin/hearth-home/kitchen-trivets",
+      "sku": "WD-KITCHENTRIVET",
+      "is_purchasable": true,
+      "is_in_stock": true,
+      "is_on_backorder": false,
+      "low_stock_remaining": null,
+      "on_sale": false,
+      "prices": {
+        "price": "7500",
+        "regular_price": "7500",
+        "sale_price": "7500",
+        "price_range": null,
+        "currency_code": "USD",
+        "currency_symbol": "$",
+        "currency_minor_unit": 2,
+        "currency_decimal_separator": ".",
+        "currency_thousand_separator": ",",
+        "currency_prefix": "$",
+        "currency_suffix": ""
+      },
+      "average_rating": "0",
+      "review_count": 0,
+      "images": [
+        {
+          "id": 43864,
+          "src": "https://offermanwoodshop.com/wp-content/uploads/2026/09/trivets-all.jpg",
+          "thumbnail": "https://offermanwoodshop.com/wp-content/uploads/2026/09/trivets-all-400x267.jpg",
+          "name": "trivets all",
+          "alt": ""
+        },
+        {
+          "id": 43870,
+          "src": "https://offermanwoodshop.com/wp-content/uploads/2026/09/amorphous-trio.jpg",
+          "thumbnail": "https://offermanwoodshop.com/wp-content/uploads/2026/09/amorphous-trio-400x267.jpg",
+          "name": "amorphous trio",
+          "alt": ""
+        },
+        {
+          "id": 43866,
+          "src": "https://offermanwoodshop.com/wp-content/uploads/2026/09/eucalyptus-2.jpg",
+          "thumbnail": "https://offermanwoodshop.com/wp-content/uploads/2026/09/eucalyptus-2-400x267.jpg",
+          "name": "eucalyptus 2",
+          "alt": ""
+        }
+      ],
+      "categories": [
+        {
+          "id": 87,
+          "name": "Accounting_OWS",
+          "slug": "accounting-ows",
+          "link": "https://offermanwoodshop.com/product-category/accounting-ows/"
+        },
+        {
+          "id": 232,
+          "name": "Hearth &amp; Home",
+          "slug": "hearth-home",
+          "link": "https://offermanwoodshop.com/product-category/kindlin/hearth-home/"
+        },
+        {
+          "id": 95,
+          "name": "Kindlin’",
+          "slug": "kindlin",
+          "link": "https://offermanwoodshop.com/product-category/kindlin/"
+        }
+      ],
+      "brands": [],
+      "attributes": [
+        {
+          "id": 0,
+          "name": "Type",
+          "taxonomy": null,
+          "has_variations": true,
+          "terms": [
+            {
+              "id": 0,
+              "name": "Dovetail Trivet",
+              "slug": "Dovetail Trivet"
+            },
+            {
+              "id": 0,
+              "name": "Amorphous Trivet",
+              "slug": "Amorphous Trivet"
+            }
+          ]
+        },
+        {
+          "id": 0,
+          "name": "Species",
+          "taxonomy": null,
+          "has_variations": true,
+          "terms": [
+            {
+              "id": 0,
+              "name": "Ash",
+              "slug": "Ash"
+            },
+            {
+              "id": 0,
+              "name": "Walnut",
+              "slug": "Walnut"
+            },
+            {
+              "id": 0,
+              "name": "Eucalyptus",
+              "slug": "Eucalyptus"
+            }
+          ]
+        }
+      ],
+      "variations": [
+        {
+          "id": 43861,
+          "attributes": [
+            {
+              "name": "Type",
+              "value": "Dovetail Trivet"
+            },
+            {
+              "name": "Species",
+              "value": "Ash"
+            }
+          ]
+        },
+        {
+          "id": 43862,
+          "attributes": [
+            {
+              "name": "Type",
+              "value": "Dovetail Trivet"
+            },
+            {
+              "name": "Species",
+              "value": "Walnut"
+            }
+          ]
+        },
+        {
+          "id": 43863,
+          "attributes": [
+            {
+              "name": "Type",
+              "value": "Dovetail Trivet"
+            },
+            {
+              "name": "Species",
+              "value": "Eucalyptus"
+            }
+          ]
+        },
+        {
+          "id": 43858,
+          "attributes": [
+            {
+              "name": "Type",
+              "value": "Amorphous Trivet"
+            },
+            {
+              "name": "Species",
+              "value": "Ash"
+            }
+          ]
+        },
+        {
+          "id": 43857,
+          "attributes": [
+            {
+              "name": "Type",
+              "value": "Amorphous Trivet"
+            },
+            {
+              "name": "Species",
+              "value": "Walnut"
+            }
+          ]
+        },
+        {
+          "id": 43860,
+          "attributes": [
+            {
+              "name": "Type",
+              "value": "Amorphous Trivet"
+            },
+            {
+              "name": "Species",
+              "value": "Eucalyptus"
+            }
+          ]
+        }
+      ],
+      "stock_availability": {
+        "text": "",
+        "class": "in-stock"
+      },
+      "add_to_cart": {
+        "text": "Select options",
+        "description": "Select options for &ldquo;Dovetail &#038; Amorphous Kitchen Trivets&rdquo;",
+        "url": "https://offermanwoodshop.com/store/kindlin/hearth-home/kitchen-trivets",
+        "single_text": "Add to cart",
+        "minimum": 1,
+        "maximum": 9999,
+        "multiple_of": 1
+      },
+      "_links": {
+        "self": [
+          {
+            "href": "https://offermanwoodshop.com/wp-json/wc/store/v1/products/43848",
+            "targetHints": {
+              "allow": [
+                "GET"
+              ]
+            }
+          }
+        ],
+        "collection": [
+          {
+            "href": "https://offermanwoodshop.com/wp-json/wc/store/v1/products"
+          }
+        ],
+        "related": [
+          {
+            "embeddable": true,
+            "href": "https://offermanwoodshop.com/wp-json/wc/store/v1/products?related=43848&per_page=10"
+          }
+        ]
+      }
+    }
+  ]
+}

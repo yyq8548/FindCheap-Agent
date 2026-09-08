@@ -1,0 +1,18 @@
+{
+  "fixtureKind": "SANITIZED_LIVE_OBSERVATION",
+  "observedAt": "2026-09-08T15:33:19Z",
+  "request": {
+    "method": "GET",
+    "url": "https://www.shoprootscience.com/wp-json/wc/store/v1/products?search=serum&per_page=3"
+  },
+  "response": {
+    "status": 200,
+    "contentType": "application/json; charset=UTF-8",
+    "bytes": 2,
+    "total": "0",
+    "totalPages": "0",
+    "elapsedMs": 831
+  },
+  "sanitization": "Retained public product fields; omitted descriptions, extensions, cookies and request headers; images limited to three references per product. No image binary fetched.",
+  "body": []
+}
