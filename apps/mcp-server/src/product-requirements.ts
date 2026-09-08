@@ -5,6 +5,8 @@ import { functionalFeatureEvidence, requiredPrimaryUseFeatures } from "./functio
 import { boundNamedIdentityRequirement } from "./named-product-identity.js";
 import { missingChargingRequirements } from "./decision-constraints.js";
 import { isPartialPriceListing } from "./shopify-match.js";
+import { isTrustedMerchant, type MerchantTrustEvidence } from "./merchant-trust.js";
+import { requirementDomain } from "./merchant-requirements.js";
 
 /** Product/feed claims describe what the merchant says, not verified efficacy. */
 export const CandidateClaimEvidenceSchema = z.object({
@@ -26,7 +28,8 @@ export const RequirementAssessmentSchema = z.object({
   entries: z.array(z.object({
     requirement: z.string().max(200),
     status: z.enum(["MATCHED", "CONTRADICTED", "UNKNOWN", "CONFLICT"]),
-    source: z.enum(["VARIANT", "PRODUCT", "FEED", "MISSING"]),
+    source: z.enum(["VARIANT", "PRODUCT", "FEED", "MERCHANT_TRUST", "MISSING"]),
+    scope: z.enum(["PRODUCT", "MERCHANT_TRUST", "MERCHANT_LOCATION", "DELIVERY_MARKET", "MERCHANT_OTHER"]).optional(),
     observed: z.string().max(240).optional(),
     evidence: z.array(CandidateClaimEvidenceSchema).max(8).optional()
   }).strict()).max(32)
@@ -41,6 +44,7 @@ export type RequirementProduct = {
   variantDimensions?: Readonly<Record<string, string>> | undefined;
   evidenceSource?: "PRODUCT" | "FEED";
   itemPrice?: { amountCents: number; currency: string } | undefined;
+  merchantTrust?: Pick<MerchantTrustEvidence, "level" | "verification" | "evidence"> | undefined;
 };
 type Requirements = {
   query?: string | undefined;
@@ -84,6 +88,11 @@ export function evaluateProductRequirements(product: RequirementProduct, input: 
   const entries: RequirementAssessment["entries"] = [];
   const requirements = [...new Set([...input.requiredFeatures, ...requiredPrimaryUseFeatures(input.primaryUse)])];
   for (const requirement of requirements) {
+    const merchant = merchantRequirementAssessment(product, requirement);
+    if (merchant !== undefined) {
+      entries.push(merchant);
+      continue;
+    }
     const named = namedProductAssessment(product, boundNamedIdentityRequirement(requirement, input.query));
     if (named !== undefined) {
       entries.push({ requirement: sanitizeExternalText(requirement, 200), status: named.status,
@@ -147,6 +156,13 @@ export function evaluateProductRequirements(product: RequirementProduct, input: 
       ...(verified ? { observed: `USD ${(price.amountCents / 100).toFixed(2)}` } : {}) });
   }
   for (const excluded of input.excludedFeatures) {
+    const merchant = merchantRequirementAssessment(product, excluded);
+    if (merchant !== undefined) {
+      if (merchant.status !== "CONTRADICTED") entries.push({ ...merchant,
+        requirement: sanitizeExternalText(`excluded: ${excluded}`, 200),
+        status: merchant.status === "MATCHED" ? "CONTRADICTED" : "UNKNOWN" });
+      continue;
+    }
     if ((namedProductAssessment(product, excluded)?.status ?? productClaimAssessment(product, excluded)?.status ?? evaluateFeature(isColorRequirement(excluded) ? colorText : text, excluded)) === "MATCHED") entries.push({
       requirement: sanitizeExternalText(`excluded: ${excluded}`, 200), status: "CONTRADICTED", source: product.evidenceSource ?? "PRODUCT"
     });
@@ -162,7 +178,20 @@ export function evaluateProductRequirements(product: RequirementProduct, input: 
       : unknown.length > 0 ? "NEEDS_VERIFICATION" : "SATISFIED" };
   return { matched, contradicted, unknown,
     preferences: input.preferences.filter(feature =>
-      (namedProductAssessment(product, feature)?.status ?? productClaimAssessment(product, feature)?.status ?? evaluateFeature(isColorRequirement(feature) ? colorText : text, feature)) === "MATCHED"), assessment };
+      (merchantRequirementAssessment(product, feature)?.status ?? namedProductAssessment(product, feature)?.status ?? productClaimAssessment(product, feature)?.status ?? evaluateFeature(isColorRequirement(feature) ? colorText : text, feature)) === "MATCHED"), assessment };
+}
+
+function merchantRequirementAssessment(product: RequirementProduct, requirement: string): RequirementAssessment["entries"][number] | undefined {
+  const scope = requirementDomain(requirement);
+  if (scope === "PRODUCT") return undefined;
+  const trust = product.merchantTrust;
+  const status = scope !== "MERCHANT_TRUST" || trust === undefined ? "UNKNOWN"
+    : trust.level === "RISKY" ? "CONTRADICTED" : isTrustedMerchant(trust) ? "MATCHED" : "UNKNOWN";
+  // Current source contracts have no verified merchant-country or delivery
+  // evidence. USD, a US market query and merchant/product copy do not fill it.
+  return { requirement: sanitizeExternalText(requirement, 200), status, scope,
+    source: status === "UNKNOWN" ? "MISSING" : "MERCHANT_TRUST",
+    ...(status === "UNKNOWN" || trust === undefined ? {} : { observed: sanitizeExternalText(trust.evidence.join("; "), 240) }) };
 }
 
 function namedProductAssessment(product: RequirementProduct, requirement: string) {

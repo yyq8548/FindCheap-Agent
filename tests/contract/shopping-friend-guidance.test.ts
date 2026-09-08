@@ -26,16 +26,16 @@ describe("shopping friend guidance", () => {
 
   it("acknowledges host instruction priority without redundant progress or optional file work", () => {
     for (const text of [skill, prompt]) {
-      expect(text).toContain("Follow required host instructions");
+      expect(text).toMatch(/Follow (?:required host instructions|host requirements)/u);
       expect(text).toContain("skip optional");
-      expect(text).toContain("do not repeat progress");
+      expect(text).toMatch(/no optional progress line or tool narration|add no optional process narration/u);
     }
     expect(skill).not.toContain("Pre-load silent");
   });
 
   it("routes inspection directly and chains snapshots for accumulated checks", () => {
     const selected = skill.split("## Selected")[1]!.split("## Chrome fallback")[0]!;
-    expect(selected).toContain("Do not compare first to inspect one");
+    expect(selected).toContain("do not compare first to inspect one");
     expect(selected).toContain("Check multiple products sequentially");
     expect(selected).toContain("updatedSnapshot");
     expect(selected).toContain("never mix IDs");
@@ -50,7 +50,7 @@ describe("shopping friend guidance", () => {
   });
 
   it("gives natural grounded examples without blaming the user or promising a popup", () => {
-    expect(design).toContain("我来核对符合要求的商品和价格。");
+    expect(design).toContain("add no optional progress sentence");
     expect(design).toContain("这款符合你要的规格");
     expect(design).toContain("是否适用这件商品，还要看优惠条件");
     expect(design).toContain("这次网页补搜没能启动");

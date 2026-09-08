@@ -43,6 +43,16 @@ const marketplacePath = path.join(root, ".agents", "plugins", "marketplace.json"
 const matchingGoldenPath = path.join(root, "tests", "evals", "shopify-match-golden.json");
 
 describe("FindCheap Agent plugin contract", () => {
+  it("inventories Chrome before consent and closes failed discovery without renewing access", async () => {
+    const rules = (await readFile(chromeReferencePath, "utf8")).replace(/\s+/gu, " ");
+    expect(rules).toContain("cua.getState()");
+    expect(rules).toContain("actual Chrome browser ID");
+    expect(rules.indexOf("cua.getState()")).toBeLessThan(rules.indexOf("Call `begin_web_search`"));
+    expect(rules).toContain("15 seconds");
+    for (const outcome of ["BROWSER_UNAVAILABLE", "DISCOVERY_TIMEOUT", "DISCOVERY_CANCELLED"]) expect(rules).toContain(outcome);
+    expect(rules).toContain("zero-IO closure");
+    expect(rules).toContain("does not renew permission");
+  });
   it("limits visual colorway alternatives to source-proven same-brand choices", async () => {
     const skill = await readFile(skillPath, "utf8");
     const prompt = await readFile(path.join(root, "plugins/findcheap-agent/skills/compare-products/agents/openai.yaml"), "utf8");
@@ -67,29 +77,29 @@ describe("FindCheap Agent plugin contract", () => {
     // The bounded text receipt rules must survive hosts that omit structuredContent.
     expect(new TextEncoder().encode(skill).length).toBeLessThanOrEqual(7_200);
     expect(skill.split(/\r?\n/u).length).toBeLessThanOrEqual(36);
-    expect(skill).toContain("Use current requirements and original receipts");
-    expect(skill).toContain("Follow required host instructions; skip optional");
-    expect(skill).toContain("Use one initial progress line");
-    expect(skill).toContain("do not repeat progress or narrate tools");
+    expect(skill).toContain("Use original receipts");
+    expect(skill).toContain("Follow host requirements; skip optional");
+    expect(skill).toContain("Required host announcements once; no optional progress line or tool narration");
+    expect(skill).toContain("only host Search products + current requirements");
     expect(skill).toContain("Never call `render_product_cards`");
     expect(skill).toContain("Call `search_products` exactly once");
     expect(skill).toContain("`quote_selected_shopify_product`");
     expect(skill).toContain("`inspect_selected_shopify_product`");
     expect(skill).toContain("Never call `search_products` or title-search");
-    expect(skill).toContain("Always pass the prior `renderId`");
+    expect(skill).toContain("Pass prior `renderId`, current `responseLocale`");
     expect(skill).toContain("prior `renderId`");
     expect(skill).toContain("one-based `position`");
-    expect(skill).toContain("Never claim selection arrived unless tool succeeds");
+    expect(skill).toContain("Confirm selection only after tool success");
     expect(skill).toContain("`compare_selected_products`");
     expect(skill).toContain("`quote_and_compare_selected_products`");
     expect(skill).toContain("`AUTO`");
     expect(skill).toContain("Server owns facts/prices/recommendation");
-    expect(skill).toContain("never make a manual table or call `render_product_comparison`");
+    expect(skill).toContain("no manual table or `render_product_comparison`");
     expect(skill).toContain("Never describe `UNKNOWN` condition as new");
     expect(skill).toContain("`recovery.action=REQUEST_WEB_SEARCH`");
     expect(skill).not.toContain("`products.length === 0`");
     expect(skill).toContain("incomplete/error results");
-    expect(skill).toContain("backend diagnostics logged by MCP");
+    expect(skill).toContain("MCP logs diagnostics");
     expect(skill).toContain("Keep `IRRELEVANT`");
     expect(skill).toContain("Never describe `UNKNOWN` condition as new or pad cards");
     expect(skill).toContain("`matchEvidence`");
@@ -98,13 +108,13 @@ describe("FindCheap Agent plugin contract", () => {
     expect(skill).toContain("call `search_visual_candidates` once");
     expect(skill).toContain("`visualReview.finalAnswerAllowed=false`");
     expect(skill).toContain("Never third review");
-    expect(skill).toContain("Price ceilings use integer cents");
+    expect(skill).toContain("Price ceilings: integer cents");
     expect(skill).toContain("must-haves in `requiredFeatures`");
     expect(skill).toContain("Explicit brand: `REQUIRED`");
     expect(skill).toContain("Never put brand in type/features");
     expect(skill).toContain("Preferences rank, never exclude");
     expect(skill).toContain("Missing evidence does not create a zero result");
-    expect(skill).toContain("Payment-plan, trade-in, coupon, member, or `from` text");
+    expect(skill).toContain("Payment-plan/trade-in/coupon/member/`from` text ≠ item price");
     expect(skill).toContain("`SAME_PRODUCT`");
     expect(skill).toContain("`DISCOVERY_ONLY`");
     expect(skill).toContain("`SAME_PRODUCT` only like-for-like");
@@ -113,34 +123,34 @@ describe("FindCheap Agent plugin contract", () => {
     expect(skill).toContain("MERCHANT_DIVERSE");
     expect(skill).toContain("Preserve returned order");
     expect(skill).toContain("[chrome-fallback.md](references/chrome-fallback.md)");
-    expect(skill).toContain("repeat every card field");
-    expect(skill).toContain("Use current requirements and original receipts");
+    expect(skill).toContain("Avoid repeated card fields/comparison");
+    expect(skill).toContain("Use original receipts");
     expect(skill).toContain("Added budget/use/size/constraints");
-    expect(skill).toContain("Different shopping goal: `NEW_PRODUCT`");
+    expect(skill).toContain("New image/different goal: `NEW_PRODUCT`");
     expect(skill).toContain("Symptoms/question answers aren't withdrawal");
     expect(skill).toContain("`removeRequiredFeatures`=named prior entries");
     expect(skill).toContain("`REPORT_UNVERIFIED_MERCHANT`");
-    expect(skill).toContain("New image: `NEW_PRODUCT`");
-    expect(skill).toContain("selected-product tools forbidden that turn");
-    expect(skill).toContain("ceiling, not a spending target");
-    expect(skill).toContain("Broad laptop/phone/camera/display requests may return one clarification before search");
+    expect(skill).toContain("New image/different goal: `NEW_PRODUCT`");
+    expect(skill).toContain("new-image turn forbids selected-product tools");
+    expect(skill).toContain("Price ceilings: integer cents, not spending targets");
+    expect(skill).toContain("Broad laptop/phone/camera/display: allow one clarification");
     expect(skill).toContain("Groups do not select primary");
     expect(skill).toContain("recommend only `primarySelectionId`");
     expect(skill).toContain("Equal fit/trust: confirmed after-Coupon price, then raw item price");
     expect(skill).toContain("cards are research leads; recommend none for purchase");
     expect(skill).toContain("Never recommend products absent from cards");
-    expect(skill).toContain("`I'll check matching products and prices.`");
-    expect(skill).toContain("Match current-message language via `responseLocale`");
-    expect(skill).toContain("preserve product names/brands/models");
-    expect(skill).toContain("`我来核对符合要求的商品和价格。`");
+    expect(skill).not.toContain("Use one initial progress line");
+    expect(skill).toContain("Current-message `responseLocale`");
+    expect(skill).toContain("preserve names/brands/models");
+    expect(skill).toContain("Keep card limitations");
     const description = skill.match(/^description: (?:"([^"\r\n]*)"|([^\r\n]+))$/mu);
-    expect(description?.[1] ?? description?.[2]).toMatch(/^Live shopping\. Initial search:/u);
-    expect(skill).toContain("Load the Chrome reference only for eligible recovery");
-    expect(skill).toContain("file paths and state names in diagnostics");
+    expect(description?.[1] ?? description?.[2]).toBe("Live shopping: search, compare, inspect.");
+    expect(skill).toContain("Chrome reference: eligible recovery only");
+    expect(skill).toContain("IDs/paths/states stay internal");
     expect(skill).toContain("trust does not prove brand authorization");
     expect(skill).toContain("For `MERCHANT_CHECKOUT_ONLY`/`NOT_CHECKED`, no ZIP");
     expect(skill).toContain("never call one merchant diverse");
-    expect(skill).toContain("capable shopping friend, not sales copy");
+    expect(skill).toContain("Shopping friend, not sales copy");
     expect(skill).toContain("max two reasons, one next step/limit");
     expect(skill).toContain("No greeting/emoji/invented savings or fit");
   });
@@ -163,17 +173,41 @@ describe("FindCheap Agent plugin contract", () => {
     expect(new Set(goldenTasks.map((task) => task.id))).toHaveLength(20);
     expect(goldenTasks.every((task) => task.query.trim().length > 0)).toBe(true);
     expect(skill).toContain("Call `search_products` exactly once");
-    expect(skill).toContain("Use one initial progress line");
-    expect(skill).toContain("Follow required host instructions; skip optional");
+    expect(skill).toContain("no optional progress line or tool narration");
+    expect(skill).toContain("Follow host requirements; skip optional");
     expect(skillBytes).toBeLessThanOrEqual(Math.floor(19_954 * 0.36));
   });
 
   it("keeps merchant-wide Coupon requests broader than Agent-suggested products", async () => {
     const skill = await readFile(watchSkillPath, "utf8");
 
-    expect(skill).toContain("Pass `productQuery` only when the user names that product");
-    expect(skill).toContain("cannot discard merchant-wide offers");
-    expect(skill).toContain("Joined Awin merchant does not imply an active offer");
+    expect(skill).toContain("`productQuery`: user-named product only");
+    expect(skill).toContain("never discards merchant-wide offers");
+    expect(skill).toContain("Joined Awin merchant ≠ active offer");
+  });
+
+  it("preserves merchant requirements without inventing US merchant location or changing a clarified Sony goal", async () => {
+    const skill = await readFile(skillPath, "utf8");
+    expect(skill).toContain("Explicit merchant trust/location/delivery remain requiredFeatures, not product keywords");
+    expect(skill).toContain("US market ≠ US-based merchant; only require the latter when asked");
+    expect(skill).toContain("Missing location stays unknown");
+    expect(skill).toContain("Unresolved Sony 1000XM6 → user-specified WH/WF-1000XM6: CONTINUE");
+    expect(skill).toContain("changing a fixed model/family or generation: CORRECT_PREVIOUS_PRODUCT");
+  });
+
+  it("routes selected deals to the actual synced single choice rather than filling in the first card", async () => {
+    const compare = await readFile(skillPath, "utf8");
+    const deals = await readFile(watchSkillPath, "utf8");
+    for (const skill of [compare, deals]) {
+      expect(skill).toContain("research_selected_product_deal");
+      expect(skill).toContain("alone for one synced UI choice");
+      expect(skill).toMatch(/explicit ordinal → `?position`?/iu);
+      expect(skill).toMatch(/never default first/iu);
+    }
+    expect(compare).toContain("specified card → original selectionId");
+    expect(compare).toContain("Unsynced/empty/multiple: explain returned state");
+    expect(deals).toContain("specified card → same-receipt `selectionId`");
+    expect(deals).toContain("Unsynced: selection not received. Empty: select one. Multiple: specify which");
   });
 
   it("keeps selected-product Coupon answers concise and scope-aware", async () => {
@@ -181,15 +215,16 @@ describe("FindCheap Agent plugin contract", () => {
     const dealsSkill = await readFile(watchSkillPath, "utf8");
 
     for (const skill of [compareSkill, dealsSkill]) {
-      expect(skill).toMatch(/Show best Coupon first: code\/benefit|Best Coupon=/u);
-      expect(skill).toMatch(/scope—customer, products, exclusions|code\/benefit\/customer\/products\/exclusions/u);
+      expect(skill).toMatch(/Best Coupon: code\/benefit|Best Coupon=/u);
+      expect(skill).toMatch(/scope—customer\/products\/exclusions|code\/benefit\/customer\/products\/exclusions/u);
       expect(skill).toContain("dealSummary.recommendedDealId");
-      expect(skill).toMatch(/Other offers: collapsed or on request|Others collapsed/u);
+      expect(skill).toMatch(/Others on request|Others collapsed/u);
       expect(skill).not.toContain("Blank line; list all deals below");
       expect(skill).toContain("Checkout confirms scope/stacking");
     }
     expect(compareSkill).toContain("Discount needs confirmed terms");
-    expect(dealsSkill).toContain("Be warm and direct, not salesy");
+    expect(compareSkill).toContain("Shopping friend, not sales copy");
+    expect(dealsSkill).toContain("Return product/price/stock");
   });
 
   it("allows one pre-execution correction without retrying network or policy failures", async () => {
@@ -198,7 +233,7 @@ describe("FindCheap Agent plugin contract", () => {
       expect(skill).toContain("CORRECT_ARGUMENTS");
       expect(skill).toContain("REUSE_ORIGINAL_REFERENCE");
       expect(skill).toContain("INPUT_VALIDATION");
-      expect(skill).toMatch(/one corrected submission|CORRECT_ARGUMENTS: correct once/u);
+      expect(skill).toMatch(/correct once using field issues|CORRECT_ARGUMENTS: correct once/u);
       expect(skill).toMatch(/No agent retry for network\/safety failures|No network\/safety retry/u);
     }
   });
@@ -208,13 +243,13 @@ describe("FindCheap Agent plugin contract", () => {
       const skill = (await readFile(file, "utf8")).replace(/\s+/gu, " ");
       expect(skill).toContain("`findcheapContext` JSON text");
       expect(skill).toContain("`structuredContent`");
-      expect(skill).toContain("original receipt");
+      expect(skill).toMatch(/original (?:unexpired )?receipt/u);
       expect(skill).toContain("REUSE_ORIGINAL_REFERENCE");
       expect(skill).toContain("NEW_PRODUCT");
     }
     const skill = await readFile(skillPath, "utf8");
     expect(skill).toContain("private receipts");
-    expect(skill).toContain("`renderId` as `parentRenderId`");
+    expect(skill).toContain("original `renderId` → `parentRenderId`");
     expect(skill).toContain("receipt IDs only");
     expect(skill).toContain("No NEW_PRODUCT budget/reference bypass");
     const schema = await readFile(path.join(root, "apps", "mcp-server", "src", "search-products.ts"), "utf8");
@@ -249,12 +284,12 @@ describe("FindCheap Agent plugin contract", () => {
     };
 
     expect(manifest.name).toBe("findcheap-agent");
-    expect(manifest.version).toMatch(/^0\.17\.33(?:\+codex\.)?/u);
+    expect(manifest.version).toMatch(/^0\.17\.34(?:\+codex\.)?/u);
     expect(manifest.interface.displayName).toBe("FindCheap Agent");
     expect(manifest.interface.longDescription).toMatch(/Codex Plugin Agent/u);
     expect(manifest.interface.longDescription).toMatch(/[Aa]uthorized.*Chrome/u);
     expect(manifest.interface.defaultPrompt).toEqual([
-      "Initial search: one localized progress line, counting required host announcements. No selected-product search line."
+      "Search products + current requirements. Keep required host announcements; no optional progress. Preserve card limitations."
     ]);
     expect(new TextEncoder().encode(manifest.interface.defaultPrompt[0]).length).toBeLessThanOrEqual(128);
   });
@@ -276,8 +311,9 @@ describe("FindCheap Agent plugin contract", () => {
     const lifecycle = await readFile(path.join(path.dirname(watchSkillPath), "references/watch-lifecycle.md"), "utf8");
 
     expect(new TextEncoder().encode(skill).length).toBeLessThanOrEqual(3_700);
-    expect(skill).toContain("Follow required host instructions; skip optional");
-    expect(skill).toContain("do not narrate the tool sequence between calls");
+    expect(skill).toContain("Follow host requirements; announcements once");
+    expect(skill).toContain("Skip optional file/Memory reads");
+    expect(skill).toContain("no optional progress/tool narration");
     expect(skill).toContain("`READY_TO_SCHEDULE`");
     expect(skill).toContain("native `automation_update` tool");
     expect(skill).toContain("`bind_watch_automation`");

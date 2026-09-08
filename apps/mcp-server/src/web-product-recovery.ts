@@ -51,6 +51,7 @@ export function createWebProductPagePort(fetchPage = safeFetchWithProvenance): W
 
 export const WebConsentStatusSchema = z.enum(["READY", "PERMISSION_DENIED", "PERMISSION_CANCELLED",
   "PERMISSION_UNAVAILABLE", "PERMISSION_TIMEOUT", "PERMISSION_ERROR", "APPROVAL_PENDING", "ALREADY_USED", "EXPIRED", "RETRY_LIMIT_REACHED"]);
+export const WebDiscoveryOutcomeSchema = z.enum(["COMPLETED", "BROWSER_UNAVAILABLE", "DISCOVERY_TIMEOUT", "DISCOVERY_CANCELLED"]);
 type ConsentStatus = z.infer<typeof WebConsentStatusSchema>;
 type ConsentResult = { status: ConsentStatus; retryable: boolean; attempt: number; token?: string; deadline?: number };
 type Lease = { renderId: string; token: string; deadline: number; status: ConsentStatus; attempt: number; retryable: boolean };
@@ -114,6 +115,13 @@ export class WebRecoverySessions {
     const remaining = lease.deadline - this.now();
     lease.status = remaining > 0 ? "ALREADY_USED" : "EXPIRED";
     return remaining > 0 ? remaining : undefined;
+  }
+  /** Record a failed discovery once, including after expiry. This grants no IO. */
+  closeFailedDiscovery(renderId: string, token: string): boolean {
+    const lease = [...this.#leases.values()].find(value => value.renderId === renderId && value.token === token);
+    if (lease?.status !== "READY") return false;
+    lease.status = lease.deadline > this.now() ? "ALREADY_USED" : "EXPIRED";
+    return true;
   }
 }
 

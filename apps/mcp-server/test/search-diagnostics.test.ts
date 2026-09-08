@@ -123,3 +123,15 @@ function executionFor(searchRun: SearchRun): UnifiedSearchExecution {
     officialStoreFallback: { status: "COMPLETE", productsReturned: 0, diagnostic: { outcome: "OFFICIAL_ZERO_RESULTS", attempts: [] } }
   };
 }
+describe("safe source validation diagnostics", () => {
+  it("preserves bounded source-owned validation details but drops injected fields", () => {
+    const execution = executionFor(new SearchRun());
+    execution.sourceFailures = [{ source: "OFFICIAL", kind: "SCHEMA_INVALID", retryable: false,
+      validation: { provider: "SONY", stage: "SEARCH_RESPONSE", reason: "INVALID_SCHEMA", fields: ["URL"] } }];
+    expect(searchDiagnostics(execution, "SOURCE_UNAVAILABLE").sourceFailures).toEqual(execution.sourceFailures);
+    Reflect.set(execution.sourceFailures[0]!.validation!, "privateUrl", "https://private.example/?secret=PRIVATE_SECRET");
+    const diagnostic = searchDiagnostics(execution, "SOURCE_UNAVAILABLE");
+    expect(diagnostic.sourceFailures?.[0]).not.toHaveProperty("validation");
+    expect(JSON.stringify(diagnostic)).not.toContain("PRIVATE_SECRET");
+  });
+});

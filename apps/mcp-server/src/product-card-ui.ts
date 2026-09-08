@@ -2,7 +2,7 @@ import { FINDCHEAP_VERSION } from "../../../config/version.js";
 import { QUOTE_UI_FEEDBACK_SCRIPT } from "./quote-ui-feedback.js";
 import { MAX_PRODUCT_CARDS } from "./product-candidate-ranking.js";
 
-export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v39.html";
+export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v40.html";
 
 export const PRODUCT_CARD_RESOURCE_DOMAINS = [
   "https://cdn.shopify.com",
@@ -831,7 +831,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       markStage("RENDER_STARTED");
       app.replaceChildren();
       const products = Array.isArray(output?.products) ? output.products.slice(0, ${MAX_PRODUCT_CARDS}) : [];
-      if (typeof output?.visualSearchOutcome?.message === "string") app.append(make("div", "summary", output.visualSearchOutcome.message));
+      if (products.length > 0 && typeof output?.visualSearchOutcome?.message === "string") app.append(make("div", "summary", output.visualSearchOutcome.message));
       if (output?.requirementsSummary) {
         const requirements = output.requirementsSummary;
         const parts = [requirements.brand, requirements.productType, requirements.requiredSize,
@@ -841,26 +841,17 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
             : text("Budget ≤ ", "预算 ≤ ") + money({ amountCents: requirements.maxItemPriceCents, currency: "USD" })].filter(Boolean);
         if (parts.length) app.append(make("div", "summary", text("Current requirements: ", "当前要求：") + parts.join(" · ")));
       }
-      if (output?.retrieval?.extent === "BOUNDED") app.append(make("div", "summary", text(
-        "Bounded search; this is not complete catalog coverage. Unverified requirements do not count as fulfilled matches.",
-        "本次为有界检索，未覆盖完整目录。待核验商品不计入达标结果。")));
-      if (output?.recommendation?.state === "MATCHES_AVAILABLE") app.append(make("div", "summary", text(
-        "These highly rated products match your requirements. Compare their item prices below; no primary choice has been selected.",
-        "这些高评分商品符合你的要求，可以接着比较商品价；暂不指定首选。")));
-      if (output?.recovery?.qualified === 0 && products.some(product => product.presentationGroup === "RESEARCH_ONLY")) {
-        const missing = [...new Set(products.flatMap(product => product.requiredFeatureLimitations || []))].map(requirementLabel);
-        app.append(make("div", "empty", text("No verified fit in this search. Research leads are collapsed below.",
-          "本次未找到已核实满足全部要求的商品。待核验线索已折叠在下方。") +
-          (missing.length ? text(" Evidence still needed: ", " 尚缺证据：") + missing.join(" · ") : "")));
-      }
-      if (output?.recovery?.reason === "MERCHANT_UNVERIFIED") app.append(make("div", "limitations notice", text(
-        "Some products match, but their merchants are not independently verified. Website claims and ratings do not grant trust.",
-        "已有符合要求的候选，但商家尚未独立核验；网站自述和评分不能代替商家核验。")));
       const primarySelectionId = output?.recommendation?.state === "READY"
         ? output.recommendation.primarySelectionId
         : undefined;
       if (products.length === 0) {
-        app.append(make("div", "empty", output?.message || text("No verified products returned.", "没有返回已验证商品。")));
+        const question = Array.isArray(output?.questions) ? output.questions.find(value => typeof value === "string" && value.trim()) : undefined;
+        const incomplete = output?.coverage !== "COMPLETE" || ["REPORT_INCOMPLETE", "REQUEST_WEB_SEARCH"].includes(output?.recovery?.action);
+        const message = question || output?.visualSearchOutcome?.message || output?.visualSearchFailure?.message ||
+          (output?.visualReview?.finalAnswerAllowed === false ? text("Image verification is pending; no recommendation yet.", "图片尚待核验，暂未生成推荐。") :
+          incomplete ? text("Search is incomplete; matching products may still be available.", "本次检索未完成，暂不能确认有无匹配商品。") :
+            text("No matching products found in this search.", "暂未找到符合要求的商品。"));
+        app.append(make("div", "empty", message));
         markStage("DOM_RENDERED");
         requestSizeReport("DOM_RENDERED");
         reportMetrics("DOM_RENDERED");
@@ -876,15 +867,6 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
               ? visualGroupDefinitions()
               : resultGroupDefinitions()
           );
-      const quoteCount = products.filter((product) => product?.pricing?.scope === "SHOPIFY_CART_ESTIMATE").length;
-      const priceSummary = quoteCount === 0
-        ? text("public item prices only", "仅公开商品价")
-        : quoteCount === products.length
-          ? text("Shopify Cart estimates for supplied ZIP", "基于所提供 ZIP 的 Shopify Cart 预估")
-          : text(quoteCount + " Shopify Cart estimate" + (quoteCount === 1 ? "" : "s") + "; remaining item-price-only", quoteCount + " 个 Shopify Cart 预估；其余仅含商品价");
-      app.append(make("div", "summary", currentLocale === "zh-CN"
-        ? products.length + " 张商品卡 / 身份标签 / " + priceSummary
-        : products.length + " product card" + (products.length === 1 ? "" : "s") + " / identity labels / " + priceSummary));
       const comparable = products.filter((product) => typeof product?.selectionId === "string");
       let selectionState = cardSelections.get(renderId);
       if (!selectionState) {

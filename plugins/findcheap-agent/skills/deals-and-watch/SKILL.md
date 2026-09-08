@@ -3,17 +3,17 @@ name: deals-and-watch
 description: Find verified Coupon, promotion, membership, or Cashback evidence, and manage shopping watches.
 ---
 
-# FindCheap Agent v0.17.33 Deals and Watch
+# FindCheap Agent v0.17.34 Deals and Watch
 
-Follow required host instructions; skip optional file or Memory reads. Use original receipts. One progress line; count host announcements; do not narrate the tool sequence between calls.
+Follow host requirements; announcements once. Skip optional file/Memory reads. Prior receipts; no optional progress/tool narration. Retain product/offer limitations.
 
 ## Coupon
 
-Call `find_coupons` once with current-message `responseLocale`. `INVALID_ARGUMENTS` + `details.phase=INPUT_VALIDATION` + `recovery.action=CORRECT_ARGUMENTS`: one corrected submission using field issues, never identical args. No agent retry for network/safety failures. Awin Promotions works without Feeds. Pass `productQuery` only when the user names that product; ranks but cannot discard merchant-wide offers. Joined Awin merchant does not imply an active offer. Return source/terms/scope/expiry/checked time. Distinguish offer types and product-confirmed/merchant-wide/unconfirmed. Never invent code/stacking/discount/Cashback. `UNAVAILABLE` is not “no Coupon”; `PARTIAL` is incomplete. Chrome: explicit one-use authorization, public HTTPS only. Never apply codes, sign in, or enter checkout.
+Call `find_coupons` once with current-message `responseLocale`. `INVALID_ARGUMENTS` + `details.phase=INPUT_VALIDATION` + `recovery.action=CORRECT_ARGUMENTS`: correct once using field issues, never identical args. No network/safety retry. Awin Promotions works without Feeds. `productQuery`: user-named product only; ranks, never discards merchant-wide offers. Joined Awin merchant ≠ active offer. Return source/terms/scope/expiry/checked time. Distinguish types and product-confirmed/merchant-wide/unconfirmed. Never invent code/stacking/discount/Cashback. `UNAVAILABLE` ≠ no Coupon; `PARTIAL`=incomplete. Chrome: explicit one-use authorization, public HTTPS only. Never apply codes/sign in/enter checkout.
 
 ## Current deal check
 
-Selected card: `research_selected_product_deal` with prior `renderId` plus `selectionId` or `position` from the same result's `findcheapContext` JSON text or `structuredContent`; keep IDs internal. Never title-search. `MISSING_REFERENCE_CONTEXT`/`REUSE_ORIGINAL_REFERENCE`: correct once from the original receipt, not expired. No receipt: unavailable; no latest-guess, log scan or `NEW_PRODUCT`. Pass ZIP/memberships. Be warm and direct, not salesy. Show best Coupon first: code/benefit from `dealSummary.recommendedDealId`; scope—customer, products, exclusions. Other offers: collapsed or on request. No recommended ID: no best offer. Assessment governs eligibility; merchant-wide is not product-confirmed. Estimate only product-confirmed. Checkout confirms scope/stacking/final amount. Return product/price/stock. No history/forecast/Watch.
+Selected: `research_selected_product_deal` + prior `renderId` alone for one synced UI choice. Explicit ordinal → `position`; specified card → same-receipt `selectionId` (`findcheapContext` JSON text/`structuredContent`). Unsynced: selection not received. Empty: select one. Multiple: specify which. Never default first or title-search. IDs internal. `MISSING_REFERENCE_CONTEXT`/`REUSE_ORIGINAL_REFERENCE`: correct once from original unexpired receipt. Missing receipt: unavailable; no latest-guess/log scan/`NEW_PRODUCT`. Pass current-message `responseLocale`, user-supplied ZIP/memberships. Best Coupon: code/benefit from `dealSummary.recommendedDealId`; scope—customer/products/exclusions. Others on request. No recommended ID: no best offer. Assessment governs eligibility; merchant-wide is not product-confirmed. Estimate only product-confirmed. Checkout confirms scope/stacking/final amount. Return product/price/stock. No history/forecast/Watch.
 
 ## Create Watch
 

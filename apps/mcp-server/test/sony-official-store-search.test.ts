@@ -5,6 +5,7 @@ import { safeFetchWithProvenance } from "../../../packages/network-safety/src/sa
 import { resolveVerifiedOfficialStorefront } from "../src/merchant-trust.js";
 import type { OfficialShopifyFetch, OfficialShopifySearchInput } from "../src/shopify-official-store-search.js";
 import { classifyShopifyCandidate } from "../src/shopify-match.js";
+import { classifySourceFailure } from "../src/source-failure.js";
 import { createOfficialShopifySearchPort } from "../src/shopify-official-store-search.js";
 import { connectReplay, searchResult } from "./fixtures/conversation-replay-support.js";
 
@@ -48,6 +49,89 @@ const directInput = () => input({ sourcePageUrl: `https://${host}${path}wh1000xm
 const directSource = (value: unknown) => vi.fn<OfficialShopifyFetch>(async url => ({ response: Response.json(value), finalUrl: url }));
 
 describe("Sony public official product reads", () => {
+  it.each(["search-shape", "detail-price", "search-json", "search-url"] as const)(
+    "retains a safe source-owned validation stage without changing failure policy: %s", async mode => {
+      const payload = mode === "detail-price" ? { ...detail(), price: { currencyIso: "EUR", value: 398 } }
+        : { products: [{ code: "wh1000xm6-b", ...(mode === "search-url"
+          ? { url: "https://untrusted.example" + path + "wh1000xm6-b" } : { url: { private: "redaction-marker" } }) }] };
+      const fetchDocument = vi.fn<OfficialShopifyFetch>(async url => ({ finalUrl: url, response: mode === "search-json"
+        ? new Response('{"private":"redaction-marker"', { headers: { "content-type": "application/json" } }) : Response.json(payload) }));
+      let failure: ReturnType<typeof classifySourceFailure> | undefined;
+      try { await createSonyOfficialSearchPort({ fetchDocument }).search(mode === "detail-price" ? directInput() : input()); }
+      catch (error) { failure = classifySourceFailure("OFFICIAL", error); }
+      expect(failure).toEqual({ source: "OFFICIAL", kind: mode === "search-url" ? "UNKNOWN" : "SCHEMA_INVALID", retryable: false,
+        validation: { provider: "SONY", stage: mode === "detail-price" ? "DETAIL_RESPONSE" : "SEARCH_RESPONSE",
+          reason: mode === "search-json" ? "INVALID_JSON" : mode === "search-url" ? "PRODUCT_URL_INVALID" : "INVALID_SCHEMA",
+          ...(mode === "search-json" || mode === "search-url" ? {} : { fields: [mode === "detail-price" ? "PRICE" : "URL"] }) } });
+      expect(JSON.stringify(failure)).not.toMatch(/redaction-marker|untrusted\.example|currencyIso|398/);
+      expect(fetchDocument).toHaveBeenCalledTimes(1);
+    }
+  );
+  it("does not decorate a transport exception as a source validation failure", async () => {
+    const transportError = new Error("private transport error");
+    const fetchDocument = vi.fn<OfficialShopifyFetch>(async () => { throw transportError; });
+    let observed: unknown;
+    try { await createSonyOfficialSearchPort({ fetchDocument }).search(input()); } catch (error) { observed = error; }
+    expect(observed).toBe(transportError);
+    expect(classifySourceFailure("OFFICIAL", observed)).toEqual({ source: "OFFICIAL", kind: "UNKNOWN", retryable: false });
+  });
+  it("returns source validation diagnostics consistently through the public MCP search contract", async () => {
+    const fetchDocument = vi.fn<OfficialShopifyFetch>(async url => ({ finalUrl: url,
+      response: Response.json({ products: [{ code: "wh1000xm6-b", url: { private: "redaction-marker" } }] }) }));
+    const officialShopify = createOfficialShopifySearchPort({ fetchDocument });
+    const replay = await connectReplay(async () => searchResult([]), { officialShopify });
+    try {
+      const result = await replay.client.callTool({ name: "search_products", arguments: {
+        query: "Sony WH-1000XM6", brand: "Sony", brandMode: "REQUIRED", productType: "headphones",
+        contextMode: "NEW_PRODUCT", limit: 8, responseLocale: "zh-CN"
+      } });
+      const failure = { source: "OFFICIAL", kind: "SCHEMA_INVALID", retryable: false,
+        validation: { provider: "SONY", stage: "SEARCH_RESPONSE", reason: "INVALID_SCHEMA", fields: ["URL"] } };
+      expect(result.isError).not.toBe(true);
+      expect(result.structuredContent).toMatchObject({ sourceFailures: expect.arrayContaining([failure]),
+        recovery: { action: "REPORT_INCOMPLETE", reason: "SOURCE_UNAVAILABLE" } });
+      expect(result._meta?.["findcheap/searchTrace"]).toMatchObject({ sourceFailures: expect.arrayContaining([failure]) });
+      expect(JSON.stringify(result)).not.toContain("redaction-marker");
+      expect(fetchDocument).toHaveBeenCalledTimes(1);
+    } finally { await replay.close(); }
+  });
+  it("discovers both reviewed families for bare 1000XM6 without hydrating another generation or an accessory", async () => {
+    const earbuds = JSON.parse(JSON.stringify(detail()).replaceAll("WH-1000XM6", "WF-1000XM6")
+      .replaceAll("WH1000XM6", "WF1000XM6").replaceAll("wh1000xm6", "wf1000xm6")
+      .replaceAll("wh-1000xm6_base", "wf-1000xm6_base")) as ReturnType<typeof detail>;
+    const fullDocuments = source([detail(), earbuds]);
+    const fetchDocument = vi.fn<OfficialShopifyFetch>(async (...args) => new URL(args[0]).pathname.endsWith("/search")
+      ? { finalUrl: args[0], response: Response.json({ products: [
+        { code: "wh1000xm6-b", url: path + "wh1000xm6-b" },
+        { code: "wf1000xm6-b", url: path + "wf1000xm6-b" },
+        { code: "wh1000xm5-b", url: "/imaging/cameras/p/wh1000xm5-b" },
+        { code: "hac1000xm6c-b", url: "/accessories/audio-accessories/p/hac1000xm6c-b" },
+        { code: "wh1000xm6pro-b", url: "/accessories/audio-accessories/p/wh1000xm6pro-b" }
+      ] }) } : fullDocuments(...args));
+    const found = await createSonyOfficialSearchPort({ fetchDocument }).search(input({ query: "Sony 1000XM6" }));
+    expect(found.map(product => product.sku).sort()).toEqual(["wf1000xm6-b", "wh1000xm6-b"]);
+    expect(found.every(product => product.matchStatus !== "EXACT")).toBe(true);
+    expect(fetchDocument).toHaveBeenCalledTimes(3);
+  });
+  it.each(["wh1000xm6-b", "wf1000xm6-b"])("does not bypass a matching bare-model URL violation: %s", async code => {
+    const fetchDocument = vi.fn<OfficialShopifyFetch>(async url => ({ finalUrl: url,
+      response: Response.json({ products: [{ code, url: "https://other.example" + path + code }] }) }));
+    await expect(createSonyOfficialSearchPort({ fetchDocument }).search(input({ query: "Sony 1000XM6" })))
+      .rejects.toThrow("SONY_PRODUCT_URL_INVALID");
+    expect(fetchDocument).toHaveBeenCalledTimes(1);
+  });
+  it("keeps an explicit WH model narrower than a repeated bare series", async () => {
+    const fullDocuments = source([detail()]);
+    const fetchDocument = vi.fn<OfficialShopifyFetch>(async (...args) => new URL(args[0]).pathname.endsWith("/search")
+      ? { finalUrl: args[0], response: Response.json({ products: [
+        { code: "wh1000xm6-b", url: path + "wh1000xm6-b" },
+        { code: "wf1000xm6-b", url: "https://untrusted.example" + path + "wf1000xm6-b" }
+      ] }) } : fullDocuments(...args));
+    const found = await createSonyOfficialSearchPort({ fetchDocument }).search(input({ query: "Sony WH-1000XM6 1000XM6" }));
+    expect(found).toMatchObject([{ sku: "wh1000xm6-b", matchStatus: "EXACT" }]);
+    expect(found).toHaveLength(1);
+    expect(fetchDocument).toHaveBeenCalledTimes(2);
+  });
   it.each([false, true])("filters unrelated search observations before URL hydration; matching unsafe URL=%s", async matching => {
     const fetchOriginal = source();
     const fetchDocument: OfficialShopifyFetch = async (...args) => {

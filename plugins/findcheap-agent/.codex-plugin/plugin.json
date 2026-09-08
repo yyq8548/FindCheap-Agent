@@ -1,6 +1,6 @@
 {
   "name": "findcheap-agent",
-  "version": "0.17.33+codex.20260908061714",
+  "version": "0.17.34+codex.20260908142047",
   "description": "Search products from text or visual evidence, compare verified offers, find deals, and monitor prices, promotions, and stock.",
   "author": {
     "name": "yyq8548"
@@ -19,7 +19,7 @@
       "Interactive"
     ],
     "defaultPrompt": [
-      "Initial search: one localized progress line, counting required host announcements. No selected-product search line."
+      "Search products + current requirements. Keep required host announcements; no optional progress. Preserve card limitations."
     ]
   }
 }

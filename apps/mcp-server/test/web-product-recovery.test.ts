@@ -130,6 +130,25 @@ describe("bounded web recovery safety", () => {
     expect(await sessions.begin("parent", async () => "ACCEPT")).toMatchObject({ status: "APPROVAL_PENDING" });
     accept("ACCEPT"); expect(await pending).toMatchObject({ status: "READY" });
   });
+  it("failure closure only consumes its own approved lease and never creates read permission", async () => {
+    let time = 1;
+    const sessions = new WebRecoverySessions(() => time);
+    const approve = vi.fn(async () => "ACCEPT" as const);
+    const lease = await sessions.begin("first", approve, undefined, "goal");
+    expect(sessions.closeFailedDiscovery("other", lease.token!)).toBe(false);
+    expect(sessions.closeFailedDiscovery("first", "forged")).toBe(false);
+    time += 120_000;
+    expect(sessions.closeFailedDiscovery("first", lease.token!)).toBe(true);
+    expect(sessions.consume("first", lease.token!)).toBeUndefined();
+    expect(sessions.closeFailedDiscovery("first", lease.token!)).toBe(false);
+    expect(await sessions.begin("derived", approve, undefined, "goal")).toMatchObject({ status: "EXPIRED" });
+    expect(approve).toHaveBeenCalledTimes(1);
+    const forgotten = await sessions.begin("forgotten", approve);
+    sessions.forget("forgotten");
+    expect(sessions.closeFailedDiscovery("forgotten", forgotten.token!)).toBe(false);
+    await sessions.begin("denied", async () => "DECLINE");
+    expect(sessions.closeFailedDiscovery("denied", "forged")).toBe(false);
+  });
   it("shares terminal denial across derived renders without sharing a permission token", async () => {
     const sessions = new WebRecoverySessions();
     const approve = vi.fn(async () => "ACCEPT" as const);
@@ -238,11 +257,11 @@ describe("bounded web recovery safety", () => {
   });
 });
 
-async function connect(consent: boolean | undefined, responseLocale = "zh-CN") {
+async function connect(consent: boolean | undefined, responseLocale = "zh-CN", now?: () => Date) {
   const read = vi.fn(async (value: string) => ({ ...webProduct(), sourceHost: new URL(value).hostname,
     merchantUrl: value, merchantId: `web-${new URL(value).hostname}`, merchant: new URL(value).hostname }));
   const search = vi.fn(async () => searchResult([product({ title: "Daily shampoo", productType: "shampoo", description: "Gentle cleansing." })]));
-  const server = createShoppingServer({ search }, undefined, { webProducts: { read }, awin: { search: async () => ({
+  const server = createShoppingServer({ search }, undefined, { ...(now === undefined ? {} : { now }), webProducts: { read }, awin: { search: async () => ({
     source: "AWIN_PRODUCT_FEED", coverage: "COMPLETE", snapshotAt: new Date().toISOString(), products: [],
     diagnostics: { feedRows: 0, validRows: 0, rejectedRows: 0, queryMatches: 0, priceProductsExcluded: 0 } }) } });
   const client = new Client({ name: "web-recovery-test", version: "1" }, { capabilities: consent === undefined ? {} : { elicitation: { form: {} } } });
@@ -256,6 +275,52 @@ async function connect(consent: boolean | undefined, responseLocale = "zh-CN") {
 }
 
 describe("MCP recovery contract", () => {
+  it.each(["BROWSER_UNAVAILABLE", "DISCOVERY_TIMEOUT", "DISCOVERY_CANCELLED"])("closes %s without reading pages or replacing existing cards", async discoveryOutcome => {
+    let time = Date.now();
+    const replay = await connect(true, "zh-CN", () => new Date(time));
+    let elapsed: ReturnType<typeof vi.spyOn> | undefined;
+    try {
+      const priorReads = replay.search.mock.calls.length;
+      const begin = await replay.client.callTool({ name: "begin_web_search", arguments: { renderId: replay.parent.renderId } });
+      time += 120_000; // Expired leases may record failure, never authorize another read.
+      elapsed = vi.spyOn(performance, "now").mockReturnValue(performance.now() + 120_000);
+      const args = { renderId: replay.parent.renderId, webSessionId: (begin.structuredContent as { webSessionId: string }).webSessionId,
+        urls: [], discoveryOutcome };
+      const result = await replay.client.callTool({ name: "complete_web_search", arguments: args });
+      expect(result.isError).not.toBe(true);
+      expect(result.structuredContent).toMatchObject({ renderId: replay.parent.renderId, products: replay.parent.products,
+        recovery: { action: "REPORT_INCOMPLETE", discoveryOutcome, reason: "SOURCE_UNAVAILABLE" } });
+      expect(result.structuredContent).toHaveProperty("message", "网页补搜未完成，已保留现有结果。");
+      expect(JSON.stringify(result.content)).toContain(discoveryOutcome);
+      expect(result._meta).toHaveProperty("findcheap/webDiscovery", { outcome: discoveryOutcome, origin: "CALLER_REPORTED", pageReads: 0 });
+      expect(replay.read).not.toHaveBeenCalled();
+      expect((await replay.client.callTool({ name: "complete_web_search", arguments: args })).isError).toBe(true);
+      await replay.client.callTool({ name: "begin_web_search", arguments: { renderId: replay.parent.renderId } });
+      expect(replay.approve).toHaveBeenCalledTimes(1);
+      expect(replay.search).toHaveBeenCalledTimes(priorReads);
+      const original = await replay.client.callTool({ name: "render_product_cards", arguments: { renderId: replay.parent.renderId } });
+      expect(original.structuredContent).toEqual(replay.parent);
+      const selected = await replay.client.callTool({ name: "sync_product_card_selection", arguments: {
+        renderId: replay.parent.renderId, selectionIds: [replay.parent.products[0]!.selectionId], revision: 1
+      } });
+      expect(selected.isError).not.toBe(true);
+    } finally { elapsed?.mockRestore(); await replay.close(); }
+  });
+  it("rejects forged or nonempty failure completion without consuming the genuine lease", async () => {
+    const replay = await connect(true, "en-US");
+    try {
+      const begin = await replay.client.callTool({ name: "begin_web_search", arguments: { renderId: replay.parent.renderId } });
+      const args = { renderId: replay.parent.renderId, webSessionId: (begin.structuredContent as { webSessionId: string }).webSessionId,
+        urls: [], discoveryOutcome: "BROWSER_UNAVAILABLE" };
+      for (const invalid of [{ ...args, webSessionId: "00000000-0000-4000-8000-000000000000" }, { ...args, urls: [url] }]) {
+        expect((await replay.client.callTool({ name: "complete_web_search", arguments: invalid })).isError).toBe(true);
+      }
+      const result = await replay.client.callTool({ name: "complete_web_search", arguments: args });
+      expect(result.isError).not.toBe(true);
+      expect(result.structuredContent).toHaveProperty("message", "Web search did not finish. Existing results are retained.");
+      expect(replay.read).not.toHaveBeenCalled();
+    } finally { await replay.close(); }
+  });
   it("compares recovered products from the same new snapshot and rejects mixed IDs", async () => {
     const replay = await connect(true);
     try {

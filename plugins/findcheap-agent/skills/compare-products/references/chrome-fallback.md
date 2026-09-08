@@ -16,7 +16,11 @@ responses, security rejection, exhausted budgets and explicit no-Chrome stay blo
    identity, variant, condition, budget or must-haves. For `MISSING_REFERENCE_CONTEXT`
    with `REUSE_ORIGINAL_REFERENCE`, correct once from the original receipt only.
    Never infer the latest snapshot, scan logs, or start `NEW_PRODUCT` as a workaround.
-2. Call `begin_web_search`. Request explicit user consent through host elicitation.
+2. Before the lease starts, use `cua.getState()` as the first browser API call
+   (or reuse current inventory in an initialized session). Read its documentation
+   and retain the actual Chrome browser ID. Inventory does not open a page.
+   If Chrome is absent, report that limit and stop before requesting consent.
+   Call `begin_web_search`. Request explicit user consent through host elicitation.
    Never promise a popup. A declared form capability does not prove the form was
    displayed; a host decline does not establish whether the user interacted.
    Never fabricate consent or pass a model-authored approval flag. Open Chrome
@@ -32,16 +36,28 @@ responses, security rejection, exhausted budgets and explicit no-Chrome stay blo
    derived by inspection, identity refinement or budget continuation. Follow
    `AUTHORIZATION_STOPPED` and `consentStatus`; do not request again just because
    renderId changed. A permitted transient retry still uses the original renderId.
-3. Use installed Chrome for discovery only. Perform the first returned query;
+3. Use that actual Chrome browser ID for discovery, not an unverified alias.
+   Perform the first returned query;
    if fewer than three plausible direct product URLs and a second query was returned, use it once.
-   No third search. Finish within returned `expiresAt` (60 seconds after approval).
+   No third search. Stop discovery at least 15 seconds before returned `expiresAt`
+   to leave room for server verification (at most 60 seconds after approval).
+   Bound each browser call by the remaining discovery time when the host exposes
+   a timeout. A late browser response cannot extend the lease: no further browser
+   work or merchant reads after expiry. Host startup latency is not plugin-controlled.
 4. Collect at most 5 direct HTTPS merchant product URLs from distinct domains,
    one product per merchant. Do not open merchant pages in Chrome: the server
    reads them inside the same deadline. Search snippets are discovery, never
    price, efficacy, condition, identity or trust evidence. Do not submit search,
    listing, category, aggregator, shortened, login, IP-literal or redirected URLs.
 5. Call `complete_web_search` once with original `renderId`, `webSessionId`
-   copied from the READY result's receipt, and `urls` only; [] if discovery found none. Never supply prices,
+   copied from the READY result's receipt, and `urls`; [] if discovery completed
+   with no candidate links. A browser that fails to start is `BROWSER_UNAVAILABLE`;
+   deadline overrun is `DISCOVERY_TIMEOUT`; cancelled discovery is
+   `DISCOVERY_CANCELLED`. For those failures, pass `discoveryOutcome` and `urls: []`
+   once. This is a zero-IO closure, allowed after lease expiry while the original
+   snapshot remains valid; it does not renew permission, read pages or replace
+   existing cards. It records the caller's outcome, not a verified host diagnosis.
+   Never supply prices,
    descriptions, trust claims, or new constraints. Server reads at most 5 pages,
    rejects redirects and ambiguous offers, and returns at most 3 native cards for
    text requests. Image requests instead return candidates with

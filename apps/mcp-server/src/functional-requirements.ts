@@ -1,4 +1,5 @@
 import { namedProductIdentity, normalizeNamedProductIdentity } from "./named-product-identity.js";
+import { productRequirementFeatures } from "./merchant-requirements.js";
 
 /** Bounded merchant-claim normalization, never ingredient-to-efficacy inference. */
 const functions = [
@@ -154,6 +155,7 @@ function claimScope(before: string, claim: string, after: string, context: Produ
 }
 
 export function functionalQueryFeatures(features: readonly string[]): string[] {
+  features = productRequirementFeatures(features);
   const attributes = features.flatMap(value => functionalParts(value) ?? []);
   const known = functions.filter(entry => attributes.includes(entry.name));
   // Retrieval is deliberately broader than verification. Do not append unknown

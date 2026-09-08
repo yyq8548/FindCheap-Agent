@@ -47,12 +47,25 @@ export function mergeSearchRequirements(current: SearchProductsInput, previous: 
   }
   previous = SearchProductsInputSchema.parse(retained);
   if (!correctingIdentity && current.productType !== undefined && previous.productType !== undefined &&
-    current.productType.toLowerCase() !== previous.productType.toLowerCase()) throw new Error("PRODUCT_CONTEXT_CONFLICT");
+    current.productType.toLowerCase() !== previous.productType.toLowerCase() &&
+    !isHeadphoneTypeRefinement(previous.productType, current.productType)) throw new Error("PRODUCT_CONTEXT_CONFLICT");
   if (!correctingIdentity && current.brand !== undefined && previous.brand !== undefined && current.brand !== previous.brand) throw new Error("PRODUCT_CONTEXT_CONFLICT");
   const merged: Record<string, unknown> = { ...previous, parentRenderId: current.parentRenderId,
     contextMode: current.contextMode, responseLocale: current.responseLocale ?? previous.responseLocale,
     clearConstraints: [], removeRequiredFeatures: [], limit: current.limit };
-  if (!correctingIdentity) merged.query = continuedIdentityQuery(current, previous, previousCandidates);
+  if (!correctingIdentity) {
+    const query = continuedIdentityQuery(current, previous, previousCandidates);
+    const subtype = headphoneType(current.productType ?? previous.productType);
+    const prefix = subtype === "OVER_EAR" ? "wh" : subtype === "IN_EAR" ? "wf" : undefined;
+    const identity = normalizeNamedProductIdentity(query).normalize("NFKC");
+    // Category-only references retain the prior query. Validate that final
+    // identity too, including a Sony brand supplied only in the query.
+    if (prefix !== undefined && /\bsony\b/iu.test(`${current.brand ?? previous.brand ?? ""} ${identity}`) &&
+      [...identity.matchAll(/\b(w[fh])[-\s]?1000xm\d{1,2}\b/giu)].some(match => match[1]!.toLowerCase() !== prefix)) {
+      throw new Error("PRODUCT_CONTEXT_CONFLICT");
+    }
+    merged.query = query;
+  }
   if (correctingIdentity) {
     // Correcting identity is not permission to withdraw budget, size, or must-haves.
     // Old image observations are identity evidence, not constraints for a new identity.
@@ -85,11 +98,20 @@ function continuedIdentityQuery(current: SearchProductsInput, previous: SearchPr
   const categoryForm = (value: string) => evCategory ? value
     .replace(/\b(?:(?:ev|electric vehicle)\s+)?charging stations?\b|\b(?:ev|electric vehicle)\s+chargers?\b|充电桩/giu, "charger") : value;
   const tokens = (value: string) => [...new Set(normalizeNamedProductIdentity(categoryForm(value)).normalize("NFKD")
-    .replace(/\p{M}+/gu, "").toLowerCase().replace(/\bpads\b/gu, "pad").match(/[\p{L}\p{N}]+/gu) ?? [])];
+    .replace(/\p{M}+/gu, "").toLowerCase().replace(/\bpads\b/gu, "pad")
+    .replace(/\b(w[fh])[-\s]?(1000xm\d{1,2})\b/gu, "$1$2").match(/[\p{L}\p{N}]+/gu) ?? [])];
   const same = (left: readonly string[], right: readonly string[]) => left.length === right.length && left.every(token => right.includes(token));
-  const oldTokens = tokens(previous.query);
+  let oldTokens = tokens(previous.query);
   const newTokens = tokens(current.query);
-  if (same(oldTokens, newTokens)) return previous.query;
+  // A confirmed headphone subtype qualifies Sony's ambiguous numeric family;
+  // it never replaces an already explicit WH/WF prefix or generation.
+  const family = oldTokens.find(token => /^1000xm\d{1,2}$/u.test(token));
+  const subtype = headphoneType(current.productType ?? previous.productType);
+  const prefix = subtype === "OVER_EAR" ? "wh" : subtype === "IN_EAR" ? "wf" : undefined;
+  const qualifiesFamily = previous.brand?.toLowerCase() === "sony" && family !== undefined && prefix !== undefined &&
+    newTokens.includes(prefix + family) && !oldTokens.some(token => /^w[fh]1000xm/u.test(token));
+  if (qualifiesFamily) oldTokens = oldTokens.map(token => token === family ? prefix + family : token);
+  if (same(oldTokens, newTokens)) return qualifiesFamily ? current.query : previous.query;
   const oldCategories = productQueryCategoryKeys(normalizeNamedProductIdentity(categoryForm([previous.query, previous.productType].filter(Boolean).join(" "))));
   const newCategories = productQueryCategoryKeys(normalizeNamedProductIdentity(categoryForm(current.query)));
   if (newCategories.some(category => !oldCategories.includes(category))) throw new Error("PRODUCT_CONTEXT_CONFLICT");
@@ -128,6 +150,20 @@ function continuedIdentityQuery(current: SearchProductsInput, previous: SearchPr
     throw new Error("PRODUCT_CONTEXT_CONFLICT");
   }
   return current.query;
+}
+
+function headphoneType(value: string | undefined): "GENERIC" | "OVER_EAR" | "IN_EAR" | undefined {
+  const type = value?.normalize("NFKC").trim().toLowerCase().replace(/-/gu, " ").replace(/\s+/gu, " ");
+  if (/^(?:headphones?|耳机)$/u.test(type ?? "")) return "GENERIC";
+  if (/^(?:over ear(?: headphones?)?|头戴式(?:耳机)?)$/u.test(type ?? "")) return "OVER_EAR";
+  if (/^(?:in ear(?: headphones?)?|earbuds?|入耳式(?:耳机)?)$/u.test(type ?? "")) return "IN_EAR";
+  return undefined;
+}
+
+function isHeadphoneTypeRefinement(previous: string, current: string): boolean {
+  const before = headphoneType(previous);
+  const after = headphoneType(current);
+  return before !== undefined && after !== undefined && (before === after || before === "GENERIC");
 }
 
 /** Free-text requirements remain requirements, not authorization to append an

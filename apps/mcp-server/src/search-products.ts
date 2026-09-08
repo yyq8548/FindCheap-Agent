@@ -38,6 +38,7 @@ import type { MerchantRecommendationTier } from "./merchant-trust.js";
 import { evaluateProductRequirements, normalizedSizeRequirement, type RequirementAssessment, type RequirementProduct } from "./product-requirements.js";
 import { functionalQueryFeatures, requiredPrimaryUseFeatures } from "./functional-requirements.js";
 import { isColorRequirement } from "./product-constraint-matcher.js";
+import { productRequirementFeatures, requirementDomain } from "./merchant-requirements.js";
 import type { ShopifySelectedProductInspector } from "./shopify-selected-product.js";
 import {
   VisualProductInputSchema,
@@ -589,7 +590,9 @@ export async function searchProducts(
         const index = next++;
         const product = products[index]!;
         const key = productReferenceKey(product);
-        const assessment = evaluateConstraints(product, input);
+        const assessment = evaluateConstraints(product, { ...input,
+          requiredFeatures: productRequirementFeatures(input.requiredFeatures),
+          features: productRequirementFeatures(input.features), excludedFeatures: productRequirementFeatures(input.excludedFeatures) });
         const missingRequiredBrand = !product.brand?.trim() && assessBrand(input,
           product.merchantTrust.level === "OFFICIAL" ? [product.merchant] : [], [product.title]).excluded;
         if ((assessment.assessment.status === "SATISFIED" && !missingRequiredBrand) ||
@@ -603,7 +606,7 @@ export async function searchProducts(
           pending = searchRun.read("VARIANT", key, async signal => {
             const result = await ports.selectedProducts!.inspect(product, {}, { signal,
               ...(assessment.assessment.status === "SATISFIED" ? {} : {
-                requirements: { requiredFeatures: input.requiredFeatures, requiredSize: input.requiredSize,
+                requirements: { requiredFeatures: productRequirementFeatures(input.requiredFeatures), requiredSize: input.requiredSize,
                   query: input.query, productType: input.productType, primaryUse: input.primaryUse }
               }) });
             const originalUrl = new URL(product.merchantUrl);
@@ -634,7 +637,7 @@ export async function searchProducts(
         signal,
         ...(awinResult?.supportsRequirements === true && input.visualInput === undefined ? {
           ...(input.productType === undefined ? {} : { productType: input.productType }),
-          requiredFeatures: input.requiredFeatures.slice(0, 10)
+          requiredFeatures: productRequirementFeatures(input.requiredFeatures).slice(0, 10)
         } : {}),
         ...(input.maxItemPriceCents === undefined ? {} : { maxItemPriceCents: input.maxItemPriceCents })
       }));
@@ -898,17 +901,24 @@ export async function searchProducts(
   // Source-owned Awin identities may verify the exact same storefront returned
   // by another adapter. Never match merchant names, arbitrary subdomains or
   // conflicting advertiser identities. Existing risk denials win.
-  shopifyCandidates = shopifyCandidates.map(candidate => {
+  shopifyCandidates = shopifyCandidates.flatMap(candidate => {
     if (candidate.shopifyProduct === undefined || candidate.shopifyProduct.merchantTrust.verification === "INDEPENDENT" ||
-      candidate.shopifyProduct.merchantTrust.level === "RISKY") return candidate;
+      candidate.shopifyProduct.merchantTrust.level === "RISKY") return [candidate];
     const product = candidate.shopifyProduct;
     const host = new URL(product.merchantUrl).hostname.toLowerCase().replace(/^www\./u, "");
     const merchants = approvedAwinHosts.get(host);
-    if (host !== product.sourceHost.toLowerCase().replace(/^www\./u, "") || merchants?.size !== 1) return candidate;
-    return { ...candidate, recommendationTier: "TRUSTED_OR_AFFILIATE" as const, shopifyProduct: { ...product,
+    if (host !== product.sourceHost.toLowerCase().replace(/^www\./u, "") || merchants?.size !== 1) return [candidate];
+    const verifiedProduct = { ...product, recommendationTier: "TRUSTED_OR_AFFILIATE" as const,
       merchantTrust: { level: "ESTABLISHED_RETAILER" as const, verification: "INDEPENDENT" as const,
         evidence: [`manually verified approved Awin merchant ${[...merchants][0]} on the same source domain`] }
-    } };
+    };
+    // Trust is requirement evidence too; never keep the assessment made before
+    // the exact-domain join or leave the raw source behind for later inspection.
+    if (shopifyResult !== undefined) shopifyResult = { ...shopifyResult,
+      products: shopifyResult.products.map(source => productReferenceKey(source) === productReferenceKey(product) ? verifiedProduct : source) };
+    const checked = shopifyCandidate(verifiedProduct, input, searchIntent, identityQuery,
+      featureExcludedKeys, brandExcludedKeys, identityExcludedKeys, visualExcludedKeys);
+    return checked === undefined ? [] : [checked];
   });
   const sourceCandidates = [...affiliateCandidates, ...shopifyCandidates, ...ebayCandidates, ...retainedPrevious()];
   // Different images still receive their own visual review before offer grouping.
@@ -1154,8 +1164,12 @@ function awinCandidate(
     identityExcludedKeys
   );
   if (identity === undefined) return undefined;
+  const registeredTrust = resolveMerchantTrust(new URL(product.merchantUrl).hostname, product.merchant);
+  const merchantTrust = registeredTrust.level === "RISKY" || registeredTrust.verification === "INDEPENDENT" ? registeredTrust
+    : { level: "ESTABLISHED_RETAILER" as const, verification: "INDEPENDENT" as const,
+      evidence: ["approved Awin merchant manually verified by FindCheap"] };
   const evidence = evaluateConstraints({ title: product.title, productType: product.category,
-    description: product.requirementEvidence, evidenceSource: "FEED", itemPrice: product.itemPrice }, input);
+    description: product.requirementEvidence, evidenceSource: "FEED", itemPrice: product.itemPrice, merchantTrust }, input);
   if (evidence.contradicted.length > 0) {
     featureExcludedKeys.add(key);
     return undefined;
@@ -1430,7 +1444,8 @@ function ebayCandidate(
   );
   if (identity === undefined) return undefined;
   const evidence = evaluateConstraints({ title: product.title, productType: product.category,
-    description: product.attributes.join(" "), itemPrice: product.itemPrice }, input);
+    description: product.attributes.join(" "), itemPrice: product.itemPrice,
+    merchantTrust: resolveMerchantTrust(new URL(product.merchantUrl).hostname, product.sellerName) }, input);
   if (evidence.contradicted.length > 0) {
     featureExcludedKeys.add(key);
     return undefined;
@@ -1520,6 +1535,7 @@ function buildExpandedQuery(
 
 function buildSourceQuery(input: Pick<SearchProductsInput, "query" | "brand" | "productType" | "visualInput" | "maxItemPriceCents"> & {
   relaxVisualRetrieval?: boolean;
+  requiredFeatures?: readonly string[];
 }): string {
   if (input.visualInput !== undefined) {
     return buildVisualRetrievalQuery(input.visualInput, {
@@ -1528,7 +1544,7 @@ function buildSourceQuery(input: Pick<SearchProductsInput, "query" | "brand" | "
       relaxed: input.relaxVisualRetrieval === true
     }) || input.query;
   }
-  const query = productOnlyQuery(input.query, input.maxItemPriceCents !== undefined);
+  const query = stripRequiredFeaturesFromQuery(productOnlyQuery(input.query, input.maxItemPriceCents !== undefined), input.requiredFeatures ?? []);
   return unique([
     input.brand !== undefined && !containsBrand(query, input.brand) ? input.brand : "",
     query,
@@ -1541,7 +1557,7 @@ function buildSourceQuery(input: Pick<SearchProductsInput, "query" | "brand" | "
 function stripRequiredFeaturesFromQuery(value: string, features: readonly string[]): string {
   let query = value;
   for (const feature of features) {
-    if (!isMemoryOrStorageSpecification(feature)) continue;
+    if (!isMemoryOrStorageSpecification(feature) && requirementDomain(feature) === "PRODUCT") continue;
     const tokens = feature.normalize("NFKC").trim().split(/\s+/u).filter((token) => token !== "");
     if (tokens.length === 0) continue;
     const phrase = tokens.map(escapeRegExp).join("\\s*");
@@ -1638,9 +1654,9 @@ function buildOfficialStoreQueries(
         return true;
       });
   }
-  const withoutBrand = input.brand === undefined
+  const withoutBrand = stripRequiredFeaturesFromQuery(input.brand === undefined
     ? input.query
-    : withoutRequestedBrand(input.query, input.brand);
+    : withoutRequestedBrand(input.query, input.brand), input.requiredFeatures);
   if (input.visualInput === undefined && searchIntent === "EXACT_PRODUCT") {
     const name = stripPreferredSizeFromIdentity(stripPrimaryUseFromIdentity(
       productOnlyQuery(withoutBrand, input.maxItemPriceCents !== undefined), input.primaryUse), input.requiredSize ?? input.preferredSize);

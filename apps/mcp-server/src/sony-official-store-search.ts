@@ -6,6 +6,7 @@ import { evaluateFeature } from "./product-constraint-matcher.js";
 import { classifyShopifyCandidate } from "./shopify-match.js";
 import type { ShopifyCondition, ShopifyProduct } from "./shopify-client.js";
 import type { OfficialShopifyFetch, OfficialShopifySearchPort } from "./shopify-official-store-search.js";
+import { SourceValidationError, type SourceValidationDetails } from "./source-failure.js";
 
 export const SONY_API_HOST = "api.cqiypyix22-sonyelect1-p1-public.model-t.cc.commerce.ondemand.com";
 const STORE_HOST = "electronics.sony.com";
@@ -86,7 +87,7 @@ export function createSonyOfficialSearchPort(dependencies: { fetchDocument?: Off
         const error = new Error("SONY_READ_BUDGET_EXHAUSTED"); sourceController.abort(error); throw error;
       }
     };
-    const read = async (url: string): Promise<unknown> => {
+    const read = async (url: string, stage: SourceValidationDetails["stage"]): Promise<unknown> => {
       signal.throwIfAborted();
       validateApiUrl(url);
       if (++requests > 7) throw new Error("SONY_READ_BUDGET_EXHAUSTED");
@@ -103,12 +104,15 @@ export function createSonyOfficialSearchPort(dependencies: { fetchDocument?: Off
       const body = await boundedBody(fetched.response, signal, observedBytes > 0 || cached ? undefined : count => {
         input.onRead?.({ bytes: count }); accountBytes(count);
       });
-      return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(body)) as unknown;
+      return validateSource(stage, () => JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(body)) as unknown);
     };
     const readDetail = async (code: string): Promise<SonyDetail> => {
-      const product = Detail.parse(await read(apiUrl(Code.parse(code))));
-      verifyDetail(product, code);
-      return product;
+      const data = await read(apiUrl(Code.parse(code)), "DETAIL_RESPONSE");
+      return validateSource("DETAIL_RESPONSE", () => {
+        const product = Detail.parse(data);
+        verifyDetail(product, code);
+        return product;
+      });
     };
     let codes: string[];
     if (input.sourcePageUrl !== undefined) {
@@ -119,11 +123,14 @@ export function createSonyOfficialSearchPort(dependencies: { fetchDocument?: Off
       search.searchParams.set("query", input.query.slice(0, 300));
       search.searchParams.set("pageSize", "6");
       search.searchParams.set("fields", "products(code,name,summary,url),pagination");
-      const data = z.object({ products: z.array(z.object({ code: Code, url: z.string().max(4096) })).max(6) }).parse(await read(search.href));
-      codes = [...new Set(data.products.filter(product => matchesRequestedModel(product.code, input.query)).map(product => {
-        if (productCode(product.url) !== product.code) throw new Error("SONY_PRODUCT_IDENTITY_INVALID");
-        return product.code;
-      }))].slice(0, Math.min(3, Math.max(1, input.limit)));
+      const data = await read(search.href, "SEARCH_RESPONSE");
+      codes = validateSource("SEARCH_RESPONSE", () => {
+        const parsed = z.object({ products: z.array(z.object({ code: Code, url: z.string().max(4096) })).max(6) }).parse(data);
+        return [...new Set(parsed.products.filter(product => matchesRequestedModel(product.code, input.query)).map(product => {
+          if (productCode(product.url) !== product.code) throw new Error("SONY_PRODUCT_IDENTITY_INVALID");
+          return product.code;
+        }))].slice(0, Math.min(3, Math.max(1, input.limit)));
+      });
     }
     const products: ShopifyProduct[] = [];
     // Two workers share one bounded request/byte ledger. Failures are never converted to a successful empty search.
@@ -158,6 +165,34 @@ export function createSonyOfficialSearchPort(dependencies: { fetchDocument?: Off
     signal.throwIfAborted();
     return products;
   } };
+}
+
+function validateSource<T>(stage: SourceValidationDetails["stage"], validate: () => T): T {
+  try { return validate(); }
+  catch (error) {
+    if (!(error instanceof Error)) throw error;
+    const reasons: Partial<Record<string, SourceValidationDetails["reason"]>> = {
+      SONY_PRODUCT_URL_INVALID: "PRODUCT_URL_INVALID", SONY_PRODUCT_IDENTITY_INVALID: "PRODUCT_IDENTITY_INVALID",
+      SONY_MODEL_IDENTITY_INVALID: "MODEL_IDENTITY_INVALID", SONY_VARIANT_IDENTITY_INVALID: "VARIANT_IDENTITY_INVALID",
+      SONY_VARIANT_COLOR_INVALID: "VARIANT_COLOR_INVALID"
+    };
+    const reason = error instanceof z.ZodError ? "INVALID_SCHEMA" : error instanceof SyntaxError ? "INVALID_JSON" : reasons[error.message];
+    if (reason === undefined) throw error;
+    const fields = error instanceof z.ZodError ? [...new Set(error.issues.map(issue => validationField(issue.path)))].slice(0, 8) : undefined;
+    throw new SourceValidationError(error, { provider: "SONY", stage, reason, ...(fields === undefined ? {} : { fields }) });
+  }
+}
+
+function validationField(path: Array<string | number>): NonNullable<SourceValidationDetails["fields"]>[number] {
+  if (path.includes("price") || path.includes("priceData")) return "PRICE";
+  if (path.includes("stock")) return "STOCK";
+  if (path.includes("images")) return "IMAGE";
+  if (path.includes("url") || path.includes("canonicalUrl")) return "URL";
+  if (path.includes("code") || path.includes("upc")) return "CODE";
+  if (path.some(part => ["gwModel", "superModelName", "baseProduct"].includes(String(part)))) return "MODEL";
+  if (path.includes("baseOptions")) return "VARIANT";
+  if (path.some(part => ["name", "summary", "description"].includes(String(part)))) return "CONTENT";
+  return path.includes("products") ? "PRODUCTS" : "OTHER";
 }
 
 function apiUrl(code: string): string {
@@ -297,12 +332,17 @@ async function boundedBody(response: Response, signal?: AbortSignal, onBytes?: (
 
 function inStock(stock: z.infer<typeof Stock>): boolean { return stock.status === "instock" || stock.stockLevelStatus === "inStock"; }
 function matchesRequestedModel(code: string, query: string): boolean {
-  const models = (query.match(/[a-z0-9]+(?:-[a-z0-9]+)*/giu) ?? []).filter(token =>
+  const tokens = query.match(/[a-z0-9]+(?:-[a-z0-9]+)*/giu) ?? [];
+  const models = tokens.filter(token =>
     /^[a-z][a-z0-9-]{3,}$/iu.test(token) && /\d/u.test(token));
+  // A bare series is ambiguous between the reviewed WH and WF families. Narrow
+  // discovery without selecting a family or deriving product identity from it.
+  const bareModels = tokens.filter(token => /^1000xm[1-9]\d?$/iu.test(token));
   // Sony's observed color SKU suffix is one letter. This only narrows discovery;
   // model evidence still comes from the subsequently verified FULL document.
   const sourceIds = [compact(code), compact(code.replace(/-[a-z]$/u, ""))];
-  return models.length === 0 || models.some(model => sourceIds.includes(compact(model)));
+  if (models.length > 0) return models.some(model => sourceIds.includes(compact(model)));
+  return bareModels.length === 0 || bareModels.some(model => ["wh", "wf"].some(family => sourceIds.includes(family + compact(model))));
 }
 function matchesColor(actual: string, required: string): boolean { return compact(actual) === compact(required) || evaluateFeature(actual, required) === "MATCHED"; }
 function compact(value: string): string { return value.toLowerCase().replace(/[^a-z0-9]/gu, ""); }

@@ -99,6 +99,36 @@ function couponFixture(coupons: Record<string, unknown>) {
 }
 
 describe("product-card MCP Apps UI", () => {
+  it.each(["zh-CN", "en-US"])("keeps empty and unavailable results concise without hiding a clarification (%s)", locale => {
+    const base = { locale, products: [], requirementsSummary: { productType: "headphones" }, message: "Repeated internal process diagnostics" };
+    const empty = renderFixture({ ...base, coverage: "COMPLETE" });
+    expect(text(empty)).toContain(locale === "zh-CN" ? "暂未找到符合要求的商品。" : "No matching products found in this search.");
+    const unavailable = renderFixture({ ...base, coverage: "UNAVAILABLE" });
+    expect(text(unavailable)).toContain(locale === "zh-CN" ? "本次检索未完成，暂不能确认有无匹配商品。" : "Search is incomplete; matching products may still be available.");
+    for (const app of [empty, unavailable]) {
+      expect(text(app)).not.toContain(base.message);
+      expect(app.children).toHaveLength(2);
+    }
+    const question = locale === "zh-CN" ? "你要头戴式还是入耳式？" : "Over-ear headphones or earbuds?";
+    expect(text(renderFixture({ ...base, questions: [question] }))).toContain(question);
+  });
+  it.each(["zh-CN", "en-US"])("keeps only requirements above nonempty search cards, with restrictions on the cards (%s)", locale => {
+    const fixture = couponFixture({ verified: [] });
+    Object.assign(fixture.products[0]!, { presentationGroup: "RESEARCH_ONLY", requiredFeatureLimitations: ["merchant based in the United States"],
+      merchantTrust: { level: "UNKNOWN", verification: "UNVERIFIED", evidence: [] } });
+    fixture.products.push({ ...fixture.products[0]!, selectionId: "second" });
+    const app = renderFixture({ ...fixture, locale, requirementsSummary: { productType: "wig", requiredFeatures: ["black color"], maxItemPriceCents: 9999 },
+      retrieval: { extent: "BOUNDED" }, recovery: { qualified: 0, reason: "MERCHANT_UNVERIFIED" }, recommendation: { state: "RESEARCH_ONLY" } });
+    const headers = app.children.filter(node => node.className === "summary" || node.className === "empty" || node.className === "limitations notice");
+    expect(headers).toHaveLength(1);
+    expect(text(headers[0]!)).toContain(locale === "zh-CN" ? "当前要求：" : "Current requirements:");
+    expect(text(headers[0]!)).toContain("99.99");
+    expect(text(app)).not.toMatch(/Bounded search|本次为有界检索|identity labels|身份标签|No verified fit in this search|本次未找到已核实满足全部要求/u);
+    expect(text(app)).toContain(locale === "zh-CN" ? "待核验线索" : "Research leads");
+    expect(text(app)).toContain("merchant based in the United States");
+    expect(text(app)).toContain("40.00");
+    expect(nodes(app).some(node => node.className === "compare-toggle")).toBe(true);
+  });
   it.each(["zh-CN", "en-US"])("folds sibling variants without changing ordinal order, prices or selection controls (%s)", locale => {
     const base = couponFixture({ verified: [] }).products[0]!;
     const products = ["family-a", "family-b", "family-a", "family-a"].map((displayFamilyKey, index) => ({ ...base,
@@ -240,7 +270,7 @@ describe("product-card MCP Apps UI", () => {
     expect(group).toBeDefined(); expect(group.open).toBe(false);
     expect(group.children[0]?.tagName).toBe("SUMMARY");
     expect(nodes(group).some(node => node.tagName === "BUTTON" && /选择对比|Select for comparison/u.test(node.textContent))).toBe(true);
-    expect(text(app)).toContain(locale === "zh-CN" ? "本次未找到已核实满足全部要求" : "No verified fit");
+    expect(text(group)).toContain(locale === "zh-CN" ? "待核验线索" : "Research leads");
     expect(text(app)).toContain("anti-dandruff");
     expect(nodes(app).some(node => node.className === "card featured")).toBe(false);
   });
@@ -251,7 +281,7 @@ describe("product-card MCP Apps UI", () => {
       retrieval: { extent: "BOUNDED" } } });
     expect(text(app)).toContain("当前要求："); expect(text(app)).toContain("US 7");
     expect(text(app)).toContain("长发"); expect(text(app)).toContain("US$50.00");
-    expect(text(app)).toContain("未覆盖完整目录");
+    expect(text(app)).not.toContain("未覆盖完整目录");
     expect(nodes(app).some(node => node.tagName === "SCRIPT")).toBe(false);
   });
 
@@ -400,7 +430,7 @@ describe("product-card MCP Apps UI", () => {
   });
 
   it("uses an embedded Codex-native surface with responsive cards", () => {
-    expect(PRODUCT_CARD_UI_URI).toBe("ui://findcheap/product-cards/v39.html");
+    expect(PRODUCT_CARD_UI_URI).toBe("ui://findcheap/product-cards/v40.html");
     expect(PRODUCT_CARD_HTML).toContain("--fc-surface:");
     expect(PRODUCT_CARD_HTML).toContain("background: var(--fc-action);");
     expect(PRODUCT_CARD_HTML).toContain("@media (max-width: 640px)");
@@ -508,7 +538,7 @@ describe("product-card MCP Apps UI", () => {
       params: expect.objectContaining({
         name: "report_product_card_metrics",
         arguments: expect.objectContaining({
-          version: "0.17.33",
+          version: "0.17.34",
           terminalStage: "DOM_RENDERED",
           stages: expect.objectContaining({ DOM_RENDERED: expect.any(Number) })
         })
@@ -1129,7 +1159,7 @@ describe("product-card MCP Apps UI", () => {
       method: "ui/initialize",
       params: {
         protocolVersion: "2026-01-26",
-        appInfo: { name: "FindCheap Agent product cards", version: "0.17.33" },
+        appInfo: { name: "FindCheap Agent product cards", version: "0.17.34" },
         appCapabilities: { availableDisplayModes: ["inline"] }
       }
     });
@@ -1201,7 +1231,7 @@ describe("product-card MCP Apps UI", () => {
 
     expect(text(app)).toContain("Verified Coffee");
     expect(text(app)).toContain("$14.99");
-    expect(text(app)).toContain("1 product card");
+    expect(nodes(app).filter(node => node.className.split(" ").includes("card"))).toHaveLength(1);
     expect(text(app)).not.toContain("We may earn a commission");
     expect(text(app)).not.toContain("FindCheap found an available coupon.");
     expect(text(app)).toContain("Quote unsupported: shipping, tax, and final total require merchant checkout.");

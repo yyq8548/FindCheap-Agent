@@ -4,6 +4,7 @@ import { parseOfficialStructuredProduct, type OfficialStructuredProduct } from "
 import { ShopifyProductJsonSchema, shopifyVariantDimensions } from "./shopify-product-json.js";
 import { evaluateProductRequirements, sizeEvidence } from "./product-requirements.js";
 import { classifySourceFailure } from "./source-failure.js";
+import { productRequirementFeatures } from "./merchant-requirements.js";
 
 export class SelectedProductInspectionError extends Error {
   constructor(readonly code: "TARGET_CHANGED" | "VARIANT_NOT_PRESENT" | "TARGET_UNSUPPORTED" | "SOURCE_UNAVAILABLE" | "RATE_LIMITED" | "UPSTREAM_ERROR",
@@ -189,7 +190,7 @@ function rejectTransientResponse(response: Response): void {
 
 function meetsRequirements(product: ShopifyProduct, options: InspectionOptions | undefined): boolean {
   return options?.requirements === undefined || evaluateProductRequirements(product, {
-    ...options.requirements, excludedFeatures: [], preferences: []
+    ...options.requirements, requiredFeatures: productRequirementFeatures(options.requirements.requiredFeatures), excludedFeatures: [], preferences: []
   }).assessment.status === "SATISFIED";
 }
 

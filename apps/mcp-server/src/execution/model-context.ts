@@ -12,7 +12,7 @@ const CONTEXT_FIELDS = [
   "status", "locale", "renderId", "goalId", "goalRevision", "requirementsVersion",
   "requirementsSummary", "recommendation", "recovery", "coverage", "priceScope",
   "visualSessionId", "webSessionId", "expiresAt", "workflow", "retryable",
-  "queries", "limits", "comparisonId", "selectionId", "mode", "priceBasis",
+  "queries", "limits", "comparisonId", "selectionId", "selectionSource", "selectionRevision", "mode", "priceBasis",
   "priceComparability", "priceDelta", "visualSearchOutcome"
 ] as const;
 

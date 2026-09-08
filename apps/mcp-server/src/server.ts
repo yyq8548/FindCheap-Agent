@@ -16,8 +16,9 @@ import { buildVisualRetrievalQuery } from "./visual-retrieval-query.js";
 import { assessVisualVerdict, hasAdmissibleVisualConflict } from "./visual-review-policy.js";
 import { researchRecommendationMessage } from "./recommendation-message.js";
 import { searchDiagnostics, type SearchOutcome } from "./search-diagnostics.js";
+import { SourceValidationDetailsSchema } from "./source-failure.js";
 import { textSearchRecovery, TextSearchRecoverySchema } from "./text-search-recovery.js";
-import { WebRecoverySessions, WebConsentStatusSchema, WebProductUrlSchema, WEB_SEARCH_LIMITS, webSearchQueries, readWebCandidates, type WebProductPagePort } from "./web-product-recovery.js";
+import { WebRecoverySessions, WebConsentStatusSchema, WebDiscoveryOutcomeSchema, WebProductUrlSchema, WEB_SEARCH_LIMITS, webSearchQueries, readWebCandidates, type WebProductPagePort } from "./web-product-recovery.js";
 import { awaitWithSignal } from "./await-with-signal.js";
 import { evaluateRecoveredProducts, productIdentityBrand } from "./search-products.js";
 import { createExecutedToolRegistrar } from "./execution/tool-registry.js";
@@ -487,7 +488,11 @@ const DealConciergeInputSchema = z.object({
   selectionId: SelectionIdSchema.optional(),
   position: ProductPositionSchema.optional(),
   ...DealConciergeOptionsShape
-}).strict().superRefine(validateSingleProductSelector);
+}).strict().superRefine((value, context) => {
+  if (value.selectionId !== undefined || value.position !== undefined) {
+    validateSingleProductSelector(value, context);
+  }
+});
 
 const DealConciergeOutputShape = {
   locale: z.enum(["en-US", "zh-CN"]).optional(),
@@ -495,6 +500,10 @@ const DealConciergeOutputShape = {
   status: z.enum(["OK", "SELECTION_UNAVAILABLE"]),
   message: z.string(),
   selectionId: SelectionIdSchema.optional(),
+  selectionSource: z.enum(["UI", "EXPLICIT"]).optional(),
+  selectionRevision: z.number().int().min(0).optional(),
+  reasonCode: z.enum(["DEAL_SELECTION_NOT_SYNCED", "DEAL_SELECTION_EMPTY", "DEAL_MULTIPLE_SELECTIONS",
+    "DEAL_REFERENCE_UNAVAILABLE", "DEAL_REFERENCE_EXPIRED"]).optional(),
   selectedProduct: z.object({
     merchantId: z.string(),
     merchant: z.string(),
@@ -798,7 +807,8 @@ const ShopifyProductsOutputShape = {
     source: z.enum(["AWIN", "SHOPIFY", "EBAY", "OFFICIAL"]),
     kind: z.enum(["INVALID_QUERY", "SOURCE_REJECTED", "TIMEOUT", "RATE_LIMITED", "UPSTREAM_ERROR", "CONNECTION_FAILED", "SCHEMA_INVALID", "SECURITY_REJECTED", "BUDGET_EXHAUSTED", "UNKNOWN"]),
     phase: z.enum(["DNS", "REQUEST", "BODY"]).optional(),
-    retryable: z.boolean()
+    retryable: z.boolean(),
+    validation: SourceValidationDetailsSchema.optional()
   }).strict()).max(40).optional(),
   renderId: z.string().uuid().optional(),
   requirementsVersion: z.number().int().positive().optional(),
@@ -2845,7 +2855,7 @@ export function createShoppingServer(
     "search_products",
     {
       title: "FindCheap",
-      description: "For an initial text search, after the required Skill is loaded, match current user-message language and use one initial progress sentence unless a required host announcement already covers it: English 'I'll check matching products and prices.'; Chinese '我来核对符合要求的商品和价格。'. Selected-product follow-ups do not use that generic sentence. Follow required host instructions; skip optional Memory, repository, log, task and cache reads. Do not repeat progress or narrate the tool sequence. Text-only product-search entrypoint; call once. Pass a direct official product URL unchanged as query. Set compareMerchants=true only for an explicit cross-merchant price-comparison request; COMPARISON_INCOMPLETE retains found offers but requires bounded recovery or an honest comparison limitation. Retain findcheapContext from text content or the structuredContent of this same result; it contains the exact references for clarification answers, selected products and web recovery. Internal IDs are tool arguments, never user-facing prose. A tool error is not a zero-result search; report the returned safe error honestly. For a newly attached image use search_visual_candidates and then finalize_visual_search instead. Always pass responseLocale from the user's current message, even when query is translated into English for catalog retrieval. Keep query focused on product identity; pass use, budget, and size only in their typed fields. Pass family in productType, explicit brand in brand with brandMode=REQUIRED, objective must-have attributes in requiredFeatures, explicit disqualifiers in excludedFeatures, and preferences in preferences. One requiredFeatures entry may contain explicitly acceptable alternatives separated by 'or' and must stay under 160 characters. Pass primaryUse, preferredSize, requiredSize, maxItemPriceCents, or budgetFlexible only when the user states them; never infer them. A size explicitly required or selected from the clarification belongs in requiredSize; use preferredSize only when the user says it is flexible or merely preferred. Broad high-variance products return one clarification before source search when decision constraints are missing. Symptom wording must retain its meaning: 改善干燥毛躁 or reduce dryness and frizz is not for dry hair, which means suitability for that hair type. Explicit cosplay in primaryUse is a required use. Same-category identity refinement uses CONTINUE with the full updated identity query; a different character or model requires CORRECT. EV discovery may proceed after one clarification, but missing compatibility prevents purchase recommendations. Full-size or large-package requests exclude sample, trial-size, and tester products. Never put a brand in productType or requiredFeatures. Use CONTINUE_PREVIOUS_PRODUCT when the user adds budget, use, size, or constraints; pass the returned renderId as parentRenderId or the returned goalId plus goalRevision, including after NEEDS_CLARIFICATION. On MISSING_REFERENCE_CONTEXT/REUSE_ORIGINAL_REFERENCE, correct the omitted reference once from that original receipt; never guess a latest snapshot or switch to NEW_PRODUCT to bypass the error. The server inherits prior typed requirements; use clearConstraints only for explicitly withdrawn requirements. CORRECT_PREVIOUS_PRODUCT requires the same explicit reference; NEW_PRODUCT starts an independent goal. Shoe size requires a stated US/UK/EU system, never display inches. Missing soft evidence remains a limitation-labeled DISCOVERY_MATCH; hard conflicts exclude. Return at most 8 cards. Official tier requires an explicitly requested brand; tier two allows reviewed merchants including manually verified approved Awin merchants, or eligible high-rated products. Product ratings do not establish independent merchant trust; label the actual rating subject. Missing item price means no card; unknown delivered total alone does not remove a priced card. Best-value follows verified fit. Missing hard evidence belongs in RESEARCH_ONLY, not fulfilled matches. COMPLETE reports a bounded source request, not exhaustive product coverage. Display tier never determines the primary choice; highlight the backend-selected primary in its original display group; never reorder cards or change ordinal references. When recommendation.state is READY, recommend only recommendation.primarySelectionId; MATCHES_AVAILABLE means matching choices without a primary, not research-only results. Otherwise recommend none. Equivalent fit and trust prefer a confirmed after-Coupon price, then the raw item price; merchant-level or unconfirmed offers never override a lower price. Use selectionMode=LOWEST_PRICE only when requested; it never collapses the three display tiers. maxItemPriceCents is a ceiling, never a spending target. Only RESEARCH_ONLY entries are research leads. A high-rated eligible match may appear in tier two without independent merchant verification or quote permission. Never recommend a product absent from returned cards. Commercial relationships never affect relevance or ranking. Reuse selectionId for exact follow-ups; use renderId for UI-synced choices and renderId plus one-based position for ordinal references. Never print IDs or search a selected title again.",
+      description: "For an initial text search, load the required Skill and match current user-message language. Follow required host announcements; add no optional progress narration. Before nonempty cards, show only the host Search products label and current requirements; keep relevant limitations on cards. Follow required host instructions; skip optional Memory, repository, log, task and cache reads. Do not repeat progress or narrate the tool sequence. Text-only product-search entrypoint; call once. Pass a direct official product URL unchanged as query. Set compareMerchants=true only for an explicit cross-merchant price-comparison request; COMPARISON_INCOMPLETE retains found offers but requires bounded recovery or an honest comparison limitation. Retain findcheapContext from text content or the structuredContent of this same result; it contains the exact references for clarification answers, selected products and web recovery. Internal IDs are tool arguments, never user-facing prose. A tool error is not a zero-result search; report the returned safe error honestly. For a newly attached image use search_visual_candidates and then finalize_visual_search instead. Always pass responseLocale from the user's current message, even when query is translated into English for catalog retrieval. Keep query focused on product identity; pass use, budget, and size only in their typed fields. Pass family in productType, explicit brand in brand with brandMode=REQUIRED, objective must-have attributes in requiredFeatures, explicit disqualifiers in excludedFeatures, and preferences in preferences. One requiredFeatures entry may contain explicitly acceptable alternatives separated by 'or' and must stay under 160 characters. Pass primaryUse, preferredSize, requiredSize, maxItemPriceCents, or budgetFlexible only when the user states them; never infer them. A size explicitly required or selected from the clarification belongs in requiredSize; use preferredSize only when the user says it is flexible or merely preferred. Broad high-variance products return one clarification before source search when decision constraints are missing. Symptom wording must retain its meaning: 改善干燥毛躁 or reduce dryness and frizz is not for dry hair, which means suitability for that hair type. Explicit cosplay in primaryUse is a required use. Same-category identity refinement uses CONTINUE with the full updated identity query; a different character or model requires CORRECT. EV discovery may proceed after one clarification, but missing compatibility prevents purchase recommendations. Full-size or large-package requests exclude sample, trial-size, and tester products. Never put a brand in productType or requiredFeatures. Use CONTINUE_PREVIOUS_PRODUCT when the user adds budget, use, size, or constraints; pass the returned renderId as parentRenderId or the returned goalId plus goalRevision, including after NEEDS_CLARIFICATION. On MISSING_REFERENCE_CONTEXT/REUSE_ORIGINAL_REFERENCE, correct the omitted reference once from that original receipt; never guess a latest snapshot or switch to NEW_PRODUCT to bypass the error. The server inherits prior typed requirements; use clearConstraints only for explicitly withdrawn requirements. CORRECT_PREVIOUS_PRODUCT requires the same explicit reference; NEW_PRODUCT starts an independent goal. Shoe size requires a stated US/UK/EU system, never display inches. Missing soft evidence remains a limitation-labeled DISCOVERY_MATCH; hard conflicts exclude. Return at most 8 cards. Official tier requires an explicitly requested brand; tier two allows reviewed merchants including manually verified approved Awin merchants, or eligible high-rated products. Product ratings do not establish independent merchant trust; label the actual rating subject. Missing item price means no card; unknown delivered total alone does not remove a priced card. Best-value follows verified fit. Missing hard evidence belongs in RESEARCH_ONLY, not fulfilled matches. COMPLETE reports a bounded source request, not exhaustive product coverage. Display tier never determines the primary choice; highlight the backend-selected primary in its original display group; never reorder cards or change ordinal references. When recommendation.state is READY, recommend only recommendation.primarySelectionId; MATCHES_AVAILABLE means matching choices without a primary, not research-only results. Otherwise recommend none. Equivalent fit and trust prefer a confirmed after-Coupon price, then the raw item price; merchant-level or unconfirmed offers never override a lower price. Use selectionMode=LOWEST_PRICE only when requested; it never collapses the three display tiers. maxItemPriceCents is a ceiling, never a spending target. Only RESEARCH_ONLY entries are research leads. A high-rated eligible match may appear in tier two without independent merchant verification or quote permission. Never recommend a product absent from returned cards. Commercial relationships never affect relevance or ranking. Reuse selectionId for exact follow-ups; use renderId for UI-synced choices and renderId plus one-based position for ordinal references. Never print IDs or search a selected title again.",
       inputSchema: SearchProductsInputSchema,
       outputSchema: ShopifyProductsOutputShape,
       annotations: {
@@ -2969,7 +2979,7 @@ export function createShoppingServer(
   if (backend.product.webProducts !== undefined) {
     toolRegistrar.registerTool("begin_web_search", {
       title: "Authorize bounded web recovery",
-      description: "Only after a search result returns recovery.action=REQUEST_WEB_SEARCH. Pass that immutable renderId. Requests explicit consent through the host; the plugin cannot confirm whether a form is displayed. Never promise a popup or attribute a host decline to the user. No model boolean can grant permission. Do not open Chrome until READY. Follow returned queries and limits; never reset the budget with another search call. For image searches, send descriptions only, never upload the reference image. Recovered visual candidates must pass the remaining visual review before recommendation.",
+      description: "Only after a search result returns recovery.action=REQUEST_WEB_SEARCH. Pass that immutable renderId. Requests explicit consent through the host; the plugin cannot confirm whether a form is displayed. Never promise a popup or attribute a host decline to the user. No model boolean can grant permission. Inventory Chrome before requesting a lease, retain its actual browser ID, and do not open pages until READY. Reserve 15 seconds for server verification; report late or failed discovery with a zero-IO complete_web_search closure. Follow returned queries and limits; never reset the budget with another search call. For image searches, send descriptions only, never upload the reference image. Recovered visual candidates must pass the remaining visual review before recommendation.",
       inputSchema: z.object({ renderId: z.string().uuid() }).strict(),
       outputSchema: z.object({ status: WebConsentStatusSchema, message: z.string(), retryable: z.boolean(), attempt: z.number().int().min(0).max(2),
         diagnostics: z.object({ formSupported: z.boolean(), durationMs: z.number().int().nonnegative(),
@@ -3061,16 +3071,29 @@ export function createShoppingServer(
     });
     toolRegistrar.registerTool("complete_web_search", {
       title: "Verify recovered products",
-      description: "Complete one authorized begin_web_search lease before expiry. Submit only direct HTTPS merchant product URLs, at most 5 distinct merchants; pass [] when discovery found none. No prices, descriptions, trust claims or rewritten requirements. Server reads each exact page against original requirements. For an image request, products stay empty until the returned visualReview.requiredNextTool completes; review every returned candidate image. Never upload the user's reference image. Do not repeat recovery or erase the original snapshot.",
-      inputSchema: z.object({ renderId: z.string().uuid(), webSessionId: z.string().uuid(), urls: z.array(WebProductUrlSchema).max(5) }).strict(),
+      description: "Complete one authorized begin_web_search lease. Successful page verification must start before expiry. For BROWSER_UNAVAILABLE, DISCOVERY_TIMEOUT or DISCOVERY_CANCELLED, pass discoveryOutcome and urls=[] once; this zero-IO failure closure may occur after lease expiry while the original snapshot remains valid and cannot renew access. Submit only direct HTTPS merchant product URLs, at most 5 distinct merchants; pass [] when discovery found none. No prices, descriptions, trust claims or rewritten requirements. Server reads each exact page against original requirements. For an image request, products stay empty until the returned visualReview.requiredNextTool completes; review every returned candidate image. Never upload the user's reference image. Do not repeat recovery or erase the original snapshot.",
+      inputSchema: z.object({ renderId: z.string().uuid(), webSessionId: z.string().uuid(), urls: z.array(WebProductUrlSchema).max(5),
+        discoveryOutcome: WebDiscoveryOutcomeSchema.default("COMPLETED") }).strict(),
       outputSchema: ShopifyProductsOutputShape,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
       _meta: { ui: { resourceUri: PRODUCT_CARD_UI_URI }, "openai/outputTemplate": PRODUCT_CARD_UI_URI }
-    }, async ({ renderId, webSessionId, urls }, extra) => {
+    }, async ({ renderId, webSessionId, urls, discoveryOutcome }, extra) => {
       const parent = renderSnapshots.get(renderId);
       if (parent?.request === undefined || parent.expiresAt <= now().getTime()) return unavailableReference(parent);
       const searchRun = parent.searchRun;
       if (searchRun === undefined) return toolError("TOOL_REQUEST_REJECTED");
+      // A host-reported discovery failure is bookkeeping only. An expired lease
+      // can close here, but can never pass through to page reads or renew consent.
+      if (discoveryOutcome !== "COMPLETED") {
+        if (urls.length !== 0 || !webSessions.closeFailedDiscovery(renderId, webSessionId)) return toolError("TOOL_REQUEST_REJECTED");
+        const message = parent.content.locale === "zh-CN" ? "网页补搜未完成，已保留现有结果。"
+          : "Web search did not finish. Existing results are retained.";
+        const content: ProductCardContent = { ...parent.content, message,
+          recovery: { qualified: 0, recommendable: 0, awaitingVerification: 0, ...parent.content.recovery,
+            action: "REPORT_INCOMPLETE", reason: "SOURCE_UNAVAILABLE", discoveryOutcome } };
+        return { structuredContent: content, content: [{ type: "text" as const, text: message }],
+          _meta: { "findcheap/webDiscovery": { outcome: discoveryOutcome, origin: "CALLER_REPORTED", pageReads: 0 } } };
+      }
       return searchRun.withRequestSignal(extra.signal, async () => {
         if (searchRun.remainingServiceMs() <= 0) {
           const failure = toolError("TOOL_REQUEST_REJECTED");
@@ -4292,7 +4315,7 @@ export function createShoppingServer(
     "research_selected_product_deal",
     {
       title: "Check current price and deals",
-      description: "Check one exact prior product for current verified merchant deals, current item price, and inventory; this does not request a Cart quote. Use responseLocale for the current message language. Schema requires the prior renderId plus selectionId or one-based position for a user reference such as 'the first product'. On MISSING_REFERENCE_CONTEXT, retry once with the prior search renderId; do not describe the reference as expired. Never call this when the current turn includes a newly attached image; that image starts NEW_PRODUCT through search_visual_candidates. Never search or guess by title. Return current evidence only; do not make historical or buy-or-wait claims. Monitoring is created only after an explicit Watch request.",
+      description: "Check one exact prior product for current verified merchant deals, current item price, and inventory; this does not request a Cart quote. Use responseLocale for the current message language. Pass the prior renderId alone for exactly one UI-synced choice. Use selectionId or one-based position only for an explicit user reference from that snapshot. Unsynced, empty, multiple and expired choices are distinct; never substitute the first card. On MISSING_REFERENCE_CONTEXT, retry once with the prior search renderId; do not describe the reference as expired. Never call this when the current turn includes a newly attached image; that image starts NEW_PRODUCT through search_visual_candidates. Never search or guess by title. Return current evidence only; do not make historical or buy-or-wait claims. Monitoring is created only after an explicit Watch request.",
       inputSchema: DealConciergeInputSchema,
       outputSchema: DealConciergeOutputShape,
       annotations: {
@@ -4304,58 +4327,68 @@ export function createShoppingServer(
     },
     async (input) => {
       const parsed = DealConciergeInputSchema.parse(input);
-      const locale = parsed.responseLocale ?? renderSnapshots.get(parsed.renderId)?.content.locale ?? "en-US";
+      const snapshot = renderSnapshots.get(parsed.renderId);
+      const locale = parsed.responseLocale ?? snapshot?.content.locale ?? "en-US";
       const text = (english: string, chinese: string) => locale === "zh-CN" ? chinese : english;
-      const reference = resolveSelectionReference(parsed);
-      if (reference === undefined) {
-        const message = text("Selected product does not belong to the referenced immutable search snapshot.", "所选商品不属于引用的原搜索快照。");
+      const failure = (reasonCode: z.infer<typeof DealConciergeOutputShape.reasonCode>, english: string, chinese: string) => {
+        const message = text(english, chinese);
         return {
-          content: [{ type: "text" as const, text: message }],
+          content: [{ type: "text" as const, text: `[${reasonCode}] ${message}` }],
           structuredContent: {
             status: "SELECTION_UNAVAILABLE" as const,
             locale,
+            reasonCode,
             message,
             quoteStatus: "NOT_REQUESTED" as const,
             limitations: [text("No product title fallback search was performed.", "未按商品标题猜测或重新搜索。")],
             deals: []
           }
         };
+      };
+      if (snapshot === undefined) return failure("DEAL_REFERENCE_UNAVAILABLE",
+        "The original product cards are no longer available. No deals were checked; do not substitute another product.",
+        "原商品卡片已不可用。这次没有查优惠，不会替换成其他商品。");
+      if (snapshot.expiresAt <= now().getTime()) {
+        deleteSnapshot(parsed.renderId);
+        return failure("DEAL_REFERENCE_EXPIRED",
+          "The original product cards have expired. No deals were checked; do not substitute another product.",
+          "原商品卡片已过期。这次没有查优惠，不会替换成其他商品。");
       }
-      const snapshot = renderSnapshots.get(reference.renderId);
-      if (snapshot === undefined || snapshot.expiresAt <= now().getTime()) {
-        deleteSnapshot(reference.renderId);
-        const message = text("Selected product snapshot expired or is no longer available. Run one new product search, then select a card.", "所选商品快照已过期或不可用；请重新搜索后选择商品卡。");
-        return {
-          content: [{ type: "text" as const, text: message }],
-          structuredContent: {
-            status: "SELECTION_UNAVAILABLE" as const,
-            locale,
-            message,
-            quoteStatus: "NOT_REQUESTED" as const,
-            limitations: [text("No product title fallback search was performed.", "未按商品标题猜测或重新搜索。")],
-            deals: []
-          }
-        };
+      const uiSelection = parsed.selectionId === undefined && parsed.position === undefined;
+      const receipt = cardSelections.get(parsed.renderId);
+      if (uiSelection) {
+        if (receipt === undefined) return failure("DEAL_SELECTION_NOT_SYNCED",
+          "I have not received a selection for these product cards yet. Select one original card; no deals were checked.",
+          "尚未收到这组商品卡片的选择。请选中一件原商品；这次没有查优惠。");
+        if (receipt.selectionIds.length === 0) return failure("DEAL_SELECTION_EMPTY",
+          "No product is selected in these cards. Select the one you want to check; no deals were checked.",
+          "这组卡片还没有选中商品。先选一件你想查看的；这次没有查优惠。");
+        if (receipt.selectionIds.length > 1) return failure("DEAL_MULTIPLE_SELECTIONS",
+          "More than one product is selected. Specify which product to check using its original reference; no deals were checked.",
+          "当前选中了多件商品。请用原商品引用明确要先查看哪一件；这次没有查优惠。");
+      }
+      const reference = resolveSingleSelectionReference(parsed);
+      if (reference === undefined) {
+        return failure("DEAL_REFERENCE_UNAVAILABLE",
+          "That product selection does not belong to the original cards. No deals were checked, and the current UI choice was not substituted.",
+          "这个商品选择不属于原卡片。这次没有查优惠，也没有替换成当前界面中的其他选择。");
       }
       const selectedCard = snapshot.content.products.find((product) => productReferenceKey(product) === reference.productKey);
       if (selectedCard === undefined) {
-        const message = text("Selected product does not belong to the immutable prior result.", "所选商品不属于原搜索快照。");
-        return {
-          content: [{ type: "text" as const, text: message }],
-          structuredContent: {
-            status: "SELECTION_UNAVAILABLE" as const,
-            locale,
-            message,
-            quoteStatus: "NOT_REQUESTED" as const,
-            limitations: [text("No product title fallback search was performed.", "未按商品标题猜测或重新搜索。")],
-            deals: []
-          }
-        };
+        return failure("DEAL_REFERENCE_UNAVAILABLE",
+          "The selected product does not belong to the original cards. No deals were checked.",
+          "所选商品不属于原卡片；这次没有查优惠。");
       }
 
       const quoteProduct = selectedCard.sourceKind === "AWIN_PRODUCT_FEED"
         ? snapshot.resolvedAwinProducts.get(reference.productKey)
         : snapshot.sourceResult.products.find((product) => productReferenceKey(product) === reference.productKey);
+      const dealSelection = {
+        renderId: reference.renderId,
+        selectionId: selectedCard.selectionId,
+        selectionSource: uiSelection ? "UI" as const : "EXPLICIT" as const,
+        ...(uiSelection && receipt !== undefined ? { selectionRevision: receipt.revision } : {})
+      };
       const research = await researchSelectedProductDeal({
         responseLocale: locale,
         selected: {
@@ -4402,13 +4435,15 @@ export function createShoppingServer(
       ].join(" ");
       return {
         content: [{ type: "text" as const, text: message }],
-        _meta: { "findcheap/referenceTrace": { traceId: snapshot.content.traceId, renderId: reference.renderId, operation: "DEAL_RESEARCH" } },
+        _meta: {
+          "findcheap/referenceTrace": { traceId: snapshot.content.traceId, renderId: reference.renderId, operation: "DEAL_RESEARCH" },
+          "findcheap/dealSelection": dealSelection
+        },
         structuredContent: {
           status: "OK" as const,
           locale,
-          renderId: reference.renderId,
+          ...dealSelection,
           message,
-          selectionId: selectedCard.selectionId,
           selectedProduct: {
             merchantId: selectedCard.merchantId,
             merchant: selectedCard.merchant,

@@ -1,4 +1,5 @@
 import type { UnifiedSearchExecution } from "./search-products.js";
+import { SourceValidationDetailsSchema } from "./source-failure.js";
 
 export type SearchOutcome = "REVIEW_REQUIRED" | "IDENTITY_UNVERIFIED" | "REQUIREMENTS_UNVERIFIED" | "MATCH_FOUND" | "NO_CANDIDATES" |
   "SOURCE_UNAVAILABLE" | "NO_LOADABLE_IMAGES" | "CANDIDATES_CONFLICTED" |
@@ -13,8 +14,12 @@ export function searchDiagnostics(execution: UnifiedSearchExecution, outcome: Se
   const snapshotTime = execution.awinResult?.snapshotAt;
   const snapshotAt = snapshotTime !== undefined && Number.isFinite(Date.parse(snapshotTime))
     ? new Date(snapshotTime).toISOString() : undefined;
-  const sourceFailures = execution.sourceFailures?.map(({ source, kind, retryable, phase }) => ({ source, kind, retryable,
-    ...(phase !== undefined && ["DNS", "REQUEST", "BODY"].includes(phase) ? { phase } : {}) }));
+  const sourceFailures = execution.sourceFailures?.map(({ source, kind, retryable, phase, validation }) => {
+    const safeValidation = SourceValidationDetailsSchema.safeParse(validation);
+    return { source, kind, retryable,
+      ...(phase !== undefined && ["DNS", "REQUEST", "BODY"].includes(phase) ? { phase } : {}),
+      ...(safeValidation.success ? { validation: safeValidation.data } : {}) };
+  });
   const nonTransientFailure = ["SECURITY_REJECTED", "SCHEMA_INVALID", "INVALID_QUERY", "SOURCE_REJECTED", "BUDGET_EXHAUSTED", "UNKNOWN"]
     .map(kind => sourceFailures?.find(failure => !failure.retryable && failure.kind === kind)).find(Boolean);
   const sourceObservations = execution.sourcePassDiagnostics.reduce((total, pass) =>

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { WebConsentStatusSchema } from "./web-product-recovery.js";
+import { WebConsentStatusSchema, WebDiscoveryOutcomeSchema } from "./web-product-recovery.js";
 import type { UnifiedSearchExecution } from "./search-products.js";
 import { countComparableMerchants, countDisplayEligibleCandidates, countQualifiedMatchCandidates, countRecommendationEligibleCandidates } from "./product-candidate-ranking.js";
 
@@ -7,6 +7,7 @@ export const TextSearchRecoverySchema = z.object({
   action: z.enum(["NONE", "REQUEST_WEB_SEARCH", "REPORT_UNVERIFIED_MERCHANT", "REPORT_INCOMPLETE"]),
   reason: z.enum(["MATCH_FOUND", "COMPARISON_INCOMPLETE", "NO_QUALIFIED_MATCH", "IDENTITY_UNVERIFIED", "REQUIREMENTS_UNVERIFIED", "MERCHANT_UNVERIFIED", "SOURCE_UNAVAILABLE", "BUDGET_EXHAUSTED", "AUTHORIZATION_STOPPED"]),
   consentStatus: WebConsentStatusSchema.optional(),
+  discoveryOutcome: WebDiscoveryOutcomeSchema.optional(),
   comparableMerchants: z.number().int().nonnegative().optional(),
   qualified: z.number().int().nonnegative(), recommendable: z.number().int().nonnegative(),
   qualifiedMatches: z.number().int().nonnegative().optional(),

@@ -1,8 +1,103 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { SearchProductsInputSchema } from "../src/search-products.js";
 import { mergeSearchRequirements, shoppingRequirementLedger } from "../src/search-requirements-context.js";
+import { connectReplay, searchResult } from "./fixtures/conversation-replay-support.js";
 
 describe("requirement continuity contract", () => {
+  it("preserves one MCP goal through Sony clarification and a budget update", async () => {
+    const replay = await connectReplay(async () => searchResult([]));
+    try {
+      const first = await replay.client.callTool({ name: "search_products", arguments: { query: "Sony 1000XM6", brand: "Sony",
+        brandMode: "REQUIRED", productType: "headphones", requiredFeatures: ["black"], responseLocale: "zh-CN" } });
+      expect(first.isError).not.toBe(true);
+      const original = first.structuredContent as { renderId: string; goalId: string; goalRevision: number };
+      const next = await replay.client.callTool({ name: "search_products", arguments: { query: "Sony WH-1000XM6", brand: "Sony",
+        productType: "over-ear headphones", contextMode: "CONTINUE_PREVIOUS_PRODUCT", parentRenderId: original.renderId } });
+      expect(next.isError, JSON.stringify(next.content)).not.toBe(true);
+      expect(next.structuredContent).toMatchObject({ goalId: original.goalId, goalRevision: 2,
+        requirementsSummary: { productType: "over-ear headphones", requiredFeatures: ["black"] } });
+      const narrowed = next.structuredContent as { renderId: string };
+      const budget = await replay.client.callTool({ name: "search_products", arguments: { query: "Sony WH-1000XM6",
+        contextMode: "CONTINUE_PREVIOUS_PRODUCT", parentRenderId: narrowed.renderId, maxItemPriceCents: 35000 } });
+      expect(budget.isError).not.toBe(true);
+      expect(budget.structuredContent).toMatchObject({ goalId: original.goalId, goalRevision: 3,
+        requirementsSummary: { brand: "Sony", productType: "over-ear headphones", maxItemPriceCents: 35000, requiredFeatures: ["black"] } });
+      expect(original.goalRevision).toBe(1);
+    } finally { await replay.close(); }
+  });
+  it.each(["Sony WH-1000XM6", "Sony WH1000XM6"])("keeps the Sony goal requirements when clarifying the over-ear model: %s", query => {
+    const previous = SearchProductsInputSchema.parse({ query: "Sony 1000XM6", brand: "Sony", brandMode: "REQUIRED",
+      productType: "headphones", maxItemPriceCents: 35000, requiredFeatures: ["black"], excludedFeatures: ["refurbished"] });
+    const result = mergeSearchRequirements(SearchProductsInputSchema.parse({ query, brand: "Sony",
+      productType: "over-ear headphones", contextMode: "CONTINUE_PREVIOUS_PRODUCT", parentRenderId: "11111111-1111-4111-8111-111111111111" }), previous);
+    expect(result).toMatchObject({ query, productType: "over-ear headphones", maxItemPriceCents: 35000,
+      requiredFeatures: ["black"], excludedFeatures: ["refurbished"], parentRenderId: "11111111-1111-4111-8111-111111111111", contextMode: "CONTINUE_PREVIOUS_PRODUCT" });
+    expect(previous).toMatchObject({ query: "Sony 1000XM6", productType: "headphones" });
+  });
+  it("allows category-only headphone narrowing without changing the named model", () => {
+    const previous = SearchProductsInputSchema.parse({ query: "Sony 1000XM6", brand: "Sony", productType: "headphones" });
+    expect(mergeSearchRequirements(SearchProductsInputSchema.parse({ query: "Sony 1000XM6", productType: "over-ear headphones",
+      contextMode: "CONTINUE_PREVIOUS_PRODUCT" }), previous).productType).toBe("over-ear headphones");
+  });
+  it("does not assign an explicit WH model to the in-ear subtype", () => {
+    expect(() => mergeSearchRequirements(SearchProductsInputSchema.parse({ query: "Sony WH-1000XM6", productType: "in-ear headphones",
+      contextMode: "CONTINUE_PREVIOUS_PRODUCT" }), SearchProductsInputSchema.parse({ query: "Sony WH-1000XM6", brand: "Sony",
+      productType: "headphones" }))).toThrow("PRODUCT_CONTEXT_CONFLICT");
+  });
+  it.each([
+    ["Sony WH-1000XM6", "Sony", "headphones", "in-ear headphones"],
+    ["Sony WF-1000XM6", "Sony", "headphones", "over-ear headphones"],
+    ["Sony WH-1000XM6", undefined, "Sony WH-1000XM6", "in-ear headphones"],
+    ["Sony WF1000XM6", undefined, "Sony WF1000XM6", "over-ear headphones"]
+  ])("rejects a conflicting final subtype through short references or query-only branding: %s / %s / %s / %s", (originalQuery, brand, query, productType) => {
+    const previous = SearchProductsInputSchema.parse({ query: originalQuery, ...(brand === undefined ? {} : { brand }),
+      productType: "headphones", maxItemPriceCents: 35000, requiredFeatures: ["black"] });
+    expect(() => mergeSearchRequirements(SearchProductsInputSchema.parse({ query, productType,
+      contextMode: "CONTINUE_PREVIOUS_PRODUCT" }), previous)).toThrow("PRODUCT_CONTEXT_CONFLICT");
+    expect(previous).toMatchObject({ query: originalQuery, productType: "headphones", maxItemPriceCents: 35000, requiredFeatures: ["black"] });
+  });
+  it("rejects conflicting MCP category-only clarification before source reads while preserving the original goal", async () => {
+    const search = vi.fn(async () => searchResult([]));
+    const replay = await connectReplay(search);
+    try {
+      const first = await replay.client.callTool({ name: "search_products", arguments: {
+        query: "Sony WH-1000XM6", productType: "headphones", requiredFeatures: ["black"], maxItemPriceCents: 35000
+      } });
+      expect(first.isError).not.toBe(true);
+      const original = first.structuredContent as { renderId: string; goalId: string; goalRevision: number };
+      search.mockClear();
+      const invalid = await replay.client.callTool({ name: "search_products", arguments: {
+        query: "headphones", productType: "in-ear headphones", contextMode: "CONTINUE_PREVIOUS_PRODUCT", parentRenderId: original.renderId
+      } });
+      expect(invalid.isError, JSON.stringify(invalid.content)).toBe(true);
+      expect(JSON.stringify(invalid.content)).toContain("PRODUCT_CONTEXT_CONFLICT");
+      expect(search).not.toHaveBeenCalled();
+      const valid = await replay.client.callTool({ name: "search_products", arguments: {
+        query: "headphones", productType: "over-ear headphones", contextMode: "CONTINUE_PREVIOUS_PRODUCT", parentRenderId: original.renderId
+      } });
+      expect(valid.isError, JSON.stringify(valid.content)).not.toBe(true);
+      expect(valid.structuredContent).toMatchObject({ goalId: original.goalId, goalRevision: 2,
+        requirementsSummary: { productType: "over-ear headphones", requiredFeatures: ["black"], maxItemPriceCents: 35000 } });
+      expect(search).toHaveBeenCalledWith(expect.objectContaining({ query: expect.stringMatching(/WH[-\s]?1000XM6/iu) }));
+      expect(original.goalRevision).toBe(1);
+    } finally { await replay.close(); }
+  });
+  it.each([
+    ["Sony WH-1000XM5", "over-ear headphones"],
+    ["Sony WF-1000XM6", "over-ear headphones"],
+    ["Sony WH-1000XM6 WH-1000XM5", "over-ear headphones"],
+    ["Sony WH-1000XM6", "laptop"],
+    ["Sony WH-1000XM6", "headphones"]
+  ])("rejects changed or unconfirmed headphone identity: %s / %s", (query, productType) => {
+    expect(() => mergeSearchRequirements(SearchProductsInputSchema.parse({ query, productType, contextMode: "CONTINUE_PREVIOUS_PRODUCT" }),
+      SearchProductsInputSchema.parse({ query: "Sony 1000XM6", brand: "Sony", productType: "headphones" })))
+      .toThrow("PRODUCT_CONTEXT_CONFLICT");
+  });
+  it.each(["in-ear headphones", "headphones", "over-ear gaming headphones"])("does not replace or broaden a confirmed headphone subtype: %s", productType => {
+    expect(() => mergeSearchRequirements(SearchProductsInputSchema.parse({ query: "Sony WH-1000XM6", productType,
+      contextMode: "CONTINUE_PREVIOUS_PRODUCT" }), SearchProductsInputSchema.parse({ query: "Sony WH-1000XM6", brand: "Sony",
+      productType: "over-ear headphones" }))).toThrow("PRODUCT_CONTEXT_CONFLICT");
+  });
   it("does not turn ambiguous Chinese counts into pads or truncate full requirement lists", () => {
     for (const input of [SearchProductsInputSchema.parse({ query: "tablets", requiredSize: "70片" }),
       SearchProductsInputSchema.parse({ query: "toner pads", requiredSize: "70 pads, 155g",
