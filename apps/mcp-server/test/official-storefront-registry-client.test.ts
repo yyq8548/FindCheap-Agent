@@ -38,11 +38,12 @@ describe("managed official storefront registry", () => {
     expect(fetchRequest).not.toHaveBeenCalled();
   });
 
-  it("loads one bounded registry and revalidates it with ETag", async () => {
+  it.each(["SHOPIFY", "WOOCOMMERCE"])("loads a bounded %s registry and revalidates it with ETag", async platform => {
     let now = 1_000;
     let requests = 0;
     const fetchRequest = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
       requests += 1;
+      expect(new Headers(init?.headers).get("x-findcheap-registry-schema")).toBe("2");
       if (requests === 2) {
         expect(new Headers(init?.headers).get("if-none-match")).toBe('"registry-v1"');
         return new Response(null, { status: 304 });
@@ -54,7 +55,7 @@ describe("managed official storefront registry", () => {
           aliases: ["Managed Alias"],
           officialHost: "managed.example",
           storefrontHost: "shop.managed.example",
-          platform: "SHOPIFY",
+          platform,
           productPathPrefixes: ["/products/"],
           imageHosts: ["cdn.shopify.com"],
           evidenceUrl: "https://managed.example/",
@@ -82,7 +83,7 @@ describe("managed official storefront registry", () => {
     expect(resolveVerifiedOfficialStorefront("Managed Alias")).toMatchObject({
       host: "shop.managed.example",
       brand: "Managed Brand",
-      platform: "SHOPIFY"
+      platform
     });
     await port!.refresh();
     expect(fetchRequest).toHaveBeenCalledOnce();

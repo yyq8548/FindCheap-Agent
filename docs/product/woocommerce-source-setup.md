@@ -18,6 +18,7 @@
 内部请求使用 POST JSON；商家侧只使用商品 GET。完整 schema 是 [woocommerce.ts](../../packages/contracts/src/woocommerce.ts)。
 
 - `POST /v1/woocommerce/search`：`query`、可选 `brand/productType/productUrl`、`market/currency`、`requirements`、`limit` 及受限 continuation。返回原始商品、逐店状态、表版本、覆盖及预算诊断。
+- v0.18.1 增加可选 `preferredMerchantHost`：MCP 从已审核官网映射选择，服务端只优先排列既有、健康且适用的访问表商家；未知域名不能增加访问资格。六店／两轮预算不变。
 - `POST /v1/woocommerce/products/lookup`：精确 `merchantId/productId`，变体附 `parentProductId/variationId`。返回 `FOUND/NOT_FOUND/UNSUPPORTED/UNAVAILABLE`。
 - `POST /v1/woocommerce/products/variants`：`target` 和 `requirements`；只检查原商品的规格，不按标题另搜。
 - `GET /v1/woocommerce/images?merchantId=...&imageId=...`：只解析服务已记录的图片引用，不接受任意 URL。
@@ -43,6 +44,10 @@
 首版展示有明确 USD 商品价的 simple 或精确 variation。父商品起价／范围不作为选中规格价；非 USD 保留原币证据但不参与 USD 卡片比较；组合、订阅、自定义定价及 external 类型不扩大为可购买商品。缺价不当作 0；未知货况不写成 NEW；预售／backorder 不冒充现货。
 
 访问表与商家信任表分离。配置了商家，只证明允许尝试其公开接口；不自动获得可信商家、品牌官网、配送美国、报价或联盟优惠资格。200 家包含 Akko、PINE、CableMod、Peavey 等电子品类商家，以及家居、食品、户外和文具专营店，但没有承诺全部型号或完整目录覆盖。原有 50 家证据保留；本次新增 150 家的实际接口与商品页证据另见商家名单。
+
+v0.18.1 的[逐家信任审核](woocommerce-merchant-trust-200.md)另行批准直营品牌和合格零售商。直营品牌同时进入官网及可信库，已知混售独立品牌的商家只进入可信库；证据不足的商家保留搜索资格，能否展示还受既有展示门槛约束。可信商品可以竞争首选，但商家身份不替代商品／规格身份、库存、价格及用户要求。官网和可信表通过生产 Registry Builder 管理，200 家访问表保持独立。
+
+发布顺序：先部署支持 `WOOCOMMERCE` 平台与注册表协商的来源服务，再发布已审核数据库快照，刷新服务后更新 MCP。新版 MCP 请求 `x-findcheap-registry-schema: 2`；旧客户端只收到其支持的平台子集，不会因新枚举拒绝整个官网表。注册表按既有刷新周期加载，重启可立即加载；MCP 已有日缓存，换插件后需新建进程。
 
 `inspect_selected_product` 根据原快照分发，保留 `inspect_selected_shopify_product` 兼容名。新规格生成子快照；旧快照复制原始 DTO，不受端口对象后续变动影响。混合比较共用既有事实和排序。只有商家、商品／变体及对应 URL 都有证据时，Woo 与联盟 Feed 的同一报价才合并。
 

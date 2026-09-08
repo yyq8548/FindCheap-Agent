@@ -445,10 +445,11 @@ export async function searchProducts(
   const directSeed = knownProductUrl === undefined ? undefined
     : officialStoreSeed([], { ...rawInput, sourcePageUrl: knownProductUrl.sourcePageUrl });
   let resolvedRequest: SearchProductsInput | undefined;
-  const directWooUrl = ports.woocommerce ? rawInput.wooAnchor?.url ?? wooProductUrl(rawInput.query) : undefined;
+  const directWooUrl = ports.woocommerce ? rawInput.wooAnchor?.url ??
+    (knownProductUrl?.storefront.platform === "WOOCOMMERCE" ? knownProductUrl.sourcePageUrl : wooProductUrl(rawInput.query)) : undefined;
   let directWooResult: WooSearchResult | undefined;
   let directWooFailure: unknown;
-  if (directSeed !== undefined && knownProductUrl !== undefined && ports.officialShopify !== undefined) {
+  if (directSeed !== undefined && directSeed.platform !== "WOOCOMMERCE" && knownProductUrl !== undefined && ports.officialShopify !== undefined) {
     try {
       const directProducts = await searchRun.read("OFFICIAL",
         JSON.stringify([directSeed.sourceHost, "direct official product", knownProductUrl.sourcePageUrl]),
@@ -495,7 +496,11 @@ export async function searchProducts(
       if (observed !== undefined) {
         const { searchRun: _run, previousCandidates: _previous, deferVisualFiltering: _defer,
           relaxVisualRetrieval: _relax, includeUnavailableVariants: _unavailable, wooAnchor: _anchor, ...request } = rawInput;
-        const bound = SearchProductsInputSchema.safeParse({ ...request, query: [observed.brand, observed.title].filter(Boolean).join(" ").slice(0, 300) });
+        const officialBrand = knownProductUrl?.storefront.platform === "WOOCOMMERCE"
+          ? observed.brand ?? knownProductUrl.storefront.brand : undefined;
+        const bound = SearchProductsInputSchema.safeParse({ ...request,
+          ...(request.brand === undefined && officialBrand !== undefined ? { brand: officialBrand, brandMode: "REQUIRED" } : {}),
+          query: [observed.brand, observed.title].filter(Boolean).join(" ").slice(0, 300) });
         resolvedRequest = { ...(bound.success ? bound.data : parseStoredSearchRequest(request)),
           wooAnchor: rawInput.wooAnchor ?? createWooProductAnchor(observed, directWooUrl) };
       }
@@ -762,8 +767,11 @@ export async function searchProducts(
       query = compileSourceQuery("WOOCOMMERCE", query, { pass: merge ? 2 : 1, identityQuery, visual: input.visualInput !== undefined });
       sourceQueries[merge ? 2 : 1].woocommerce = query;
       const color = input.requiredFeatures.find(isColorRequirement);
+      const reviewedStore = knownProductUrl?.storefront ??
+        resolveVerifiedOfficialStorefront(input.brand ?? input.visualInput?.brand ?? "");
       const request = { query, limit, market: "US" as const, currency: "USD" as const,
         ...(input.brand === undefined ? {} : { brand: input.brand }),
+        ...(reviewedStore?.platform !== "WOOCOMMERCE" ? {} : { preferredMerchantHost: reviewedStore.host }),
         ...(input.productType === undefined ? {} : { productType: input.productType }),
         ...(input.maxItemPriceCents === undefined ? {} : { maxItemPriceCents: input.maxItemPriceCents }),
         ...(directWooUrl === undefined ? {} : { productUrl: directWooUrl }),
@@ -917,7 +925,7 @@ export async function searchProducts(
   // before global discovery. Both paths share the existing request/time budget.
   const earlyOfficialSeed = directSeed ?? (input.visualInput !== undefined || (input.brand !== undefined && input.brandMode === "REQUIRED")
     ? officialStoreSeed([], input) : undefined);
-  const earlyOfficial = ports.officialShopify !== undefined && earlyOfficialSeed !== undefined
+  const earlyOfficial = ports.officialShopify !== undefined && earlyOfficialSeed !== undefined && earlyOfficialSeed.platform !== "WOOCOMMERCE"
     ? queryOfficial(earlyOfficialSeed) : undefined;
   await Promise.all([
     queryAwin(sourceQuery, 12, false),
@@ -974,6 +982,7 @@ export async function searchProducts(
     earlyOfficial === undefined &&
     ports.officialShopify !== undefined &&
     officialSeed !== undefined &&
+    officialSeed.platform !== "WOOCOMMERCE" &&
     (input.brandMode === "REQUIRED" || lacksStrongMatch([...affiliateCandidates, ...shopifyCandidates, ...ebayCandidates, ...wooCandidates], searchIntent))
   ) {
     await queryOfficial(officialSeed);
@@ -1318,7 +1327,9 @@ function awinCandidate(
 
 /** The exact reviewed official host can supply identity-brand evidence when
  * storefront vendor fields use an internal name. This never changes source facts. */
-export function productIdentityBrand(product: Pick<ShopifyProduct, "merchantTrust" | "sourceHost" | "brand">): string | undefined {
+export function productIdentityBrand(product: Pick<ShopifyProduct, "merchantTrust" | "sourceHost" | "brand"> & { sourceKind?: unknown }): string | undefined {
+  // Woo product brands are explicit catalog facts, not Shopify vendor labels.
+  if (product.sourceKind === "WOOCOMMERCE_STORE_API" && product.brand !== undefined) return product.brand;
   return (product.merchantTrust.level === "OFFICIAL" && product.merchantTrust.verification === "INDEPENDENT"
     ? resolveVerifiedOfficialStorefrontByHost(product.sourceHost)?.brand : undefined) ?? product.brand;
 }
@@ -1336,9 +1347,18 @@ function assessCatalogProduct(
   const key = `SHOPIFY:${product.merchantId}:${product.handle}`;
   if (input.maxItemPriceCents !== undefined && product.itemPrice !== undefined && product.itemPrice.amountCents > input.maxItemPriceCents) return undefined;
   if (product.merchantTrust.level === "RISKY") return undefined;
+  const woo = "sourceKind" in product && product.sourceKind === "WOOCOMMERCE_STORE_API";
+  const identityBrand = productIdentityBrand(product);
+  const productStorefront = woo && identityBrand !== undefined ? resolveVerifiedOfficialStorefront(identityBrand) : undefined;
+  const requestedStorefront = woo && input.brand !== undefined ? resolveVerifiedOfficialStorefront(input.brand) : undefined;
+  // Use an audited alias only for matching; never replace the catalog's brand fact.
+  const matchingBrand = productStorefront !== undefined && productStorefront.officialHost === requestedStorefront?.officialHost
+    ? input.brand : identityBrand;
+  const identityMatchingBrand = matchingBrand !== identityBrand && identityBrand !== undefined && containsBrand(identityQuery, identityBrand)
+    ? `${identityBrand} ${matchingBrand}` : matchingBrand;
   const brand = assessBrand(input, [
-    product.brand,
-    ...(product.merchantTrust.level === "OFFICIAL" ? [product.merchant] : [])
+    woo ? matchingBrand : product.brand,
+    ...(!woo && product.merchantTrust.level === "OFFICIAL" ? [product.merchant] : [])
   ], [product.title]);
   if (brand.excluded) {
     brandExcludedKeys.add(key);
@@ -1356,7 +1376,7 @@ function assessCatalogProduct(
     identityQuery,
     {
       title: product.title,
-      ...(productIdentityBrand(product) === undefined ? {} : { brand: productIdentityBrand(product)! }),
+      ...(identityMatchingBrand === undefined ? {} : { brand: identityMatchingBrand }),
       ...(product.description === undefined ? {} : { description: product.description }),
       ...(product.sku === undefined ? {} : { sku: product.sku }),
       ...(product.mpn === undefined ? {} : { mpn: product.mpn }),
@@ -1375,7 +1395,7 @@ function assessCatalogProduct(
   const visual = visualIdentity(input, {
     title: product.title,
     productType: product.productType,
-    brand: product.brand ?? (product.merchantTrust.level === "OFFICIAL" ? product.merchant : undefined),
+    brand: woo ? matchingBrand : product.brand ?? (product.merchantTrust.level === "OFFICIAL" ? product.merchant : undefined),
     modelOrStyleNumber: product.sku,
     description: product.description,
     attributes: Object.entries(product.variantDimensions).map(([name, value]) => `${name}: ${value}`)

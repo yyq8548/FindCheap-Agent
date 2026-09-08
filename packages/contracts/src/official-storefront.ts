@@ -17,7 +17,7 @@ export const OfficialStorefrontRecordSchema = z.object({
     .default([]),
   officialHost: HostSchema,
   storefrontHost: StorefrontHostSchema.optional(),
-  platform: z.enum(["SHOPIFY", "GENERIC_JSON_LD", "SONY_OCC"]),
+  platform: z.enum(["SHOPIFY", "GENERIC_JSON_LD", "SONY_OCC", "WOOCOMMERCE"]),
   productPathPrefixes: z.array(PathPrefixSchema).min(1).max(10),
   searchPathTemplate: z.string().trim().regex(/^\/[A-Za-z0-9._~!$&'()*+,;=:@%/?{}-]*\{query\}[A-Za-z0-9._~!$&'()*+,;=:@%/?{}-]*$/u)
     .max(300)

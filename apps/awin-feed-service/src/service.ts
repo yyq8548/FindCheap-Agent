@@ -942,10 +942,13 @@ async function handleRequest(
       json(response, 404, { error: "OFFICIAL_STOREFRONTS_NOT_CONFIGURED" });
       return;
     }
-    if (etagMatches(request.headers["if-none-match"], officialStorefronts.etag)) {
+    // Older strict clients cannot parse newly supported platform enum values.
+    const representation = request.headers["x-findcheap-registry-schema"] === "2" ? officialStorefronts : officialStorefronts.legacy;
+    response.setHeader("vary", "x-findcheap-registry-schema");
+    if (etagMatches(request.headers["if-none-match"], representation.etag)) {
       response.writeHead(304, {
         "cache-control": "public, max-age=3600, stale-while-revalidate=86400",
-        etag: officialStorefronts.etag
+        etag: representation.etag
       });
       response.end();
       return;
@@ -953,11 +956,11 @@ async function handleRequest(
     response.writeHead(200, {
       "cache-control": "public, max-age=3600, stale-while-revalidate=86400",
       "content-type": "application/json",
-      "content-length": String(Buffer.byteLength(officialStorefronts.body)),
-      etag: officialStorefronts.etag,
+      "content-length": String(Buffer.byteLength(representation.body)),
+      etag: representation.etag,
       "x-content-type-options": "nosniff"
     });
-    response.end(officialStorefronts.body);
+    response.end(representation.body);
     return;
   }
   if (path === "/v1/search" || path === "/v1/offers/search" || path === "/v1/ebay/search") {

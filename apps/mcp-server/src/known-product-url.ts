@@ -34,6 +34,10 @@ export function resolveKnownProductUrl(query: string): KnownProductUrl | undefin
     const parameter = url.searchParams.get(key) ?? "";
     if (url.searchParams.getAll(key).length !== 1) return undefined;
     if (storefront.platform === "SHOPIFY" && key === "variant" && /^\d{1,30}$/u.test(parameter)) continue;
+    if (storefront.platform === "WOOCOMMERCE") {
+      if (key === "variation_id" && /^[1-9]\d{0,15}$/u.test(parameter) && Number.isSafeInteger(Number(parameter))) continue;
+      if (/^attribute_(?:pa_)?[a-zA-Z0-9_-]{1,80}$/u.test(key) && /^[\p{L}\p{N} .,_/-]{1,100}$/u.test(parameter)) continue;
+    }
     if (storefront.platform === "GENERIC_JSON_LD") {
       if (["color", "size", "variant", "type"].includes(key) && /^[A-Za-z0-9_-]{1,80}$/u.test(parameter)) continue;
       const color = key.match(/^dwvar_([A-Za-z0-9_-]{1,64})_color$/u);

@@ -1,5 +1,5 @@
 import { candidateProductFacts, wooProductFacts, dealProductId } from "./woocommerce-product.js";
-import { resolveMerchantTrust } from "./merchant-trust.js";
+import { resolveMerchantTrust, resolveVerifiedOfficialStorefront, resolveVerifiedOfficialStorefrontByHost } from "./merchant-trust.js";
 import { productReferenceKey } from "./product-reference.js";
 import { deduplicateCandidateOffers } from "./offer-equivalence.js";
 import { countComparableOfferMerchants } from "./search-result-summary.js";
@@ -274,6 +274,11 @@ function isOfficialCandidate(candidate: UnifiedCandidate): boolean {
   try {
     const merchantUrl = new URL(product.merchantUrl);
     const websiteTrust = resolveMerchantTrust(merchantUrl.hostname, product.merchant);
+    if (candidate.source === "WOOCOMMERCE_STORE_API") {
+      const store = resolveVerifiedOfficialStorefrontByHost(product.sourceHost);
+      if (store === undefined || (product.brand !== undefined &&
+        resolveVerifiedOfficialStorefront(product.brand)?.officialHost !== store.officialHost)) return false;
+    }
     return merchantUrl.protocol === "https:" &&
       product.merchantTrust.level === "OFFICIAL" &&
       product.merchantTrust.verification === "INDEPENDENT" &&

@@ -35,10 +35,13 @@ export function rankWooMerchants(stores: WooMerchant[], input: WooSearchInput): 
       : brands.some(label => phraseMatches(query, label)) ? 1 : 0;
     const directCategories = categories.filter(label => phraseMatches(categoryText, label, true)).length;
     const synonymCategories = matchedGroups.filter(group => categories.some(label => group.some(term => phraseMatches(label, term, true)))).length;
-    return { store, brand, category: directCategories + synonymCategories,
+    // A hint only reorders already eligible access records; it never adds a host.
+    const preferred = input.preferredMerchantHost !== undefined && [new URL(store.origin).hostname, ...store.aliases]
+      .some(host => host.replace(/^www\./u, "") === input.preferredMerchantHost!.replace(/^www\./u, "")) ? 1 : 0;
+    return { store, preferred, brand, category: directCategories + synonymCategories,
       tie: createHash("sha256").update(`${query}\n${explicitBrand}\n${normalize(input.productType ?? "")}\n${store.merchantId}`).digest("hex") };
   });
-  return ranked.sort((a, b) => b.brand - a.brand || b.category - a.category || a.tie.localeCompare(b.tie) || a.store.merchantId.localeCompare(b.store.merchantId)).map(item => item.store);
+  return ranked.sort((a, b) => b.preferred - a.preferred || b.brand - a.brand || b.category - a.category || a.tie.localeCompare(b.tie) || a.store.merchantId.localeCompare(b.store.merchantId)).map(item => item.store);
 }
 
 function normalize(value: string): string {

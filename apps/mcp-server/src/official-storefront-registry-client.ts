@@ -59,6 +59,7 @@ export function createOfficialStorefrontRegistryPortFromEnvironment(
           redirect: "error",
           headers: {
             accept: "application/json",
+            "x-findcheap-registry-schema": "2",
             ...(etag === undefined ? {} : { "if-none-match": etag })
           },
           signal

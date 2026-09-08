@@ -44,6 +44,7 @@ export type ServedOfficialStorefrontRegistry = {
   body: string;
   etag: string;
   registry: OfficialStorefrontRegistry;
+  legacy: { body: string; etag: string };
 };
 
 export function officialStorefrontRegistryFromEnvironment(
@@ -61,10 +62,12 @@ export function serveOfficialStorefrontRegistry(
 ): ServedOfficialStorefrontRegistry {
   const valid = OfficialStorefrontRegistrySchema.parse(registry);
   const body = JSON.stringify(valid);
+  const legacyBody = JSON.stringify({ ...valid, stores: valid.stores.filter(store => store.platform !== "WOOCOMMERCE") });
   return {
     body,
     etag: `"${createHash("sha256").update(body).digest("base64url")}"`,
-    registry: valid
+    registry: valid,
+    legacy: { body: legacyBody, etag: `"${createHash("sha256").update(legacyBody).digest("base64url")}"` }
   };
 }
 

@@ -133,6 +133,9 @@ export function createOfficialShopifySearchPort(
   return {
     async search(input) {
       input.signal?.throwIfAborted();
+      if ("platform" in input.seed && input.seed.platform === "WOOCOMMERCE") {
+        throw new Error("WooCommerce official search requires Backend.catalog.woocommerce");
+      }
       const sourceHost = verifiedOfficialHost(input.seed);
       let cache: OfficialReadCache | undefined;
       if (input.cacheScope !== undefined) {

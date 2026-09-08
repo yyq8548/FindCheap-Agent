@@ -15,6 +15,16 @@ const controller = (stores: ReturnType<typeof store>[]) => createWooCommerceCont
 const fillers = () => Array.from({ length: 199 }, (_, i) => store(`store-${i}`));
 
 describe("Woo merchant selection with 200 reviewed stores", () => {
+  it("prioritizes a known official host without granting access to an unknown hinted host", async () => {
+    const stores = [...fillers(), store("z-official")];
+    const service = controller(stores);
+    const result = await service.search(WooSearchInputSchema.parse({ query: "pencil", preferredMerchantHost: "z-official.example" }));
+    expect(result.stores[0]?.merchantId).toBe("z-official");
+    expect(result.diagnostics.plannedStores).toBe(6);
+    const unknown = await service.search(WooSearchInputSchema.parse({ query: "pencil", preferredMerchantHost: "unlisted.example" }));
+    expect(unknown.stores.every(entry => stores.some(store => store.merchantId === entry.merchantId))).toBe(true);
+    expect(unknown.diagnostics.plannedStores).toBe(6);
+  });
   it("prioritizes an explicitly requested brand over many generic category labels", async () => {
     const generic = Array.from({ length: 7 }, (_, i) => store(`a-generic-${i}`, [], ["manual", "coffee", "grinder", "espresso", "travel"]));
     const result = await controller([...generic, store("z-grinder", ["1Zpresso"], ["grinder"])]).search(WooSearchInputSchema.parse({ query: "manual coffee grinder espresso travel", brand: "1Zpresso" }));

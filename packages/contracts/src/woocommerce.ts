@@ -32,6 +32,7 @@ export const WooSearchInputSchema = z.object({
   query: z.string().trim().min(1).max(300), limit: z.number().int().min(1).max(24).default(12),
   market: z.literal("US").default("US"), currency: z.literal("USD").default("USD"),
   brand: Text.optional(), productType: Text.optional(), maxItemPriceCents: z.number().int().positive().max(100_000_000).optional(),
+  preferredMerchantHost: z.string().toLowerCase().max(253).regex(/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/u).optional(),
   requirements: WooVariantRequirementsSchema.optional(), includeOutOfStock: z.boolean().optional(),
   productUrl: HttpsUrl.optional(), budgetMs: z.number().int().min(100).max(8_000).optional(), continuation: Continuation.optional()
 }).strict();
