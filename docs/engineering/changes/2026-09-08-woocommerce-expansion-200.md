@@ -1,0 +1,68 @@
+# WooCommerce expansion to 200 merchants
+
+## Research and approved scope
+
+User approved on 2026-09-08: expand the existing 50-store source to 200 while improving merchant routing, filling available slots around failed merchants, and providing bounded failure recovery. This continues the previously authorized commit/push/production deployment workflow. Baseline `b410f2b17cb45ff716b3a72bdd6efbd3308a08c2`, clean worktree, runtime v0.18.0. Applicable design: sections 5 (trust separate from access), 7 (bounded search and failure handling), 10 (read-only network safety), 13 (independent implementation and shopping acceptance).
+
+FACT: `woocommerce-registry.ts` holds five seed entries plus `woocommerce-merchants.ts` additions; the registry permits 2,000 records. The current 50 entries serialize to 25,851 bytes. `environment.ts` loads the optional full JSON override; `runtime.ts` constructs one Woo controller. MCP's existing Woo client calls search/lookup/inspect/image endpoints; source DTOs and immutable product/variant identity are shared contracts. No new client tool, database, cart, credentials or background catalog crawl is needed.
+
+FACT: source `woocommerce.ts` scores brand/category substrings equally, uses alphabetical ties and selects six merchants before checking health. Failed merchants can consume slots. `INVALID_RESPONSE`, access denial and security failures currently share permanent process-local quarantine, so one malformed broad response can disable later valid specific lookups. Each source call remains bounded to eight seconds, eighteen physical reads and eight MiB; one read stays three seconds/one MiB, per-query concurrency three, per-instance twelve, per-merchant two. Backend starts one Woo pass and conditionally a second; continuation remembers at most twelve attempted merchants.
+
+FACT: existing 50-store release passed full regression, 8/8 production endpoint checks and 3/3 installed SDK checks. Its evidence ledger screened 183 candidate merchants and retained seven qualified reserves. UNKNOWN: which additional merchant endpoints currently satisfy the same public USD/US product, image and variation contract. ASSUMPTION: prioritize established brands and category specialists; 200 stores does not mean 200 national general retailers or full coverage of every query.
+
+## Alternatives
+
+| Dimension | A: reviewed table and request-scoped parsing failures | B: reviewed table and merchant-wide bounded half-open recovery |
+| --- | --- | --- |
+| Selection | Normalize brand/category phrases; prioritize explicit brands; deterministic query-specific ties | Same improved routing |
+| Malformed response | Temporarily suppress the failed search scope; unrelated exact reads remain available | Cool down the entire merchant, then allow one later probe |
+| Access/security failures | Keep quarantine until operator reviews and reloads corrected configuration/code | Same fail-closed quarantine |
+| Extra traffic | No background probes or retries for schema errors | May need an additional known-good probe before real work |
+| User effect | Broad-query failure does not prevent a valid product URL or another keyword | Other valid products wait for merchant cooldown/probe |
+| Cost/rollback | Small controller state plus pure selector; previous artifact restores behavior | Additional probe coordination and delayed recovery; same artifact rollback |
+
+Choose A, within the user's approved plan. Invalid payloads stay rejected and are not relabeled as transient transport failures. No retry is added inside the failed request. Existing access/security refusal behavior and explicit operator review remain. Search request failures expire after five minutes and the process-local map is bounded; this allows a later independent query to be evaluated under unchanged safety rules. Merchant transport cooldown and Retry-After remain separately enforced.
+
+## Frozen plan
+
+| Step / dependency | Module and minimal behavior | Build and assertions | Exit condition |
+| --- | --- | --- | --- |
+| 1 / research | Pure merchant routing over reviewed labels: normalized phrase/word matches, explicit brand priority, small documented category synonyms including Chinese, stable query-specific ties | Source build; controller tests for brand vs generic labels, plural/synonym queries, no accidental brand substrings, deterministic complementary six/twelve-store selection | Routing regressions fail on old behavior, then pass without changing shared product ranking/trust |
+| 2 / 1 | Controller plans healthy eligible stores before filling six slots; scoped malformed-search cooldown; preserve access/security quarantine and transport half-open/Retry-After | Source build; denial cannot occupy healthy slots, distinct specific query and lookup survive a broad parsing error, identical failed query makes no hidden retry, cooldown recovery, concurrent safety/denial race, cache consistency, all-blocked unavailable | No unsafe retry, false COMPLETE, cross-merchant identity or budget regression |
+| 3 / independent of 1-2 | Three independent category groups discover and qualify new merchants, reusing seven reserves; preserve every negative/failed attempt and official US-market evidence | Actual pinned reader positive/negative search, exact lookup, parent-child binding, normalized USD price/images, fresh default controller search on real main-category merchandise | Only distinct qualified merchants admitted; no domain aliases or failed candidates counted to manufacture 200 |
+| 4 / 1-3 | Merge exactly 200 approved entries and update registry version; version accepted samples, complete candidate ledger and user list | Immediate source build; every new fixture replays ownership/price/image facts, 200-store routing and bounded continuation; final typecheck/lint/builds/full tests/stdio/diff | All mandatory gates green; any shortfall stays explicit and discovery continues |
+| 5 / 4 | Commit/push, verify CI, deploy the same source service/environment, independently verify running artifact and registry size | Production health/coverage/new-store URL/variant/image/recovery checks plus installed SDK; compare unchanged MCP/cache hashes, replace cache only if distributed files change | Deployed enabled count and artifact match; native host/Watch acceptance separately labeled |
+
+No new dependencies or database migration. Exact product identity, variant price ownership, trust, affiliate economics, source/network budgets and read-only scope are invariant. Any additional parser compatibility issue requires recorded raw evidence and a scoped plan amendment before a red regression and narrow fix. Queries which return only brand merchandise must not be reported as proof of their main product category.
+
+Development scripts and complete raw observations live under ignored `artifacts/woo-200/`. Portable accepted samples and evidence summaries are versioned. Rollback target: deployment `48c14221-aaf9-4dcd-9ae1-4a42e085ad8e`, source hash `188a8d671edd15f856eb1b864debfad61e56c18089936840ca081c549bec2e45`, 50-store registry. No Watch or Automation is created for QA.
+
+## Execution
+
+Steps 1-2 implemented. Routing regressions reproduced 6 failures / 1 pass before implementation; scoped health regressions reproduced 6 failures / 2 passes. A concurrent Retry-After regression subsequently reproduced one failure. Source builds and typecheck pass; all 7 routing, 9 health, 13 existing controller and 48 previous expansion tests now pass. No source contract or network budget changed.
+
+Admission counting uses distinct official storefronts with independent brands and different main-product catalogs. Common ownership is recorded but does not merge genuinely different brand catalogs; domain aliases, regional mirrors and copied catalogs are one store. This is a storefront coverage count, not a claim of 200 unrelated legal corporate groups.
+
+Steps 3-4 completed at 19:40 UTC. The table now contains exactly 200 entries: original 50 plus 150 additions (home/coffee group 60, outdoor/personal-care/sport group 40, electronics/books group 46, craft/art group 4). The deduplicated candidate ledger contains 1,244 screened origins/records, including retained reserves and discovery-only candidates; this is not a claim of 1,244 successful API tests. All failures and exclusions remain in the [evidence ledger](2026-09-08-woocommerce-expansion-200-evidence.json). The serialized runtime registry is 102,822 bytes; no database or budget increase is needed.
+
+Every addition has priced main-category reader/default-controller evidence and a matching current direct-sales product page. Reader replay samples and default-controller/landing samples are explicitly separate where a query returned different products. Three publisher pages show preorders while their API says IN_STOCK; identity, configuration and direct preorder controls are verified, and the availability conflicts remain recorded. Admission does not claim immediate shipment, new condition, full-machine coverage or full-catalog validation. Migrated storefronts, email-only purchases and missing mandatory configuration were excluded; Tether Tools and LithiumHub supplied qualified replacements.
+
+The four registry acceptance regressions failed against the old 50-store table. After the data change, the source build and 222 routing/health/old-and-new expansion assertions passed, including all 150 portable new reader samples. Final gates at 19:40 UTC: typecheck PASS, lint PASS, both builds PASS, full suite **158 files / 2,558 assertions**, bundled stdio **4/4**, diff check PASS. Source SHA-256: `bc75ada8c6baf2a53c68f61a39a5d20a93c77aa7454c99af66ed91a0e28d8b7c`. Installed v0.18.0 is enabled and 13/13 shipped files match (line endings normalized where needed); MCP SHA-256 remains `4e9b20544d225e66d1cd878fad1ee198f6569ebe848bcd6b95e18fddf2f7facc`.
+
+Step 5 is pending commit/push/production verification. These local results do not claim native Codex card selection, image rendering or an actual Watch lifecycle; no Watch/Automation was created.
+
+### Evidence-based amendment: oversized optional descriptions
+
+ULA's recorded public `search=Circuit&per_page=5` response at 2026-09-08T18:58:32.684Z stayed within 3 seconds / 1 MiB (2,266 ms; the earlier reader observed 643,039 bytes). Zod rejected one optional `description` longer than 200,000 characters; its contents are largely page-builder markup. The identity/price/variant validation did not report an issue. Evidence: ignored `artifacts/woo-200/beauty-outdoor/ula-diagnostic.json`, with a portable projection retained in the reader fixture.
+
+Alternatives: keep rejecting the whole product/list, truncate and expose an incomplete description, or omit only the oversized optional description. Choose omission: callers receive missing description, never a supposedly complete excerpt; all identity, typed-field and network-size checks remain. Add a saved-payload regression, retain rejection of non-string descriptions and oversized identity/response fields, apply the one-field transform, then immediately build/test. This does not admit ULA until its independent full reader, default controller and market gates pass.
+
+### Independent review amendment: later-page health and request admission
+
+Independent review found that `variants()` previously suppressed any later-page exception after collecting one valid page. Search/inspection then cleared health, losing a 429/403/security refusal. It also found that a concurrent denial could arrive while an older workflow was awaiting DNS or another page, allowing a new read after quarantine.
+
+Alternatives: discard all previously valid products and throw, or retain the valid prefix as PARTIAL while recording the original failure. Choose the latter. A private variants return field carries the exception to controller health handling; it is never serialized in the shared DTO. Use the existing read-accounting callback as an admission check immediately after DNS and before physical request accounting; check merchant cooldown there for search, lookup, inspection and image reads. No new retries, budget, public contract or background work. Regressions cover page-two 429/403/redirect refusals for both search and inspection, and concurrent denial during pagination/DNS. Implement this coupled internal reader/controller boundary, immediately build the source package and run its health/reader contracts.
+
+Four independent-review regressions failed before the fix and now pass. Immediate source build and 49 health/reader/search/description assertions passed at 19:14 UTC. Registry acceptance tests separately reproduce four failures against the still-current 50-store source table before its final data change.
+
+Product landing-page review confirms the offer is still served by the same active merchant, rather than a stale Woo catalog left after migration. This is a separate official-web evidence check; the Store API remains subject to its unchanged 3-second/1-MiB production gate. A page review failure is recorded separately and is not relabeled as an API performance failure. Required configuration missing from the API, wholesale-only access, duplicate storefronts and migrated catalogs are not counted as qualified additions.

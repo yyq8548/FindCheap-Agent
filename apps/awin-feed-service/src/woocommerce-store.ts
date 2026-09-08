@@ -8,7 +8,9 @@ const RawAttribute = z.object({ name: z.string().max(80), value: z.string().max(
 const RawVariationAttribute = RawAttribute.extend({ value: z.string().max(300).nullish().transform(value => value ?? undefined) });
 const RawProduct = z.object({
   id: Id, parent: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(), name: z.string().min(1).max(500), type: z.string().max(80), permalink: z.string().max(4_096),
-  sku: z.string().max(300).optional(), description: z.string().max(200_000).optional(), is_password_protected: z.boolean().optional(),
+  sku: z.string().max(300).optional(),
+  // Page-builder markup can swamp this optional display field; omit it instead of relaxing identity or response bounds.
+  description: z.string().transform(value => value.length <= 200_000 ? value : undefined).optional(), is_password_protected: z.boolean().optional(),
   prices: z.object({ price: z.string().max(32).optional(), currency_code: z.string().regex(/^[A-Z]{3}$/u), currency_minor_unit: z.number().int().min(0).max(6) }).passthrough(),
   is_in_stock: z.boolean().optional(), is_on_backorder: z.boolean().optional(), stock_status: z.string().max(40).optional(),
   average_rating: z.string().max(20).optional(), review_count: z.number().int().nonnegative().max(100_000_000).optional(),
@@ -52,8 +54,8 @@ export function createWooStoreReader(dependencies: Pick<FetchPolicy, "resolve" |
         onRead(delta) {
           if (delta.requests !== undefined) {
             if (budget.requests + delta.requests > budget.maxRequests) throw new WooReadError("BUDGET_EXHAUSTED");
-            budget.requests += delta.requests;
             budget.onRequest?.();
+            budget.requests += delta.requests;
           }
           if (delta.bytes !== undefined) {
             if (budget.bytes + delta.bytes > budget.maxBytes) throw new WooReadError("BUDGET_EXHAUSTED");

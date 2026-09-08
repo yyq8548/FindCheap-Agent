@@ -5,6 +5,7 @@ import { WooInspectionResultSchema, WooLookupResultSchema, WooProductTargetSchem
 import { createPinnedRequest, safeFetch, type FetchPolicy } from "../../../packages/network-safety/src/safe-fetch.js";
 import { createWooStoreReader, normalizeWooProduct, wooMatchesRequirements, WooReadError, type WooReadBudget, type WooRawProduct, type WooStoreReader } from "./woocommerce-store.js";
 import { WooRegistrySchema, wooMerchantForUrl, type WooMerchant, type WooRegistry } from "./woocommerce-registry.js";
+import { rankWooMerchants } from "./woocommerce-routing.js";
 
 export type WooCommerceController = {
   search(input: WooSearchInput, options?: { signal?: AbortSignal }): Promise<WooSearchResult>;
@@ -22,6 +23,7 @@ export function createWooCommerceController(registryInput: WooRegistry, dependen
   const acquire = concurrencyGate();
   const reader = createWooStoreReader({ ...dependencies, acquire });
   const health = new Map<string, Health>();
+  const invalidSearches = new Map<string, number>();
   const cache = new Map<string, { expires: number; bytes: number; value: WooSearchResult }>();
   let cacheBytes = 0;
   const images = new Map<string, { merchantId: string; url: string }>();
@@ -44,28 +46,36 @@ export function createWooCommerceController(registryInput: WooRegistry, dependen
     if (probe && state !== undefined && state.failures >= 3) state.probe = true;
     return result;
   }
-  function recordFailure(id: string, error: unknown): void {
+  function recordSuccess(id: string, started: Health | undefined): void {
+    if (health.get(id) === started) health.delete(id);
+  }
+  function assertReadable(id: string): void {
+    if ((health.get(id)?.until ?? 0) > now()) throw new WooReadError("CIRCUIT_OPEN");
+  }
+  function recordFailure(id: string, error: unknown, started?: Health): void {
     if (!registry.stores.some((store) => store.merchantId === id)) return;
     const reason = error instanceof WooReadError ? error.reason : "UPSTREAM_UNAVAILABLE";
-    if (!["TIMEOUT", "UPSTREAM_UNAVAILABLE", "RATE_LIMITED", "ACCESS_DENIED", "SECURITY_REJECTED", "INVALID_RESPONSE"].includes(reason)) {
-      const state = health.get(id); if (state !== undefined && reason !== "CIRCUIT_OPEN") state.probe = false;
+    if (!["TIMEOUT", "UPSTREAM_UNAVAILABLE", "RATE_LIMITED", "ACCESS_DENIED", "SECURITY_REJECTED"].includes(reason)) {
+      if (started !== undefined && health.get(id) === started && reason !== "CIRCUIT_OPEN") started.probe = false;
       return;
     }
+    // A concurrent older operation cannot downgrade a merchant-wide quarantine.
+    if (health.get(id)?.until === Number.POSITIVE_INFINITY) return;
     const failures = (health.get(id)?.failures ?? 0) + 1;
-    const pause = reason === "RATE_LIMITED" ? Math.max(1_000, error instanceof WooReadError ? error.retryAfterMs ?? 300_000 : 300_000) : ["ACCESS_DENIED", "SECURITY_REJECTED", "INVALID_RESPONSE"].includes(reason) ? Number.POSITIVE_INFINITY : failures >= 3 ? 300_000 : 0;
-    health.set(id, { failures, until: now() + pause, probe: false });
+    const pause = reason === "RATE_LIMITED" ? Math.max(1_000, error instanceof WooReadError ? error.retryAfterMs ?? 300_000 : 300_000) : ["ACCESS_DENIED", "SECURITY_REJECTED"].includes(reason) ? Number.POSITIVE_INFINITY : failures >= 3 ? 300_000 : 0;
+    health.set(id, { failures, until: Math.max(health.get(id)?.until ?? 0, now() + pause), probe: false });
   }
   function budget(signal?: AbortSignal, timeout = 8_000): WooReadBudget {
     return { signal: signal === undefined ? AbortSignal.timeout(timeout) : AbortSignal.any([signal, AbortSignal.timeout(timeout)]), requests: 0, bytes: 0, maxRequests: 18, maxBytes: 8 * 1024 * 1024 };
   }
-  async function variants(store: WooMerchant, parent: WooRawProduct, requirements: WooVariantRequirements, limits: WooReadBudget): Promise<{ products: WooProduct[]; truncated: boolean }> {
+  async function variants(store: WooMerchant, parent: WooRawProduct, requirements: WooVariantRequirements, limits: WooReadBudget): Promise<{ products: WooProduct[]; truncated: boolean; failure?: unknown }> {
     if (!store.capabilities.variations) throw new WooReadError("UNSUPPORTED");
     const products: WooProduct[] = [];
     let truncated = false;
     for (let page = 1; page <= 2; page += 1) {
       let result: Awaited<ReturnType<WooStoreReader["list"]>>;
       try { result = await reader.list(store, new URLSearchParams({ type: "variation", parent: String(parent.id), per_page: "20", page: String(page) }), limits); }
-      catch (error) { if (products.length > 0) return { products: products.slice(0, 24), truncated: true }; throw error; }
+      catch (error) { if (products.length > 0) return { products: products.slice(0, 24), truncated: true, failure: error }; throw error; }
       for (const raw of result.products) {
         if (raw.type !== "variation") throw new WooReadError("INVALID_RESPONSE");
         const product = normalizeWooProduct(raw, store, timestamp(), parent);
@@ -100,10 +110,23 @@ export function createWooCommerceController(registryInput: WooRegistry, dependen
       if (input.productUrl !== undefined && urlStore === undefined) throw new WooReadError("SECURITY_REJECTED");
       const unattempted = eligible.filter((store) => !attemptedBefore.has(store.merchantId));
       const candidates = urlStore === undefined ? unattempted.length > 0 ? unattempted : eligible : [urlStore];
-      const planned = candidates.sort((a, b) => storeScore(b, input) - storeScore(a, input) || a.merchantId.localeCompare(b.merchantId)).slice(0, 6);
+      const searchScope = createHash("sha256").update(JSON.stringify(input.productUrl === undefined ? ["query", input.query] : ["url", paramsForProductUrl(input.productUrl).toString()])).digest("hex");
+      const invalidKey = (id: string) => `${id}:${searchScope}`;
+      function unavailable(id: string): "CIRCUIT_OPEN" | "INVALID_RESPONSE" | undefined {
+        const state = health.get(id);
+        if (state !== undefined && (state.until > now() || state.probe)) return "CIRCUIT_OPEN";
+        const key = invalidKey(id);
+        const until = invalidSearches.get(key);
+        if (until !== undefined && until > now()) return "INVALID_RESPONSE";
+        if (until !== undefined) invalidSearches.delete(key);
+        return undefined;
+      }
+      const available = candidates.filter((store) => unavailable(store.merchantId) === undefined);
+      // Preserve diagnostics when every candidate is blocked, without issuing requests.
+      const planned = rankWooMerchants(available.length > 0 ? available : candidates, input).slice(0, 6);
       const key = JSON.stringify([registry.version, input]);
       const cached = cache.get(key);
-      if (cached !== undefined && cached.expires > now() && planned.every((store) => store.enabled && (health.get(store.merchantId)?.until ?? 0) <= now() && health.get(store.merchantId)?.probe !== true)) {
+      if (cached !== undefined && cached.expires > now() && cached.value.stores.length === planned.length && planned.every((store, index) => cached.value.stores[index]?.merchantId === store.merchantId && unavailable(store.merchantId) === undefined)) {
         cache.delete(key); cache.set(key, cached);
         const result = structuredClone(cached.value);
         result.products = result.products.map(remember);
@@ -118,19 +141,20 @@ export function createWooCommerceController(registryInput: WooRegistry, dependen
         const state = health.get(store.merchantId);
         const result: WooStoreResult = { merchantId: store.merchantId, status: "COMPLETE", requests: 0, returned: 0 };
         const collected: WooProduct[] = [];
-        if (state !== undefined && (state.until > now() || (state.failures >= 3 && state.probe))) return { result: { ...result, status: "SKIPPED" as const, reason: "CIRCUIT_OPEN" as const }, products: collected, truncated: true };
+        const blocked = unavailable(store.merchantId);
+        if (blocked !== undefined) return { result: { ...result, status: "SKIPPED" as const, reason: blocked }, products: collected, truncated: true };
         if (state !== undefined && state.failures >= 3) state.probe = true;
         let truncated = false;
         let retried = false;
         const local: WooReadBudget = { signal: limits.signal, get requests() { return limits.requests; }, set requests(value) { limits.requests = value; },
-          get bytes() { return limits.bytes; }, set bytes(value) { limits.bytes = value; }, maxRequests: 18, maxBytes: limits.maxBytes, onRequest: () => { result.requests += 1; } };
+          get bytes() { return limits.bytes; }, set bytes(value) { limits.bytes = value; }, maxRequests: 18, maxBytes: limits.maxBytes, onRequest: () => { assertReadable(store.merchantId); result.requests += 1; } };
         try {
           for (let page = 1; page <= 2; page += 1) {
             const params = input.productUrl === undefined ? new URLSearchParams({ search: input.query, per_page: "20", page: String(page) }) : paramsForProductUrl(input.productUrl);
             let response: Awaited<ReturnType<WooStoreReader["list"]>>;
             try { response = await reader.list(store, params, local); }
             catch (error) {
-              if (!(error instanceof WooReadError) || !["TIMEOUT", "UPSTREAM_UNAVAILABLE"].includes(error.reason) || retried || retryCount >= 2 || limits.signal.aborted) throw error;
+              if (!(error instanceof WooReadError) || !["TIMEOUT", "UPSTREAM_UNAVAILABLE"].includes(error.reason) || retried || retryCount >= 2 || limits.signal.aborted || unavailable(store.merchantId) !== undefined) throw error;
               retried = true;
               retryCount += 1;
               response = await reader.list(store, params, local);
@@ -144,13 +168,14 @@ export function createWooCommerceController(registryInput: WooRegistry, dependen
                 const children = await variants(store, raw, input.requirements ?? {}, local);
                 collected.push(...children.products.filter((child) => eligibleProduct(child, input) && (urlSelection?.variationId === undefined || child.variationId === urlSelection.variationId)));
                 truncated ||= children.truncated;
+                if (children.failure !== undefined) throw children.failure;
               } else if (urlSelection?.variationId === undefined && eligibleProduct(product, input)) collected.push(remember(product));
               if (collected.length >= input.limit) break;
             }
             if (response.totalPages <= page || collected.length >= input.limit || input.productUrl !== undefined) break;
             if (page === 2) truncated = true;
           }
-          health.delete(store.merchantId);
+          recordSuccess(store.merchantId, state);
           result.returned = collected.length;
           if (truncated) result.status = "PARTIAL";
         } catch (error) {
@@ -159,9 +184,13 @@ export function createWooCommerceController(registryInput: WooRegistry, dependen
           result.reason = reason;
           result.returned = collected.length;
           truncated = true;
-          if (["TIMEOUT", "UPSTREAM_UNAVAILABLE", "RATE_LIMITED", "ACCESS_DENIED", "SECURITY_REJECTED", "INVALID_RESPONSE"].includes(reason)) {
-            recordFailure(store.merchantId, error);
-          } else if (state !== undefined) state.probe = false;
+          if (reason === "INVALID_RESPONSE") {
+            const key = invalidKey(store.merchantId);
+            invalidSearches.delete(key);
+            invalidSearches.set(key, now() + 300_000);
+            while (invalidSearches.size > 2_000) invalidSearches.delete(invalidSearches.keys().next().value!);
+          }
+          recordFailure(store.merchantId, error, state);
         }
         return { result, products: collected, truncated };
       });
@@ -195,16 +224,19 @@ export function createWooCommerceController(registryInput: WooRegistry, dependen
     async lookup(value, options = {}) {
       const target = WooProductTargetSchema.parse(value);
       const base = { source: "WOOCOMMERCE_STORE_API" as const, registryVersion: registry.version };
+      let state: Health | undefined;
       try {
         const store = merchant(target.merchantId);
+        state = health.get(store.merchantId);
         const limits = budget(options.signal);
+        limits.onRequest = () => assertReadable(store.merchantId);
         const parent = await reader.product(store, target.productId, limits);
         const raw = target.variationId === undefined ? parent : await reader.product(store, target.variationId, limits);
         const product = normalizeWooProduct(raw, store, timestamp(), target.variationId === undefined ? undefined : parent);
-        health.delete(store.merchantId);
+        recordSuccess(store.merchantId, state);
         return WooLookupResultSchema.parse({ ...base, status: product === undefined ? "UNSUPPORTED" : "FOUND", ...(product === undefined ? {} : { product: remember(product) }), checkedAt: timestamp() });
       } catch (error) {
-        recordFailure(target.merchantId, error);
+        recordFailure(target.merchantId, error, state);
         return { ...base, status: error instanceof WooReadError && error.reason === "NOT_FOUND" ? "NOT_FOUND" : "UNAVAILABLE", checkedAt: timestamp() };
       }
     },
@@ -212,21 +244,25 @@ export function createWooCommerceController(registryInput: WooRegistry, dependen
       const target = WooProductTargetSchema.parse(value);
       const requirements = WooVariantRequirementsSchema.parse(requirementsValue);
       const base = { source: "WOOCOMMERCE_STORE_API" as const, registryVersion: registry.version };
+      let state: Health | undefined;
       try {
         const store = merchant(target.merchantId);
+        state = health.get(store.merchantId);
         const limits = budget(options.signal);
+        limits.onRequest = () => assertReadable(store.merchantId);
         const raw = await reader.product(store, target.productId, limits);
         if (target.variationId !== undefined) {
           const child = await reader.product(store, target.variationId, limits);
           if (normalizeWooProduct(child, store, timestamp(), raw) === undefined) throw new WooReadError("SECURITY_REJECTED");
         }
         const parent = normalizeWooProduct(raw, store, timestamp());
-        if (parent === undefined) return { ...base, status: "UNSUPPORTED", products: [], checkedAt: timestamp(), truncated: false };
+        if (parent === undefined) { recordSuccess(store.merchantId, state); return { ...base, status: "UNSUPPORTED", products: [], checkedAt: timestamp(), truncated: false }; }
         const found = raw.type === "variable" ? await variants(store, raw, requirements, limits) : { products: wooMatchesRequirements(parent, requirements) ? [remember(parent)] : [], truncated: false };
-        health.delete(store.merchantId);
-        return WooInspectionResultSchema.parse({ ...base, status: found.truncated ? "PARTIAL" : "COMPLETE", parent: remember(parent), ...found, checkedAt: timestamp() });
+        if ("failure" in found && found.failure !== undefined) recordFailure(store.merchantId, found.failure, state);
+        else recordSuccess(store.merchantId, state);
+        return WooInspectionResultSchema.parse({ ...base, status: found.truncated ? "PARTIAL" : "COMPLETE", parent: remember(parent), products: found.products, truncated: found.truncated, checkedAt: timestamp() });
       } catch (error) {
-        recordFailure(target.merchantId, error);
+        recordFailure(target.merchantId, error, state);
         return { ...base, status: error instanceof WooReadError && error.reason === "UNSUPPORTED" ? "UNSUPPORTED" : "UNAVAILABLE", products: [], checkedAt: timestamp(), truncated: true };
       }
     },
@@ -238,6 +274,7 @@ export function createWooCommerceController(registryInput: WooRegistry, dependen
       const release = await acquire(merchantId, signal);
       const request = dependencies.request ?? createPinnedRequest();
       try { return await safeFetch({ url: record.url }, { ...dependencies, allowedHosts: [new URL(store.origin).hostname, ...store.imageHosts], signal, maxResponseBytes: 5_000_000,
+        onRead: delta => { if (delta.requests !== undefined) assertReadable(merchantId); },
         request: async (target, init, addresses) => {
           if (target.href !== record.url) throw new Error("request blocked: Woo image redirects are not allowed");
           const response = await request(target, init, addresses);
@@ -254,10 +291,6 @@ function eligibleProduct(product: WooProduct, input: WooSearchInput): boolean {
   return (input.includeOutOfStock === true || product.availability !== "OUT_OF_STOCK") &&
     (input.maxItemPriceCents === undefined || (product.itemPrice !== undefined && product.itemPrice.amountCents <= input.maxItemPriceCents)) &&
     wooMatchesRequirements(product, input.requirements ?? {});
-}
-function storeScore(store: WooMerchant, input: WooSearchInput): number {
-  const text = `${input.query} ${input.brand ?? ""} ${input.productType ?? ""}`.toLowerCase();
-  return [...store.brands, ...store.categories].reduce((score, value) => score + (text.includes(value.toLowerCase()) ? 1 : 0), 0);
 }
 function paramsForProductUrl(value: string): URLSearchParams {
   const url = new URL(value);

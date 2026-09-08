@@ -8,13 +8,15 @@ import type { WooProduct } from "../../../packages/contracts/src/woocommerce.js"
 type SavedSample = { merchantId: string; observedAt: string; raw: WooRawProduct; parent?: WooRawProduct;
   expected: Pick<WooProduct, "productId" | "variationId" | "itemPrice" | "selectedAttributes" | "merchantUrl"> };
 const samples = JSON.parse(await readFile(new URL("fixtures/woocommerce-expansion/accepted-samples.json", import.meta.url), "utf8")) as SavedSample[];
+// Keep the original 50-store acceptance evidence separate from later additions.
+const originalRegistry = { ...DEFAULT_WOO_REGISTRY, stores: DEFAULT_WOO_REGISTRY.stores.slice(0, 50) };
 const resolve = async () => [{ address: "8.8.8.8", family: 4 }];
 const response = (body: unknown) => new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } });
 const budget = () => ({ signal: new AbortController().signal, requests: 0, bytes: 0, maxRequests: 1, maxBytes: 1024 * 1024 });
 
 describe("reviewed 50-merchant Woo expansion", () => {
   it("admits 45 recorded additions while retaining the five existing stores and separate trust", () => {
-    const stores = DEFAULT_WOO_REGISTRY.stores;
+    const stores = originalRegistry.stores;
     expect(stores).toHaveLength(50);
     expect(samples).toHaveLength(45);
     expect(new Set(stores.map(store => store.merchantId)).size).toBe(50);
@@ -29,7 +31,7 @@ describe("reviewed 50-merchant Woo expansion", () => {
 
   it("reads at most six distinct merchants per pass and never calls 50-store coverage complete", async () => {
     const request = vi.fn(async () => response([]));
-    const controller = createWooCommerceController(DEFAULT_WOO_REGISTRY, { resolve, request });
+    const controller = createWooCommerceController(originalRegistry, { resolve, request });
     const first = await controller.search({ query: "findcheapboundedcoverage", limit: 3, market: "US", currency: "USD" });
     expect(first.diagnostics).toMatchObject({ eligibleStores: 50, plannedStores: 6, physicalRequests: 6, registryCoverageComplete: false });
     expect(first.continuation?.attemptedMerchantIds).toHaveLength(6);
@@ -42,15 +44,15 @@ describe("reviewed 50-merchant Woo expansion", () => {
 
   it("selects a newly admitted brand within the existing six-store budget", async () => {
     const request = vi.fn(async () => response([]));
-    const result = await createWooCommerceController(DEFAULT_WOO_REGISTRY, { resolve, request }).search({ query: "Seymour Duncan", limit: 3, market: "US", currency: "USD" });
+    const result = await createWooCommerceController(originalRegistry, { resolve, request }).search({ query: "Seymour Duncan", limit: 3, market: "US", currency: "USD" });
     expect(result.stores.some(store => store.merchantId === "seymour-duncan")).toBe(true);
     expect(result.diagnostics.plannedStores).toBe(6);
   });
 
   it.each(samples)("replays $merchantId product identity, selected dimensions, USD price and approved images", async sample => {
-    const store = DEFAULT_WOO_REGISTRY.stores.find(store => store.merchantId === sample.merchantId)!;
+    const store = originalRegistry.stores.find(store => store.merchantId === sample.merchantId)!;
     expect(store).toBeDefined();
-    expect(wooMerchantForUrl(DEFAULT_WOO_REGISTRY, sample.expected.merchantUrl)?.merchantId).toBe(sample.merchantId);
+    expect(wooMerchantForUrl(originalRegistry, sample.expected.merchantUrl)?.merchantId).toBe(sample.merchantId);
     const reader = createWooStoreReader({ resolve, request: async url => response(url.pathname.endsWith(`/${sample.raw.id}`) ? sample.raw : sample.parent) });
     const raw = await reader.product(store, sample.raw.id, budget());
     const parent = sample.parent === undefined ? undefined : await reader.product(store, sample.parent.id, budget());
