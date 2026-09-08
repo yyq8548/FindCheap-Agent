@@ -1,0 +1,463 @@
+{
+  "observedAt": "2026-09-08T18:16:50.3577212+00:00",
+  "runtimeCommit": "3b402b0d86b131e42cca50f67784ef691fa6f247",
+  "deploymentId": "48c14221-aaf9-4dcd-9ae1-4a42e085ad8e",
+  "deploymentStatus": "SUCCESS",
+  "sourceSha256": "188a8d671edd15f856eb1b864debfad61e56c18089936840ca081c549bec2e45",
+  "mcpSha256": "4e9b20544d225e66d1cd878fad1ee198f6569ebe848bcd6b95e18fddf2f7facc",
+  "installedFilesMatched": 13,
+  "sourceEndpointChecks": {
+    "checkedAt": "2026-09-08T18:14:55.32Z",
+    "base": "https://findcheap-agent-production.up.railway.app",
+    "cases": [
+      {
+        "name": "health",
+        "status": "PASS",
+        "elapsedMs": 185,
+        "response": {
+          "status": "ok",
+          "feedStatus": "ready",
+          "snapshotAt": "2026-09-08T18:13:58.079Z",
+          "snapshotAgeSeconds": 57,
+          "feedRows": 68871,
+          "sourceFeeds": 42,
+          "excludedSourceFeeds": 2,
+          "staleSourceFeeds": 0,
+          "excludedSourceFeedReasons": {
+            "UNAPPROVED_PRODUCT_URL": 1,
+            "NO_ELIGIBLE_PRODUCTS": 1
+          },
+          "lastRefreshAt": "2026-09-08T18:13:58.079Z",
+          "lastSuccessfulRefreshAt": "2026-09-08T18:13:58.079Z",
+          "consecutiveRefreshFailures": 0,
+          "offersStatus": "ready",
+          "offerRows": 140,
+          "offersSnapshotAt": "2026-09-08T18:13:48.021Z",
+          "offersLastRefreshAt": "2026-09-08T18:13:48.021Z"
+        }
+      },
+      {
+        "name": "ready",
+        "status": "PASS",
+        "elapsedMs": 127,
+        "response": {
+          "feedStatus": "ready",
+          "snapshotAt": "2026-09-08T18:13:58.079Z",
+          "snapshotAgeSeconds": 57,
+          "feedRows": 68871,
+          "sourceFeeds": 42,
+          "excludedSourceFeeds": 2,
+          "staleSourceFeeds": 0,
+          "excludedSourceFeedReasons": {
+            "UNAPPROVED_PRODUCT_URL": 1,
+            "NO_ELIGIBLE_PRODUCTS": 1
+          },
+          "lastRefreshAt": "2026-09-08T18:13:58.079Z",
+          "lastSuccessfulRefreshAt": "2026-09-08T18:13:58.079Z",
+          "consecutiveRefreshFailures": 0
+        }
+      },
+      {
+        "name": "registry_50_bounded_search",
+        "status": "PASS",
+        "elapsedMs": 7689,
+        "sourceStatus": "COMPLETE",
+        "diagnostics": {
+          "eligibleStores": 50,
+          "plannedStores": 6,
+          "attemptedStores": 6,
+          "succeededStores": 6,
+          "failedStores": 0,
+          "skippedStores": 44,
+          "physicalRequests": 8,
+          "responseBytes": 27020,
+          "cacheHits": 0,
+          "elapsedMs": 7556,
+          "truncated": false,
+          "registryCoverageComplete": false
+        },
+        "stores": [
+          {
+            "merchantId": "1zpresso",
+            "status": "COMPLETE",
+            "requests": 2,
+            "returned": 1
+          },
+          {
+            "merchantId": "3f-ul-gear",
+            "status": "COMPLETE",
+            "requests": 1,
+            "returned": 0
+          },
+          {
+            "merchantId": "akko",
+            "status": "COMPLETE",
+            "requests": 1,
+            "returned": 0
+          },
+          {
+            "merchantId": "antigravitygear",
+            "status": "COMPLETE",
+            "requests": 1,
+            "returned": 0
+          },
+          {
+            "merchantId": "aunt-fannies",
+            "status": "COMPLETE",
+            "requests": 1,
+            "returned": 0
+          },
+          {
+            "merchantId": "barrington-coffee",
+            "status": "COMPLETE",
+            "requests": 2,
+            "returned": 0
+          }
+        ]
+      },
+      {
+        "name": "no-pong-us_url_search",
+        "status": "PASS",
+        "elapsedMs": 913,
+        "sourceStatus": "COMPLETE",
+        "diagnostics": {
+          "eligibleStores": 50,
+          "plannedStores": 1,
+          "attemptedStores": 1,
+          "succeededStores": 1,
+          "failedStores": 0,
+          "skippedStores": 49,
+          "physicalRequests": 1,
+          "responseBytes": 4654,
+          "cacheHits": 0,
+          "elapsedMs": 775,
+          "truncated": false,
+          "registryCoverageComplete": false
+        },
+        "sample": {
+          "sourceKind": "WOOCOMMERCE_STORE_API",
+          "merchantId": "no-pong-us",
+          "merchantName": "No Pong USA",
+          "sourceHost": "www.nopongdeodorant.com",
+          "productId": 541627,
+          "title": "Luscious Lime Original 35g",
+          "description": "NEW FRAGRANCE! International fan favorite Luscious Lime scent—zesty, fresh, and sweet like key lime pie, with warm citrus notes that deliver all-day freshness Designed with baking soda for all-day freshness (Original formulation) 35 g/1.23 oz equals a month of B.O.-free living for you and everyone around you!",
+          "sku": "CA-LL-NPO-35",
+          "productType": "simple",
+          "category": "35g",
+          "condition": "UNKNOWN",
+          "attributes": [],
+          "variantDimensions": {},
+          "selectedAttributes": {},
+          "merchantUrl": "https://www.nopongdeodorant.com/product/luscious-lime-original-35g/",
+          "imageUrl": "https://www.nopongdeodorant.com/wp-content/uploads/sites/3/2026/05/US-35g-LLO-New-Scent.jpg",
+          "images": [
+            {
+              "id": "f04f6d424d767d21565d207a1f6e7f543d072543b14559241f0ccdbc10f858ca",
+              "url": "https://www.nopongdeodorant.com/wp-content/uploads/sites/3/2026/05/US-35g-LLO-New-Scent.jpg"
+            }
+          ],
+          "itemPrice": {
+            "amountCents": 995,
+            "currency": "USD"
+          },
+          "priceEvidence": {
+            "amountMinor": "995",
+            "currency": "USD",
+            "currencyMinorUnit": 2,
+            "scope": "PRODUCT",
+            "taxBasis": "UNKNOWN"
+          },
+          "availability": "IN_STOCK",
+          "availabilityScope": "PRODUCT",
+          "rating": {
+            "value": 0,
+            "reviewCount": 0,
+            "scale": 5,
+            "productId": 541627
+          },
+          "checkedAt": "2026-09-08T18:15:03.917Z"
+        }
+      },
+      {
+        "name": "cablemod_url_search",
+        "status": "PASS",
+        "elapsedMs": 1652,
+        "sourceStatus": "COMPLETE",
+        "diagnostics": {
+          "eligibleStores": 50,
+          "plannedStores": 1,
+          "attemptedStores": 1,
+          "succeededStores": 1,
+          "failedStores": 0,
+          "skippedStores": 49,
+          "physicalRequests": 2,
+          "responseBytes": 48809,
+          "cacheHits": 0,
+          "elapsedMs": 1507,
+          "truncated": false,
+          "registryCoverageComplete": false
+        },
+        "sample": {
+          "sourceKind": "WOOCOMMERCE_STORE_API",
+          "merchantId": "cablemod",
+          "merchantName": "CableMod",
+          "sourceHost": "store.cablemod.com",
+          "productId": 1909319,
+          "parentProductId": 1909319,
+          "variationId": 1909322,
+          "title": "ASUS ROG Equalizer 12V-2×6 PCIe 5.1 Power Cable (750mm)",
+          "description": "ASUS ROG Equalizer 12V-2×6 PCIe 5.1 Power Cable (750mm, White)",
+          "sku": "ROG-EQUALIZER-W",
+          "productType": "variation",
+          "category": "",
+          "condition": "UNKNOWN",
+          "attributes": [
+            "color: white"
+          ],
+          "variantDimensions": {
+            "color": [
+              "white"
+            ]
+          },
+          "selectedAttributes": {
+            "color": "white"
+          },
+          "merchantUrl": "https://store.cablemod.com/product/asus-rog-equalizer-12v-2x6-pcie-5-1-power-cable-750mm/?attribute_pa_color=white",
+          "imageUrl": "https://store.cablemod.com/wp-content/uploads/2026/04/02_ROG-EQUALIZER-WHITE.png",
+          "images": [
+            {
+              "id": "ff4d06bcbfc1bb5e07a4f2ffb90ae502902a6ddbf346c5c19063f0fa4ff8263d",
+              "url": "https://store.cablemod.com/wp-content/uploads/2026/04/02_ROG-EQUALIZER-WHITE.png"
+            },
+            {
+              "id": "32043bc845fdd378b57767b273f83b02caf219f408996f5eec33142e0cdefb5b",
+              "url": "https://store.cablemod.com/wp-content/uploads/2026/04/01_ROG-EQUALIZER-WHITE.png"
+            },
+            {
+              "id": "f818371618b18758e9a8c46902d4a9d205538f702980a7acf94f9ea3a7ced613",
+              "url": "https://store.cablemod.com/wp-content/uploads/2026/04/04_ROG-EQUALIZER-WHITE.png"
+            },
+            {
+              "id": "766b53f0b7d0d0b96688c54fc0112ce9fd692de3ac672d32b5075b9483c22d74",
+              "url": "https://store.cablemod.com/wp-content/uploads/2026/04/03_ROG-EQUALIZER-WHITE.png"
+            },
+            {
+              "id": "fef8aab157e971ce6f2b2608bf399b4aaa6f557aa5150b4a3fd37ee7ede7244b",
+              "url": "https://store.cablemod.com/wp-content/uploads/2026/04/PSU-new-cable_w_04.png"
+            },
+            {
+              "id": "bb73e563604b56cca58a18059a826071f9841171ff17b22ca8347fa9ab5e76bd",
+              "url": "https://store.cablemod.com/wp-content/uploads/2026/04/05_ROG-EQUALIZER-WHITE_cable.png"
+            },
+            {
+              "id": "44535649e15f38b41da51d0400c64a7109e1d5a2a7059d92976a36f9efba096a",
+              "url": "https://store.cablemod.com/wp-content/uploads/2026/04/PSU-new-cable_w_07.png"
+            },
+            {
+              "id": "9ab4dcf8818c8e938cbd2177ecf749a519e26c99466cf1462ad620eccc8a9281",
+              "url": "https://store.cablemod.com/wp-content/uploads/2026/04/PSU-new-cable_w_08.png"
+            }
+          ],
+          "itemPrice": {
+            "amountCents": 4999,
+            "currency": "USD"
+          },
+          "priceEvidence": {
+            "amountMinor": "4999",
+            "currency": "USD",
+            "currencyMinorUnit": 2,
+            "scope": "VARIANT",
+            "taxBasis": "UNKNOWN"
+          },
+          "availability": "IN_STOCK",
+          "availabilityScope": "VARIANT",
+          "rating": {
+            "value": 0,
+            "reviewCount": 0,
+            "scale": 5,
+            "productId": 1909322
+          },
+          "checkedAt": "2026-09-08T18:15:05.569Z"
+        }
+      },
+      {
+        "name": "cdn_exact_grinder_variant",
+        "status": "PASS",
+        "elapsedMs": 3676,
+        "sample": {
+          "sourceKind": "WOOCOMMERCE_STORE_API",
+          "merchantId": "1zpresso",
+          "merchantName": "1Zpresso",
+          "sourceHost": "1zpresso.coffee",
+          "productId": 52922,
+          "parentProductId": 52922,
+          "variationId": 52925,
+          "title": "Q Air Manual Coffee Grinder",
+          "description": "",
+          "sku": "1Z-QAIR01-PL",
+          "productType": "variation",
+          "category": "",
+          "condition": "UNKNOWN",
+          "attributes": [
+            "item: Purple"
+          ],
+          "variantDimensions": {
+            "item": [
+              "Purple"
+            ]
+          },
+          "selectedAttributes": {
+            "item": "Purple"
+          },
+          "merchantUrl": "https://1zpresso.coffee/product/qair/?attribute_item=Purple",
+          "imageUrl": "https://i0.wp.com/1zpresso.coffee/wp-content/uploads/2024/12/qair-1-1.jpg?fit=800%2C600&ssl=1",
+          "images": [
+            {
+              "id": "454789614259cda80ae17ad14d8450e588728ba8e31c4a5d4d2bb52e4fe268be",
+              "url": "https://i0.wp.com/1zpresso.coffee/wp-content/uploads/2024/12/qair-1-1.jpg?fit=800%2C600&ssl=1"
+            }
+          ],
+          "itemPrice": {
+            "amountCents": 6900,
+            "currency": "USD"
+          },
+          "priceEvidence": {
+            "amountMinor": "6900",
+            "currency": "USD",
+            "currencyMinorUnit": 2,
+            "scope": "VARIANT",
+            "taxBasis": "UNKNOWN"
+          },
+          "availability": "OUT_OF_STOCK",
+          "availabilityScope": "VARIANT",
+          "rating": {
+            "value": 0,
+            "reviewCount": 0,
+            "scale": 5,
+            "productId": 52925
+          },
+          "checkedAt": "2026-09-08T18:15:09.244Z"
+        }
+      },
+      {
+        "name": "new_merchant_cdn_image_proxy",
+        "status": "PASS",
+        "elapsedMs": 165,
+        "bytes": 37936,
+        "contentType": "image/jpeg"
+      },
+      {
+        "name": "unknown_merchant_rejected",
+        "status": "PASS",
+        "elapsedMs": 127,
+        "response": {
+          "source": "WOOCOMMERCE_STORE_API",
+          "registryVersion": "2026-09-08-expanded-50",
+          "status": "UNAVAILABLE",
+          "checkedAt": "2026-09-08T18:15:09.54Z"
+        }
+      }
+    ]
+  },
+  "installedSdkChecks": {
+    "checkedAt": "2026-09-08T18:15:24.073Z",
+    "plugin": "C:/Users/chris/.codex/plugins/cache/findcheap-agent/findcheap-agent/0.18.0+codex.20260908165141",
+    "cases": [
+      {
+        "name": "installed_version_and_source_contract",
+        "status": "PASS",
+        "server": {
+          "name": "findcheap-agent",
+          "version": "0.18.0"
+        }
+      },
+      {
+        "name": "no-pong-us_installed_search",
+        "status": "PASS",
+        "sourceStatus": "OK",
+        "sources": {
+          "awin": "COMPLETE",
+          "shopify": "COMPLETE",
+          "ebay": "SKIPPED",
+          "woocommerce": "COMPLETE"
+        },
+        "woo": {
+          "schemaVersion": 1,
+          "registryVersion": "2026-09-08-expanded-50",
+          "status": "COMPLETE",
+          "stores": [
+            {
+              "merchantId": "no-pong-us",
+              "status": "COMPLETE",
+              "requests": 1,
+              "returned": 1
+            }
+          ],
+          "diagnostics": {
+            "eligibleStores": 50,
+            "plannedStores": 1,
+            "attemptedStores": 1,
+            "succeededStores": 1,
+            "failedStores": 0,
+            "skippedStores": 49,
+            "physicalRequests": 1,
+            "responseBytes": 4654,
+            "cacheHits": 0,
+            "elapsedMs": 485,
+            "truncated": false,
+            "registryCoverageComplete": false
+          }
+        },
+        "cardCount": 1,
+        "cardAcceptance": "PASS"
+      },
+      {
+        "name": "root-science_installed_search",
+        "status": "PASS",
+        "sourceStatus": "OK",
+        "sources": {
+          "awin": "COMPLETE",
+          "shopify": "COMPLETE",
+          "ebay": "SKIPPED",
+          "woocommerce": "COMPLETE"
+        },
+        "woo": {
+          "schemaVersion": 1,
+          "registryVersion": "2026-09-08-expanded-50",
+          "status": "COMPLETE",
+          "stores": [
+            {
+              "merchantId": "root-science",
+              "status": "COMPLETE",
+              "requests": 1,
+              "returned": 1
+            }
+          ],
+          "diagnostics": {
+            "eligibleStores": 50,
+            "plannedStores": 1,
+            "attemptedStores": 1,
+            "succeededStores": 1,
+            "failedStores": 0,
+            "skippedStores": 49,
+            "physicalRequests": 1,
+            "responseBytes": 39761,
+            "cacheHits": 0,
+            "elapsedMs": 838,
+            "truncated": false,
+            "registryCoverageComplete": false
+          }
+        },
+        "cardCount": 1,
+        "cardAcceptance": "PASS"
+      }
+    ]
+  },
+  "harnessCorrections": [
+    "Initial SDK launch failed before connecting: Windows import path needed pathToFileURL. Original failure log retained.",
+    "Per-call SDK harness duration was computed before await; omitted. Source-owned diagnostic elapsedMs remains unchanged."
+  ],
+  "nativeHostAcceptance": "NOT_RUN",
+  "realWatchOrAutomationCreated": false
+}

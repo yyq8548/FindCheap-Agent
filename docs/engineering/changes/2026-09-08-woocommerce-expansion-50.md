@@ -50,6 +50,19 @@ Independent read-only review found no blocking issue in the two reader changes. 
 
 A second independent review matched all 50 registry entries and 45 fixtures, checked normalized host/alias uniqueness, product ownership, URLs/images, prices and parent-child mapping, and matched every accepted raw SHA-256 to its local record. Twenty-five fixture parents retain only the selected child's variation descriptor; the fixture README explicitly distinguishes those bounded samples from complete raw responses. No blocking findings remained.
 
+### Production delivery
+
+Verified on 2026-09-08 at 18:15–18:16 UTC:
+
+- Runtime commit `3b402b0d86b131e42cca50f67784ef691fa6f247` pushed to main; remote SHA matched. [Plugin CI](https://github.com/yyq8548/FindCheap-Agent/actions/runs/34261460949) and [Windows installer CI](https://github.com/yyq8548/FindCheap-Agent/actions/runs/34261460939) both passed.
+- Railway production deployment `48c14221-aaf9-4dcd-9ae1-4a42e085ad8e` reached SUCCESS. SSH `/app/dist/main.cjs` SHA-256 is `188a8d671edd15f856eb1b864debfad61e56c18089936840ca081c549bec2e45`, identical to the local source build. Woo remains enabled and the custom registry override remains absent.
+- Production endpoint smoke **8/8 PASS**: health, readiness, 50-store registry with six-store bounded search, No Pong URL search, CableMod URL/variant search, exact 1Zpresso variant lookup, its approved CDN image proxy, and unknown-merchant rejection. The six-store query used eight physical reads / 27,020 bytes / 7,556 ms and correctly returned `registryCoverageComplete=false`. Exact 1Zpresso Purple `52925` remained OUT_OF_STOCK at USD 69; no stock or price was substituted. The image proxy returned JPEG 200 with 37,936 bytes.
+- Source health/readiness are 200, with 68,871 feed rows / 42 feeds / 140 offers / zero stale feeds and zero consecutive refresh failures.
+- Existing installed-cache SDK smoke **3/3 PASS**: runtime/tool discovery, a new No Pong exact product search, and the existing Root Science exact product regression. Both searches read registry version `2026-09-08-expanded-50`, reported 50 eligible stores, selected only the URL's merchant, and returned one correctly sourced card. No source trust or identity rule was bypassed. The first SDK harness launch failed before connecting because Windows filesystem paths were passed to dynamic import; using file URLs fixed that test harness only. Its failure log is retained. Per-call harness timing was not correctly measured, so only source-owned diagnostic latency is reported.
+- Installed cache remains `0.18.0+codex.20260908165141`, enabled, with **13/13 normalized files equal** and unchanged raw MCP SHA-256. No cache replacement is necessary for this server-only expansion. No native UI acceptance or real Watch/Automation was claimed.
+
+The portable [delivery evidence](2026-09-08-woocommerce-expansion-delivery.json) separates source endpoint checks, installed SDK checks and the local harness correction. Rollback target is the previous verified source deployment `ff9d4d7b-6e86-4b84-9f63-c81fc6599ff0` with its five-store registry; no database or client-state migration was introduced.
+
 ### Plan revision 1: observed image compatibility
 
 Actual Store API probes for 1Zpresso and Charlie's Soap pass positive/negative search, product lookup and child identity, but normalization drops their images solely because CDN URLs carry `ssl=1` or `strip=all`. Both parameters are documented in the [CDN provider's read-only image API](https://docs.ewww.io/article/115-exactdn-easy-io-api); the saved merchant observations bind the actual image host and path. These are source image options, not cart or arbitrary redirect parameters.
