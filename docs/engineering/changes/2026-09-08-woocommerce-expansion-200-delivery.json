@@ -1,0 +1,645 @@
+{
+  "observedAt": "2026-09-08T19:48:04.353Z",
+  "runtimeCommit": "e34041a1272256d32bf5cc308e1d5fd70dca940d",
+  "registryVersion": "2026-09-08-expanded-200",
+  "enabledMerchants": 200,
+  "newMerchants": 150,
+  "candidateScreeningDenominator": 1244,
+  "registrySerializedBytes": 102822,
+  "localGates": {
+    "typecheck": "PASS",
+    "lint": "PASS",
+    "sourceBuild": "PASS",
+    "mcpBuild": "PASS",
+    "testFiles": 158,
+    "assertions": 2558,
+    "bundledStdioPassed": 4,
+    "bundledStdioTotal": 4,
+    "diffCheck": "PASS"
+  },
+  "ci": [
+    {
+      "conclusion": "success",
+      "databaseId": 34270511711,
+      "status": "completed",
+      "url": "https://github.com/yyq8548/FindCheap-Agent/actions/runs/34270511711",
+      "workflowName": "windows-installer-ci"
+    },
+    {
+      "conclusion": "success",
+      "databaseId": 34270511717,
+      "status": "completed",
+      "url": "https://github.com/yyq8548/FindCheap-Agent/actions/runs/34270511717",
+      "workflowName": "plugin-ci"
+    }
+  ],
+  "deployment": {
+    "id": "5f484531-ae33-4cd4-8197-8d078a364460",
+    "status": "SUCCESS",
+    "projectId": "9bf7a976-a5ca-4524-bb9b-457d1a4750b5",
+    "serviceId": "2a177106-d0e0-4de9-a9fd-de6a4c258f2b",
+    "environmentId": "c115fe92-33b0-45e2-b7f4-6af738c0f1b0",
+    "sourceSha256": "bc75ada8c6baf2a53c68f61a39a5d20a93c77aa7454c99af66ed91a0e28d8b7c",
+    "hashVerifiedBy": "SSH sha256sum /app/dist/main.cjs",
+    "wooEnabled": true,
+    "customRegistryOverride": false
+  },
+  "sourceEndpointChecks": {
+    "checkedAt": "2026-09-08T19:46:17.183Z",
+    "base": "https://findcheap-agent-production.up.railway.app",
+    "cases": [
+      {
+        "name": "health",
+        "status": "PASS",
+        "elapsedMs": 171,
+        "response": {
+          "status": "ok",
+          "feedStatus": "ready",
+          "snapshotAt": "2026-09-08T19:45:34.661Z",
+          "snapshotAgeSeconds": 42,
+          "feedRows": 68871,
+          "sourceFeeds": 42,
+          "excludedSourceFeeds": 2,
+          "staleSourceFeeds": 0,
+          "excludedSourceFeedReasons": {
+            "UNAPPROVED_PRODUCT_URL": 1,
+            "NO_ELIGIBLE_PRODUCTS": 1
+          },
+          "lastRefreshAt": "2026-09-08T19:45:34.661Z",
+          "lastSuccessfulRefreshAt": "2026-09-08T19:45:34.661Z",
+          "consecutiveRefreshFailures": 0,
+          "offersStatus": "ready",
+          "offerRows": 140,
+          "offersSnapshotAt": "2026-09-08T19:45:29.166Z",
+          "offersLastRefreshAt": "2026-09-08T19:45:29.166Z"
+        }
+      },
+      {
+        "name": "ready",
+        "status": "PASS",
+        "elapsedMs": 102,
+        "response": {
+          "feedStatus": "ready",
+          "snapshotAt": "2026-09-08T19:45:34.661Z",
+          "snapshotAgeSeconds": 42,
+          "feedRows": 68871,
+          "sourceFeeds": 42,
+          "excludedSourceFeeds": 2,
+          "staleSourceFeeds": 0,
+          "excludedSourceFeedReasons": {
+            "UNAPPROVED_PRODUCT_URL": 1,
+            "NO_ELIGIBLE_PRODUCTS": 1
+          },
+          "lastRefreshAt": "2026-09-08T19:45:34.661Z",
+          "lastSuccessfulRefreshAt": "2026-09-08T19:45:34.661Z",
+          "consecutiveRefreshFailures": 0
+        }
+      },
+      {
+        "name": "registry_200_bounded_search",
+        "status": "PASS",
+        "elapsedMs": 1863,
+        "sourceStatus": "COMPLETE",
+        "diagnostics": {
+          "eligibleStores": 200,
+          "plannedStores": 6,
+          "attemptedStores": 6,
+          "succeededStores": 6,
+          "failedStores": 0,
+          "skippedStores": 194,
+          "physicalRequests": 6,
+          "responseBytes": 12331,
+          "cacheHits": 0,
+          "elapsedMs": 1734,
+          "truncated": false,
+          "registryCoverageComplete": false
+        },
+        "stores": [
+          {
+            "merchantId": "general-pencil",
+            "status": "COMPLETE",
+            "requests": 1,
+            "returned": 1
+          },
+          {
+            "merchantId": "gilman-gear",
+            "status": "COMPLETE",
+            "requests": 1,
+            "returned": 0
+          },
+          {
+            "merchantId": "rhododendrons-direct",
+            "status": "COMPLETE",
+            "requests": 1,
+            "returned": 0
+          },
+          {
+            "merchantId": "turn-of-the-century-editions",
+            "status": "COMPLETE",
+            "requests": 1,
+            "returned": 0
+          },
+          {
+            "merchantId": "new-society-publishers",
+            "status": "COMPLETE",
+            "requests": 1,
+            "returned": 0
+          },
+          {
+            "merchantId": "caribbean-trading",
+            "status": "COMPLETE",
+            "requests": 1,
+            "returned": 0
+          }
+        ]
+      },
+      {
+        "name": "general-pencil_url_search",
+        "status": "PASS",
+        "elapsedMs": 1266,
+        "sourceStatus": "COMPLETE",
+        "diagnostics": {
+          "eligibleStores": 200,
+          "plannedStores": 1,
+          "attemptedStores": 1,
+          "succeededStores": 1,
+          "failedStores": 0,
+          "skippedStores": 199,
+          "physicalRequests": 1,
+          "responseBytes": 12282,
+          "cacheHits": 0,
+          "elapsedMs": 1135,
+          "truncated": false,
+          "registryCoverageComplete": false
+        },
+        "sample": {
+          "sourceKind": "WOOCOMMERCE_STORE_API",
+          "merchantId": "general-pencil",
+          "merchantName": "General Pencil Company",
+          "sourceHost": "generalpencil.com",
+          "productId": 29162,
+          "title": "Charcoal Pencil Sketching & Drawing Kit",
+          "description": "",
+          "brand": "General's®",
+          "sku": "54R",
+          "productType": "simple",
+          "category": "Charcoal & Charcoal White®",
+          "condition": "UNKNOWN",
+          "attributes": [
+            "country of origin: Eraser made in Spain",
+            "country of origin: Made in the USA with American and imported materials"
+          ],
+          "variantDimensions": {
+            "country of origin": [
+              "Eraser made in Spain",
+              "Made in the USA with American and imported materials"
+            ]
+          },
+          "selectedAttributes": {},
+          "merchantUrl": "https://generalpencil.com/product/54r/",
+          "imageUrl": "https://generalpencil.com/wp-content/uploads/2026/08/54R.jpg?v=1787871650",
+          "images": [
+            {
+              "id": "a030cbfa60de62c74628d2716cc2c2af1d01627de210765ff0afbbb59d960397",
+              "url": "https://generalpencil.com/wp-content/uploads/2026/08/54R.jpg?v=1787871650"
+            },
+            {
+              "id": "ae6ad66aa1f16fa551adfef2bff8443abc27b2ed47a8fb803d5d6d2b2498813c",
+              "url": "https://generalpencil.com/wp-content/uploads/2026/08/54RContents.jpg?v=1787872728"
+            }
+          ],
+          "itemPrice": {
+            "amountCents": 1999,
+            "currency": "USD"
+          },
+          "priceEvidence": {
+            "amountMinor": "1999",
+            "currency": "USD",
+            "currencyMinorUnit": 2,
+            "scope": "PRODUCT",
+            "taxBasis": "UNKNOWN"
+          },
+          "availability": "BACKORDER",
+          "availabilityScope": "PRODUCT",
+          "rating": {
+            "value": 0,
+            "reviewCount": 0,
+            "scale": 5,
+            "productId": 29162
+          },
+          "checkedAt": "2026-09-08T19:46:20.256Z"
+        }
+      },
+      {
+        "name": "restoration-games_url_search",
+        "status": "PASS",
+        "elapsedMs": 543,
+        "sourceStatus": "COMPLETE",
+        "diagnostics": {
+          "eligibleStores": 200,
+          "plannedStores": 1,
+          "attemptedStores": 1,
+          "succeededStores": 1,
+          "failedStores": 0,
+          "skippedStores": 199,
+          "physicalRequests": 1,
+          "responseBytes": 9752,
+          "cacheHits": 0,
+          "elapsedMs": 417,
+          "truncated": false,
+          "registryCoverageComplete": false
+        },
+        "sample": {
+          "sourceKind": "WOOCOMMERCE_STORE_API",
+          "merchantId": "restoration-games",
+          "merchantName": "Restoration Games",
+          "sourceHost": "restorationgames.com",
+          "productId": 25957012,
+          "title": "Thunder Road: Ignition",
+          "description": "Rev up your engine and hit the road with Thunder Road: Ignition. Like it’s bigger sibling, Thunder Road: Vendetta – in Thunder Road: Ignition your crew is racing through the wastelands – get your cars across the finish line first to win. But the roads are perilous, the other crews are aiming for you, and those barricades are everywhere. Thunder Road: Ignition is a stand alone game – get into gear right out of the box! Or you can mix it in with other Thunder Road: Vendetta and its expansions for endless variety. What’s new in Ignition: You crew lost its chopper… but now your car is loaded up missiles! Keep your eye out for the new terrain, rubble, those pesky barricades, and other hazards. Pit stops along the way can revive your damaged car – but don’t fall too far behind the pack. Swerve those curves! New shorter road boards and curved road boards make more dynamic lanes to cruise. *Fallen Tower promo board free with Ignition purchase while supplies last.",
+          "sku": "595506",
+          "productType": "simple",
+          "category": "Games and Expansions",
+          "condition": "UNKNOWN",
+          "attributes": [],
+          "variantDimensions": {},
+          "selectedAttributes": {},
+          "merchantUrl": "https://restorationgames.com/shop/thunder-road-ignition/",
+          "imageUrl": "https://restorationgames.com/wp-content/uploads/2026/02/TRI-box-left_web.png",
+          "images": [
+            {
+              "id": "d5887d9fee181a8458ce4fe151ce06de6aca3d023be115146b2c46e0e77ca28c",
+              "url": "https://restorationgames.com/wp-content/uploads/2026/02/TRI-box-left_web.png"
+            },
+            {
+              "id": "e2f38a0d269b87bc449e6001be4225335c32fb7b73ab3f500b770d9287c6b895",
+              "url": "https://restorationgames.com/wp-content/uploads/2026/02/TRI-PDP_1.png"
+            },
+            {
+              "id": "cf9f3fe9d1b4962ac4da8d7eaea6539d17de1c8d8cc1345768c78dd2b146850a",
+              "url": "https://restorationgames.com/wp-content/uploads/2026/02/TRI-PDP_2.png"
+            },
+            {
+              "id": "e8dfc813492ae13d32ddad003b031f470e2829c787db07f8bdb9f1a6dc230385",
+              "url": "https://restorationgames.com/wp-content/uploads/2026/02/TRI-PDP_3.png"
+            },
+            {
+              "id": "2157ccb81c030573071578a9b36598dbe38d9d524519f1d9f608d2d34ca64dfe",
+              "url": "https://restorationgames.com/wp-content/uploads/2026/02/TRI-PDP_4.png"
+            },
+            {
+              "id": "09a6060e5e2cde089fcc51f0af160999450798a69885ce0f256ef2ed131231af",
+              "url": "https://restorationgames.com/wp-content/uploads/2026/02/TRI-PDP_5.png"
+            },
+            {
+              "id": "bf2616dc7d58d231ed0441a7f02ab075df004b2ae2ccf00cf350a674f49d51b9",
+              "url": "https://restorationgames.com/wp-content/uploads/2026/02/TRI-PDP_6.png"
+            }
+          ],
+          "itemPrice": {
+            "amountCents": 3500,
+            "currency": "USD"
+          },
+          "priceEvidence": {
+            "amountMinor": "3500",
+            "currency": "USD",
+            "currencyMinorUnit": 2,
+            "scope": "PRODUCT",
+            "taxBasis": "UNKNOWN"
+          },
+          "availability": "IN_STOCK",
+          "availabilityScope": "PRODUCT",
+          "rating": {
+            "value": 0,
+            "reviewCount": 0,
+            "scale": 5,
+            "productId": 25957012
+          },
+          "checkedAt": "2026-09-08T19:46:20.799Z"
+        }
+      },
+      {
+        "name": "exact_new_paint_variant",
+        "status": "PASS",
+        "elapsedMs": 2298,
+        "sample": {
+          "sourceKind": "WOOCOMMERCE_STORE_API",
+          "merchantId": "blue-ridge-oil",
+          "merchantName": "Blue Ridge Oil Colors",
+          "sourceHost": "blueridgeoilpaint.com",
+          "productId": 14644,
+          "parentProductId": 14644,
+          "variationId": 20778,
+          "title": "Nickel Yellow Dp",
+          "description": "",
+          "productType": "variation",
+          "category": "",
+          "condition": "UNKNOWN",
+          "attributes": [
+            "size: 40ml"
+          ],
+          "variantDimensions": {
+            "size": [
+              "40ml"
+            ]
+          },
+          "selectedAttributes": {
+            "size": "40ml"
+          },
+          "merchantUrl": "https://blueridgeoilpaint.com/product/nickel-yellow-dp/?attribute_size=40ml",
+          "imageUrl": "https://blueridgeoilpaint.com/wp-content/uploads/2023/04/NICKEL-YELLOW-DP.jpg",
+          "images": [
+            {
+              "id": "ece71229d1b58ac55abe2189e9cf4ca2384ae4f9802b6c255c2cebee313d9eba",
+              "url": "https://blueridgeoilpaint.com/wp-content/uploads/2023/04/NICKEL-YELLOW-DP.jpg"
+            }
+          ],
+          "itemPrice": {
+            "amountCents": 1500,
+            "currency": "USD"
+          },
+          "priceEvidence": {
+            "amountMinor": "1500",
+            "currency": "USD",
+            "currencyMinorUnit": 2,
+            "scope": "VARIANT",
+            "taxBasis": "UNKNOWN"
+          },
+          "availability": "IN_STOCK",
+          "availabilityScope": "VARIANT",
+          "rating": {
+            "value": 0,
+            "reviewCount": 0,
+            "scale": 5,
+            "productId": 20778
+          },
+          "checkedAt": "2026-09-08T19:46:23.097Z"
+        }
+      },
+      {
+        "name": "new_merchant_cdn_image_proxy",
+        "status": "PASS",
+        "elapsedMs": 310,
+        "bytes": 372670,
+        "contentType": "image/jpeg"
+      },
+      {
+        "name": "unknown_merchant_rejected",
+        "status": "PASS",
+        "elapsedMs": 112,
+        "response": {
+          "source": "WOOCOMMERCE_STORE_API",
+          "registryVersion": "2026-09-08-expanded-200",
+          "status": "UNAVAILABLE",
+          "checkedAt": "2026-09-08T19:46:23.520Z"
+        }
+      }
+    ]
+  },
+  "installedSdkChecks": {
+    "checkedAt": "2026-09-08T19:46:39.426Z",
+    "plugin": "C:/Users/chris/.codex/plugins/cache/findcheap-agent/findcheap-agent/0.18.0+codex.20260908165141",
+    "cases": [
+      {
+        "name": "installed_version_and_source_contract",
+        "server": {
+          "name": "findcheap-agent",
+          "version": "0.18.0"
+        },
+        "status": "PASS",
+        "elapsedMs": 326
+      },
+      {
+        "name": "general-pencil_installed_search",
+        "sourceStatus": "OK",
+        "sources": {
+          "awin": "COMPLETE",
+          "shopify": "COMPLETE",
+          "ebay": "SKIPPED",
+          "woocommerce": "COMPLETE"
+        },
+        "woo": {
+          "schemaVersion": 1,
+          "registryVersion": "2026-09-08-expanded-200",
+          "status": "COMPLETE",
+          "stores": [
+            {
+              "merchantId": "general-pencil",
+              "status": "COMPLETE",
+              "requests": 1,
+              "returned": 1
+            }
+          ],
+          "diagnostics": {
+            "eligibleStores": 200,
+            "plannedStores": 1,
+            "attemptedStores": 1,
+            "succeededStores": 1,
+            "failedStores": 0,
+            "skippedStores": 199,
+            "physicalRequests": 1,
+            "responseBytes": 12282,
+            "cacheHits": 0,
+            "elapsedMs": 77,
+            "truncated": false,
+            "registryCoverageComplete": false
+          }
+        },
+        "cardCount": 1,
+        "cardAcceptance": "PASS",
+        "status": "PASS",
+        "elapsedMs": 2944
+      },
+      {
+        "name": "restoration-games_installed_search",
+        "sourceStatus": "OK",
+        "sources": {
+          "awin": "COMPLETE",
+          "shopify": "COMPLETE",
+          "ebay": "SKIPPED",
+          "woocommerce": "COMPLETE"
+        },
+        "woo": {
+          "schemaVersion": 1,
+          "registryVersion": "2026-09-08-expanded-200",
+          "status": "COMPLETE",
+          "stores": [
+            {
+              "merchantId": "restoration-games",
+              "status": "COMPLETE",
+              "requests": 1,
+              "returned": 1
+            }
+          ],
+          "diagnostics": {
+            "eligibleStores": 200,
+            "plannedStores": 1,
+            "attemptedStores": 1,
+            "succeededStores": 1,
+            "failedStores": 0,
+            "skippedStores": 199,
+            "physicalRequests": 1,
+            "responseBytes": 9752,
+            "cacheHits": 0,
+            "elapsedMs": 499,
+            "truncated": false,
+            "registryCoverageComplete": false
+          }
+        },
+        "cardCount": 1,
+        "cardAcceptance": "PASS",
+        "status": "PASS",
+        "elapsedMs": 1460
+      },
+      {
+        "name": "root-science_installed_search",
+        "sourceStatus": "OK",
+        "sources": {
+          "awin": "COMPLETE",
+          "shopify": "COMPLETE",
+          "ebay": "SKIPPED",
+          "woocommerce": "COMPLETE"
+        },
+        "woo": {
+          "schemaVersion": 1,
+          "registryVersion": "2026-09-08-expanded-200",
+          "status": "COMPLETE",
+          "stores": [
+            {
+              "merchantId": "root-science",
+              "status": "COMPLETE",
+              "requests": 1,
+              "returned": 1
+            }
+          ],
+          "diagnostics": {
+            "eligibleStores": 200,
+            "plannedStores": 1,
+            "attemptedStores": 1,
+            "succeededStores": 1,
+            "failedStores": 0,
+            "skippedStores": 199,
+            "physicalRequests": 1,
+            "responseBytes": 39761,
+            "cacheHits": 0,
+            "elapsedMs": 876,
+            "truncated": false,
+            "registryCoverageComplete": false
+          }
+        },
+        "cardCount": 1,
+        "cardAcceptance": "PASS",
+        "status": "PASS",
+        "elapsedMs": 2503
+      }
+    ]
+  },
+  "cacheParity": {
+    "checkedAt": "2026-09-08T19:48:03.628Z",
+    "plugin": "C:/Users/chris/.codex/plugins/cache/findcheap-agent/findcheap-agent/0.18.0+codex.20260908165141",
+    "enabled": true,
+    "matched": 13,
+    "total": 13,
+    "files": [
+      {
+        "file": ".codex-plugin/plugin.json",
+        "matched": true,
+        "sourceSha256": "fb8aa721f6faefe6aa481e947831cf90e84f6b0e5d5eca6f291a4405af939b4c",
+        "installedSha256": "fb8aa721f6faefe6aa481e947831cf90e84f6b0e5d5eca6f291a4405af939b4c",
+        "lineEndingNormalized": false
+      },
+      {
+        "file": ".mcp.json",
+        "matched": true,
+        "sourceSha256": "148209ff39c752358fbe87f6ed205247cfaf409f47190912e8e70d5dd551c27b",
+        "installedSha256": "148209ff39c752358fbe87f6ed205247cfaf409f47190912e8e70d5dd551c27b",
+        "lineEndingNormalized": false
+      },
+      {
+        "file": "THIRD_PARTY_NOTICES.md",
+        "matched": true,
+        "sourceSha256": "38ce0fe67ada4a83768666fde6219f0358307484cd5b3de490bdf804ee13fff3",
+        "installedSha256": "38ce0fe67ada4a83768666fde6219f0358307484cd5b3de490bdf804ee13fff3",
+        "lineEndingNormalized": false
+      },
+      {
+        "file": "dist/mcp-server.js",
+        "matched": true,
+        "sourceSha256": "4e9b20544d225e66d1cd878fad1ee198f6569ebe848bcd6b95e18fddf2f7facc",
+        "installedSha256": "4e9b20544d225e66d1cd878fad1ee198f6569ebe848bcd6b95e18fddf2f7facc",
+        "lineEndingNormalized": false
+      },
+      {
+        "file": "dist/mcp-server.meta.json",
+        "matched": true,
+        "sourceSha256": "502b3cc8d5ef079420ef2e260b045a0dc4a6a862ec0d99d6281cef76a952b0d5",
+        "installedSha256": "502b3cc8d5ef079420ef2e260b045a0dc4a6a862ec0d99d6281cef76a952b0d5",
+        "lineEndingNormalized": false
+      },
+      {
+        "file": "dist/visual-image-worker.cjs",
+        "matched": true,
+        "sourceSha256": "5af15098b04745c8eb0f77d063549e322e31c3142a5a8aa5a28b62fb21a3f6d0",
+        "installedSha256": "5af15098b04745c8eb0f77d063549e322e31c3142a5a8aa5a28b62fb21a3f6d0",
+        "lineEndingNormalized": false
+      },
+      {
+        "file": "dist/visual-image-worker.meta.json",
+        "matched": true,
+        "sourceSha256": "8cd8214b6ee6f5ebdb643c4e0b03666a2740f74bd603607d3070978c8792af75",
+        "installedSha256": "8cd8214b6ee6f5ebdb643c4e0b03666a2740f74bd603607d3070978c8792af75",
+        "lineEndingNormalized": false
+      },
+      {
+        "file": "skills/compare-products/SKILL.md",
+        "matched": true,
+        "sourceSha256": "09a07df7103e6386af7526e190b27ad201e88324503d4108b9192fa83c2ec8dc",
+        "installedSha256": "1578ce4f71081c6bf72578ba6f4f55d34e555cd47c022598fbd9ed8aeeef0b25",
+        "lineEndingNormalized": true
+      },
+      {
+        "file": "skills/compare-products/agents/openai.yaml",
+        "matched": true,
+        "sourceSha256": "4af58fa4375330cc71802ccbc7de002232a690630ca2a15bf7a7d570cc3d91d5",
+        "installedSha256": "4af58fa4375330cc71802ccbc7de002232a690630ca2a15bf7a7d570cc3d91d5",
+        "lineEndingNormalized": false
+      },
+      {
+        "file": "skills/compare-products/references/chrome-fallback.md",
+        "matched": true,
+        "sourceSha256": "8c4517881f1380d3498a312a53dbf1dade983c6e6520a21c0bb11107228322dc",
+        "installedSha256": "b089b77a0b6be58ec80f09c88ac3eec08155c68819b218c4ef646b17d941c638",
+        "lineEndingNormalized": true
+      },
+      {
+        "file": "skills/deals-and-watch/SKILL.md",
+        "matched": true,
+        "sourceSha256": "8e453ebc867686ba1eba5ccf5a60e2dfdf1aff00047e73c35693ae2a7278c852",
+        "installedSha256": "2c31966f14202c6094257abe82b0437e8cffc69a24441443d48d38aaaf677b9a",
+        "lineEndingNormalized": true
+      },
+      {
+        "file": "skills/deals-and-watch/references/watch-lifecycle.md",
+        "matched": true,
+        "sourceSha256": "4b8480cc409c07d3f7cf24ae355824bf14f6b49a129613b98cd67a4931cdc005",
+        "installedSha256": "6084a323b3dbd566c303a11da892beac0d2f259e7cfb0b679087935d09253351",
+        "lineEndingNormalized": true
+      },
+      {
+        "file": "ucp-agent-profile.json",
+        "matched": true,
+        "sourceSha256": "d3200d7b8dc2063558581262ac224381dd2b06e073ad936926f1eb74ac7911a8",
+        "installedSha256": "d3200d7b8dc2063558581262ac224381dd2b06e073ad936926f1eb74ac7911a8",
+        "lineEndingNormalized": false
+      }
+    ]
+  },
+  "limitations": {
+    "eligibleVsQueried": "200 enabled entries; at most six stores per source pass and two source passes per Backend search. This is not a live request to all 200 stores from production.",
+    "liveFixtureScope": "150 additions have real reader, default-controller and current merchant-page evidence; saved prices are historical. Several reader/controller samples differ and are explicitly kept separate.",
+    "availability": "Three publisher pages explicitly show preorder while API says IN_STOCK; immediate shipment is not verified. Condition and main-accessory scope remain as recorded.",
+    "nativeCodexCardInteraction": "NOT_RUN",
+    "actualWatchAutomationLifecycle": "NOT_RUN",
+    "watchOrAutomationCreated": false
+  }
+}
