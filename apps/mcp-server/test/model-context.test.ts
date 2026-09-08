@@ -6,6 +6,29 @@ import { ToolExecutor } from "../src/execution/tool-executor.js";
 import { MAX_TOOL_OUTPUT_BYTES } from "../src/execution/external-data-fence.js";
 
 describe("model-visible reference context", () => {
+  it("preserves only the validated product-rating facts for a qualified match without inventing merchant evidence", async () => {
+    const executor = new ToolExecutor({ capabilities: new Set(["CATALOG"]), log: () => {} });
+    executor.register({ name: "search_products", capability: "CATALOG", outputSchema: z.object({
+      products: z.array(z.object({ selectionId: z.string().uuid(), presentationGroup: z.literal("TRUSTED_MATCH"),
+        merchantTrust: z.object({ level: z.literal("UNKNOWN"), verification: z.literal("UNVERIFIED") }),
+        productRating: z.object({ value: z.number().min(0).max(5), count: z.number().int().nonnegative(), scaleMax: z.literal(5) }) }))
+    }) });
+    const productRating = { value: 4.9, count: 21, scaleMax: 5 };
+    const result = await executor.execute("search_products", {}, async () => ({ content: [], structuredContent: {
+      products: [{ selectionId: randomUUID(), presentationGroup: "TRUSTED_MATCH",
+        merchantTrust: { level: "UNKNOWN", verification: "UNVERIFIED" },
+        productRating: { ...productRating, privateToken: "omit-rating-secret" },
+        merchantRating: { value: 5, count: 100 }, imageUrl: "https://private.example/image" }]
+    } }));
+    expect(result.isError).not.toBe(true);
+    const block = result.content.at(-1);
+    if (block?.type !== "text") throw new Error("missing context");
+    const context = JSON.parse(block.text.split("\n")[1]!).findcheapContext;
+    expect(context.products[0]).toMatchObject({ productRating,
+      merchantTrust: { level: "UNKNOWN", verification: "UNVERIFIED" } });
+    expect(block.text).not.toMatch(/omit-rating-secret|merchantRating|private\.example/);
+  });
+
   it("preserves visual terminal scope and stock scope in the text-only receipt", () => {
     const visualSearchOutcome = { sameItemStatus: "NOT_CONFIRMED", outOfStockStatus: "NONE", incomplete: false,
       message: "Reviewed similar choices are available." };

@@ -88,6 +88,7 @@ export function createShopifySelectedProductInspector(
         }
         const { sku: _oldSku, mpn: _oldMpn, gtins: _oldGtins, cartQuote: _oldQuote, itemPrice: _oldPrice,
           availableSizes: _oldSizes, imageUrl: _oldImage, ...baseProduct } = selected;
+        const description = descriptionText(product.description ?? selected.description ?? "");
         const variants = product.variants
           .map((variant) => ({ variant, dimensions: shopifyVariantDimensions(product.options, variant) }))
           .filter(({ variant, dimensions }) => options?.requirements !== undefined || hasRequestedDimensions
@@ -107,9 +108,9 @@ export function createShopifySelectedProductInspector(
             ...(variant.sku === undefined || variant.sku === null || variant.sku === ""
               ? {}
               : { sku: variant.sku }),
-            description: (product.description ?? selected.description ?? "").replace(/<[^>]*>/gu, " ").slice(0, 6000),
+            description: description.slice(0, 6000),
             variantDimensions: Object.fromEntries(Object.entries(dimensions).map(([name, value]) =>
-              [name, /^size$/iu.test(name) ? sizeEvidence(value, product.description ?? selected.description) : value])),
+              [name, /^size$/iu.test(name) ? sizeEvidence(value, description) : value])),
             ...variantImage(selected, dimensions, variant.featured_image),
             ...((product.currency === "USD" || product.priceCurrency === "USD")
               ? { itemPrice: { amountCents: variant.price, currency: "USD" as const } }
@@ -138,7 +139,7 @@ export function createShopifySelectedProductInspector(
       if (!product.variants.some((variant) => variant.variantId === selected.handle)) {
         throw new SelectedProductInspectionError("VARIANT_NOT_PRESENT", "selected variant identity was not present");
       }
-      const description = (product.description ?? selected.description ?? "").replace(/<[^>]*>/gu, " ");
+      const description = descriptionText(product.description ?? selected.description ?? "");
       const { sku: _oldSku, mpn: _oldMpn, gtins: _oldGtins, cartQuote: _oldQuote, itemPrice: _oldPrice,
         availableSizes: _oldSizes, imageUrl: _oldImage, ...baseProduct } = selected;
       const variants = product.variants
@@ -173,6 +174,12 @@ export function createShopifySelectedProductInspector(
         variants: variants.filter(variant => meetsRequirements(variant, options)).slice(0, 3) };
     }
   };
+}
+
+function descriptionText(value: string): string {
+  // Remove complete non-display blocks before tags. This is text extraction,
+  // not an HTML sanitizer; source identity and network checks remain separate.
+  return value.replace(/<(style|script)\b[^>]*>[\s\S]*?<\/\1\s*>/giu, " ").replace(/<[^>]*>/gu, " ");
 }
 
 function rejectTransientResponse(response: Response): void {

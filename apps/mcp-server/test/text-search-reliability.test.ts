@@ -79,8 +79,16 @@ describe("text search reliability", () => {
     const execution = await searchProducts(SearchProductsInputSchema.parse({ query: "wig", limit: 1, maxItemPriceCents: 3000 }),
       { awin, shopify: { search } });
     expect(execution.searchPasses).toBe(2);
-    expect(execution.candidates[0]).toMatchObject({ presentationGroup: "RESEARCH_ONLY", requirementAssessment: { status: "NEEDS_VERIFICATION" } });
-    expect(searchDiagnostics(execution, "MATCH_FOUND").requirementFunnel).toMatchObject({ satisfiedReturned: 0, awaitingVerification: 1 });
+    expect(execution.chromeFallbackEligible).toBe(true);
+    expect(execution.candidates).toEqual([]);
+    expect(execution.shopifyResult?.products[0]).toMatchObject({ handle: unpriced.handle });
+    expect(execution.shopifyResult?.products[0]?.itemPrice).toBeUndefined();
+    expect(evaluateProductRequirements(unpriced, { requiredFeatures: [], excludedFeatures: [], preferences: [],
+      maxItemPriceCents: 3000 }).assessment).toMatchObject({ status: "NEEDS_VERIFICATION",
+      entries: expect.arrayContaining([expect.objectContaining({ status: "UNKNOWN", source: "MISSING" })]) });
+    const diagnostics = searchDiagnostics(execution, "NO_CANDIDATES");
+    expect(diagnostics.requirementFunnel).toMatchObject({ satisfiedReturned: 0, awaitingVerification: 0 });
+    expect(diagnostics.candidateFunnel).toMatchObject({ sourceUnique: 1, recommendableUnique: 0, presentedUnique: 0 });
   });
 
   it("does not stop after unverified merchants fill every slot", async () => {

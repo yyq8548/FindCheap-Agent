@@ -3,9 +3,9 @@ name: deals-and-watch
 description: Find verified Coupon, promotion, membership, or Cashback evidence, and manage shopping watches.
 ---
 
-# FindCheap Agent v0.17.32 Deals and Watch
+# FindCheap Agent v0.17.33 Deals and Watch
 
-Live Coupon/Watch is self-contained. Do not read Memory, repository files, logs, task files, or plugin cache. One progress sentence max; do not narrate the tool sequence between calls.
+Follow required host instructions; skip optional file or Memory reads. Use original receipts. One progress line; count host announcements; do not narrate the tool sequence between calls.
 
 ## Coupon
 

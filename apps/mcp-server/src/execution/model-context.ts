@@ -63,6 +63,8 @@ function referenceRows(value: unknown, snapshotPositions = false): Record<string
     }
     const trust = object(entry).merchantTrust;
     if (trust !== undefined) row.merchantTrust = pick(trust, ["level", "verification"]);
+    const productRating = object(entry).productRating;
+    if (productRating !== undefined) row.productRating = pick(productRating, ["value", "count", "scaleMax"]);
     // Comparison/variant lists can be subsets: their indices are not card positions.
     return { ...(snapshotPositions ? { position: index + 1 } : {}), ...row };
   });

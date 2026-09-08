@@ -50,6 +50,24 @@ function nodes(node: FakeNode): FakeNode[] {
   return [node, ...node.children.flatMap(nodes)];
 }
 
+describe("qualified high-rating card presentation", () => {
+  it.each(["zh-CN", "en-US"])("shows a product-rating badge in expanded tier two without inventing a primary (%s)", locale => {
+    const fixture = couponFixture({ verified: [] });
+    const base = fixture.products[0]!;
+    Object.assign(base, { selectionId: "rated-product", presentationGroup: "TRUSTED_MATCH",
+      productRating: { value: 4.9, count: 21, scaleMax: 5 }, recommendationTier: "HIGH_RATED_UNVERIFIED",
+      merchantTrust: { level: "UNKNOWN", verification: "UNVERIFIED", evidence: [] },
+      card: { ...base.card, merchantTrustBadge: "SHOPIFY_HIGH_RATED" } });
+    const app = renderFixture({ ...fixture, locale, recommendation: { state: "MATCHES_AVAILABLE", reasonCodes: [] } });
+    const badge = nodes(app).find(node => node.className.includes("badge") &&
+      node.textContent === (locale === "zh-CN" ? "高评分商品" : "Highly rated product"));
+    expect(badge).toBeDefined();
+    expect(nodes(app).filter(node => node.className === "group").every(node => node.tagName === "SECTION")).toBe(true);
+    expect(nodes(app).filter(node => node.className.includes("featured"))).toHaveLength(0);
+    expect(text(app)).not.toContain(locale === "zh-CN" ? "待核验线索 · 非达标推荐" : "Research leads · not verified matches");
+  });
+});
+
 function renderFixture(output: Record<string, unknown>): FakeNode {
   const app = new FakeNode("MAIN");
   const window = {
@@ -382,7 +400,7 @@ describe("product-card MCP Apps UI", () => {
   });
 
   it("uses an embedded Codex-native surface with responsive cards", () => {
-    expect(PRODUCT_CARD_UI_URI).toBe("ui://findcheap/product-cards/v38.html");
+    expect(PRODUCT_CARD_UI_URI).toBe("ui://findcheap/product-cards/v39.html");
     expect(PRODUCT_CARD_HTML).toContain("--fc-surface:");
     expect(PRODUCT_CARD_HTML).toContain("background: var(--fc-action);");
     expect(PRODUCT_CARD_HTML).toContain("@media (max-width: 640px)");
@@ -490,7 +508,7 @@ describe("product-card MCP Apps UI", () => {
       params: expect.objectContaining({
         name: "report_product_card_metrics",
         arguments: expect.objectContaining({
-          version: "0.17.32",
+          version: "0.17.33",
           terminalStage: "DOM_RENDERED",
           stages: expect.objectContaining({ DOM_RENDERED: expect.any(Number) })
         })
@@ -792,7 +810,8 @@ describe("product-card MCP Apps UI", () => {
     expect(output.indexOf("Exact Product")).toBeLessThan(output.indexOf("Discovery Product"));
     expect(output.indexOf("Discovery Product")).toBeLessThan(output.indexOf("Similar Product"));
     expect(output).toContain("Source-reported product rating: 3.9/5 (2 reviews); not a quality guarantee.");
-    expect(output).toContain("Highly rated product · merchant unverified");
+    expect(output).toContain("Highly rated product");
+    expect(output).toContain("Highly rated products · unverified merchants");
     expect(output).toContain("Verify seller identity, returns, and payment protection");
     expect(output).toContain("Sony");
     expect(output).toContain("WH1000XM5");
@@ -1110,7 +1129,7 @@ describe("product-card MCP Apps UI", () => {
       method: "ui/initialize",
       params: {
         protocolVersion: "2026-01-26",
-        appInfo: { name: "FindCheap Agent product cards", version: "0.17.32" },
+        appInfo: { name: "FindCheap Agent product cards", version: "0.17.33" },
         appCapabilities: { availableDisplayModes: ["inline"] }
       }
     });

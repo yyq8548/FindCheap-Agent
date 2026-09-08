@@ -60,6 +60,50 @@ const productJson = {
 };
 
 describe("selected Shopify product inspection", () => {
+  it("removes embedded stylesheet and script text while retaining visible selected-product specifications", async () => {
+    const medicube: ShopifyProduct = { ...selected, merchant: "medicube", sourceHost: "medicube.us", brand: "medicube",
+      productType: "toner pads", title: "Zero Pore Madecassoside Pads (Mild)", handle: "41268489650224",
+      merchantUrl: "https://medicube.us/products/zero-pore-pads-mild?variant=41268489650224" };
+    const json = { ...productJson, title: medicube.title, handle: "zero-pore-pads-mild", vendor: "medicube",
+      description: '<STYLE type="text/css">.section-product-feature { display: none; } /* 900 pads */</STYLE>' +
+        '<p>Net wt. 155g (70 pads)</p><ScRiPt type="text/javascript">window.productTracking = "900 pads";</ScRiPt>' +
+        '<div>Gentle PHA formula.</div>',
+      options: [{ name: "Title", position: 1, values: ["Default Title"] }],
+      variants: [{ id: 41268489650224, title: "Default Title", available: true, price: 2400, options: ["Default Title"] }] };
+    const inspector = createShopifySelectedProductInspector({ fetchProduct: async url => ({
+      finalUrl: url, response: Response.json(json)
+    }) });
+    const result = await inspector.inspect(medicube, {});
+    expect(result.variants).toHaveLength(1);
+    const variant = result.variants[0]!;
+    expect(variant.description).toContain("Net wt. 155g (70 pads)");
+    expect(variant.description).toContain("Gentle PHA formula.");
+    expect(variant.description).not.toMatch(/section-product-feature|display: none|productTracking|900 pads|<\/?(?:style|script)\b/iu);
+    expect(variant).toMatchObject({ handle: "41268489650224", merchantUrl: medicube.merchantUrl,
+      itemPrice: { amountCents: 2400, currency: "USD" } });
+    expect(result.canonicalProductUrl).toBe("https://medicube.us/products/zero-pore-pads-mild");
+  });
+
+  it("cleans description markup after JSON-LD extraction without removing visible material evidence or offer identity", async () => {
+    const document = { "@type": "Product", name: selected.title,
+      description: '<style>.product-specs { display: block; }</style><p>Composition: 100% cotton.</p>' +
+        '<script>window.productTracking = "not a specification";</script><p>Fully lined.</p>',
+      offers: { price: 248, priceCurrency: "USD", availability: "https://schema.org/InStock", url: selected.merchantUrl } };
+    const encoded = JSON.stringify(document).replace(/</gu, "\\u003c");
+    const inspector = createShopifySelectedProductInspector({ fetchProduct: async url => ({ finalUrl: url,
+      response: url.endsWith(".js") ? new Response("not found", { status: 404 })
+        : new Response(`<script type="application/ld+json">${encoded}</script>`)
+    }) });
+    const result = await inspector.inspect(selected, {});
+    expect(result.variants).toHaveLength(1);
+    expect(result.variants[0]).toMatchObject({ handle: "42677111750769", itemPrice: { amountCents: 24800, currency: "USD" } });
+    expect(result.variants[0]?.description).toContain("Composition: 100% cotton.");
+    expect(result.variants[0]?.description).toContain("Fully lined.");
+    expect(result.variants[0]?.description).not.toMatch(/product-specs|display: block|productTracking|not a specification/u);
+    expect(result.canonicalProductUrl).toBe("https://www.shopdoen.com/products/nevita-dress-noir-la-maddalena-gingham");
+    expect(new URL(result.variants[0]!.merchantUrl).searchParams.get("variant")).toBe("42677111750769");
+  });
+
   it.each([[429, "RATE_LIMITED"], [503, "UPSTREAM_ERROR"]])("does not amplify HTTP %s with an HTML fallback", async (status, code) => {
     const fetchProduct = vi.fn<ProductJsonFetch>(async url => ({ finalUrl: url, response: new Response("private-response", { status: Number(status) }) }));
     const inspector = createShopifySelectedProductInspector({ fetchProduct });

@@ -980,7 +980,7 @@ describe("unified product search", () => {
     }));
   });
 
-  it("separates trusted matches from research without treating ratings as merchant trust", async () => {
+  it("places trusted and qualified product-rating matches ahead of research without changing merchant verification", async () => {
     const highRated = shopifyProduct("high-rated", 1000, "NEW", {
       merchantTrust: {
         level: "UNKNOWN",
@@ -1008,14 +1008,15 @@ describe("unified product search", () => {
     expect(shopifySearch).toHaveBeenCalledTimes(1);
     expect(result.candidates.map((candidate) => candidate.recommendationTier)).toEqual([
       "TRUSTED_OR_AFFILIATE",
-      "GENERAL_UNVERIFIED",
-      "HIGH_RATED_UNVERIFIED"
+      "HIGH_RATED_UNVERIFIED",
+      "GENERAL_UNVERIFIED"
     ]);
     expect(result.candidates.map((candidate) => candidate.presentationGroup)).toEqual([
       "TRUSTED_MATCH",
-      "RESEARCH_ONLY",
+      "TRUSTED_MATCH",
       "RESEARCH_ONLY"
     ]);
+    expect(result.candidates[1]?.shopifyProduct?.merchantTrust.verification).toBe("UNVERIFIED");
     expect(result.chromeFallbackEligible).toBe(false);
   });
 
@@ -1086,7 +1087,7 @@ describe("unified product search", () => {
     ]);
   });
 
-  it("folds high-rated unverified candidates instead of filling best-value slots", async () => {
+  it("does not overflow tier two or grant best-value slots to rating-only candidates", async () => {
     const highRated = (handle: string, amountCents: number) => shopifyProduct(handle, amountCents, "NEW", {
       merchantTrust: {
         level: "UNKNOWN",
@@ -1114,14 +1115,11 @@ describe("unified product search", () => {
       ])
     });
 
-    expect(result.candidates).toHaveLength(6);
+    expect(result.candidates).toHaveLength(3);
     expect(result.candidates.map((candidate) => candidate.presentationGroup)).toEqual([
       "TRUSTED_MATCH",
       "TRUSTED_MATCH",
-      "TRUSTED_MATCH",
-      "RESEARCH_ONLY",
-      "RESEARCH_ONLY",
-      "RESEARCH_ONLY"
+      "TRUSTED_MATCH"
     ]);
     expect(result.candidates.slice(0, 3).map((candidate) =>
       candidate.source === "AWIN_PRODUCT_FEED"
@@ -1129,10 +1127,10 @@ describe("unified product search", () => {
         : candidate.source === "SHOPIFY_GLOBAL_CATALOG"
           ? candidate.shopifyProduct.merchant
           : "eBay"
-    )).toEqual(["Amazonliss (US)", "Amazonliss (US)", "Amazonliss (US)"]);
-    expect(result.candidates.slice(3).every((candidate) =>
-      candidate.recommendationTier === "HIGH_RATED_UNVERIFIED"
-    )).toBe(true);
+    )).toEqual(["Amazonliss (US)", "Merchant rated-1", "Merchant rated-2"]);
+    expect(result.candidates.slice(1).map(candidate => candidate.shopifyProduct?.merchantTrust.verification))
+      .toEqual(["UNVERIFIED", "UNVERIFIED"]);
+    expect(result.candidates.some(candidate => candidate.presentationGroup === "BEST_VALUE")).toBe(false);
   });
 
   it.each([undefined, 300_000])("keeps configuration evidence separate from budget eligibility: %s", async maxItemPriceCents => {
@@ -1248,9 +1246,9 @@ describe("unified product search", () => {
     });
 
     expect(result.candidates.map((candidate) => [candidate.shopifyProduct?.handle, candidate.recommendationTier])).toEqual([
-      ["one-review", "GENERAL_UNVERIFIED"], ["qualified", "HIGH_RATED_UNVERIFIED"], ["threshold", "GENERAL_UNVERIFIED"]
+      ["qualified", "HIGH_RATED_UNVERIFIED"], ["one-review", "GENERAL_UNVERIFIED"], ["threshold", "GENERAL_UNVERIFIED"]
     ]);
-    expect(result.candidates.every(candidate => candidate.presentationGroup === "RESEARCH_ONLY")).toBe(true);
+    expect(result.candidates.map(candidate => candidate.presentationGroup)).toEqual(["TRUSTED_MATCH", "RESEARCH_ONLY", "RESEARCH_ONLY"]);
   });
 
   it("queries Awin for every valid product category", () => {

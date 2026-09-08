@@ -1,22 +1,24 @@
 import { assessProductRecommendation, choosePrimaryRecommendation } from "./product-recommendation.js";
 import { comparableSameProduct, costAdvantage, type ValueEvidence, type ValueProduct } from "./product-value-evidence.js";
-import { hasEquivalentFitEvidence } from "./ranking-assessment.js";
+import { hasEquivalentFitEvidence, validPrice } from "./ranking-assessment.js";
 import { resolveMerchantTrust } from "./merchant-trust.js";
 
 type Product = Parameters<typeof choosePrimaryRecommendation>[0][number] & {
   merchantUrl: string; merchantId: string; sellerName?: string | undefined; valueEvidence?: ValueEvidence | undefined;
 };
 
-/** A final safety projection, not a new ranking pass. Never reorder offers or
- * move their prices/IDs. Every derived snapshot shares the recommendation gate. */
+/** A final safety projection before new references are issued. Omit unpriced
+ * offers; never mutate old snapshots or move a retained offer's price/ID. */
 export function finalizeSnapshotProducts<T extends Product>(products: T[], requestedBrand: boolean, evaluatedAtMs: number):
   Array<Omit<T, "presentationGroup" | "valueEvidence"> & Pick<Product, "presentationGroup" | "valueEvidence">> {
+  products = products.filter(product => product.itemPrice?.currency === "USD" && validPrice(product.itemPrice.amountCents));
   const assessments = products.map(product => assessProductRecommendation(product, evaluatedAtMs));
   return products.map((product, index) => {
     const assessment = assessments[index]!;
     let group = product.presentationGroup;
     let valueEvidence: ValueEvidence | undefined;
-    if (!assessment.primaryEligible) group = "RESEARCH_ONLY";
+    if (!assessment.displayEligible) group = "RESEARCH_ONLY";
+    else if (!assessment.primaryEligible) group = "TRUSTED_MATCH";
     else {
       let official = false;
       try {
@@ -40,7 +42,7 @@ export function finalizeSnapshotProducts<T extends Product>(products: T[], reque
         if (valueEvidence === undefined && group === "BEST_VALUE") group = "TRUSTED_MATCH";
       }
       if (official) group = "OFFICIAL_STORE";
-      else if (group === undefined || group === "OFFICIAL_STORE") group = "TRUSTED_MATCH";
+      else if (group === undefined || group === "OFFICIAL_STORE" || group === "RESEARCH_ONLY") group = "TRUSTED_MATCH";
     }
     const finalized = { ...product, presentationGroup: group };
     if (valueEvidence === undefined) delete finalized.valueEvidence;
@@ -72,10 +74,22 @@ export function countComparableOfferMerchants(products: Array<ValueProduct & Pic
 export function summarizeSearchProducts(products: Product[], evaluatedAtMs = Date.now()) {
   const merchantCount = new Set(products.map(resultMerchantKey)).size;
   const recommendation = choosePrimaryRecommendation(products, evaluatedAtMs);
+  const assessments = products.map(product => assessProductRecommendation(product, evaluatedAtMs));
+  // All entries already passed the presentation gate. This count describes fit,
+  // separately from tier-two admission and independently trusted primary choices.
+  const qualified = products.filter(product => product.requestIdentityStatus !== "NEEDS_VERIFICATION" &&
+    (product.requiredFeatureLimitations?.length ?? 0) === 0 && product.requirementAssessment?.status !== "CONFLICT").length;
+  const qualifiedMatchCount = assessments.filter(assessment => assessment.displayEligible).length;
   const sameProduct = products.length > 1 && merchantCount > 1 &&
     products.every(product => product.requestIdentityStatus !== "NEEDS_VERIFICATION") &&
     products.every((product, index) => products.slice(index + 1).every(peer => comparableSameProduct(product, peer)));
   return { productCount: products.length, merchantCount, recommendation,
+    qualifiedMatchCount,
+    recoveryCounts: { qualified, qualifiedMatches: qualifiedMatchCount,
+      recommendable: assessments.filter(assessment => assessment.primaryEligible).length,
+      awaitingVerification: products.length - qualified,
+      comparableMerchants: countComparableOfferMerchants(products.filter((product, index) =>
+        product.matchStatus !== "SIMILAR" && assessments[index]!.displayEligible)) },
     identityUnverified: products.filter(product => product.requestIdentityStatus === "NEEDS_VERIFICATION").length,
     comparison: {
       status: sameProduct ? "SAME_PRODUCT" as const : "DISCOVERY_ONLY" as const,
@@ -84,6 +98,23 @@ export function summarizeSearchProducts(products: Product[], evaluatedAtMs = Dat
       merchantCount, offerCount: products.length
     }
   };
+}
+
+/** Rebuild display prose only when final projection changed a prior card count.
+ * Source counts and failure diagnostics remain separate structured evidence. */
+export function snapshotCardSummary(summary: ReturnType<typeof summarizeSearchProducts>, locale: "zh-CN" | "en-US"): string {
+  const chinese = locale === "zh-CN";
+  if (summary.productCount === 0) return chinese
+    ? "本次没有可显示的已核实商品价卡片。缺少价格的线索未出卡，这不代表商品不存在。"
+    : "No product cards with verified item prices are available. Unpriced leads are not shown as cards; this does not establish product absence.";
+  const count = chinese ? `保留 ${summary.productCount} 张有已核实商品价的卡片，来自 ${summary.merchantCount} 家商家。`
+    : `Retained ${summary.productCount} product card(s) with verified item prices from ${summary.merchantCount} merchant(s).`;
+  return count + (summary.recommendation.state === "MATCHES_AVAILABLE" ? chinese
+    ? "有符合要求的高评分商品可供比较，暂不指定首选；商品评分不等于商家独立核验。"
+    : "Qualifying highly rated products are available to compare, without a primary choice; product ratings do not independently verify merchants."
+    : summary.recommendation.state === "RESEARCH_ONLY" ? chinese
+      ? "这些仍是待核验线索，请查看卡片中的具体限制。" : "These remain research leads; check the limitations on each card."
+      : "");
 }
 
 /** Preserve useful provider evidence only when it agrees with the actual offers. */

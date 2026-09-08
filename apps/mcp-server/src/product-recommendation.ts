@@ -16,7 +16,7 @@ export const RECOMMENDATION_REASON_CODES = [
 ] as const;
 
 export type RecommendationReasonCode = typeof RECOMMENDATION_REASON_CODES[number];
-export type RecommendationState = "READY" | "NEEDS_CLARIFICATION" | "RESEARCH_ONLY" | "NO_MATCH";
+export type RecommendationState = "READY" | "MATCHES_AVAILABLE" | "NEEDS_CLARIFICATION" | "RESEARCH_ONLY" | "NO_MATCH";
 
 export type RecommendationDecision = {
   state: RecommendationState;
@@ -131,6 +131,7 @@ export function choosePrimaryRecommendation(products: RecommendationProduct[], e
     .map((product, index) => ({ product, index, assessment: assessProductRecommendation(product, evaluatedAtMs) }));
   const eligible = assessed.filter(({ assessment }) => assessment.primaryEligible);
   if (eligible.length === 0) {
+    if (assessed.some(({ assessment }) => assessment.displayEligible)) return { state: "MATCHES_AVAILABLE", reasonCodes: [] };
     const blockers = new Set(assessed.flatMap(({ assessment }) => assessment.primaryBlockReasons));
     return { state: "RESEARCH_ONLY", reasonCodes: PRIMARY_BLOCK_REASON_CODES.filter((code) => blockers.has(code)).slice(0, 3) };
   }

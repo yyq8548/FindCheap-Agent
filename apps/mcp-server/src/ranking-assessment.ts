@@ -1,6 +1,7 @@
 import { visualReviewScore, type VisualReviewAssessment } from "./visual-review-policy.js";
 import type { RequestIdentityStatus } from "./shopify-match.js";
 import { assessQualityEvidence, comparableUnitPrices, type QualityEvidence, type ValueProduct } from "./product-value-evidence.js";
+import { isHighRatedProduct } from "./merchant-trust.js";
 
 export const PRIMARY_BLOCK_REASON_CODES = [
   "VARIANT_OUT_OF_STOCK", "IDENTITY_UNVERIFIED", "UNVERIFIED_MERCHANT", "UNFULFILLED_REQUIREMENTS", "SIMILAR_ONLY", "MISSING_PRICE", "VISUAL_REVIEW_REQUIRED"
@@ -29,6 +30,7 @@ export type RankingInput = Omit<ValueProduct, "itemPrice"> & {
 };
 
 export type RankingAssessment = {
+  displayEligible: boolean;
   primaryEligible: boolean;
   primaryBlockReasons: PrimaryBlockReasonCode[];
   matchRank: number;
@@ -68,6 +70,10 @@ export function assessRanking(input: RankingInput): RankingAssessment {
   if (!validPrice(input.itemPriceCents)) primaryBlockReasons.push("MISSING_PRICE");
   if (input.visualReviewRequired === true) primaryBlockReasons.push("VISUAL_REVIEW_REQUIRED");
   return {
+    // A source-reported product rating admits a matched offer to tier two, not
+    // independent merchant verification, a primary choice or quote permission.
+    displayEligible: input.merchantTrust.level !== "RISKY" && (trusted || isHighRatedProduct(input.productRating)) &&
+      primaryBlockReasons.every(reason => reason === "UNVERIFIED_MERCHANT"),
     primaryEligible: primaryBlockReasons.length === 0,
     primaryBlockReasons,
     matchRank: input.matchStatus === "EXACT" ? 0 : input.matchStatus === "DISCOVERY_MATCH" ? 1 : 2,
@@ -124,6 +130,6 @@ function sameEvidence(left: readonly string[], right: readonly string[]): boolea
   return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
-function validPrice(value: number | undefined): value is number {
+export function validPrice(value: number | undefined): value is number {
   return value !== undefined && Number.isSafeInteger(value) && value >= 0;
 }

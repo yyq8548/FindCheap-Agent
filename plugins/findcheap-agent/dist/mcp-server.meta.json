@@ -4355,6 +4355,11 @@
           "kind": "import-statement",
           "original": "./product-value-evidence.js",
           "path": "src/product-value-evidence.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./merchant-trust.js",
+          "path": "src/merchant-trust.ts"
         }
       ]
     },
@@ -5364,7 +5369,7 @@
   },
   "outputs": {
     "../../plugins/findcheap-agent/dist/mcp-server.js": {
-      "bytes": 1025459,
+      "bytes": 1034801,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
@@ -6057,7 +6062,7 @@
           "bytesInOutput": 2051
         },
         "src/execution/model-context.ts": {
-          "bytesInOutput": 2807
+          "bytesInOutput": 2898
         },
         "src/execution/tool-executor.ts": {
           "bytesInOutput": 2309
@@ -6081,7 +6086,7 @@
           "bytesInOutput": 1367
         },
         "src/merchant-trust.ts": {
-          "bytesInOutput": 9931
+          "bytesInOutput": 10016
         },
         "src/merchant-variant.ts": {
           "bytesInOutput": 831
@@ -6099,25 +6104,25 @@
           "bytesInOutput": 712
         },
         "src/product-candidate-ranking.ts": {
-          "bytesInOutput": 7627
+          "bytesInOutput": 7808
         },
         "src/product-card-telemetry.ts": {
           "bytesInOutput": 814
         },
         "src/product-card-ui.ts": {
-          "bytesInOutput": 77931
+          "bytesInOutput": 78312
         },
         "src/product-comparison-ui.ts": {
-          "bytesInOutput": 26488
+          "bytesInOutput": 26556
         },
         "src/product-comparison.ts": {
-          "bytesInOutput": 12328
+          "bytesInOutput": 12398
         },
         "src/product-constraint-matcher.ts": {
           "bytesInOutput": 12930
         },
         "src/product-recommendation.ts": {
-          "bytesInOutput": 4715
+          "bytesInOutput": 4811
         },
         "src/product-reference.ts": {
           "bytesInOutput": 128
@@ -6135,7 +6140,7 @@
           "bytesInOutput": 3739
         },
         "src/ranking-assessment.ts": {
-          "bytesInOutput": 3175
+          "bytesInOutput": 3288
         },
         "src/recommendation-message.ts": {
           "bytesInOutput": 2008
@@ -6156,13 +6161,13 @@
           "bytesInOutput": 5126
         },
         "src/search-result-summary.ts": {
-          "bytesInOutput": 3435
+          "bytesInOutput": 5412
         },
         "src/search-run.ts": {
           "bytesInOutput": 7832
         },
         "src/server.ts": {
-          "bytesInOutput": 185951
+          "bytesInOutput": 192092
         },
         "src/shopify-cart-quote.ts": {
           "bytesInOutput": 12440
@@ -6183,7 +6188,7 @@
           "bytesInOutput": 1432
         },
         "src/shopify-selected-product.ts": {
-          "bytesInOutput": 6764
+          "bytesInOutput": 6806
         },
         "src/sony-official-store-search.ts": {
           "bytesInOutput": 10637
@@ -6195,7 +6200,7 @@
           "bytesInOutput": 930
         },
         "src/text-search-recovery.ts": {
-          "bytesInOutput": 1891
+          "bytesInOutput": 1988
         },
         "src/visual-candidate-images.ts": {
           "bytesInOutput": 6960

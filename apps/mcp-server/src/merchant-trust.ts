@@ -246,6 +246,8 @@ export function currentMerchantTrustRegistryVersion(): string {
 
 export function isHighRatedProduct(rating: ProductRating | undefined): boolean {
   return rating !== undefined &&
+    rating.scaleMax === 5 && Number.isFinite(rating.value) && rating.value <= 5 &&
+    Number.isSafeInteger(rating.count) &&
     rating.value > HIGH_PRODUCT_RATING_THRESHOLD &&
     rating.count >= HIGH_PRODUCT_RATING_MIN_COUNT;
 }

@@ -121,7 +121,7 @@ export const ProductComparisonOutputSchema = z.object({
     amountCents: z.number().int().nonnegative()
   }).strict().optional(),
   recommendation: z.object({
-    state: z.enum(["READY", "RESEARCH_ONLY", "NO_MATCH"]),
+    state: z.enum(["READY", "MATCHES_AVAILABLE", "RESEARCH_ONLY", "NO_MATCH"]),
     recommendedSelectionId: z.string().uuid().optional(),
     scope: z.literal("SIMILAR").optional(),
     reasonCodes: z.array(z.enum(RECOMMENDATION_REASON_CODES)).max(3),
@@ -239,6 +239,7 @@ export function buildProductComparison(
   ])].slice(0, 2);
   const recommendation = {
     state: decision.state === "READY" ? "READY" as const
+      : decision.state === "MATCHES_AVAILABLE" ? "MATCHES_AVAILABLE" as const
       : decision.state === "NO_MATCH" ? "NO_MATCH" as const : "RESEARCH_ONLY" as const,
     ...(recommendedSelectionId === undefined ? {} : { recommendedSelectionId }),
     ...(selectedProduct?.visualReviewAssessment?.recommendationScope === "SIMILAR" ? { scope: "SIMILAR" as const } : {}),

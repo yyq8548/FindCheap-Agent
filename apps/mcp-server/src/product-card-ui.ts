@@ -2,7 +2,7 @@ import { FINDCHEAP_VERSION } from "../../../config/version.js";
 import { QUOTE_UI_FEEDBACK_SCRIPT } from "./quote-ui-feedback.js";
 import { MAX_PRODUCT_CARDS } from "./product-candidate-ranking.js";
 
-export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v38.html";
+export const PRODUCT_CARD_UI_URI = "ui://findcheap/product-cards/v39.html";
 
 export const PRODUCT_CARD_RESOURCE_DOMAINS = [
   "https://cdn.shopify.com",
@@ -298,7 +298,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       ? ({ "long hair": "长发", "short hair": "短发", "straight hair": "直发", "curly hair": "卷发" }[value] || value) : value;
     const badgeText = (value) => currentLocale !== "zh-CN" ? ({
       TRUSTED_MERCHANT: "Trusted merchant",
-      SHOPIFY_HIGH_RATED: "Highly rated product · merchant unverified"
+      SHOPIFY_HIGH_RATED: "Highly rated product"
     })[value] || value : ({
       EXACT: "精确匹配",
       DISCOVERY_MATCH: "发现匹配",
@@ -308,7 +308,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       AUTHORIZED_RETAILER: "授权零售商",
       ESTABLISHED_RETAILER: "成熟零售商",
       TRUSTED_MERCHANT: "可信商家",
-      SHOPIFY_HIGH_RATED: "高评分商品 · 商家未核验",
+      SHOPIFY_HIGH_RATED: "高评分商品",
       NEW: "全新",
       USED: "二手",
       REFURBISHED: "翻新",
@@ -595,7 +595,7 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       {
         group: "TRUSTED_MATCH",
         title: text("Trusted exact and similar matches", "可信的精确与相似匹配"),
-        notice: text("Requirement-matched products from independently reviewed merchants, including manually verified approved Awin merchants. Product ratings do not verify merchants.", "必要要求已匹配，来自独立核验商家，包括人工验证的已批准 Awin 商家。商品评分不等于商家核验。")
+        notice: text("Requirement-matched products from independently reviewed merchants, including manually verified approved Awin merchants, or qualifying highly rated products. Product ratings do not verify merchants.", "符合要求的商品，来自已核验商家（包括人工验证的已批准 Awin 商家），或凭商品高评分入选。商品评分不等于商家已独立核验。")
       },
       {
         group: "BEST_VALUE",
@@ -844,6 +844,9 @@ export const PRODUCT_CARD_HTML = String.raw`<!doctype html>
       if (output?.retrieval?.extent === "BOUNDED") app.append(make("div", "summary", text(
         "Bounded search; this is not complete catalog coverage. Unverified requirements do not count as fulfilled matches.",
         "本次为有界检索，未覆盖完整目录。待核验商品不计入达标结果。")));
+      if (output?.recommendation?.state === "MATCHES_AVAILABLE") app.append(make("div", "summary", text(
+        "These highly rated products match your requirements. Compare their item prices below; no primary choice has been selected.",
+        "这些高评分商品符合你的要求，可以接着比较商品价；暂不指定首选。")));
       if (output?.recovery?.qualified === 0 && products.some(product => product.presentationGroup === "RESEARCH_ONLY")) {
         const missing = [...new Set(products.flatMap(product => product.requiredFeatureLimitations || []))].map(requirementLabel);
         app.append(make("div", "empty", text("No verified fit in this search. Research leads are collapsed below.",

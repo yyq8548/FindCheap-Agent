@@ -78,3 +78,9 @@ Stop CAPTCHA, denial, identity mismatch or unexpected redirects; no retries.
 The plugin enforces host consent, single admission, expiry, exact-URL verification
 and bounded server reads. Chrome navigation permissions and the two discovery
 queries remain host-owned; the plugin cannot police unrelated browser calls.
+
+## Explain the result naturally
+
+For a blocked attempt, say what could not be checked: "这次网页补搜没能启动，目前还不能确认其他商家的价格。" / "The web search could not start, so I have not checked other merchants' prices." Mention existing matches only if the server returned them. Do not say the user refused or a popup appeared without evidence.
+
+Keep IDs, status names and local skill paths in diagnostics unless the user is troubleshooting or higher-priority host instructions require them. Follow the returned stopping rule; a friendlier explanation cannot grant permission or justify another attempt. Do not claim a client update or setting change is verified until the native host has been tested.

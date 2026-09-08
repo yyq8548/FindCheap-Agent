@@ -78,6 +78,7 @@ import {
   compareRankedCandidates,
   countDisplayEligibleCandidates,
   countRecommendationEligibleCandidates,
+  countQualifiedMatchCandidates,
   countComparableMerchants,
   selectPresentationCandidates,
   selectVisualReviewCandidates
@@ -801,7 +802,7 @@ export async function searchProducts(
         officialCandidates.splice(0, officialCandidates.length, ...merged);
         attempts.push({ stage: attempt.stage, query: compiledQuery, productsReturned: products.length, acceptedCandidates: incoming.length });
         if (input.visualInput === undefined && input.deferVisualFiltering !== true &&
-          countRecommendationEligibleCandidates(officialCandidates) >= Math.min(input.limit, searchIntent === "EXACT_PRODUCT" ? 1 : 2)) break;
+          countQualifiedMatchCandidates(officialCandidates) >= Math.min(input.limit, searchIntent === "EXACT_PRODUCT" ? 1 : 2)) break;
         if (hasSufficientOfficialMatches(officialCandidates.filter(candidate =>
           !searchRun.wasVisuallyReviewed(candidateFingerprint(candidate).productHash)), input.limit)) break;
       } catch (error) {
@@ -851,7 +852,7 @@ export async function searchProducts(
   let searchPasses: 1 | 2 = 1;
   const expandedQuery = buildExpandedQuery(input, searchIntent, identityQuery);
   if (
-    (input.visualInput !== undefined || input.deferVisualFiltering === true ? countDisplayEligibleCandidates : countRecommendationEligibleCandidates)(
+    (input.visualInput !== undefined || input.deferVisualFiltering === true ? countDisplayEligibleCandidates : countQualifiedMatchCandidates)(
       [...affiliateCandidates, ...ebayCandidates, ...shopifyCandidates, ...officialCandidates, ...retainedPrevious()],
       input.allowAlternatives
     ) < discoveryTarget(input, input.visualInput !== undefined || input.deferVisualFiltering === true) ||
@@ -940,7 +941,7 @@ export async function searchProducts(
     shopifyStatus !== "PARTIAL" &&
     officialStoreFallback.status !== "PARTIAL" && officialStoreFallback.status !== "UNAVAILABLE";
   const chromeFallbackEligible =
-    (input.visualInput === undefined ? countRecommendationEligibleCandidates(candidates) === 0 ||
+    (input.visualInput === undefined ? countQualifiedMatchCandidates(candidates) === 0 ||
       (input.compareMerchants === true && countComparableMerchants(candidates) < 2) : candidates.length === 0) &&
     !searchRun.diagnostics().budgetExhausted &&
     !sourceFailures.some(failure => !failure.retryable) &&

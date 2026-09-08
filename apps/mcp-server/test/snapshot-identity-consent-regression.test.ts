@@ -114,18 +114,21 @@ it("inspection cannot promote unresolved identity or an unreviewed unpriced merc
   try {
     const initial = await replay.client.callTool({ name: "search_products", arguments: request });
     const first = initial.structuredContent as Snapshot;
-    expect(first.products).toHaveLength(3);
+    expect(first.products).toHaveLength(2);
+    expect(first.products.some(p => p.sourceHost === unreviewed.sourceHost)).toBe(false);
+    expect(unreviewed).not.toHaveProperty("itemPrice");
     const historical = structuredClone(first);
     const inspected = await replay.client.callTool({ name: "inspect_selected_shopify_product", arguments: {
       renderId: first.renderId, position: 1
     } });
     expect(inspected.isError).not.toBe(true);
     const next = (inspected.structuredContent as { updatedSnapshot: Snapshot }).updatedSnapshot;
-    expect(next.products).toHaveLength(3);
+    expect(next.products).toHaveLength(2);
+    expect(next.products.some(p => p.sourceHost === unreviewed.sourceHost)).toBe(false);
     expect(next.products.every(p => p.presentationGroup === "RESEARCH_ONLY")).toBe(true);
     expect(next.recommendation).toMatchObject({ state: "RESEARCH_ONLY" });
     expect(next.recommendation?.primarySelectionId).toBeUndefined();
-    expect(next.comparison).toMatchObject({ offerCount: 3, merchantCount: 2, status: "DISCOVERY_ONLY" });
+    expect(next.comparison).toMatchObject({ offerCount: 2, merchantCount: 1, status: "DISCOVERY_ONLY" });
     expect(next.goalId).toBe(first.goalId);
     expect(next.recovery).toMatchObject({ action: "REQUEST_WEB_SEARCH", recommendable: 0 });
     const restored = await replay.client.callTool({ name: "render_product_cards", arguments: { renderId: first.renderId } });

@@ -1,7 +1,7 @@
 import { FINDCHEAP_VERSION } from "../../../config/version.js";
 import { QUOTE_UI_FEEDBACK_SCRIPT } from "./quote-ui-feedback.js";
 
-export const PRODUCT_COMPARISON_UI_URI = "ui://findcheap/product-comparison/v8.html";
+export const PRODUCT_COMPARISON_UI_URI = "ui://findcheap/product-comparison/v9.html";
 
 export const PRODUCT_COMPARISON_HTML = String.raw`<!doctype html>
 <html>
@@ -115,7 +115,7 @@ export const PRODUCT_COMPARISON_HTML = String.raw`<!doctype html>
         OFFICIAL: "官方", AUTHORIZED_RETAILER: "授权零售商", ESTABLISHED_RETAILER: "成熟零售商", RISKY: "风险商家",
         INDEPENDENT: "独立验证", UNVERIFIED: "未验证",
         EXACT_MATCH: "精确匹配", BEST_FIT: "最佳匹配", TRUSTED_MERCHANT: "可信商家", LOWER_PRICE: "同款价格更低", LOWER_UNIT_PRICE: "单位价格更低", VERIFIED_COUPON: "已验证优惠",
-        READY: "已生成", RESEARCH_ONLY: "仅供研究", NO_MATCH: "无匹配", NEEDS_CLARIFICATION: "需要补充信息",
+        READY: "已生成", MATCHES_AVAILABLE: "有符合要求的商品，暂不指定首选", RESEARCH_ONLY: "仅供研究", NO_MATCH: "无匹配", NEEDS_CLARIFICATION: "需要补充信息",
         COUPON: "优惠券", PROMO_CODE: "促销码", BRAND_PROMOTION: "品牌促销",
         ITEM_PRICE: "商品价", DELIVERED_TOTAL: "到手价", CONDITION: "商品状态", AVAILABILITY: "库存", MERCHANT_TRUST: "商家信任"
       };

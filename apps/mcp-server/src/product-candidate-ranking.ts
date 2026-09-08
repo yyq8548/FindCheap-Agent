@@ -70,7 +70,8 @@ export function selectPresentationCandidates(
   preferDistinctStyles = false
 ): Array<UnifiedCandidate & { valueEvidence?: ValueEvidence }> {
   candidates = deduplicateCandidateOffers(candidates);
-  const eligible = candidates.filter(candidate => candidateRanking(candidate, evaluatedAtMs).primaryEligible);
+  candidates = candidates.filter(candidate => !candidateRanking(candidate, evaluatedAtMs).primaryBlockReasons.includes("MISSING_PRICE"));
+  const eligible = candidates.filter(candidate => candidateRanking(candidate, evaluatedAtMs).displayEligible);
   const officialInTier = (candidate: UnifiedCandidate) => requestedBrand && isOfficialCandidate(candidate);
   const official = eligible
     .filter(officialInTier)
@@ -79,14 +80,13 @@ export function selectPresentationCandidates(
     .map((candidate) => ({ ...candidate, presentationGroup: "OFFICIAL_STORE" as const }));
   const trustedPool = eligible
     .filter((candidate) => !officialInTier(candidate))
-    .filter((candidate) => passesVisualDisplayGate(candidate, allowAlternatives))
-    .filter((candidate) =>
-      candidate.recommendationTier === "TRUSTED_OR_AFFILIATE"
-    );
+    .filter((candidate) => passesVisualDisplayGate(candidate, allowAlternatives));
   const rankedTrusted = trustedPool.sort(
     (left, right) => (selectionMode === "LOWEST_PRICE" ? compareLowestPrice : compareRankedCandidates)(left, right, evaluatedAtMs)
   );
-  const values = new Map(rankedTrusted.map(candidate => [candidateKey(candidate), candidateValueAdvantage(candidate, eligible, evaluatedAtMs)]));
+  const valueEligible = eligible.filter(candidate => candidateRanking(candidate, evaluatedAtMs).primaryEligible);
+  const values = new Map(rankedTrusted.map(candidate => [candidateKey(candidate),
+    candidateRanking(candidate, evaluatedAtMs).primaryEligible ? candidateValueAdvantage(candidate, valueEligible, evaluatedAtMs) : undefined]));
   const rankedBestValue = rankedTrusted.filter(candidate => values.get(candidateKey(candidate)) !== undefined);
   // Reserve only proved savings, not leftovers. A value card has the same
   // trust and requirements gates as an ordinary trusted card.
@@ -229,7 +229,13 @@ export function countDisplayEligibleCandidates(
     candidate.requiredFeatureLimitations.length === 0 && candidate.requirementAssessment?.status !== "CONFLICT").length;
 }
 
-/** Research leads do not satisfy a text search's replenishment target. */
+/** Qualified tier-two matches satisfy retrieval coverage without becoming primary choices. */
+export function countQualifiedMatchCandidates(candidates: UnifiedCandidate[]): number {
+  const evaluatedAtMs = Date.now();
+  return new Set(candidates.filter(candidate => candidateRanking(candidate, evaluatedAtMs).displayEligible).map(candidateKey)).size;
+}
+
+/** Primary-choice eligibility remains stricter than qualified display admission. */
 export function countRecommendationEligibleCandidates(candidates: UnifiedCandidate[]): number {
   const evaluatedAtMs = Date.now();
   return new Set(candidates.filter(candidate => candidateRanking(candidate, evaluatedAtMs).primaryEligible).map(candidateKey)).size;
@@ -239,7 +245,7 @@ export function countRecommendationEligibleCandidates(candidates: UnifiedCandida
 export function countComparableMerchants(candidates: UnifiedCandidate[]): number {
   const evaluatedAtMs = Date.now();
   return countComparableOfferMerchants(candidates.filter(candidate => candidate.identityStatus !== "SIMILAR" &&
-    candidateRanking(candidate, evaluatedAtMs).primaryEligible).map(candidate => {
+    candidateRanking(candidate, evaluatedAtMs).displayEligible).map(candidate => {
       const product = candidate.awinProduct ?? candidate.shopifyProduct ?? candidate.ebayProduct;
       return { ...product, merchantId: "merchantId" in product ? product.merchantId : product.itemId };
     }));
