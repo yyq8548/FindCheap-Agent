@@ -33,6 +33,22 @@ const shampoos: AwinProduct[] = [1, 2, 3].map(id => ({ merchantId: String(id), m
   affiliateUrl: `https://www.awin1.com/cread.php?awinmid=${id}&awinaffid=3047955&ued=https%3A%2F%2Fstore${id}.example%2Fproducts%2Fshampoo`, checkedAt }));
 
 describe("bounded source retrieval regression", () => {
+  it("broadens only reviewed category-only Woo queries and preserves other retrieval boundaries", () => {
+    for (const pass of [1, 2] as const) {
+      for (const query of ["coffee", "coffee beans", "whole bean coffee", "咖啡豆", "ground coffee", "coffee pods", "instant coffee"]) {
+        expect(compileSourceQuery("WOOCOMMERCE", query, { pass, identityQuery: query, visual: false })).toBe("coffee");
+        expect(compileSourceQuery("SHOPIFY", query, { pass, identityQuery: query, visual: false })).toBe(query);
+        expect(compileSourceQuery("WOOCOMMERCE", query, { pass, identityQuery: query, visual: true })).toBe(query);
+      }
+      for (const query of ["JBC coffee beans", "coffee grinder", "coffee CF1234", "coffee beans organic", "coffee beans ground coffee"]) {
+        expect(compileSourceQuery("WOOCOMMERCE", query, { pass, identityQuery: query, visual: false })).toBe(query);
+      }
+      expect(compileSourceQuery("WOOCOMMERCE", "whole bean coffee", {
+        pass, identityQuery: "JBC Twisted coffee beans", visual: false
+      })).toBe("whole bean coffee");
+    }
+  });
+
   it("reuses category aliases for continuation without inventing categories from candidate-only evidence", () => {
     expect(productQueryCategoryKeys("shampoo 洗发露 洗发水")).toEqual(["shampoo"]);
     expect(productQueryCategoryKeys("wig laptop")).toEqual(["laptop", "wig"]);

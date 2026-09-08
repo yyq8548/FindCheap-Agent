@@ -25,7 +25,8 @@ import { SourceValidationDetailsSchema } from "./source-failure.js";
 import { textSearchRecovery, TextSearchRecoverySchema } from "./text-search-recovery.js";
 import { WebRecoverySessions, WebConsentStatusSchema, WebDiscoveryOutcomeSchema, WebProductUrlSchema, WEB_SEARCH_LIMITS, webSearchQueries, readWebCandidates, type WebProductPagePort } from "./web-product-recovery.js";
 import { awaitWithSignal } from "./await-with-signal.js";
-import { evaluateRecoveredProducts, productIdentityBrand, woocommerceCandidate, resolveSearchIntent, parseStoredSearchRequest } from "./search-products.js";
+import { evaluateRecoveredProducts, productIdentityBrand, woocommerceCandidate, resolveSearchIntent, parseStoredSearchRequest, requestedCoffeeCategory } from "./search-products.js";
+import { assessCoffeeCategory } from "./coffee-category.js";
 import { createExecutedToolRegistrar } from "./execution/tool-registry.js";
 import {
   ProductComparisonInputSchema,
@@ -3972,7 +3973,10 @@ export function createShoppingServer(
         ...(uiSelection ? { selectionRevision: receipt!.revision } : {})
       };
       try {
-        const inspection = await selectedProducts.inspect(selected, variantDimensions);
+        const observedInspection = await selectedProducts.inspect(selected, variantDimensions);
+        const coffeeCategory = snapshot.request === undefined ? undefined : requestedCoffeeCategory(snapshot.request);
+        const inspection = coffeeCategory === undefined ? observedInspection : { ...observedInspection,
+          variants: observedInspection.variants.filter(product => assessCoffeeCategory(coffeeCategory, product).status !== "CONTRADICTED") };
         if (inspection.variants.length === 0) {
           const message = locale === "zh-CN"
             ? "这件商品没有符合所选条件的规格；没有改搜其他商品。"
@@ -4049,7 +4053,8 @@ export function createShoppingServer(
           return { ...product, matchStatus: previousCard.matchStatus, card: { ...product.card, matchBadge: previousCard.card.matchBadge },
             visualReviewRequired: previousCard.visualReviewRequired, visualReviewAssessment: previousCard.visualReviewAssessment,
             visualMatchGroup: previousCard.visualMatchGroup, visualMatchEvidence: previousCard.visualMatchEvidence };
-        });
+        }).map(product => coffeeCategory !== undefined && assessCoffeeCategory(coffeeCategory, product).status === "UNKNOWN"
+          ? { ...product, requestIdentityStatus: "NEEDS_VERIFICATION" as const } : product);
         // One exact sibling updates the comparison set; multiple options require a
         // fresh user selection. Old snapshots and their selection IDs never change.
         const derivedSource = inspection.variants.length === 1 ? {

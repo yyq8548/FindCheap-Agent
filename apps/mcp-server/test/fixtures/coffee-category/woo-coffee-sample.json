@@ -1,0 +1,560 @@
+{
+  "schemaVersion": 1,
+  "evidenceKind": "SAVED_REAL_WOO_SOURCE_OBSERVATIONS",
+  "note": "Real public observations from 2026-09-08; immutable prices, identities, stock and timestamps. Replay is not current merchant availability or live/native acceptance. No shipping or medical facts were added.",
+  "provenance": {
+    "observedAt": "2026-09-08T21:34:16.138Z",
+    "sourceCommit": "e2b47c7c83258bb562e98bb7d03b532f71a551e0",
+    "request": {
+      "method": "POST",
+      "url": "https://findcheap-agent-production.up.railway.app/v1/woocommerce/search",
+      "body": {
+        "query": "coffee",
+        "limit": 8,
+        "market": "US",
+        "currency": "USD",
+        "productType": "whole bean coffee",
+        "maxItemPriceCents": 10000,
+        "requirements": {},
+        "includeOutOfStock": false
+      }
+    },
+    "httpStatus": 200,
+    "originalResponseSha256": "6a22b346b14c95456dd86f01a1dfdd79b9631b45c50c044331a3267af7ae62d8"
+  },
+  "response": {
+    "source": "WOOCOMMERCE_STORE_API",
+    "schemaVersion": 1,
+    "registryVersion": "2026-09-08-expanded-200",
+    "requestId": "6a9a5c0f-0bc4-4a18-bc84-eb5767980e3e",
+    "status": "PARTIAL",
+    "snapshotAt": "2026-09-08T21:34:23.891Z",
+    "products": [
+      {
+        "sourceKind": "WOOCOMMERCE_STORE_API",
+        "merchantId": "barrington-coffee",
+        "merchantName": "Barrington Coffee Roasting Company",
+        "sourceHost": "barringtoncoffee.com",
+        "productId": 226458,
+        "title": "Coffee Blossom Honey – 12oz. jar",
+        "description": "Coffee Blossom Honey from Guatemala Sourced from small-scale family farms aiming to boost economic prosperity for these families, maintain unparalleled honey quality, and ensure environmental sustainability. Tasting notes: a subtle sweetness with delicate lavender notes. Pairs well with coffee, tea, cheese Crystalization: Three things make honey more likely to crystallize: Temperature below 50ºF (10ºC) | The ratio of glucose and fructose in the honey | Pollen content To turn your Coffee Blossom Honey back into a smooth liquid put your honey in a vessel of warm water and allow it to slowly liquify.",
+        "sku": "FINEACBH",
+        "productType": "simple",
+        "category": "Coffee Blossom Honey",
+        "condition": "UNKNOWN",
+        "attributes": [],
+        "variantDimensions": {},
+        "selectedAttributes": {},
+        "merchantUrl": "https://barringtoncoffee.com/shop/coffee-blossom-honey-12oz-jar/",
+        "imageUrl": "https://barringtoncoffee.com/wp-content/uploads/2026/01/Classic_2.jpeg",
+        "images": [
+          {
+            "id": "53b57d7f711bfa89f697bef7ca8c3b7e0e939fa86886c7fa3ad5678061218ca4",
+            "url": "https://barringtoncoffee.com/wp-content/uploads/2026/01/Classic_2.jpeg"
+          }
+        ],
+        "itemPrice": {
+          "amountCents": 2000,
+          "currency": "USD"
+        },
+        "priceEvidence": {
+          "amountMinor": "2000",
+          "currency": "USD",
+          "currencyMinorUnit": 2,
+          "scope": "PRODUCT",
+          "taxBasis": "UNKNOWN"
+        },
+        "availability": "IN_STOCK",
+        "availabilityScope": "PRODUCT",
+        "rating": {
+          "value": 0,
+          "reviewCount": 0,
+          "scale": 5,
+          "productId": 226458
+        },
+        "checkedAt": "2026-09-08T21:34:17.680Z"
+      },
+      {
+        "sourceKind": "WOOCOMMERCE_STORE_API",
+        "merchantId": "cafe-du-monde",
+        "merchantName": "Cafe Du Monde",
+        "sourceHost": "shop.cafedumonde.com",
+        "productId": 231369,
+        "title": "Coffee & Beignets Toddler Socks",
+        "description": "",
+        "sku": "12015",
+        "productType": "simple",
+        "category": "Cafe Du Monde",
+        "condition": "UNKNOWN",
+        "attributes": [],
+        "variantDimensions": {},
+        "selectedAttributes": {},
+        "merchantUrl": "https://shop.cafedumonde.com/product/wearables/socks/coffee-beignets-toddler-socks/",
+        "imageUrl": "https://shop.cafedumonde.com/wp-content/uploads/2026/06/cafe-du-monde-socks-toddler-coffee-beignets-yellow-brown.jpg",
+        "images": [
+          {
+            "id": "408098525ece26c083d1108946768b4f89145e2c7c1f3720c484dcfb8dafdb1b",
+            "url": "https://shop.cafedumonde.com/wp-content/uploads/2026/06/cafe-du-monde-socks-toddler-coffee-beignets-yellow-brown.jpg"
+          }
+        ],
+        "itemPrice": {
+          "amountCents": 1399,
+          "currency": "USD"
+        },
+        "priceEvidence": {
+          "amountMinor": "1399",
+          "currency": "USD",
+          "currencyMinorUnit": 2,
+          "scope": "PRODUCT",
+          "taxBasis": "UNKNOWN"
+        },
+        "availability": "IN_STOCK",
+        "availabilityScope": "PRODUCT",
+        "rating": {
+          "value": 0,
+          "reviewCount": 0,
+          "scale": 5,
+          "productId": 231369
+        },
+        "checkedAt": "2026-09-08T21:34:16.409Z"
+      },
+      {
+        "sourceKind": "WOOCOMMERCE_STORE_API",
+        "merchantId": "cips-coffee-roasters",
+        "merchantName": "Cips Coffee Roasters",
+        "sourceHost": "cipscoffeeroasters.com",
+        "productId": 2687,
+        "parentProductId": 2687,
+        "variationId": 2692,
+        "title": "Grey COFFEE Comfort Colors Sweatshirt",
+        "description": "",
+        "productType": "variation",
+        "category": "",
+        "condition": "UNKNOWN",
+        "attributes": [
+          "size: XXL"
+        ],
+        "variantDimensions": {
+          "size": [
+            "XXL"
+          ]
+        },
+        "selectedAttributes": {
+          "size": "XXL"
+        },
+        "merchantUrl": "https://cipscoffeeroasters.com/product/grey-coffee-comfort-colors-sweatshirt/?attribute_size=XXL",
+        "imageUrl": "https://cipscoffeeroasters.com/wp-content/uploads/Cips_photo_couple_gray1_c522dbc0-6fce-4889-a554-1a803edfec00-14-scaled-1.jpg",
+        "images": [
+          {
+            "id": "5d32277e81b9b33dd16689a859583a4a70e1338fcceac9b1ad5eae5e884a0977",
+            "url": "https://cipscoffeeroasters.com/wp-content/uploads/Cips_photo_couple_gray1_c522dbc0-6fce-4889-a554-1a803edfec00-14-scaled-1.jpg"
+          }
+        ],
+        "itemPrice": {
+          "amountCents": 4900,
+          "currency": "USD"
+        },
+        "priceEvidence": {
+          "amountMinor": "4900",
+          "currency": "USD",
+          "currencyMinorUnit": 2,
+          "scope": "VARIANT",
+          "taxBasis": "UNKNOWN"
+        },
+        "availability": "IN_STOCK",
+        "availabilityScope": "VARIANT",
+        "rating": {
+          "value": 0,
+          "reviewCount": 0,
+          "scale": 5,
+          "productId": 2692
+        },
+        "checkedAt": "2026-09-08T21:34:19.751Z"
+      },
+      {
+        "sourceKind": "WOOCOMMERCE_STORE_API",
+        "merchantId": "abednego-coffee-roasters",
+        "merchantName": "Abednego Coffee Roasters",
+        "sourceHost": "abednegocoffee.com",
+        "productId": 1101,
+        "title": "Chambersburg Coffee – 2oz. – Whole Bean",
+        "description": "",
+        "productType": "simple",
+        "category": "Mix & Match",
+        "condition": "UNKNOWN",
+        "attributes": [],
+        "variantDimensions": {},
+        "selectedAttributes": {},
+        "merchantUrl": "https://abednegocoffee.com/product/chambersburg-coffee-2oz-whole-bean/",
+        "imageUrl": "https://abednegocoffee.com/wp-content/uploads/2016/02/abednego-bag_0012_chambersburg.png",
+        "images": [
+          {
+            "id": "64e535c6be9bdb91a627ca166b727c191901968d5ff0dd0ab6aab0da5b9896a2",
+            "url": "https://abednegocoffee.com/wp-content/uploads/2016/02/abednego-bag_0012_chambersburg.png"
+          }
+        ],
+        "itemPrice": {
+          "amountCents": 250,
+          "currency": "USD"
+        },
+        "priceEvidence": {
+          "amountMinor": "250",
+          "currency": "USD",
+          "currencyMinorUnit": 2,
+          "scope": "PRODUCT",
+          "taxBasis": "UNKNOWN"
+        },
+        "availability": "IN_STOCK",
+        "availabilityScope": "PRODUCT",
+        "rating": {
+          "value": 0,
+          "reviewCount": 0,
+          "scale": 5,
+          "productId": 1101
+        },
+        "checkedAt": "2026-09-08T21:34:19.994Z"
+      },
+      {
+        "sourceKind": "WOOCOMMERCE_STORE_API",
+        "merchantId": "barrington-coffee",
+        "merchantName": "Barrington Coffee Roasting Company",
+        "sourceHost": "barringtoncoffee.com",
+        "productId": 200226,
+        "title": "21st Century Coffee: A Guide",
+        "description": "",
+        "sku": "21SCCAGBKD",
+        "productType": "simple",
+        "category": "Gear",
+        "condition": "UNKNOWN",
+        "attributes": [],
+        "variantDimensions": {},
+        "selectedAttributes": {},
+        "merchantUrl": "https://barringtoncoffee.com/shop/21st-century-coffee-a-guide/",
+        "imageUrl": "https://barringtoncoffee.com/wp-content/uploads/2023/02/KenDavidsBook-scaled-1.jpg",
+        "images": [
+          {
+            "id": "780e2f905637d60f1ef697a1decef814cda1a8c8c50ec8422f29fe0ec9aa3dc4",
+            "url": "https://barringtoncoffee.com/wp-content/uploads/2023/02/KenDavidsBook-scaled-1.jpg"
+          }
+        ],
+        "itemPrice": {
+          "amountCents": 3495,
+          "currency": "USD"
+        },
+        "priceEvidence": {
+          "amountMinor": "3495",
+          "currency": "USD",
+          "currencyMinorUnit": 2,
+          "scope": "PRODUCT",
+          "taxBasis": "UNKNOWN"
+        },
+        "availability": "IN_STOCK",
+        "availabilityScope": "PRODUCT",
+        "rating": {
+          "value": 0,
+          "reviewCount": 0,
+          "scale": 5,
+          "productId": 200226
+        },
+        "checkedAt": "2026-09-08T21:34:17.681Z"
+      },
+      {
+        "sourceKind": "WOOCOMMERCE_STORE_API",
+        "merchantId": "cafe-du-monde",
+        "merchantName": "Cafe Du Monde",
+        "sourceHost": "shop.cafedumonde.com",
+        "productId": 231368,
+        "title": "Coffee & Beignets Baby Socks",
+        "description": "",
+        "sku": "12001",
+        "productType": "simple",
+        "category": "Cafe Du Monde",
+        "condition": "UNKNOWN",
+        "attributes": [],
+        "variantDimensions": {},
+        "selectedAttributes": {},
+        "merchantUrl": "https://shop.cafedumonde.com/product/wearables/socks/coffee-beignets-baby-socks/",
+        "imageUrl": "https://shop.cafedumonde.com/wp-content/uploads/2026/06/cafe-du-monde-socks-baby-coffee-beignets.jpg",
+        "images": [
+          {
+            "id": "50ae2d8f5c578a6dcb7b28bab1543bc22965983971302cc722ad6a3440a59c77",
+            "url": "https://shop.cafedumonde.com/wp-content/uploads/2026/06/cafe-du-monde-socks-baby-coffee-beignets.jpg"
+          }
+        ],
+        "itemPrice": {
+          "amountCents": 1199,
+          "currency": "USD"
+        },
+        "priceEvidence": {
+          "amountMinor": "1199",
+          "currency": "USD",
+          "currencyMinorUnit": 2,
+          "scope": "PRODUCT",
+          "taxBasis": "UNKNOWN"
+        },
+        "availability": "IN_STOCK",
+        "availabilityScope": "PRODUCT",
+        "rating": {
+          "value": 0,
+          "reviewCount": 0,
+          "scale": 5,
+          "productId": 231368
+        },
+        "checkedAt": "2026-09-08T21:34:16.409Z"
+      },
+      {
+        "sourceKind": "WOOCOMMERCE_STORE_API",
+        "merchantId": "cips-coffee-roasters",
+        "merchantName": "Cips Coffee Roasters",
+        "sourceHost": "cipscoffeeroasters.com",
+        "productId": 2687,
+        "parentProductId": 2687,
+        "variationId": 2691,
+        "title": "Grey COFFEE Comfort Colors Sweatshirt",
+        "description": "",
+        "productType": "variation",
+        "category": "",
+        "condition": "UNKNOWN",
+        "attributes": [
+          "size: XL"
+        ],
+        "variantDimensions": {
+          "size": [
+            "XL"
+          ]
+        },
+        "selectedAttributes": {
+          "size": "XL"
+        },
+        "merchantUrl": "https://cipscoffeeroasters.com/product/grey-coffee-comfort-colors-sweatshirt/?attribute_size=XL",
+        "imageUrl": "https://cipscoffeeroasters.com/wp-content/uploads/Cips_photo_couple_gray1_c522dbc0-6fce-4889-a554-1a803edfec00-14-scaled-1.jpg",
+        "images": [
+          {
+            "id": "5d32277e81b9b33dd16689a859583a4a70e1338fcceac9b1ad5eae5e884a0977",
+            "url": "https://cipscoffeeroasters.com/wp-content/uploads/Cips_photo_couple_gray1_c522dbc0-6fce-4889-a554-1a803edfec00-14-scaled-1.jpg"
+          }
+        ],
+        "itemPrice": {
+          "amountCents": 4900,
+          "currency": "USD"
+        },
+        "priceEvidence": {
+          "amountMinor": "4900",
+          "currency": "USD",
+          "currencyMinorUnit": 2,
+          "scope": "VARIANT",
+          "taxBasis": "UNKNOWN"
+        },
+        "availability": "IN_STOCK",
+        "availabilityScope": "VARIANT",
+        "rating": {
+          "value": 0,
+          "reviewCount": 0,
+          "scale": 5,
+          "productId": 2691
+        },
+        "checkedAt": "2026-09-08T21:34:19.752Z"
+      },
+      {
+        "sourceKind": "WOOCOMMERCE_STORE_API",
+        "merchantId": "abednego-coffee-roasters",
+        "merchantName": "Abednego Coffee Roasters",
+        "sourceHost": "abednegocoffee.com",
+        "productId": 1100,
+        "title": "Cross Blend Coffee – 2oz. – Whole Bean",
+        "description": "",
+        "productType": "simple",
+        "category": "Mix & Match",
+        "condition": "UNKNOWN",
+        "attributes": [],
+        "variantDimensions": {},
+        "selectedAttributes": {},
+        "merchantUrl": "https://abednegocoffee.com/product/cross-blend-coffee-2oz-whole-bean/",
+        "imageUrl": "https://abednegocoffee.com/wp-content/uploads/2016/02/abednego-bag_0011_cross.png",
+        "images": [
+          {
+            "id": "eca81e6c6c9c869a57e735d0a1835983650e181b24e5d69353921d67a3fc338d",
+            "url": "https://abednegocoffee.com/wp-content/uploads/2016/02/abednego-bag_0011_cross.png"
+          }
+        ],
+        "itemPrice": {
+          "amountCents": 250,
+          "currency": "USD"
+        },
+        "priceEvidence": {
+          "amountMinor": "250",
+          "currency": "USD",
+          "currencyMinorUnit": 2,
+          "scope": "PRODUCT",
+          "taxBasis": "UNKNOWN"
+        },
+        "availability": "IN_STOCK",
+        "availabilityScope": "PRODUCT",
+        "rating": {
+          "value": 0,
+          "reviewCount": 0,
+          "scale": 5,
+          "productId": 1100
+        },
+        "checkedAt": "2026-09-08T21:34:19.995Z"
+      }
+    ],
+    "stores": [
+      {
+        "merchantId": "barrington-coffee",
+        "status": "COMPLETE",
+        "requests": 1,
+        "returned": 7
+      },
+      {
+        "merchantId": "tanbark-city-roasters",
+        "status": "COMPLETE",
+        "requests": 1,
+        "returned": 0
+      },
+      {
+        "merchantId": "cafe-du-monde",
+        "status": "PARTIAL",
+        "reason": "UNSUPPORTED",
+        "requests": 1,
+        "returned": 8
+      },
+      {
+        "merchantId": "rambler-scrambler-coffee",
+        "status": "COMPLETE",
+        "requests": 1,
+        "returned": 0
+      },
+      {
+        "merchantId": "cips-coffee-roasters",
+        "status": "PARTIAL",
+        "reason": "TIMEOUT",
+        "requests": 5,
+        "returned": 7
+      },
+      {
+        "merchantId": "abednego-coffee-roasters",
+        "status": "COMPLETE",
+        "requests": 1,
+        "returned": 8
+      }
+    ],
+    "diagnostics": {
+      "eligibleStores": 200,
+      "plannedStores": 6,
+      "attemptedStores": 6,
+      "succeededStores": 6,
+      "failedStores": 0,
+      "skippedStores": 194,
+      "physicalRequests": 10,
+      "responseBytes": 306967,
+      "cacheHits": 0,
+      "elapsedMs": 8002,
+      "truncated": true,
+      "registryCoverageComplete": false
+    },
+    "continuation": {
+      "registryVersion": "2026-09-08-expanded-200",
+      "attemptedMerchantIds": [
+        "barrington-coffee",
+        "tanbark-city-roasters",
+        "cafe-du-monde",
+        "rambler-scrambler-coffee",
+        "cips-coffee-roasters",
+        "abednego-coffee-roasters"
+      ]
+    }
+  },
+  "supplementaryProducts": [
+    {
+      "provenance": {
+        "observedAt": "2026-09-08T21:36:26.220Z",
+        "request": {
+          "method": "GET",
+          "url": "https://abednegocoffee.com/wp-json/wc/store/v1/products?search=coffee&per_page=20&page=1"
+        },
+        "httpStatus": 200,
+        "rawResponseSha256": "08bda1e084254342e0985c657541ebbb1c76cf336b2211cb410a1564c8294816",
+        "normalization": "createWooStoreReader then normalizeWooProduct at sourceCommit; no field overrides"
+      },
+      "product": {
+        "sourceKind": "WOOCOMMERCE_STORE_API",
+        "merchantId": "abednego-coffee-roasters",
+        "merchantName": "Abednego Coffee Roasters",
+        "sourceHost": "abednegocoffee.com",
+        "productId": 979,
+        "title": "Guatemala Coffee – 2oz. – Ground",
+        "description": "",
+        "productType": "simple",
+        "category": "Mix & Match",
+        "condition": "UNKNOWN",
+        "attributes": [],
+        "variantDimensions": {},
+        "selectedAttributes": {},
+        "merchantUrl": "https://abednegocoffee.com/product/guatemala-coffee-2oz-ground/",
+        "imageUrl": "https://abednegocoffee.com/wp-content/uploads/2016/02/abednego-bag_0000_guatemala.png",
+        "images": [
+          {
+            "id": "205",
+            "url": "https://abednegocoffee.com/wp-content/uploads/2016/02/abednego-bag_0000_guatemala.png"
+          }
+        ],
+        "itemPrice": {
+          "amountCents": 250,
+          "currency": "USD"
+        },
+        "priceEvidence": {
+          "amountMinor": "250",
+          "currency": "USD",
+          "currencyMinorUnit": 2,
+          "scope": "PRODUCT",
+          "taxBasis": "UNKNOWN"
+        },
+        "availability": "IN_STOCK",
+        "availabilityScope": "PRODUCT",
+        "rating": {
+          "value": 0,
+          "reviewCount": 0,
+          "scale": 5,
+          "productId": 979
+        },
+        "checkedAt": "2026-09-08T21:36:26.220Z"
+      }
+    }
+  ],
+  "merchantTrustProvenance": {
+    "registryVersion": "registry-2026-09-08-woo-trust-trust",
+    "reviewedAt": "2026-09-08",
+    "note": "Exact approved identity records copied from the reviewed registry. Merchant identity is not shipping evidence."
+  },
+  "merchantTrustRecords": [
+    {
+      "host": "barringtoncoffee.com",
+      "level": "OFFICIAL",
+      "evidenceUrl": "https://barringtoncoffee.com/about/",
+      "reviewedAt": "2026-09-08",
+      "status": "APPROVED"
+    },
+    {
+      "host": "shop.cafedumonde.com",
+      "level": "OFFICIAL",
+      "evidenceUrl": "https://shop2.cafedumonde.com/history/",
+      "reviewedAt": "2026-09-08",
+      "status": "APPROVED"
+    },
+    {
+      "host": "abednegocoffee.com",
+      "level": "OFFICIAL",
+      "evidenceUrl": "https://abednegocoffee.com/company/",
+      "reviewedAt": "2026-09-08",
+      "status": "APPROVED"
+    },
+    {
+      "host": "cipscoffeeroasters.com",
+      "level": "OFFICIAL",
+      "evidenceUrl": "https://cipscoffeeroasters.com/our-story/",
+      "reviewedAt": "2026-09-08",
+      "status": "APPROVED"
+    }
+  ]
+}

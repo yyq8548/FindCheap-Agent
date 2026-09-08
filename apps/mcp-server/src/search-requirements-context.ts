@@ -5,6 +5,7 @@ import { hasSpecificProductIdentity, hasStrongProductIdentifier, productQueryCat
 import { functionalRequirement, requiredPrimaryUseFeatures } from "./functional-requirements.js";
 import { isColorRequirement } from "./product-constraint-matcher.js";
 import { normalizePackageRequirements } from "./package-requirements.js";
+import { isCoffeeCategoryRefinement } from "./coffee-category.js";
 
 /** Provenance of submitted fields, not a claim that the model saw a verbatim user quote. */
 export function shoppingRequirementLedger(input: SearchProductsInput) {
@@ -51,7 +52,8 @@ export function mergeSearchRequirements(current: SearchProductsInput, previous: 
   previous = parseStoredSearchRequest(retained);
   if (!correctingIdentity && current.productType !== undefined && previous.productType !== undefined &&
     current.productType.toLowerCase() !== previous.productType.toLowerCase() &&
-    !isHeadphoneTypeRefinement(previous.productType, current.productType)) throw new Error("PRODUCT_CONTEXT_CONFLICT");
+    !isHeadphoneTypeRefinement(previous.productType, current.productType) &&
+    !isCoffeeCategoryRefinement(previous.productType, current.productType)) throw new Error("PRODUCT_CONTEXT_CONFLICT");
   if (!correctingIdentity && current.brand !== undefined && previous.brand !== undefined && current.brand !== previous.brand) throw new Error("PRODUCT_CONTEXT_CONFLICT");
   const merged: Record<string, unknown> = { ...previous, parentRenderId: current.parentRenderId,
     contextMode: current.contextMode, responseLocale: current.responseLocale ?? previous.responseLocale,

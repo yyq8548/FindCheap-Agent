@@ -4,6 +4,7 @@ import { SearchRun } from "./search-run.js";
 import { deduplicateCandidateOffers, type OfferObservation } from "./offer-equivalence.js";
 import { resolveKnownProductUrl } from "./known-product-url.js";
 import { compileSourceQuery, discoveryTarget, isExplicitCategoryQuery } from "./retrieval-plan.js";
+import { assessCoffeeCategory, isCoffeeCategoryRefinement, parseCoffeeCategory, type CoffeeCategory } from "./coffee-category.js";
 import type { WooProduct, WooSearchResult } from "../../../packages/contracts/src/woocommerce.js";
 import type { WooCommerceCatalogPort } from "./woocommerce-client.js";
 import { wooProductFacts, wooProductUrl, matchesWooProductUrl, type CatalogProductFacts } from "./woocommerce-product.js";
@@ -615,7 +616,7 @@ export async function searchProducts(
         if (product.availability === "OUT_OF_STOCK") return [];
         const category = candidate.shopifyProduct?.productType ?? candidate.awinProduct?.category ?? candidate.ebayProduct?.category ?? candidate.woocommerceProduct?.category;
         const description = candidate.shopifyProduct?.description ?? candidate.awinProduct?.requirementEvidence ?? candidate.ebayProduct?.attributes.join(" ") ?? candidate.woocommerceProduct?.description;
-        if (searchIntent === "CATEGORY_DISCOVERY" && classifyShopifyCandidate(input.productType ?? identityQuery, {
+        if (searchIntent === "CATEGORY_DISCOVERY" && requestedCoffeeCategory(input) === undefined && classifyShopifyCandidate(input.productType ?? identityQuery, {
           title: product.title, ...(category === undefined ? {} : { productType: category }),
           ...(description === undefined ? {} : { description })
         }).status === "IRRELEVANT") return [];
@@ -1245,7 +1246,7 @@ function awinCandidate(
   }
   if (!conditionMatches(product.condition, input.conditionPreference)) return undefined;
   const verifiedBrand = brand.matchEvidence.length === 0 ? undefined : input.brand;
-  const categoryRelevance = searchIntent === "CATEGORY_DISCOVERY"
+  const categoryRelevance = searchIntent === "CATEGORY_DISCOVERY" && requestedCoffeeCategory(input) === undefined
     ? classifyShopifyCandidate(identityQuery, {
         title: product.title,
         productType: product.category,
@@ -1270,7 +1271,9 @@ function awinCandidate(
     },
     product.matchStatus,
     key,
-    identityExcludedKeys
+    identityExcludedKeys,
+    false,
+    requestedCoffeeCategory(input)
   );
   if (identity === undefined) return undefined;
   const registeredTrust = resolveMerchantTrust(new URL(product.merchantUrl).hostname, product.merchant);
@@ -1389,7 +1392,8 @@ function assessCatalogProduct(
     product.matchStatus,
     key,
     identityExcludedKeys,
-    allowsConfigurationDiscovery(input, evidence, product.merchantTrust)
+    allowsConfigurationDiscovery(input, evidence, product.merchantTrust),
+    requestedCoffeeCategory(input)
   );
   if (identity === undefined) return undefined;
   const visual = visualIdentity(input, {
@@ -1454,7 +1458,7 @@ export function woocommerceCandidate(product: WooProduct, ...args: AssessmentArg
     query, features, brands, identities, visuals);
   if (!assessed) return undefined;
   const { facts: _facts, ...candidate } = assessed;
-  return { ...candidate, ...(anchored && args[0].visualInput === undefined ? {
+  return { ...candidate, ...(anchored && args[0].visualInput === undefined && candidate.requestIdentityStatus !== "NEEDS_VERIFICATION" ? {
     identityStatus: "EXACT" as const, requestIdentityStatus: "CONFIRMED" as const, resultGroup: "REQUESTED_PRODUCT" as const,
     identityEvidence: unique([...candidate.identityEvidence, "source-verified requested WooCommerce product URL and identity"])
   } : {}), source: "WOOCOMMERCE_STORE_API", woocommerceProduct: product };
@@ -1479,6 +1483,12 @@ export function resolveSearchIntent(
   return hasNamedProductIntent(identityQuery) ? "EXACT_PRODUCT" : "CATEGORY_DISCOVERY";
 }
 
+export function requestedCoffeeCategory(input: Pick<SearchProductsInput, "query" | "productType" | "visualInput">): CoffeeCategory | undefined {
+  if (input.visualInput !== undefined) return undefined;
+  const category = parseCoffeeCategory(input.productType);
+  return category === undefined || category === "COFFEE" ? parseCoffeeCategory(input.query) ?? category : category;
+}
+
 function candidateIdentity(
   searchIntent: ProductSearchIntent,
   allowAlternatives: boolean,
@@ -1487,15 +1497,23 @@ function candidateIdentity(
   sourceStatus: Exclude<ShopifyMatchStatus, "IRRELEVANT">,
   key: string,
   excluded: Set<string>,
-  allowConfigurationDiscovery = false
+  allowConfigurationDiscovery = false,
+  coffeeCategory?: CoffeeCategory
 ): { status: Exclude<ShopifyMatchStatus, "IRRELEVANT">; evidence: string[];
   requestIdentityStatus?: RequestIdentityStatus } | undefined {
   if (isPartialPriceListing(candidate) && classifyShopifyCandidate(query, candidate).status === "IRRELEVANT") {
     excluded.add(key);
     return undefined;
   }
+  const coffee = coffeeCategory === undefined ? undefined : assessCoffeeCategory(coffeeCategory, candidate);
+  if (coffee?.status === "CONTRADICTED") {
+    excluded.add(key);
+    return undefined;
+  }
+  const coffeeEvidence = coffee === undefined ? [] : [coffee.evidence];
   if (searchIntent !== "EXACT_PRODUCT") {
-    return { status: sourceStatus, evidence: [] };
+    return { status: sourceStatus, evidence: coffeeEvidence,
+      ...(coffee?.status === "UNKNOWN" ? { requestIdentityStatus: "NEEDS_VERIFICATION" as const } : {}) };
   }
   const identity = classifyShopifyCandidate(query, candidate);
   if (
@@ -1510,12 +1528,14 @@ function candidateIdentity(
       status: "DISCOVERY_MATCH",
       evidence: unique([
         ...identity.evidence,
+        ...coffeeEvidence,
         "all required configuration matched; stable product identity unavailable"
-      ])
+      ]),
+      ...(coffee?.status === "UNKNOWN" ? { requestIdentityStatus: "NEEDS_VERIFICATION" as const } : {})
     };
   }
-  const requestIdentityStatus = assessRequestIdentity(query, candidate, identity.status);
-  return { status: identity.status, requestIdentityStatus, evidence: [...identity.evidence,
+  const requestIdentityStatus = coffee?.status === "UNKNOWN" ? "NEEDS_VERIFICATION" : assessRequestIdentity(query, candidate, identity.status);
+  return { status: identity.status, requestIdentityStatus, evidence: [...identity.evidence, ...coffeeEvidence,
     ...(requestIdentityStatus === "NEEDS_VERIFICATION" ? ["requested product name or edition identity not verified"] : [])] };
 }
 
@@ -1583,7 +1603,9 @@ function ebayCandidate(
     { title: product.title, productType: product.category, description: product.attributes.join(" "), tags: product.attributes },
     product.matchStatus,
     key,
-    identityExcludedKeys
+    identityExcludedKeys,
+    false,
+    requestedCoffeeCategory(input)
   );
   if (identity === undefined) return undefined;
   const evidence = evaluateConstraints({ title: product.title, productType: product.category,
@@ -1691,7 +1713,8 @@ function buildSourceQuery(input: Pick<SearchProductsInput, "query" | "brand" | "
   return unique([
     input.brand !== undefined && !containsBrand(query, input.brand) ? input.brand : "",
     query,
-    input.productType !== undefined && !normalize(query).includes(normalize(input.productType))
+    input.productType !== undefined && !normalize(query).includes(normalize(input.productType)) &&
+      !isCoffeeCategoryRefinement(query, input.productType)
       ? input.productType
       : "",
   ]).join(" ").slice(0, 300).trim();

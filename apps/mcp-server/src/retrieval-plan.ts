@@ -1,6 +1,7 @@
 import { parseAwinSearchInput } from "../../../packages/awin-feed/src/index.js";
 import { hasSpecificProductIdentity, hasStrongProductIdentifier } from "./shopify-match.js";
 import { namedIdentityRetrievalQuery } from "./named-product-identity.js";
+import { parseCoffeeCategory } from "./coffee-category.js";
 
 /** Retrieval terms are not eligibility rules. Never write compiled terms back
  * into the user request, identity assessment or requirement ledger. */
@@ -16,6 +17,10 @@ export function compileSourceQuery(source: CatalogSource, query: string, options
     // Never infer that arbitrary English/Chinese segments mean the same thing.
     // The tiny reviewed alias table may propose a complementary language query.
     if (!hasStrongProductIdentifier(options.identityQuery)) selected = namedIdentityRetrievalQuery(options.identityQuery, options.pass) ?? query;
+    // Store API literal multi-word searches lose category recall. Only reviewed,
+    // category-only terms may broaden; eligibility still uses the original form.
+    if (source === "WOOCOMMERCE" && parseCoffeeCategory(selected) !== undefined &&
+      parseCoffeeCategory(options.identityQuery) !== undefined) selected = "coffee";
   }
   // Awin's AND-token search rejects punctuation; the other catalog adapters
   // accept this conservative literal form without interpreting search syntax.
