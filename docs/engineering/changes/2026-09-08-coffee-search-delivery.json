@@ -1,0 +1,415 @@
+{
+  "checkedAt": "2026-09-08T22:06:34.249Z",
+  "runtimeVersion": "0.18.2",
+  "packageVersion": "0.18.2+codex.20260908215316",
+  "runtimeCommit": "461a0c7345d251449b0701727de7ad5f3349d42d",
+  "reportedTask": {
+    "threadId": "01a082ec-10df-7fd3-bf84-3e29c2986b6c",
+    "title": "比较咖啡产品",
+    "findings": [
+      "Generic search included a grinder",
+      "Refinement rejected before source execution",
+      "Restarted exact request returned zero products and REPORT_INCOMPLETE/SOURCE_UNAVAILABLE"
+    ]
+  },
+  "local": {
+    "builds": [
+      "mcp",
+      "awin-feed"
+    ],
+    "typecheck": "PASS",
+    "lint": "PASS",
+    "diffCheck": "PASS",
+    "testFiles": 166,
+    "assertions": 2747,
+    "bundledStdio": 4,
+    "initialFullSuite": {
+      "passed": 2743,
+      "total": 2744,
+      "failure": "stale escaped plugin-version literal"
+    },
+    "inspectedVariantRegression": {
+      "initialFailed": 2,
+      "total": 3,
+      "finalPassed": 3
+    }
+  },
+  "ci": [
+    {
+      "conclusion": "success",
+      "databaseId": 34283642034,
+      "headSha": "461a0c7345d251449b0701727de7ad5f3349d42d",
+      "status": "completed",
+      "url": "https://github.com/yyq8548/FindCheap-Agent/actions/runs/34283642034",
+      "workflowName": "windows-installer-ci"
+    },
+    {
+      "conclusion": "success",
+      "databaseId": 34283642005,
+      "headSha": "461a0c7345d251449b0701727de7ad5f3349d42d",
+      "status": "completed",
+      "url": "https://github.com/yyq8548/FindCheap-Agent/actions/runs/34283642005",
+      "workflowName": "plugin-ci"
+    }
+  ],
+  "deployment": {
+    "checkedAt": "2026-09-08T22:05:25.564Z",
+    "project": "9bf7a976-a5ca-4524-bb9b-457d1a4750b5",
+    "service": "FindCheap-Agent",
+    "environment": "production",
+    "id": "33e93f9e-2dc5-40e4-82d6-3b5df585694e",
+    "status": "SUCCESS",
+    "createdAt": "2026-09-08T22:02:45.317Z",
+    "node": "v24.19.0",
+    "sourceSha256": "1d9549b1e21732c193e4a575cd8bc52b844c7f12457a95cb6b0abc6a465ed096",
+    "wooEnabled": true,
+    "registryDatabaseConfigured": true
+  },
+  "registry": {
+    "passed": 6,
+    "total": 6,
+    "cases": [
+      {
+        "name": "/health",
+        "status": "PASS",
+        "response": {
+          "status": "ok",
+          "feedStatus": "ready",
+          "snapshotAt": "2026-09-08T22:04:54.501Z",
+          "snapshotAgeSeconds": 42,
+          "feedRows": 69334,
+          "sourceFeeds": 44,
+          "excludedSourceFeeds": 2,
+          "staleSourceFeeds": 0,
+          "excludedSourceFeedReasons": {
+            "UNAPPROVED_PRODUCT_URL": 1,
+            "NO_ELIGIBLE_PRODUCTS": 1
+          },
+          "lastRefreshAt": "2026-09-08T22:04:54.501Z",
+          "lastSuccessfulRefreshAt": "2026-09-08T22:04:54.501Z",
+          "consecutiveRefreshFailures": 0,
+          "offersStatus": "ready",
+          "offerRows": 144,
+          "offersSnapshotAt": "2026-09-08T22:04:46.839Z",
+          "offersLastRefreshAt": "2026-09-08T22:04:46.839Z"
+        }
+      },
+      {
+        "name": "/ready",
+        "status": "PASS",
+        "response": {
+          "feedStatus": "ready",
+          "snapshotAt": "2026-09-08T22:04:54.501Z",
+          "snapshotAgeSeconds": 42,
+          "feedRows": 69334,
+          "sourceFeeds": 44,
+          "excludedSourceFeeds": 2,
+          "staleSourceFeeds": 0,
+          "excludedSourceFeedReasons": {
+            "UNAPPROVED_PRODUCT_URL": 1,
+            "NO_ELIGIBLE_PRODUCTS": 1
+          },
+          "lastRefreshAt": "2026-09-08T22:04:54.501Z",
+          "lastSuccessfulRefreshAt": "2026-09-08T22:04:54.501Z",
+          "consecutiveRefreshFailures": 0
+        }
+      },
+      {
+        "name": "legacy_registry_preserves_111_supported_stores",
+        "status": "PASS",
+        "count": 111,
+        "version": "registry-2026-09-08-woo-trust-official",
+        "etag": "\"bTjXo3y-mkBLC8l1t9y2kuimpBzSMVq2K4jHrlF88SY\""
+      },
+      {
+        "name": "schema_2_exact_248_official_stores",
+        "status": "PASS",
+        "count": 248,
+        "woo": 137,
+        "version": "registry-2026-09-08-woo-trust-official",
+        "etag": "\"rszwFtjFrUTAKwj9GwkpdynoWl3DWPgO1RNDkqExcvU\""
+      },
+      {
+        "name": "schema_2_conditional_304",
+        "status": "PASS"
+      },
+      {
+        "name": "trusted_registry_exact_393_preserving_existing",
+        "status": "PASS",
+        "count": 393,
+        "version": "registry-2026-09-08-woo-trust-trust"
+      }
+    ]
+  },
+  "installed": {
+    "version": "0.18.2+codex.20260908215316",
+    "installed": true,
+    "enabled": true,
+    "parity": {
+      "matched": 13,
+      "total": 13
+    },
+    "mcpSha256": "bcf35547e468ea9fa4b704a9761460075848838527e91deb160d5f034586cfb2",
+    "sourceSha256": "1d9549b1e21732c193e4a575cd8bc52b844c7f12457a95cb6b0abc6a465ed096",
+    "stdio": 4,
+    "cacheBackup": "CLI could not back up an occupied old cache. New version independently confirmed installed/enabled and 13/13 files matched. No old cache removed."
+  },
+  "businessAcceptance": {
+    "mode": "INSTALLED_STDIO_SDK_WITH_PRODUCTION_GATEWAY",
+    "sequenceCheckedAt": "2026-09-08T22:05:36.700Z",
+    "steps": [
+      {
+        "name": "initial",
+        "elapsedMs": 9459,
+        "goalId": "4580aaf0-c229-4b7b-8c9e-a115d02b5795",
+        "goalRevision": 1,
+        "status": "OK",
+        "requirements": {
+          "productType": "coffee",
+          "requiredFeatures": [],
+          "excludedFeatures": [],
+          "preferences": []
+        },
+        "recommendation": {
+          "state": "READY",
+          "primarySelectionId": "6f4d6966-8261-4d0e-9f35-141e07cb3335",
+          "reasonCodes": [
+            "BEST_FIT",
+            "TRUSTED_MERCHANT"
+          ]
+        },
+        "products": [
+          {
+            "title": "Roasted Coffee",
+            "merchant": "Espresso Vivace",
+            "price": {
+              "amountCents": 2175,
+              "currency": "USD"
+            },
+            "variant": {
+              "bean/blend": "12oz D-Caf"
+            },
+            "group": "TRUSTED_MATCH",
+            "requirementAssessment": {
+              "policyVersion": "requirements-v1",
+              "status": "SATISFIED",
+              "entries": []
+            }
+          },
+          {
+            "title": "Wilton Benitez Cooler Coffees",
+            "merchant": "JBC Coffee Roasters",
+            "price": {
+              "amountCents": 2800,
+              "currency": "USD"
+            },
+            "variant": {},
+            "group": "TRUSTED_MATCH",
+            "requirementAssessment": {
+              "policyVersion": "requirements-v1",
+              "status": "SATISFIED",
+              "entries": []
+            }
+          },
+          {
+            "title": "Roasted Coffee",
+            "merchant": "Espresso Vivace",
+            "price": {
+              "amountCents": 2575,
+              "currency": "USD"
+            },
+            "variant": {
+              "bean/blend": "12oz Indian Malabar"
+            },
+            "group": "TRUSTED_MATCH",
+            "requirementAssessment": {
+              "policyVersion": "requirements-v1",
+              "status": "SATISFIED",
+              "entries": []
+            }
+          }
+        ],
+        "lastWooPassStatus": "PARTIAL",
+        "eligibleStores": 200,
+        "plannedStores": 6,
+        "registryCoverageComplete": false,
+        "trace": {
+          "sourcePasses": 1,
+          "woocommerceRequests": 1,
+          "woocommerceHttpRequests": 17,
+          "sourceFailures": [
+            {
+              "source": "WOOCOMMERCE",
+              "kind": "SCHEMA_INVALID",
+              "retryable": false
+            },
+            {
+              "source": "WOOCOMMERCE",
+              "kind": "TIMEOUT",
+              "retryable": true
+            }
+          ]
+        }
+      },
+      {
+        "name": "continued",
+        "elapsedMs": 16480,
+        "goalId": "4580aaf0-c229-4b7b-8c9e-a115d02b5795",
+        "goalRevision": 2,
+        "status": "OK",
+        "requirements": {
+          "productType": "whole bean coffee",
+          "maxItemPriceCents": 10000,
+          "requiredFeatures": [
+            "Ships to the United States"
+          ],
+          "excludedFeatures": [],
+          "preferences": []
+        },
+        "recommendation": {
+          "state": "RESEARCH_ONLY",
+          "reasonCodes": [
+            "UNFULFILLED_REQUIREMENTS"
+          ]
+        },
+        "products": [
+          {
+            "title": "Chambersburg Coffee – 2oz. – Whole Bean",
+            "merchant": "Abednego Coffee Roasters",
+            "price": {
+              "amountCents": 250,
+              "currency": "USD"
+            },
+            "variant": {},
+            "group": "RESEARCH_ONLY",
+            "requirementAssessment": {
+              "policyVersion": "requirements-v1",
+              "status": "NEEDS_VERIFICATION",
+              "entries": [
+                {
+                  "requirement": "Ships to the United States",
+                  "status": "UNKNOWN",
+                  "source": "MISSING",
+                  "scope": "DELIVERY_MARKET"
+                },
+                {
+                  "requirement": "maximum item price: USD 100.00",
+                  "status": "MATCHED",
+                  "source": "PRODUCT",
+                  "observed": "USD 2.50"
+                }
+              ]
+            }
+          },
+          {
+            "title": "Cross Blend Coffee – 2oz. – Whole Bean",
+            "merchant": "Abednego Coffee Roasters",
+            "price": {
+              "amountCents": 250,
+              "currency": "USD"
+            },
+            "variant": {},
+            "group": "RESEARCH_ONLY",
+            "requirementAssessment": {
+              "policyVersion": "requirements-v1",
+              "status": "NEEDS_VERIFICATION",
+              "entries": [
+                {
+                  "requirement": "Ships to the United States",
+                  "status": "UNKNOWN",
+                  "source": "MISSING",
+                  "scope": "DELIVERY_MARKET"
+                },
+                {
+                  "requirement": "maximum item price: USD 100.00",
+                  "status": "MATCHED",
+                  "source": "PRODUCT",
+                  "observed": "USD 2.50"
+                }
+              ]
+            }
+          },
+          {
+            "title": "King Street Coffee – 2oz. – Whole Bean",
+            "merchant": "Abednego Coffee Roasters",
+            "price": {
+              "amountCents": 250,
+              "currency": "USD"
+            },
+            "variant": {},
+            "group": "RESEARCH_ONLY",
+            "requirementAssessment": {
+              "policyVersion": "requirements-v1",
+              "status": "NEEDS_VERIFICATION",
+              "entries": [
+                {
+                  "requirement": "Ships to the United States",
+                  "status": "UNKNOWN",
+                  "source": "MISSING",
+                  "scope": "DELIVERY_MARKET"
+                },
+                {
+                  "requirement": "maximum item price: USD 100.00",
+                  "status": "MATCHED",
+                  "source": "PRODUCT",
+                  "observed": "USD 2.50"
+                }
+              ]
+            }
+          }
+        ],
+        "lastWooPassStatus": "COMPLETE",
+        "eligibleStores": 200,
+        "plannedStores": 6,
+        "registryCoverageComplete": false,
+        "trace": {
+          "sourcePasses": 2,
+          "woocommerceRequests": 2,
+          "woocommerceHttpRequests": 29,
+          "sourceFailures": [
+            {
+              "source": "WOOCOMMERCE",
+              "kind": "UPSTREAM_ERROR",
+              "retryable": false
+            },
+            {
+              "source": "WOOCOMMERCE",
+              "kind": "TIMEOUT",
+              "retryable": true
+            }
+          ]
+        }
+      }
+    ],
+    "exactNewProduct": {
+      "checkedAt": "2026-09-08T22:06:13.070Z",
+      "elapsedMs": 8882,
+      "status": "OK",
+      "returned": 3,
+      "recommendation": {
+        "state": "RESEARCH_ONLY",
+        "reasonCodes": [
+          "UNFULFILLED_REQUIREMENTS"
+        ]
+      }
+    },
+    "initialGenericRegression": "Early continuation-only script passed but missed a coffee-colored phone cover and dripper. Strengthened generic assertion reproduced failure; fixed and final installed sequence checks both stages.",
+    "nativeHostAcceptance": "NOT_RUN",
+    "originalUserTaskResumed": false,
+    "realWatchOrAutomationCreated": false
+  },
+  "unchanged": {
+    "accessStores": 200,
+    "maxStoresPerPass": 6,
+    "maxWooPasses": 2,
+    "registryVersion": "registry-2026-09-08-woo-trust",
+    "officialTotal": 248,
+    "trustedTotal": 393,
+    "databaseMutations": false
+  },
+  "limitations": [
+    "Results are bounded current observations, not all 200 merchants or a cheapest-price guarantee.",
+    "US delivery is unverified on the observed whole-bean offers; no primary recommendation is awarded.",
+    "Current stock, prices and upstream completeness can change. Native Codex interaction remains separately unexecuted."
+  ]
+}
