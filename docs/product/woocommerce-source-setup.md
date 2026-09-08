@@ -7,7 +7,7 @@
 ## 配置顺序
 
 1. 部署兼容版本的现有 `awin-feed-service`，先保持 `WOOCOMMERCE_SOURCE_ENABLED=false`。关闭时 Woo 路由返回 404，既有来源继续工作。
-2. 在来源服务配置 `WOOCOMMERCE_SOURCE_ENABLED=true`。默认访问表含 Offerman Woodshop、Root Science、La Marzocco Home USA、Burrow Press、Scrub Daddy。可用经核验的完整 `WOOCOMMERCE_REGISTRY_JSON` 替换；省略使用内置表，不要设置为空字符串。配置变更需重启服务以重建缓存及访问策略。
+2. 在来源服务配置 `WOOCOMMERCE_SOURCE_ENABLED=true`。默认访问表现为 [50 家商家](woocommerce-merchants-50.md)，表版本 `2026-09-08-expanded-50`。可用经核验的完整 `WOOCOMMERCE_REGISTRY_JSON` 替换；省略使用内置表，不要设置为空字符串。配置变更需重启服务以重建缓存及访问策略。服务端名单扩展由现有 v0.18.0 客户端直接读取，不需要再换插件缓存。
 3. 验证服务路由后，在 MCP 进程环境设置 `WOOCOMMERCE_API_BASE_URL=https://<source-service-host>`，只允许无凭据的 HTTPS origin 和默认端口。v0.18.0 插件 `.mcp.json` 默认指向 FindCheap 公开来源服务；独立运行 MCP 时省略变量不装配 Woo 端口；显式 `WOOCOMMERCE_SOURCE_ENABLED=false` 也关闭 MCP 路径。客户端默认 9 秒超时。
 4. 重启新版本 MCP，检查搜索响应中的 `sources.woocommerce`、`woocommerceCoverage`、来源错误和实际请求计数。不能把 `COMPLETE` 当成遍历了所有 Woo 商家。v0.18.0 发布时先验证生产来源，再更新已安装插件。
 
@@ -40,7 +40,7 @@
 
 首版展示有明确 USD 商品价的 simple 或精确 variation。父商品起价／范围不作为选中规格价；非 USD 保留原币证据但不参与 USD 卡片比较；组合、订阅、自定义定价及 external 类型不扩大为可购买商品。缺价不当作 0；未知货况不写成 NEW；预售／backorder 不冒充现货。
 
-访问表与商家信任表分离。配置了商家，只证明允许尝试其公开接口；不自动获得可信商家、品牌官网、配送美国、报价或联盟优惠资格。首批没有承诺机械键盘或全电子产品覆盖；40 个业务回归为确定性夹具，不代表 40 个真实库存案例。
+访问表与商家信任表分离。配置了商家，只证明允许尝试其公开接口；不自动获得可信商家、品牌官网、配送美国、报价或联盟优惠资格。50 家包含 Akko、PINE、CableMod 等电子品类商家，但没有承诺全部型号或完整目录覆盖。原有 40 个业务回归为确定性夹具；新增 45 家的实际接口证据另见商家名单。
 
 `inspect_selected_product` 根据原快照分发，保留 `inspect_selected_shopify_product` 兼容名。新规格生成子快照；旧快照复制原始 DTO，不受端口对象后续变动影响。混合比较共用既有事实和排序。只有商家、商品／变体及对应 URL 都有证据时，Woo 与联盟 Feed 的同一报价才合并。
 

@@ -22,6 +22,21 @@ describe("Woo source observations", () => {
     expect(normalizeWooProduct({ ...raw, id: 11, type: "variation", parent: 999 }, store, at, parent)).toBeUndefined();
     expect(normalizeWooProduct({ ...raw, id: 11, type: "variation", parent: 10, attributes: [{ name: "Color", value: "Blue" }] }, store, at, parent)).toBeUndefined();
   });
+  it("reads an unspecified parent variation dimension without inventing a selected value", async () => {
+    const payload = { ...raw, type: "variable", variations: [{ id: 11, attributes: [{ name: "Color", value: null }, { name: "Size", value: "M" }] }] };
+    const reader = createWooStoreReader({ resolve: async () => [{ address: "8.8.8.8", family: 4 }], request: async () => new Response(JSON.stringify(payload), { headers: { "content-type": "application/json" } }) });
+    const parent = await reader.product(store, 10, { signal: new AbortController().signal, requests: 0, bytes: 0, maxRequests: 1, maxBytes: 1024 * 1024 });
+    const child = normalizeWooProduct({ ...raw, id: 11, type: "variation", parent: 10 }, store, at, parent)!;
+    expect(child.selectedAttributes).toEqual({ size: "M" });
+    expect(child.variantDimensions.color).toBeUndefined();
+    expect(wooMatchesRequirements(child, { color: "Red" })).toBe(false);
+    expect(normalizeWooProduct({ ...raw, id: 11, type: "variation", parent: 10, attributes: [{ name: "Color", value: "Red" }] }, store, at, parent)?.selectedAttributes).toEqual({ color: "Red", size: "M" });
+  });
+  it.each([12, {}, []])("still rejects malformed parent variation values: %j", async value => {
+    const payload = { ...raw, type: "variable", variations: [{ id: 11, attributes: [{ name: "Color", value }] }] };
+    const reader = createWooStoreReader({ resolve: async () => [{ address: "8.8.8.8", family: 4 }], request: async () => new Response(JSON.stringify(payload), { headers: { "content-type": "application/json" } }) });
+    await expect(reader.product(store, 10, { signal: new AbortController().signal, requests: 0, bytes: 0, maxRequests: 1, maxBytes: 1024 * 1024 })).rejects.toMatchObject({ reason: "INVALID_RESPONSE" });
+  });
   it("rejects private DNS and cross-host redirects before sending unsafe requests", async () => {
     const request = vi.fn(async () => new Response(null, { status: 302, headers: { location: "https://evil.example/" } }));
     const budget = () => ({ signal: new AbortController().signal, requests: 0, bytes: 0, maxRequests: 18, maxBytes: 8 * 1024 * 1024 });
@@ -37,6 +52,17 @@ describe("Woo source observations", () => {
     expect(normalizeWooProduct({ ...raw, stock_status: "outofstock", is_in_stock: true }, store, at)?.availability).toBe("UNKNOWN");
     expect(normalizeWooProduct({ ...raw, stock_status: "onbackorder" }, store, at)?.availability).toBe("BACKORDER");
     expect(normalizeWooProduct({ ...raw, images: [{ id: 1, src: "https://shop.example/?add-to-cart=10" }] }, store, at)?.images).toEqual([]);
+  });
+  it.each([
+    "https://i0.wp.com/1zpresso.coffee/wp-content/uploads/2026/06/Diamond-A-manual-coffee-grinder.png?fit=1024%2C1024&ssl=1",
+    "https://e6fc8mfgrfd.exactdn.com/wp-content/uploads/2020/10/PLFamily-scaled-ko_prep.jpg?strip=all"
+  ])("preserves observed read-only CDN options on an approved image host: %s", src => {
+    const reviewed = { ...store, imageHosts: [new URL(src).hostname] };
+    expect(normalizeWooProduct({ ...raw, images: [{ id: 1, src }] }, reviewed, at)?.images).toEqual([{ id: "1", url: src }]);
+    expect(normalizeWooProduct({ ...raw, images: [{ id: 1, src }] }, store, at)?.images).toEqual([]);
+  });
+  it.each(["ssl=0", "ssl=https://evil.example", "strip=none", "strip=all&strip=private", "ssl=1&add-to-cart=10", "ssl=1&url=http://127.0.0.1/"])("rejects unreviewed CDN option values and actions: %s", query => {
+    expect(normalizeWooProduct({ ...raw, images: [{ id: 1, src: `https://shop.example/desk.jpg?${query}` }] }, store, at)?.images).toEqual([]);
   });
   it("rejects HTML, excessive bytes and mismatched identity from the upstream", async () => {
     const budget = () => ({ signal: new AbortController().signal, requests: 0, bytes: 0, maxRequests: 18, maxBytes: 8 * 1024 * 1024 });

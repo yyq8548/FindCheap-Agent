@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { REVIEWED_WOO_ADDITIONS } from "./woocommerce-merchants.js";
 
 const Host = z.string().toLowerCase().regex(/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/u).max(253);
 const Prefix = z.string().regex(/^\/[a-zA-Z0-9/_-]*$/u).max(200);
@@ -33,7 +34,7 @@ export type WooMerchant = z.infer<typeof WooMerchantSchema>;
 export type WooRegistry = z.infer<typeof WooRegistrySchema>;
 
 // Access registry only. No entry grants merchant trust, shipping, or affiliate approval.
-export const DEFAULT_WOO_REGISTRY: WooRegistry = WooRegistrySchema.parse({ version: "2026-09-08", stores: [
+export const DEFAULT_WOO_REGISTRY: WooRegistry = WooRegistrySchema.parse({ version: "2026-09-08-expanded-50", stores: [
   { merchantId: "offerman-woodshop", name: "Offerman Woodshop", origin: "https://offermanwoodshop.com", productPathPrefixes: ["/store/"], categories: ["trivet", "wood", "kitchen", "home"], brands: ["Offerman"],
     currency: "USD", marketEvidence: "https://offermanwoodshop.com/faq/", evidenceUrl: "https://offermanwoodshop.com/wp-json/wc/store/v1/products/43848", reviewedAt: "2026-09-08", enabled: true, capabilities: { search: true, variations: true } },
   { merchantId: "root-science", name: "Root Science", origin: "https://www.shoprootscience.com", productPathPrefixes: ["/shop/"], categories: ["skin", "serum", "firm"], brands: ["Root Science"],
@@ -43,7 +44,8 @@ export const DEFAULT_WOO_REGISTRY: WooRegistry = WooRegistrySchema.parse({ versi
   { merchantId: "burrow-press", name: "Burrow Press", origin: "https://burrowpress.com", productPathPrefixes: ["/"], categories: ["book", "poetry", "fiction", "mother"], brands: ["Burrow Press"],
     currency: "USD", marketEvidence: "https://burrowpress.com/books/", evidenceUrl: "https://burrowpress.com/wp-json/wc/store/v1/products/23939", reviewedAt: "2026-09-08", enabled: true, capabilities: { search: true, variations: false } },
   { merchantId: "scrub-daddy", name: "Scrub Daddy", origin: "https://scrubdaddy.com", productPathPrefixes: ["/product/"], categories: ["sponge", "scrubber", "cleaning", "original"], brands: ["Scrub Daddy"],
-    currency: "USD", marketEvidence: "https://support.scrubdaddy.com/support/solutions/articles/156000158436-how-do-orders-ship-", evidenceUrl: "https://scrubdaddy.com/wp-json/wc/store/v1/products/769455", reviewedAt: "2026-09-08", enabled: true, capabilities: { search: true, variations: false } }
+    currency: "USD", marketEvidence: "https://support.scrubdaddy.com/support/solutions/articles/156000158436-how-do-orders-ship-", evidenceUrl: "https://scrubdaddy.com/wp-json/wc/store/v1/products/769455", reviewedAt: "2026-09-08", enabled: true, capabilities: { search: true, variations: false } },
+  ...REVIEWED_WOO_ADDITIONS
 ] });
 
 export function wooRegistryFromEnvironment(input: Readonly<Record<string, string | undefined>>): WooRegistry | undefined {

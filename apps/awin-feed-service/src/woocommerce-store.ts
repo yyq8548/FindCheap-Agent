@@ -5,6 +5,7 @@ import { wooProductUrl, type WooMerchant } from "./woocommerce-registry.js";
 
 const Id = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 const RawAttribute = z.object({ name: z.string().max(80), value: z.string().max(300).optional(), terms: z.array(z.object({ name: z.string().max(300) }).passthrough()).max(100).optional() }).passthrough();
+const RawVariationAttribute = RawAttribute.extend({ value: z.string().max(300).nullish().transform(value => value ?? undefined) });
 const RawProduct = z.object({
   id: Id, parent: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(), name: z.string().min(1).max(500), type: z.string().max(80), permalink: z.string().max(4_096),
   sku: z.string().max(300).optional(), description: z.string().max(200_000).optional(), is_password_protected: z.boolean().optional(),
@@ -14,7 +15,7 @@ const RawProduct = z.object({
   images: z.array(z.object({ id: z.number().int().nonnegative(), src: z.string().max(4_096) }).passthrough()).max(100).optional(),
   attributes: z.array(RawAttribute).max(24).optional(), categories: z.array(z.object({ name: z.string().max(300) }).passthrough()).max(100).optional(),
   brands: z.array(z.object({ name: z.string().max(300) }).passthrough()).max(20).optional(),
-  variations: z.array(z.object({ id: Id, attributes: z.array(RawAttribute).max(24) }).passthrough()).max(500).optional(),
+  variations: z.array(z.object({ id: Id, attributes: z.array(RawVariationAttribute).max(24) }).passthrough()).max(500).optional(),
   _links: z.object({ up: z.array(z.object({ href: z.string().max(4_096) }).passthrough()).max(2).optional() }).passthrough().optional()
 }).passthrough();
 export type WooRawProduct = z.infer<typeof RawProduct>;
@@ -135,7 +136,8 @@ export function normalizeWooProduct(raw: WooRawProduct, store: WooMerchant, chec
       const url = new URL(image.src, store.origin);
       if (url.protocol !== "https:" || url.username !== "" || url.password !== "" || url.port !== "" ||
         ![new URL(store.origin).hostname, ...store.imageHosts].includes(url.hostname) || !/\.(?:avif|gif|jpe?g|png|webp)$/iu.test(url.pathname) ||
-        [...url.searchParams.keys()].some((key) => !["v", "ver", "w", "h", "width", "height", "fit", "crop", "auto", "fm", "q", "quality"].includes(key))) return [];
+        [...url.searchParams].some(([key, value]) => key === "ssl" ? value !== "1" : key === "strip" ? value !== "all"
+          : !["v", "ver", "w", "h", "width", "height", "fit", "crop", "auto", "fm", "q", "quality"].includes(key))) return [];
       return [{ id: String(image.id), url: url.href }];
     } catch { return []; }
   }).slice(0, 12);
