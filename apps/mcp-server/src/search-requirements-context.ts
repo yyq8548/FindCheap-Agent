@@ -1,4 +1,4 @@
-import { SearchProductsInputSchema, type SearchProductsInput } from "./search-products.js";
+import { parseStoredSearchRequest, type SearchProductsInput } from "./search-products.js";
 import { sanitizeExternalText } from "./execution/external-data-fence.js";
 import { normalizeNamedProductIdentity } from "./named-product-identity.js";
 import { hasSpecificProductIdentity, hasStrongProductIdentifier, productQueryCategoryKeys } from "./shopify-match.js";
@@ -29,6 +29,9 @@ export function shoppingRequirementLedger(input: SearchProductsInput) {
  * Parser defaults are not user requests to remove previous constraints. */
 export function mergeSearchRequirements(current: SearchProductsInput, previous: SearchProductsInput,
   previousCandidates: readonly { title: string; brand?: string | undefined }[] = []): SearchProductsInput {
+  // Only the resolved server snapshot can supply an existing product anchor.
+  const { wooAnchor: _submittedAnchor, ...submitted } = current;
+  current = submitted;
   current = normalizePackageRequirements(current);
   previous = normalizePackageRequirements(previous);
   if (current.removeRequiredFeatures.length > 0 && current.contextMode !== "CONTINUE_PREVIOUS_PRODUCT") throw new Error("PRODUCT_CONTEXT_CONFLICT");
@@ -45,7 +48,7 @@ export function mergeSearchRequirements(current: SearchProductsInput, previous: 
     delete retained[key];
     if (key === "requiredFeatures" && previous.featureMode === "REQUIRED") delete retained.features;
   }
-  previous = SearchProductsInputSchema.parse(retained);
+  previous = parseStoredSearchRequest(retained);
   if (!correctingIdentity && current.productType !== undefined && previous.productType !== undefined &&
     current.productType.toLowerCase() !== previous.productType.toLowerCase() &&
     !isHeadphoneTypeRefinement(previous.productType, current.productType)) throw new Error("PRODUCT_CONTEXT_CONFLICT");
@@ -71,6 +74,7 @@ export function mergeSearchRequirements(current: SearchProductsInput, previous: 
     // Old image observations are identity evidence, not constraints for a new identity.
     merged.query = current.query;
     delete merged.visualInput;
+    delete merged.wooAnchor;
     if (current.visualInput !== undefined) merged.visualInput = current.visualInput;
   }
   for (const key of ["maxItemPriceCents", "requiredSize", "preferredSize", "primaryUse", "brand", "productType", "zipCode", "membershipIds", "compareMerchants"] as const) {
@@ -84,13 +88,14 @@ export function mergeSearchRequirements(current: SearchProductsInput, previous: 
   if (current.allowAlternatives) merged.allowAlternatives = true;
   if (current.budgetFlexible) merged.budgetFlexible = true;
   if (current.selectionMode === "LOWEST_PRICE") merged.selectionMode = "LOWEST_PRICE";
-  return SearchProductsInputSchema.parse(merged);
+  return parseStoredSearchRequest(merged);
 }
 
 /** CONTINUE can narrow identity, but cannot replace, combine or erase it.
  * Unreviewed translations are not evidence of identity equivalence. */
 function continuedIdentityQuery(current: SearchProductsInput, previous: SearchProductsInput,
   previousCandidates: readonly { title: string; brand?: string | undefined }[]): string {
+  if (previous.wooAnchor !== undefined && current.query === previous.wooAnchor.url) return previous.query;
   // Within an already explicit EV category, "Tesla charging station" is a
   // category shorthand. This says nothing about vehicle/region compatibility.
   const evCategory = /^(?:ev (?:charging station|charger)|electric vehicle (?:charging station|charger)|充电桩)$/iu

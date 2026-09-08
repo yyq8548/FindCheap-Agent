@@ -4487,6 +4487,11 @@
         },
         {
           "kind": "import-statement",
+          "original": "./woo-product-identity.js",
+          "path": "src/woo-product-identity.ts"
+        },
+        {
+          "kind": "import-statement",
           "original": "./source-failure.js",
           "path": "src/source-failure.ts"
         },
@@ -4654,6 +4659,11 @@
           "kind": "import-statement",
           "original": "./woocommerce-product.js",
           "path": "src/woocommerce-product.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./woo-product-identity.js",
+          "path": "src/woo-product-identity.ts"
         },
         {
           "kind": "import-statement",
@@ -5497,6 +5507,16 @@
         }
       ]
     },
+    "src/woo-product-identity.ts": {
+      "format": "esm",
+      "imports": [
+        {
+          "kind": "import-statement",
+          "original": "./woocommerce-product.js",
+          "path": "src/woocommerce-product.ts"
+        }
+      ]
+    },
     "src/woocommerce-client.ts": {
       "format": "esm",
       "imports": [
@@ -5525,7 +5545,7 @@
   },
   "outputs": {
     "../../plugins/findcheap-agent/dist/mcp-server.js": {
-      "bytes": 1075023,
+      "bytes": 1077744,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
@@ -6317,10 +6337,10 @@
           "bytesInOutput": 4053
         },
         "src/search-products.ts": {
-          "bytesInOutput": 48217
+          "bytesInOutput": 48846
         },
         "src/search-requirements-context.ts": {
-          "bytesInOutput": 6243
+          "bytesInOutput": 6344
         },
         "src/search-result-summary.ts": {
           "bytesInOutput": 5412
@@ -6329,7 +6349,7 @@
           "bytesInOutput": 8103
         },
         "src/server.ts": {
-          "bytesInOutput": 204072
+          "bytesInOutput": 204669
         },
         "src/shopify-cart-quote.ts": {
           "bytesInOutput": 12440
@@ -6393,6 +6413,9 @@
         },
         "src/web-product-recovery.ts": {
           "bytesInOutput": 5959
+        },
+        "src/woo-product-identity.ts": {
+          "bytesInOutput": 1394
         },
         "src/woocommerce-client.ts": {
           "bytesInOutput": 2190

@@ -1,5 +1,6 @@
 import { candidateFingerprint } from "./visual-source-fingerprints.js";
 import { wooProductFacts, candidateProductFacts, dealProductId } from "./woocommerce-product.js";
+import { createWooProductAnchor } from "./woo-product-identity.js";
 import { snapshotProductIndex, type SnapshotSourceProduct } from "./snapshot-products.js";
 import { WooSearchResultSchema, wooProductTarget } from "../../../packages/contracts/src/woocommerce.js";
 import { createHash, randomUUID } from "node:crypto";
@@ -24,7 +25,7 @@ import { SourceValidationDetailsSchema } from "./source-failure.js";
 import { textSearchRecovery, TextSearchRecoverySchema } from "./text-search-recovery.js";
 import { WebRecoverySessions, WebConsentStatusSchema, WebDiscoveryOutcomeSchema, WebProductUrlSchema, WEB_SEARCH_LIMITS, webSearchQueries, readWebCandidates, type WebProductPagePort } from "./web-product-recovery.js";
 import { awaitWithSignal } from "./await-with-signal.js";
-import { evaluateRecoveredProducts, productIdentityBrand, woocommerceCandidate, resolveSearchIntent } from "./search-products.js";
+import { evaluateRecoveredProducts, productIdentityBrand, woocommerceCandidate, resolveSearchIntent, parseStoredSearchRequest } from "./search-products.js";
 import { createExecutedToolRegistrar } from "./execution/tool-registry.js";
 import {
   ProductComparisonInputSchema,
@@ -2415,7 +2416,7 @@ export function createShoppingServer(
       ...(searchRun === undefined && parent?.searchRun === undefined ? {} : { searchRun: searchRun ?? parent!.searchRun! }),
       chargingClarificationAsked: askedChargingCompatibility || parent?.chargingClarificationAsked === true,
       ...(candidates === undefined ? {} : { candidates: structuredClone(candidates.slice(0, 18)) }),
-      ...(request === undefined ? {} : { request: SearchProductsInputSchema.parse(request) })
+      ...(request === undefined ? {} : { request: parseStoredSearchRequest(request) })
     });
     while (renderSnapshots.size > MAX_PRODUCT_SELECTION_SNAPSHOTS) {
       const oldest = renderSnapshots.keys().next().value as string | undefined;
@@ -3157,7 +3158,7 @@ export function createShoppingServer(
         if (leaseRemaining === undefined) return toolError("TOOL_REQUEST_REJECTED");
         const remaining = Math.min(leaseRemaining, searchRun.remainingServiceMs());
         const webDeadline = now().getTime() + remaining;
-        const request = SearchProductsInputSchema.parse({ ...parent.request, contextMode: "CONTINUE_PREVIOUS_PRODUCT", parentRenderId: renderId });
+        const request = parseStoredSearchRequest({ ...parent.request, contextMode: "CONTINUE_PREVIOUS_PRODUCT", parentRenderId: renderId });
         const pages: WebProductPagePort = { read: (url, pageRequest, pageSignal) => searchRun.read("OFFICIAL", `web-recovery:${url}`, signal => {
           const combined = AbortSignal.any([signal, pageSignal]);
           combined.throwIfAborted();
@@ -3887,14 +3888,29 @@ export function createShoppingServer(
           if (inspected.status === "UNAVAILABLE" || inspected.status === "UNSUPPORTED" || (inspected.status === "PARTIAL" && inspected.products.length === 0)) {
             return failure("INSPECTION_SOURCE_UNAVAILABLE", "The original WooCommerce product could not be verified; no replacement was searched.", "原 WooCommerce 商品暂未核实；没有改搜其他商品。");
           }
+          if (inspected.products.some(product => product.merchantId !== selected.merchantId ||
+            product.productId !== selected.productId || product.sourceHost !== selected.sourceHost)) {
+            throw new Error("WooCommerce inspection returned another product family");
+          }
+          const inspectionAnchor = (product: typeof selected, exactVariant = true) => {
+            const url = new URL(product.merchantUrl);
+            for (const key of [...url.searchParams.keys()]) {
+              if (key === "variation_id" || key.startsWith("attribute_")) url.searchParams.delete(key);
+            }
+            if (exactVariant && product.variationId !== undefined) url.searchParams.set("variation_id", String(product.variationId));
+            return createWooProductAnchor(product, url.href);
+          };
           const size = Object.entries(variantDimensions).find(([key]) => /^(?:shoe )?size$/iu.test(key))?.[1];
-          const nextRequest = SearchProductsInputSchema.parse({ ...(snapshot.request ?? { query: selected.title }), parentRenderId: renderId,
+          let nextRequest = parseStoredSearchRequest({ ...(snapshot.request ?? { query: selected.title }), parentRenderId: renderId,
             responseLocale: locale, ...(size === undefined ? {} : { requiredSize: size }) });
           const previousCard = snapshot.content.products.find(product => productReferenceKey(product) === reference.productKey);
           const eligible = inspected.products.map(product => woocommerceCandidate(product,
-            { ...nextRequest, includeUnavailableVariants: true }, resolveSearchIntent(nextRequest), nextRequest.query,
+            { ...nextRequest, includeUnavailableVariants: true,
+              ...(nextRequest.wooAnchor === undefined ? {} : { wooAnchor: inspectionAnchor(product) }) }, resolveSearchIntent(nextRequest), nextRequest.query,
             new Set(), new Set(), new Set(), new Set())).filter((candidate): candidate is UnifiedCandidate => candidate !== undefined);
           const changed = eligible.slice(0, 3);
+          if (nextRequest.wooAnchor !== undefined && changed.length > 0) nextRequest = parseStoredSearchRequest({ ...nextRequest,
+            wooAnchor: changed.length === 1 ? inspectionAnchor(changed[0]!.woocommerceProduct!) : inspectionAnchor(selected, false) });
           const inspectedCards = changed.map(candidate => {
             const card = { ...wooCardProduct(candidate), ...candidateValueOutput(candidate) };
             if (previousCard?.visualReviewAssessment === undefined && snapshot.request?.visualInput === undefined) return card;
@@ -4008,7 +4024,7 @@ export function createShoppingServer(
         const verifiedSize = inspection.variants.length === 1
           ? Object.entries(inspection.variants[0]!.variantDimensions).find(([key]) => /^(?:shoe )?size$/iu.test(key))?.[1]
           : undefined;
-        const nextRequest = snapshot.request === undefined ? undefined : SearchProductsInputSchema.parse({
+        const nextRequest = snapshot.request === undefined ? undefined : parseStoredSearchRequest({
           ...snapshot.request, parentRenderId: renderId, responseLocale: locale,
           ...(requestedSize === undefined ? {} : { requiredSize: verifiedSize ?? requestedSize[1] })
         });
