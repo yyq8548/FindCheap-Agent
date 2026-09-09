@@ -21,6 +21,8 @@ type IdentityProduct = { merchantUrl: string; sourceHost?: string | undefined; g
   brand?: string | undefined; mpn?: string | undefined; variantDimensions?: Readonly<Record<string, string>> | undefined };
 const normalize = (value: string) => value.normalize("NFKC").toLowerCase().replace(/\s+/gu, " ").trim();
 const host = (value: string) => value.toLowerCase().replace(/^www\./u, "");
+const INSPECTION_TRACKING_PARAMETERS = new Set(["srsltid", "gclid", "fbclid", "_gsid",
+  "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "utm_id"]);
 
 export function createShopifyProductAnchor(product: ShopifyProduct, requestedUrl: string): ShopifyProductAnchor {
   const target = new URL(requestedUrl), observed = new URL(product.merchantUrl);
@@ -67,12 +69,29 @@ export function hasConflictingShopifyVariantId(product: { merchantUrl: string; h
     (observed.searchParams.getAll("variant").length !== 1 || observed.searchParams.get("variant") !== product.handle);
 }
 
+/** Identity-only view of an already selected source product. Unknown query
+ * semantics must fail closed; attribution never changes saved URLs or prices. */
+function inspectionProductAnchor(product: ShopifyProduct): ShopifyProductAnchor | undefined {
+  let target: URL;
+  try { target = new URL(product.merchantUrl); } catch { return undefined; }
+  for (const key of [...target.searchParams.keys()]) if (INSPECTION_TRACKING_PARAMETERS.has(key)) target.searchParams.delete(key);
+  if (!ShopifyProductAnchorSchema.shape.url.safeParse(target.href).success || host(product.sourceHost) !== host(target.hostname) ||
+    target.searchParams.has("variant") && target.searchParams.get("variant") !== product.handle) return undefined;
+  try { return createShopifyProductAnchor(product, target.href); }
+  catch (error) {
+    // Invalid local identity is not an upstream SOURCE_READ failure. Provider
+    // failures remain outside this helper and retain their original details.
+    if (error instanceof z.ZodError) return undefined;
+    throw error;
+  }
+}
+
 /** Provider inspection stays bound to the actual selected merchant product. */
 export function matchesSelectedShopifyInspection(selected: ShopifyProduct, options: Record<string, string>, product: ShopifyProduct): boolean {
-  const target = new URL(selected.merchantUrl), observed = new URL(product.merchantUrl);
+  const selectedAnchor = inspectionProductAnchor(selected), observedAnchor = inspectionProductAnchor(product);
+  if (selectedAnchor === undefined || observedAnchor === undefined) return false;
+  const target = new URL(selectedAnchor.url), observed = new URL(observedAnchor.url);
   if (host(target.hostname) !== host(observed.hostname) || target.pathname !== observed.pathname) return false;
-  const selectedAnchor = createShopifyProductAnchor(selected, target.href);
-  if (hasConflictingShopifyVariantId(product, selectedAnchor)) return false;
   const requested = Object.entries(options);
   if (requested.length > 0) target.search = "";
   const dimensions = Object.fromEntries(Object.entries(selectedAnchor.variantDimensions)
@@ -90,7 +109,5 @@ export function inspectedShopifyProductAnchor(anchor: ShopifyProductAnchor, sele
   if (requested.length === 0 || variants.length !== 1 || !matchesShopifyProductAnchor(selected, anchor)) return anchor;
   const product = variants[0]!;
   if (!matchesSelectedShopifyInspection(selected, options, product)) return anchor;
-  const observed = new URL(product.merchantUrl);
-  for (const key of [...observed.searchParams.keys()]) if (key !== "variant") observed.searchParams.delete(key);
-  return createShopifyProductAnchor(product, observed.href);
+  return inspectionProductAnchor(product) ?? anchor;
 }
