@@ -46,3 +46,11 @@
 ### R4 完整集成
 
 主任务生成 R4 包 `0.18.6+codex.20260909221227` 并再次构建 MCP，bundle SHA 为 `d1d09fa28d79fe06e2585a8c859c4302657d0090472e237da789941d6719531b`；source SHA 仍为 `9981ab1dc9c751c55e8092ea0eb4b3fd5b9d26888793847707f62fe087131ff0`，无需重复部署。`final-tests-r6.json`：210文件／4,116 PASS／0 FAIL；`final-typecheck-r5.log`、`final-lint-r5.log`均通过。早期R3原生及红测保持原样，R3正式文字／图片矩阵均未执行；最终R4安装及原生复验继续独立交付。
+
+### R4 原生与安装交付
+
+最终包 `0.18.6+codex.20260909221227`，MCP SHA `d1d09fa28d79fe06e2585a8c859c4302657d0090472e237da789941d6719531b`，运行提交 `3228e2298d719574653e264a25ddfb377b0429d2`。两个CI均PASS（plugin 34411194008、Windows 34411194042）；installer1.2.1 于22:14:48Z实际成功，先备份 `f2b8028f41384e4faec2c39817d35785` 再升级。后续授权兼容同步5入口70文件，实际canonical stdio5/5，证据 `installed-cache-verification-r4.json`／`installed-stdio-r4-binding.json`。源服务bundle未变，不重复部署。
+
+新任务 `01a0883d-a248-78d1-8a0b-cf0dbb269d5c`（v0.18.6 R4 实测：Glossier 精确变体）60.397秒完成。原始回执 line29 搜索1张Espresso单支卡，带variant/_gsid/utm_source/utm_medium；line36原variantId检查OK，派生1张同款卡，SKU BDC-467-00-00、USD16、IN_STOCK、variant46731565826293。运行trace版本0.18.6与独立安装SHA分开核对。R3失败保留在原业务receipt，R4为 `glossier-r4-business-receipt.json`。此次没有报价或购物车调用；quoteCapability表示支持，真实运税和用户表单仍属F13。
+
+正式文字R4清单30位置已冻结，S01任务 `01a08841-a777-7001-a072-8eeb1242970e` 在首次search_products宿主审批处等待，尚无购物回执；并未创建其他待审批样本来绕过。R3原Sony/medicube功能任务也保留原权限等待；R3未执行矩阵不混入R4。图片R4清单8保留/6计划/2原准备失败/0执行，等待文字矩阵完成。审批等待时长未获独立确认，不能当纯工具耗时或随意扣除。
