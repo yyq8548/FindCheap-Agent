@@ -5,6 +5,7 @@ import { ShopifyProductJsonSchema, shopifyVariantDimensions } from "./shopify-pr
 import { evaluateProductRequirements, sizeEvidence } from "./product-requirements.js";
 import { classifySourceFailure } from "./source-failure.js";
 import { productRequirementFeatures } from "./merchant-requirements.js";
+import { shopifyPageVariantPrices } from "./shopify-variant-price.js";
 
 export class SelectedProductInspectionError extends Error {
   constructor(readonly code: "TARGET_CHANGED" | "VARIANT_NOT_PRESENT" | "TARGET_UNSUPPORTED" | "SOURCE_UNAVAILABLE" | "RATE_LIMITED" | "UPSTREAM_ERROR",
@@ -78,12 +79,26 @@ export function createShopifySelectedProductInspector(
         // /products/*.js may omit currency. Never relabel a local-market price as
         // USD: accept explicit USD, or the exact page's USD offer for that variant.
         const usdOffers = new Map<string, OfficialStructuredProduct["variants"][number]>();
+        const usdPrices = new Map<string, number>();
         if (product.currency === undefined && product.priceCurrency === undefined) {
           try {
             const page = await fetchProduct(target.canonicalProductUrl, target.sourceHost, options?.signal);
             if (page.response.ok && canonicalHref(page.finalUrl) === canonicalHref(target.canonicalProductUrl)) {
-              const details = parseOfficialStructuredProduct(await page.response.text(), target.sourceHost, target.productHandle);
-              for (const variant of details.variants) usdOffers.set(variant.variantId, variant);
+              const html = await page.response.text();
+              const evidence = shopifyPageVariantPrices(html, target.canonicalProductUrl, product);
+              try {
+                const details = parseOfficialStructuredProduct(html, target.sourceHost, target.productHandle);
+                for (const variant of details.variants) usdOffers.set(variant.variantId, variant);
+              } catch { /* Exact page variant data may exist without a usable JSON-LD offer. */ }
+              if (!evidence.ambiguous) {
+                for (const variant of product.variants) {
+                  const pageAmount = evidence.prices.get(variant.id);
+                  const offerAmount = usdOffers.get(variant.id)?.amountCents;
+                  if (pageAmount !== undefined && offerAmount !== undefined && pageAmount !== offerAmount) continue;
+                  const amount = pageAmount ?? offerAmount;
+                  if (amount !== undefined) usdPrices.set(variant.id, amount);
+                }
+              }
             }
           } catch { options?.signal?.throwIfAborted(); }
         }
@@ -115,7 +130,7 @@ export function createShopifySelectedProductInspector(
             ...variantImage(selected, dimensions, variant.featured_image),
             ...((product.currency === "USD" || product.priceCurrency === "USD")
               ? { itemPrice: { amountCents: variant.price, currency: "USD" as const } }
-              : usdOffers.has(variant.id) ? { itemPrice: { amountCents: usdOffers.get(variant.id)!.amountCents, currency: "USD" as const } } : {}),
+              : usdPrices.has(variant.id) ? { itemPrice: { amountCents: usdPrices.get(variant.id)!, currency: "USD" as const } } : {}),
             availabilityScope: "SELECTED_VARIANT",
             availability: variant.available ? "IN_STOCK" : "OUT_OF_STOCK",
             merchantUrl: `${target.canonicalProductUrl}?variant=${variant.id}`,

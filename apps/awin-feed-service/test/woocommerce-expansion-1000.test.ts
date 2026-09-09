@@ -23,13 +23,23 @@ type PortableLedger = {
 const ledger = JSON.parse(await readFile(new URL("../../../docs/engineering/changes/2026-09-08-woocommerce-expansion-1000-evidence.json", import.meta.url), "utf8")) as PortableLedger;
 
 describe("reviewed 1000-store Woo access registry", () => {
-  it("contains exactly the frozen 200 prior stores and 800 admitted additions", () => {
+  it("preserves the frozen 200 stores with reviewed metadata corrections and 800 admitted additions", () => {
     expect(ledger.complete).toBe(true);
     expect(ledger.storefrontCount).toBe(1000);
     expect(ledger.stores).toHaveLength(800);
     expect(ledger.rawCoverageGaps).toEqual([]);
-    expect(DEFAULT_WOO_REGISTRY.stores).toHaveLength(1002);
-    expect(DEFAULT_WOO_REGISTRY.stores.slice(0, 200)).toEqual(ledger.baseline.entries);
+    expect(DEFAULT_WOO_REGISTRY.stores).toHaveLength(1003);
+    // Preserve the September 8 evidence ledger; enumerate only the two approved
+    // September 9 corrections, with every unrelated field still compared exactly.
+    const reviewedBaseline = ledger.baseline.entries.map(store => {
+      if (store.merchantId === "gr-research") return { ...store, brands: ["GR Research", "Verum", "Meze"],
+        categories: ["audio", "speakers", "headphone", "headphones"], reviewedAt: "2026-09-09",
+        marketEvidence: "https://gr-research.com/product/meze-109-pro/", evidenceUrl: "https://gr-research.com/wp-json/wc/store/v1/products/241330" };
+      if (store.merchantId === "orleans-coffee") return { ...store, origin: "https://orleanscoffee.com", aliases: ["www.orleanscoffee.com"],
+        reviewedAt: "2026-09-09", evidenceUrl: "https://orleanscoffee.com/wp-json/wc/store/v1/products/65480" };
+      return store;
+    });
+    expect(DEFAULT_WOO_REGISTRY.stores.slice(0, 200)).toEqual(reviewedBaseline);
     expect(DEFAULT_WOO_REGISTRY.stores.slice(200, 1000)).toEqual(ledger.stores.map(store => store.entry));
     expect(WooRegistrySchema.parse(DEFAULT_WOO_REGISTRY)).toEqual(DEFAULT_WOO_REGISTRY);
     expect(Buffer.byteLength(JSON.stringify(DEFAULT_WOO_REGISTRY))).toBeLessThanOrEqual(2 * 1024 * 1024);

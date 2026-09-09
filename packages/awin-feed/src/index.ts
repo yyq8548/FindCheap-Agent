@@ -1,4 +1,5 @@
 import { readFile, stat } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { isIP } from "node:net";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -301,8 +302,61 @@ export async function mergeAwinFeedArchivesStreaming(
   archives: readonly Uint8Array[],
   options: { defaultCurrency?: "USD"; canonicalizeMerchantNames?: boolean } = {}
 ): Promise<Uint8Array> {
+  return mergeStreamingArchives(archives, options);
+}
+
+export async function mergeAwinFeedArchivesIsolatingConflicts(
+  archives: readonly Uint8Array[],
+  options: { defaultCurrency?: "USD"; canonicalizeMerchantNames?: boolean } = {}
+): Promise<{ archive: Uint8Array; inputRows: number; excludedProductGroups: number; excludedProductRows: number; deduplicatedProductRows: number }> {
+  const records = new Map<string, { fingerprint: string; count: number }>();
+  const excludedKeys = new Set<string>();
+  const identicalKeys = new Set<string>();
+  let inputRows = 0;
+  let inputBytes = 0;
+  let excludedProductRows = 0;
+  let deduplicatedProductRows = 0;
+  for (const archive of archives) {
+    const sourceKeys = new Set<string>();
+    await visitAwinArchiveRecordsStreaming(archive, record => {
+      const compacted = compactAwinFeedRecord(normalizeAwinFeedRecord(record, options.defaultCurrency));
+      if (compacted === undefined) return;
+      const line = COMPACT_AWIN_HEADERS.map(column => csvCell(compacted[column] ?? "")).join(",");
+      inputBytes += 2 + Buffer.byteLength(line, "utf8");
+      if (inputBytes > MAX_MERGED_UNCOMPRESSED_BYTES) throw new Error("AWIN_FEED_TOO_LARGE");
+      const key = `${requireValue(compacted, "merchant_id")}:${requireValue(compacted, "merchant_product_id")}`;
+      if (sourceKeys.has(key)) throw new Error("duplicate Awin merchant product within source Feed");
+      sourceKeys.add(key);
+      inputRows += 1;
+      const fingerprint = createHash("sha256").update(line).digest("hex");
+      const prior = records.get(key);
+      if (prior === undefined) records.set(key, { fingerprint, count: 1 });
+      else {
+        prior.count += 1;
+        if (prior.fingerprint !== fingerprint) excludedKeys.add(key);
+      }
+    }, async () => {});
+  }
+  for (const [key, record] of records) {
+    if (excludedKeys.has(key)) excludedProductRows += record.count;
+    else if (record.count > 1) {
+      identicalKeys.add(key);
+      deduplicatedProductRows += record.count - 1;
+    }
+  }
+  records.clear();
+  const archive = await mergeStreamingArchives(archives, options, excludedKeys, identicalKeys);
+  return { archive, inputRows, excludedProductGroups: excludedKeys.size, excludedProductRows, deduplicatedProductRows };
+}
+
+async function mergeStreamingArchives(
+  archives: readonly Uint8Array[],
+  options: { defaultCurrency?: "USD"; canonicalizeMerchantNames?: boolean },
+  excludedKeys?: ReadonlySet<string>,
+  identicalKeys?: ReadonlySet<string>
+): Promise<Uint8Array> {
   if (archives.length === 0) throw new Error("at least one Awin Feed is required");
-  const collector = createStreamingCompactArchiveCollector(options);
+  const collector = createStreamingCompactArchiveCollector(options, excludedKeys, identicalKeys);
   try {
     for (const archive of archives) {
       await visitAwinArchiveRecordsStreaming(archive, collector.consume, collector.drain);
@@ -315,7 +369,9 @@ export async function mergeAwinFeedArchivesStreaming(
 }
 
 function createStreamingCompactArchiveCollector(
-  options: { defaultCurrency?: "USD"; canonicalizeMerchantNames?: boolean }
+  options: { defaultCurrency?: "USD"; canonicalizeMerchantNames?: boolean },
+  excludedKeys?: ReadonlySet<string>,
+  identicalKeys?: ReadonlySet<string>
 ): {
   consume(record: Record<string, string>): void;
   drain(): Promise<void>;
@@ -377,13 +433,15 @@ function createStreamingCompactArchiveCollector(
       const compacted = compactAwinFeedRecord(normalizeAwinFeedRecord(record, options.defaultCurrency));
       if (compacted === undefined) return;
       const merchantId = requireValue(compacted, "merchant_id");
+      const productKey = `${merchantId}:${requireValue(compacted, "merchant_product_id")}`;
+      if (excludedKeys?.has(productKey)) return;
+      if (productKeys.has(productKey) && identicalKeys?.has(productKey)) return;
       if (options.canonicalizeMerchantNames === true) {
         const merchantName = requireValue(compacted, "merchant_name");
         const canonicalName = merchantNames.get(merchantId) ?? merchantName;
         merchantNames.set(merchantId, canonicalName);
         compacted.merchant_name = canonicalName;
       }
-      const productKey = `${merchantId}:${requireValue(compacted, "merchant_product_id")}`;
       if (productKeys.has(productKey)) throw new Error("duplicate Awin merchant product across source Feeds");
       productKeys.add(productKey);
       const line = COMPACT_AWIN_HEADERS.map((column) => csvCell(compacted[column] ?? "")).join(",");

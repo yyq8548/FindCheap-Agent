@@ -8,6 +8,7 @@ import {
   createAwinFeedIndex,
   MAX_AWIN_SOURCE_COMPRESSED_BYTES,
   mergeAwinFeedArchives,
+  mergeAwinFeedArchivesIsolatingConflicts,
   mergeAwinFeedArchivesStreaming,
   parseAwinCsv,
   parseAwinSearchInput,
@@ -60,6 +61,7 @@ type FeedSnapshot = {
   excludedSourceFeeds: number;
   excludedSourceFeedReasons: Partial<Record<FeedErrorDetailCode, number>>;
   staleSourceFeeds: number;
+  productCoverage?: { inputRows: number; excludedProductGroups: number; excludedProductRows: number; deduplicatedProductRows?: number | undefined };
 };
 
 type FeedState = {
@@ -169,6 +171,7 @@ export function createAwinFeedController(
         metadata?.staleSourceFeeds ?? 0
       );
       state.lastSuccessfulRefreshAt = metadata?.lastSuccessfulRefreshAt ?? fileSnapshotAt;
+      if (metadata?.productCoverage !== undefined) state.snapshot.productCoverage = metadata.productCoverage;
       state.consecutiveRefreshFailures = manifest.health.consecutiveRefreshFailures;
       if (manifest.health.lastErrorAt === undefined) delete state.lastErrorAt;
       else state.lastErrorAt = manifest.health.lastErrorAt;
@@ -307,9 +310,10 @@ export function createAwinFeedController(
       state.lastAttemptSourceFeeds = sourceArchives.length;
       state.lastAttemptExcludedSourceFeeds = sources.length - sourceArchives.length;
       state.lastAttemptExcludedSourceFeedReasons = excludedSourceFeedReasons;
+      // Source validation succeeded independently of the aggregate publication below.
+      manifest = { ...manifest, sources: nextEntries };
+      await writeFeedCacheManifest(paths.manifestPath, manifest);
       if (fatalSourceError !== undefined) {
-        manifest = { ...manifest, sources: nextEntries };
-        await writeFeedCacheManifest(paths.manifestPath, manifest);
         throw fatalSourceError;
       }
       const snapshotAt = validDate(now()).toISOString();
@@ -317,7 +321,7 @@ export function createAwinFeedController(
       if (sourceArchives.length === 0) {
         throw firstSourceValidationError ?? new Error("at least one valid Awin Feed is required");
       }
-      const archive = await mergeAwinFeedArchivesStreaming(sourceArchives, mergeOptions);
+      const { archive, ...productCoverage } = await mergeAwinFeedArchivesIsolatingConflicts(sourceArchives, mergeOptions);
       const archiveHash = archiveSha256(archive);
       const currentArchiveHash = state.snapshot === undefined ? undefined : archiveSha256(state.snapshot.archive);
       let snapshot: FeedSnapshot;
@@ -349,6 +353,7 @@ export function createAwinFeedController(
         }
       }
       failureCode = "STORAGE_WRITE_FAILED";
+      snapshot.productCoverage = productCoverage;
       await writeArchiveAtomically(environment.dataPath, archive);
       const degraded = staleSourceFeeds > 0;
       const lastSuccessfulRefreshAt = degraded
@@ -372,7 +377,8 @@ export function createAwinFeedController(
           sourceFeeds: sourceArchives.length,
           excludedSourceFeeds: sources.length - sourceArchives.length,
           excludedSourceFeedReasons,
-          staleSourceFeeds
+          staleSourceFeeds,
+          productCoverage
         },
         health: degraded
           ? {
@@ -1151,6 +1157,7 @@ function feedMetadata(state: Readonly<FeedState>): Record<string, unknown> {
           ...(state.snapshot.sourceFeeds === undefined ? {} : { sourceFeeds: state.snapshot.sourceFeeds }),
           excludedSourceFeeds: state.snapshot.excludedSourceFeeds,
           staleSourceFeeds: state.snapshot.staleSourceFeeds,
+          ...(state.snapshot.productCoverage === undefined ? {} : { productCoverage: state.snapshot.productCoverage }),
           ...(state.snapshot.excludedSourceFeeds === 0
             ? {}
             : { excludedSourceFeedReasons: state.snapshot.excludedSourceFeedReasons })

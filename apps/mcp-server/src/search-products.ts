@@ -4,7 +4,7 @@ import { SearchRun } from "./search-run.js";
 import { deduplicateCandidateOffers, type OfferObservation } from "./offer-equivalence.js";
 import { resolveKnownProductUrl } from "./known-product-url.js";
 import { compileSourceQuery, discoveryTarget, isExplicitCategoryQuery } from "./retrieval-plan.js";
-import { assessCoffeeCategory, assessCoffeeCompatibility, isCoffeeCategoryRefinement, parseCoffeeCategory, type CoffeeCategory, type CoffeeCompatibilityAssessment, type CoffeeRequest } from "./coffee-category.js";
+import { assessCoffeeCategory, assessCoffeeCompatibility, isCoffeeCategoryRefinement, parseCoffeeCategory, parseCoffeeCompatibilityQuery, type CoffeeCategory, type CoffeeCompatibilityAssessment, type CoffeeRequest } from "./coffee-category.js";
 import type { WooProduct, WooSearchResult } from "../../../packages/contracts/src/woocommerce.js";
 import type { WooCommerceCatalogPort } from "./woocommerce-client.js";
 import { wooProductFacts, wooProductUrl, matchesWooProductUrl, type CatalogProductFacts } from "./woocommerce-product.js";
@@ -1497,6 +1497,7 @@ export function resolveSearchIntent(
     return "EXACT_PRODUCT";
   }
   if (input.visualInput !== undefined) return "VISUAL_DISCOVERY";
+  if (parseCoffeeCompatibilityQuery(input.query) !== undefined) return "CATEGORY_DISCOVERY";
   const identityQuery = input.brand !== undefined && input.brandMode === "REQUIRED"
     ? withoutRequestedBrand(input.query, input.brand)
     : input.query;
@@ -1512,7 +1513,8 @@ export function resolveSearchIntent(
 export function requestedCoffeeCategory(input: Pick<SearchProductsInput, "query" | "productType" | "visualInput">): CoffeeCategory | undefined {
   if (input.visualInput !== undefined) return undefined;
   const category = parseCoffeeCategory(input.productType);
-  return category === undefined || category === "COFFEE" ? parseCoffeeCategory(input.query) ?? category : category;
+  return category === undefined || category === "COFFEE"
+    ? parseCoffeeCategory(input.query) ?? parseCoffeeCompatibilityQuery(input.query)?.category ?? category : category;
 }
 
 function candidateIdentity(
@@ -1728,7 +1730,8 @@ function buildExpandedQuery(
   const parts = [buildSourceQuery(input), ...functionalQueryFeatures(requiredFeatures.length > 0 ? requiredFeatures : preferences)]
     .map((part) => part.normalize("NFKC").trim())
     .filter((part, index, values) => part !== "" && values.indexOf(part) === index);
-  return parts.join(" ").slice(0, 300).trim();
+  const expanded = parts.join(" ").slice(0, 300).trim();
+  return parseCoffeeCompatibilityQuery(expanded)?.categoryQuery ?? expanded;
 }
 
 function buildSourceQuery(input: Pick<SearchProductsInput, "query" | "brand" | "productType" | "visualInput" | "maxItemPriceCents"> & {
@@ -1742,7 +1745,8 @@ function buildSourceQuery(input: Pick<SearchProductsInput, "query" | "brand" | "
       relaxed: input.relaxVisualRetrieval === true
     }) || input.query;
   }
-  const query = stripRequiredFeaturesFromQuery(productOnlyQuery(input.query, input.maxItemPriceCents !== undefined), input.requiredFeatures ?? []);
+  const literalQuery = stripRequiredFeaturesFromQuery(productOnlyQuery(input.query, input.maxItemPriceCents !== undefined), input.requiredFeatures ?? []);
+  const query = parseCoffeeCompatibilityQuery(literalQuery)?.categoryQuery ?? literalQuery;
   return unique([
     input.brand !== undefined && !containsBrand(query, input.brand) ? input.brand : "",
     query,

@@ -9,7 +9,8 @@ const RawAttribute = z.object({ name: z.string().max(80), value: z.string().max(
 const RawVariationAttribute = RawAttribute.extend({ value: z.string().max(300).nullish().transform(value => value ?? undefined) });
 const RawProduct = z.object({
   id: Id, parent: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(), name: z.string().min(1).max(500), type: z.string().max(80), permalink: z.string().max(4_096),
-  sku: z.string().max(300).optional(),
+  // Some public Store API variants use false for an absent optional SKU.
+  sku: z.union([z.string().max(300), z.literal(false).transform(() => undefined)]).optional(),
   // Page-builder markup can swamp this optional display field; omit it instead of relaxing identity or response bounds.
   description: z.string().transform(value => value.length <= 200_000 ? value : undefined).optional(), is_password_protected: z.boolean().optional(),
   prices: z.object({ price: z.string().max(32).optional(), currency_code: z.string().regex(/^[A-Z]{3}$/u), currency_minor_unit: z.number().int().min(0).max(6) }).passthrough(),

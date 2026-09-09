@@ -60,7 +60,13 @@ const SnapshotMetadataSchema = z.object({
   sourceFeeds: z.number().int().nonnegative(),
   excludedSourceFeeds: z.number().int().nonnegative(),
   excludedSourceFeedReasons: z.record(FeedErrorDetailCodeSchema, z.number().int().positive()),
-  staleSourceFeeds: z.number().int().nonnegative()
+  staleSourceFeeds: z.number().int().nonnegative(),
+  productCoverage: z.object({
+    inputRows: z.number().int().nonnegative(),
+    excludedProductGroups: z.number().int().nonnegative(),
+    excludedProductRows: z.number().int().nonnegative(),
+    deduplicatedProductRows: z.number().int().nonnegative().optional()
+  }).strict().optional()
 }).strict();
 
 const HealthMetadataSchema = z.object({

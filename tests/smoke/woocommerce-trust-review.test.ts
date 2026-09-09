@@ -46,14 +46,23 @@ describe("reviewed WooCommerce merchant trust data", () => {
     expect(review.stores.map((store) => store.merchantId).sort())
       .toEqual(DEFAULT_WOO_REGISTRY.stores.slice(0, 200).map((store) => store.merchantId).sort());
     for (const store of review.stores) {
-      expect(DEFAULT_WOO_REGISTRY.stores.find((entry) => entry.merchantId === store.merchantId), store.merchantId)
-        .toMatchObject({ name: store.name, origin: store.origin });
+      const current = DEFAULT_WOO_REGISTRY.stores.find((entry) => entry.merchantId === store.merchantId);
+      if (store.merchantId === "orleans-coffee") {
+        expect(store.origin).toBe("https://www.orleanscoffee.com");
+        expect(current).toMatchObject({
+          name: store.name, origin: "https://orleanscoffee.com", aliases: ["www.orleanscoffee.com"]
+        });
+        expect([new URL(current!.origin).hostname, ...current!.aliases].sort())
+          .toEqual(["orleanscoffee.com", "www.orleanscoffee.com"]);
+      } else {
+        expect(current, store.merchantId).toMatchObject({ name: store.name, origin: store.origin });
+      }
     }
   });
 
-  it("does not extend the historical trust approvals to the 802 later access merchants", () => {
+  it("does not extend the historical trust approvals to the 803 later access merchants", () => {
     const added = DEFAULT_WOO_REGISTRY.stores.slice(200);
-    expect(added).toHaveLength(802);
+    expect(added).toHaveLength(803);
     const approvedHosts = new Set(approvals.map((approval) => approval.kind === "OFFICIAL_STOREFRONT"
       ? approval.record.officialHost : approval.record.host));
     for (const store of added) expect(approvedHosts.has(hostFor(store.origin)), store.merchantId).toBe(false);

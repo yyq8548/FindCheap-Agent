@@ -160,6 +160,26 @@ export function hasNamedProductIntent(query: string): boolean {
   return identityTerms.size >= 3;
 }
 
+/** A named edition belongs to this offer only when its primary identity says so.
+ * FAQ comparisons cannot satisfy a requirement or establish an exclusion. */
+export function namedProductEditionAssessment(query: string | undefined, requirement: string, candidate: ShopifyMatchCandidate) {
+  const terms = tokenize(requirement);
+  const edition = terms.length === 1 ? terms[0] : undefined;
+  if (query === undefined || edition === undefined || !PRODUCT_EDITIONS.has(edition) || !hasNamedProductIntent(query)
+    || (isGarmentQuery(query) && (edition === "mini" || edition === "regular"))) return undefined;
+  const primary = primaryProductTokens(candidate);
+  const opposite = edition === "mild" ? "regular" : edition === "regular" ? "mild" : undefined;
+  const matched = primary.includes(edition);
+  const contradicted = opposite !== undefined && primary.includes(opposite);
+  const status = matched && contradicted ? "CONFLICT" as const : matched ? "MATCHED" as const
+    : contradicted ? "CONTRADICTED" as const : "UNKNOWN" as const;
+  return { status, observed: primary.join(" ") };
+}
+
+function isGarmentQuery(query: string): boolean {
+  return /\b(?:dress(?:es)?|skirts?|pants?|trousers?|shirts?|jeans?|bags?)\b/u.test(tokenize(query).join(" "));
+}
+
 export function classifyShopifyCandidate(
   query: string,
   candidate: ShopifyMatchCandidate
@@ -204,7 +224,7 @@ export function classifyShopifyCandidate(
   const candidateTokens = new Set(tokenize(searchableCandidateText));
   // Named editions must describe this offer, not a FAQ, comparison or cross-sell.
   // Generic adjectives (e.g. "mild shampoo") retain ordinary discovery semantics.
-  const garmentQuery = /\b(?:dress(?:es)?|skirts?|pants?|trousers?|shirts?|jeans?|bags?)\b/u.test(queryTokens.join(" "));
+  const garmentQuery = isGarmentQuery(query);
   const requestedEditions = new Set(hasNamedProductIntent(query) ? queryTokens.filter(token => PRODUCT_EDITIONS.has(token) &&
     !(garmentQuery && (token === "mini" || token === "regular"))) : []);
   const editionTokens = new Set(primaryProductTokens(candidate));

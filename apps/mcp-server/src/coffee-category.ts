@@ -3,7 +3,7 @@ export type CoffeeCategory = "COFFEE" | "WHOLE_BEAN" | "GROUND" | "PODS" | "INST
 const CATEGORY_PHRASES: ReadonlyArray<readonly [CoffeeCategory, RegExp]> = [
   ["COFFEE", /^(?:coffee|咖啡)$/u],
   ["WHOLE_BEAN", /^(?:coffee beans?|whole beans?(?: coffee)?|whole coffee beans|咖啡豆|全豆咖啡|整豆咖啡|烘焙咖啡豆)$/u],
-  ["GROUND", /^(?:ground coffee|coffee grounds|咖啡粉|研磨咖啡粉?)$/u],
+  ["GROUND", /^(?:(?:loose )?(?:ground coffee|coffee grounds)|咖啡粉|研磨咖啡粉?)$/u],
   ["PODS", /^(?:coffee pods?|coffee capsules?|咖啡[胶膠]囊|[胶膠]囊咖啡)$/u],
   ["INSTANT", /^(?:instant coffee|soluble coffee|速溶咖啡|即溶咖啡)$/u]
 ];
@@ -155,13 +155,28 @@ export function requestedCoffeeSystem(request: CoffeeRequest): CoffeeSystem | un
 export function coffeeCompatibilityRequirement(value: string): CoffeeSystem | undefined {
   const requirement = normalize(value).replaceAll("_", " ")
     .replace(/^(?:compatible with|compatibility with|for use with|works with|for|兼容|适用于)\s*/u, "")
-    .replace(/\s+(?:machines?|system|capsules?)$/u, "").trim();
+    .replace(/\s+(?:machines?|system|capsules?)$/u, "")
+    .replace(/\s+compatible$/u, "").trim();
   return SYSTEM_PATTERNS.find(([, pattern]) => new RegExp(`^(?:${pattern.source})$`, "u").test(requirement))?.[0];
+}
+
+/** Only a complete form-plus-compatibility query is category discovery. Extra
+ * brands, names, identifiers and compound clauses are never stripped away. */
+export function parseCoffeeCompatibilityQuery(value: string): {
+  category: "PODS"; categoryQuery: "coffee capsules"; system: CoffeeSystem;
+} | undefined {
+  const parts = normalize(value).split(/(\b(?:coffee|espresso) (?:capsules?|pods?)\b|咖啡[胶膠]囊|[胶膠]囊咖啡)/u);
+  if (parts.length !== 3 || parts[0]!.trim() !== "" && parts[2]!.trim() !== "") return undefined;
+  const relation = (parts[0]!.trim() || parts[2]!.trim()).replace(/的$/u, "").trim();
+  if (!/^(?:(?:compatible|compatibility) with|for use with|works with|for)\s|^(?:兼容|适用于)|\scompatible$/u.test(relation)) return undefined;
+  const system = coffeeCompatibilityRequirement(relation);
+  return system === undefined ? undefined : { category: "PODS", categoryQuery: "coffee capsules", system };
 }
 
 export function isCoffeeCapsuleRequest(request: CoffeeRequest): boolean {
   const specified = parseCoffeeCategory(request.productType);
-  const category = specified === undefined || specified === "COFFEE" ? parseCoffeeCategory(request.query) ?? specified : specified;
+  const category = specified === undefined || specified === "COFFEE"
+    ? parseCoffeeCategory(request.query) ?? parseCoffeeCompatibilityQuery(request.query)?.category ?? specified : specified;
   if (category !== undefined) return category === "PODS";
   // Detect compatibility needs in an explicit capsule query without broadening
   // its brand/model identity. Equipment and refillable shells are not capsules.

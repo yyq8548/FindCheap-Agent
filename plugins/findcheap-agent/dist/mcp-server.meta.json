@@ -237,6 +237,10 @@
         }
       ]
     },
+    "../../node_modules/.pnpm/acorn@8.18.0/node_modules/acorn/dist/acorn.mjs": {
+      "format": "esm",
+      "imports": []
+    },
     "../../node_modules/.pnpm/ajv-formats@3.0.1_ajv@8.20.0/node_modules/ajv-formats/dist/formats.js": {
       "format": "cjs",
       "imports": []
@@ -1484,6 +1488,76 @@
         }
       ]
     },
+    "../../node_modules/.pnpm/entities@8.1.0/node_modules/entities/dist/decode-codepoint.js": {
+      "format": "esm",
+      "imports": []
+    },
+    "../../node_modules/.pnpm/entities@8.1.0/node_modules/entities/dist/decode.js": {
+      "format": "esm",
+      "imports": [
+        {
+          "kind": "import-statement",
+          "original": "./decode-codepoint.js",
+          "path": "../../node_modules/.pnpm/entities@8.1.0/node_modules/entities/dist/decode-codepoint.js"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./generated/decode-data-html.js",
+          "path": "../../node_modules/.pnpm/entities@8.1.0/node_modules/entities/dist/generated/decode-data-html.js"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./generated/decode-data-xml.js",
+          "path": "../../node_modules/.pnpm/entities@8.1.0/node_modules/entities/dist/generated/decode-data-xml.js"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./internal/bin-trie-flags.js",
+          "path": "../../node_modules/.pnpm/entities@8.1.0/node_modules/entities/dist/internal/bin-trie-flags.js"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./decode-codepoint.js",
+          "path": "../../node_modules/.pnpm/entities@8.1.0/node_modules/entities/dist/decode-codepoint.js"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./generated/decode-data-html.js",
+          "path": "../../node_modules/.pnpm/entities@8.1.0/node_modules/entities/dist/generated/decode-data-html.js"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./generated/decode-data-xml.js",
+          "path": "../../node_modules/.pnpm/entities@8.1.0/node_modules/entities/dist/generated/decode-data-xml.js"
+        }
+      ]
+    },
+    "../../node_modules/.pnpm/entities@8.1.0/node_modules/entities/dist/escape.js": {
+      "format": "esm",
+      "imports": []
+    },
+    "../../node_modules/.pnpm/entities@8.1.0/node_modules/entities/dist/generated/decode-data-html.js": {
+      "format": "esm",
+      "imports": [
+        {
+          "kind": "import-statement",
+          "original": "../internal/decode-shared.js",
+          "path": "../../node_modules/.pnpm/entities@8.1.0/node_modules/entities/dist/internal/decode-shared.js"
+        }
+      ]
+    },
+    "../../node_modules/.pnpm/entities@8.1.0/node_modules/entities/dist/generated/decode-data-xml.js": {
+      "format": "esm",
+      "imports": []
+    },
+    "../../node_modules/.pnpm/entities@8.1.0/node_modules/entities/dist/internal/bin-trie-flags.js": {
+      "format": "esm",
+      "imports": []
+    },
+    "../../node_modules/.pnpm/entities@8.1.0/node_modules/entities/dist/internal/decode-shared.js": {
+      "format": "esm",
+      "imports": []
+    },
     "../../node_modules/.pnpm/fast-deep-equal@3.1.3/node_modules/fast-deep-equal/index.js": {
       "format": "cjs",
       "imports": []
@@ -1520,6 +1594,241 @@
     "../../node_modules/.pnpm/json-schema-traverse@1.0.0/node_modules/json-schema-traverse/index.js": {
       "format": "cjs",
       "imports": []
+    },
+    "../../node_modules/.pnpm/parse5@8.0.1/node_modules/parse5/dist/common/doctype.js": {
+      "format": "esm",
+      "imports": [
+        {
+          "kind": "import-statement",
+          "original": "./html.js",
+          "path": "../../node_modules/.pnpm/parse5@8.0.1/node_modules/parse5/dist/common/html.js"
+        }
+      ]
+    },
+    "../../node_modules/.pnpm/parse5@8.0.1/node_modules/parse5/dist/common/error-codes.js": {
+      "format": "esm",
+      "imports": []
+    },
+    "../../node_modules/.pnpm/parse5@8.0.1/node_modules/parse5/dist/common/foreign-content.js": {
+      "format": "esm",
+      "imports": [
+        {
+          "kind": "import-statement",
+          "original": "./html.js",
+          "path": "../../node_modules/.pnpm/parse5@8.0.1/node_modules/parse5/dist/common/html.js"
+        }
+      ]
+    },
+    "../../node_modules/.pnpm/parse5@8.0.1/node_modules/parse5/dist/common/html.js": {
+      "format": "esm",
+      "imports": []
+    },
+    "../../node_modules/.pnpm/parse5@8.0.1/node_modules/parse5/dist/common/token.js": {
+      "format": "esm",
+      "imports": []
+    },
+    "../../node_modules/.pnpm/parse5@8.0.1/node_modules/parse5/dist/common/unicode.js": {
+      "format": "esm",
+      "imports": []
+    },
+    "../../node_modules/.pnpm/parse5@8.0.1/node_modules/parse5/dist/index.js": {
+      "format": "esm",
+      "imports": [
+        {
+          "kind": "import-statement",
+          "original": "./parser/index.js",
+          "path": "../../node_modules/.pnpm/parse5@8.0.1/node_modules/parse5/dist/parser/index.js"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./tree-adapters/default.js",
+          "path": "../../node_modules/.pnpm/parse5@8.0.1/node_modules/parse5/dist/tree-adapters/default.js"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./parser/index.js",
+          "path": "../../node_modules/.pnpm/parse5@8.0.1/node_modules/parse5/dist/parser/index.js"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./serializer/index.js",
+          "path": "../../node_modules/.pnpm/parse5@8.0.1/node_modules/parse5/dist/serializer/index.js"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./common/error-codes.js",
+          "path": "../../node_modules/.pnpm/parse5@8.0.1/node_modules/parse5/dist/common/error-codes.js"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./common/foreign-content.js",
+          "path": "../../node_modules/.pnpm/parse5@8.0.1/node_modules/parse5/dist/common/foreign-content.js"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./common/html.js",
+          "path": "../../node_modules/.pnpm/parse5@8.0.1/node_modules/parse5/dist/common/html.js"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./common/token.js",
+          "path": "../../node_modules/.pnpm/parse5@8.0.1/node_modules/parse5/dist/common/token.js"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./tokenizer/index.js",
+          "path": "../../node_modules/.pnpm/parse5@8.0.1/node_modules/parse5/dist/tokenizer/index.js"
+        }
+      ]
+    },
+    "../../node_modules/.pnpm/parse5@8.0.1/node_modules/parse5/dist/parser/formatting-element-list.js": {
+      "format": "esm",
+      "imports": []
+    },
+    "../../node_modules/.pnpm/parse5@8.0.1/node_modules/parse5/dist/parser/index.js": {
+      "format": "esm",
+      "imports": [
+        {
+          "kind": "import-statement",
+          "original": "../tokenizer/index.js",
+          "path": "../../node_modules/.pnpm/parse5@8.0.1/node_modules/parse5/dist/tokenizer/index.js"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./open-element-stack.js",
+          "path": "../../node_modules/.pnpm/parse5@8.0.1/node_modules/parse5/dist/parser/open-element-stack.js"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./formatting-element-list.js",
+          "path": "../../node_modules/.pnpm/parse5@8.0.1/node_modules/parse5/dist/parser/formatting-element-list.js"
+        },
+        {
+          "kind": "import-statement",
+          "original": "../tree-adapters/default.js",
+          "path": "../../node_modules/.pnpm/parse5@8.0.1/node_modules/parse5/dist/tree-adapters/default.js"
+        },
+        {
+          "kind": "import-statement",
+          "original": "../common/doctype.js",
+          "path": "../../node_modules/.pnpm/parse5@8.0.1/node_modules/parse5/dist/common/doctype.js"
+        },
+        {
+          "kind": "import-statement",
+          "original": "../common/foreign-content.js",
+          "path": "../../node_modules/.pnpm/parse5@8.0.1/node_modules/parse5/dist/common/foreign-content.js"
+        },
+        {
+          "kind": "import-statement",
+          "original": "../common/error-codes.js",
+          "path": "../../node_modules/.pnpm/parse5@8.0.1/node_modules/parse5/dist/common/error-codes.js"
+        },
+        {
+          "kind": "import-statement",
+          "original": "../common/unicode.js",
+          "path": "../../node_modules/.pnpm/parse5@8.0.1/node_modules/parse5/dist/common/unicode.js"
+        },
+        {
+          "kind": "import-statement",
+          "original": "../common/html.js",
+          "path": "../../node_modules/.pnpm/parse5@8.0.1/node_modules/parse5/dist/common/html.js"
+        },
+        {
+          "kind": "import-statement",
+          "original": "../common/token.js",
+          "path": "../../node_modules/.pnpm/parse5@8.0.1/node_modules/parse5/dist/common/token.js"
+        }
+      ]
+    },
+    "../../node_modules/.pnpm/parse5@8.0.1/node_modules/parse5/dist/parser/open-element-stack.js": {
+      "format": "esm",
+      "imports": [
+        {
+          "kind": "import-statement",
+          "original": "../common/html.js",
+          "path": "../../node_modules/.pnpm/parse5@8.0.1/node_modules/parse5/dist/common/html.js"
+        }
+      ]
+    },
+    "../../node_modules/.pnpm/parse5@8.0.1/node_modules/parse5/dist/serializer/index.js": {
+      "format": "esm",
+      "imports": [
+        {
+          "kind": "import-statement",
+          "original": "../common/html.js",
+          "path": "../../node_modules/.pnpm/parse5@8.0.1/node_modules/parse5/dist/common/html.js"
+        },
+        {
+          "kind": "import-statement",
+          "original": "entities/escape",
+          "path": "../../node_modules/.pnpm/entities@8.1.0/node_modules/entities/dist/escape.js"
+        },
+        {
+          "kind": "import-statement",
+          "original": "../tree-adapters/default.js",
+          "path": "../../node_modules/.pnpm/parse5@8.0.1/node_modules/parse5/dist/tree-adapters/default.js"
+        }
+      ]
+    },
+    "../../node_modules/.pnpm/parse5@8.0.1/node_modules/parse5/dist/tokenizer/index.js": {
+      "format": "esm",
+      "imports": [
+        {
+          "kind": "import-statement",
+          "original": "./preprocessor.js",
+          "path": "../../node_modules/.pnpm/parse5@8.0.1/node_modules/parse5/dist/tokenizer/preprocessor.js"
+        },
+        {
+          "kind": "import-statement",
+          "original": "../common/unicode.js",
+          "path": "../../node_modules/.pnpm/parse5@8.0.1/node_modules/parse5/dist/common/unicode.js"
+        },
+        {
+          "kind": "import-statement",
+          "original": "../common/token.js",
+          "path": "../../node_modules/.pnpm/parse5@8.0.1/node_modules/parse5/dist/common/token.js"
+        },
+        {
+          "kind": "import-statement",
+          "original": "entities/decode",
+          "path": "../../node_modules/.pnpm/entities@8.1.0/node_modules/entities/dist/decode.js"
+        },
+        {
+          "kind": "import-statement",
+          "original": "../common/error-codes.js",
+          "path": "../../node_modules/.pnpm/parse5@8.0.1/node_modules/parse5/dist/common/error-codes.js"
+        },
+        {
+          "kind": "import-statement",
+          "original": "../common/html.js",
+          "path": "../../node_modules/.pnpm/parse5@8.0.1/node_modules/parse5/dist/common/html.js"
+        }
+      ]
+    },
+    "../../node_modules/.pnpm/parse5@8.0.1/node_modules/parse5/dist/tokenizer/preprocessor.js": {
+      "format": "esm",
+      "imports": [
+        {
+          "kind": "import-statement",
+          "original": "../common/unicode.js",
+          "path": "../../node_modules/.pnpm/parse5@8.0.1/node_modules/parse5/dist/common/unicode.js"
+        },
+        {
+          "kind": "import-statement",
+          "original": "../common/error-codes.js",
+          "path": "../../node_modules/.pnpm/parse5@8.0.1/node_modules/parse5/dist/common/error-codes.js"
+        }
+      ]
+    },
+    "../../node_modules/.pnpm/parse5@8.0.1/node_modules/parse5/dist/tree-adapters/default.js": {
+      "format": "esm",
+      "imports": [
+        {
+          "kind": "import-statement",
+          "original": "../common/html.js",
+          "path": "../../node_modules/.pnpm/parse5@8.0.1/node_modules/parse5/dist/common/html.js"
+        }
+      ]
     },
     "../../node_modules/.pnpm/zod-to-json-schema@3.25.2_zod@3.25.76/node_modules/zod-to-json-schema/dist/esm/Options.js": {
       "format": "esm",
@@ -3668,6 +3977,11 @@
         {
           "external": true,
           "kind": "import-statement",
+          "path": "node:crypto"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
           "path": "node:net"
         },
         {
@@ -5217,6 +5531,31 @@
           "kind": "import-statement",
           "original": "./merchant-requirements.js",
           "path": "src/merchant-requirements.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./shopify-variant-price.js",
+          "path": "src/shopify-variant-price.ts"
+        }
+      ]
+    },
+    "src/shopify-variant-price.ts": {
+      "format": "esm",
+      "imports": [
+        {
+          "kind": "import-statement",
+          "original": "zod",
+          "path": "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/index.js"
+        },
+        {
+          "kind": "import-statement",
+          "original": "acorn",
+          "path": "../../node_modules/.pnpm/acorn@8.18.0/node_modules/acorn/dist/acorn.mjs"
+        },
+        {
+          "kind": "import-statement",
+          "original": "parse5",
+          "path": "../../node_modules/.pnpm/parse5@8.0.1/node_modules/parse5/dist/index.js"
         }
       ]
     },
@@ -5762,7 +6101,7 @@
   },
   "outputs": {
     "../../plugins/findcheap-agent/dist/mcp-server.js": {
-      "bytes": 1125560,
+      "bytes": 1406152,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
@@ -6029,6 +6368,9 @@
         "../../node_modules/.pnpm/@modelcontextprotocol+sdk@1.30.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/validation/ajv-provider.js": {
           "bytesInOutput": 450
         },
+        "../../node_modules/.pnpm/acorn@8.18.0/node_modules/acorn/dist/acorn.mjs": {
+          "bytesInOutput": 121635
+        },
         "../../node_modules/.pnpm/ajv-formats@3.0.1_ajv@8.20.0/node_modules/ajv-formats/dist/formats.js": {
           "bytesInOutput": 7726
         },
@@ -6093,13 +6435,13 @@
           "bytesInOutput": 1981
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/core.js": {
-          "bytesInOutput": 12295
+          "bytesInOutput": 12299
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/refs/data.json": {
-          "bytesInOutput": 359
+          "bytesInOutput": 360
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/refs/json-schema-draft-07.json": {
-          "bytesInOutput": 2482
+          "bytesInOutput": 2483
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/runtime/equal.js": {
           "bytesInOutput": 158
@@ -6177,7 +6519,7 @@
           "bytesInOutput": 2382
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/discriminator/index.js": {
-          "bytesInOutput": 2291
+          "bytesInOutput": 2294
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/discriminator/types.js": {
           "bytesInOutput": 182
@@ -6186,7 +6528,7 @@
           "bytesInOutput": 236
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/format/format.js": {
-          "bytesInOutput": 1951
+          "bytesInOutput": 1954
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/format/index.js": {
           "bytesInOutput": 122
@@ -6227,20 +6569,80 @@
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/validation/uniqueItems.js": {
           "bytesInOutput": 1502
         },
+        "../../node_modules/.pnpm/entities@8.1.0/node_modules/entities/dist/decode-codepoint.js": {
+          "bytesInOutput": 302
+        },
+        "../../node_modules/.pnpm/entities@8.1.0/node_modules/entities/dist/decode.js": {
+          "bytesInOutput": 5459
+        },
+        "../../node_modules/.pnpm/entities@8.1.0/node_modules/entities/dist/generated/decode-data-html.js": {
+          "bytesInOutput": 18562
+        },
+        "../../node_modules/.pnpm/entities@8.1.0/node_modules/entities/dist/generated/decode-data-xml.js": {
+          "bytesInOutput": 123
+        },
+        "../../node_modules/.pnpm/entities@8.1.0/node_modules/entities/dist/internal/bin-trie-flags.js": {
+          "bytesInOutput": 207
+        },
+        "../../node_modules/.pnpm/entities@8.1.0/node_modules/entities/dist/internal/decode-shared.js": {
+          "bytesInOutput": 1300
+        },
         "../../node_modules/.pnpm/fast-deep-equal@3.1.3/node_modules/fast-deep-equal/index.js": {
-          "bytesInOutput": 737
+          "bytesInOutput": 738
         },
         "../../node_modules/.pnpm/fast-uri@3.1.6/node_modules/fast-uri/index.js": {
-          "bytesInOutput": 7052
+          "bytesInOutput": 7053
         },
         "../../node_modules/.pnpm/fast-uri@3.1.6/node_modules/fast-uri/lib/schemes.js": {
-          "bytesInOutput": 2527
+          "bytesInOutput": 2528
         },
         "../../node_modules/.pnpm/fast-uri@3.1.6/node_modules/fast-uri/lib/utils.js": {
-          "bytesInOutput": 7126
+          "bytesInOutput": 7127
         },
         "../../node_modules/.pnpm/json-schema-traverse@1.0.0/node_modules/json-schema-traverse/index.js": {
-          "bytesInOutput": 1247
+          "bytesInOutput": 1248
+        },
+        "../../node_modules/.pnpm/parse5@8.0.1/node_modules/parse5/dist/common/doctype.js": {
+          "bytesInOutput": 3087
+        },
+        "../../node_modules/.pnpm/parse5@8.0.1/node_modules/parse5/dist/common/error-codes.js": {
+          "bytesInOutput": 4001
+        },
+        "../../node_modules/.pnpm/parse5@8.0.1/node_modules/parse5/dist/common/foreign-content.js": {
+          "bytesInOutput": 3579
+        },
+        "../../node_modules/.pnpm/parse5@8.0.1/node_modules/parse5/dist/common/html.js": {
+          "bytesInOutput": 8438
+        },
+        "../../node_modules/.pnpm/parse5@8.0.1/node_modules/parse5/dist/common/token.js": {
+          "bytesInOutput": 420
+        },
+        "../../node_modules/.pnpm/parse5@8.0.1/node_modules/parse5/dist/common/unicode.js": {
+          "bytesInOutput": 1567
+        },
+        "../../node_modules/.pnpm/parse5@8.0.1/node_modules/parse5/dist/index.js": {
+          "bytesInOutput": 38
+        },
+        "../../node_modules/.pnpm/parse5@8.0.1/node_modules/parse5/dist/parser/formatting-element-list.js": {
+          "bytesInOutput": 1633
+        },
+        "../../node_modules/.pnpm/parse5@8.0.1/node_modules/parse5/dist/parser/index.js": {
+          "bytesInOutput": 46791
+        },
+        "../../node_modules/.pnpm/parse5@8.0.1/node_modules/parse5/dist/parser/open-element-stack.js": {
+          "bytesInOutput": 5230
+        },
+        "../../node_modules/.pnpm/parse5@8.0.1/node_modules/parse5/dist/serializer/index.js": {
+          "bytesInOutput": 154
+        },
+        "../../node_modules/.pnpm/parse5@8.0.1/node_modules/parse5/dist/tokenizer/index.js": {
+          "bytesInOutput": 45820
+        },
+        "../../node_modules/.pnpm/parse5@8.0.1/node_modules/parse5/dist/tokenizer/preprocessor.js": {
+          "bytesInOutput": 2827
+        },
+        "../../node_modules/.pnpm/parse5@8.0.1/node_modules/parse5/dist/tree-adapters/default.js": {
+          "bytesInOutput": 2355
         },
         "../../node_modules/.pnpm/zod-to-json-schema@3.25.2_zod@3.25.76/node_modules/zod-to-json-schema/dist/esm/Options.js": {
           "bytesInOutput": 661
@@ -6264,7 +6666,7 @@
           "bytesInOutput": 218
         },
         "../../node_modules/.pnpm/zod-to-json-schema@3.25.2_zod@3.25.76/node_modules/zod-to-json-schema/dist/esm/parsers/array.js": {
-          "bytesInOutput": 447
+          "bytesInOutput": 448
         },
         "../../node_modules/.pnpm/zod-to-json-schema@3.25.2_zod@3.25.76/node_modules/zod-to-json-schema/dist/esm/parsers/bigint.js": {
           "bytesInOutput": 603
@@ -6330,7 +6732,7 @@
           "bytesInOutput": 37
         },
         "../../node_modules/.pnpm/zod-to-json-schema@3.25.2_zod@3.25.76/node_modules/zod-to-json-schema/dist/esm/parsers/record.js": {
-          "bytesInOutput": 1103
+          "bytesInOutput": 1108
         },
         "../../node_modules/.pnpm/zod-to-json-schema@3.25.2_zod@3.25.76/node_modules/zod-to-json-schema/dist/esm/parsers/set.js": {
           "bytesInOutput": 263
@@ -6351,7 +6753,7 @@
           "bytesInOutput": 28
         },
         "../../node_modules/.pnpm/zod-to-json-schema@3.25.2_zod@3.25.76/node_modules/zod-to-json-schema/dist/esm/selectParser.js": {
-          "bytesInOutput": 1147
+          "bytesInOutput": 1183
         },
         "../../node_modules/.pnpm/zod-to-json-schema@3.25.2_zod@3.25.76/node_modules/zod-to-json-schema/dist/esm/zodToJsonSchema.js": {
           "bytesInOutput": 1313
@@ -6360,13 +6762,13 @@
           "bytesInOutput": 0
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/ZodError.js": {
-          "bytesInOutput": 1665
+          "bytesInOutput": 1666
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/errors.js": {
           "bytesInOutput": 54
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/external.js": {
-          "bytesInOutput": 1775
+          "bytesInOutput": 1777
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/helpers/errorUtil.js": {
           "bytesInOutput": 132
@@ -6378,10 +6780,10 @@
           "bytesInOutput": 1722
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/locales/en.js": {
-          "bytesInOutput": 3030
+          "bytesInOutput": 3046
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/types.js": {
-          "bytesInOutput": 50221
+          "bytesInOutput": 50348
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v4/classic/checks.js": {
           "bytesInOutput": 0
@@ -6429,7 +6831,7 @@
           "bytesInOutput": 649
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v4/core/schemas.js": {
-          "bytesInOutput": 18932
+          "bytesInOutput": 18935
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v4/core/to-json-schema.js": {
           "bytesInOutput": 11445
@@ -6453,7 +6855,7 @@
           "bytesInOutput": 750
         },
         "../../packages/awin-feed/src/index.ts": {
-          "bytesInOutput": 16281
+          "bytesInOutput": 16287
         },
         "../../packages/contracts/src/hair-requirements.ts": {
           "bytesInOutput": 1104
@@ -6495,7 +6897,7 @@
           "bytesInOutput": 1937
         },
         "src/coffee-category.ts": {
-          "bytesInOutput": 8545
+          "bytesInOutput": 9074
         },
         "src/deal-assessment.ts": {
           "bytesInOutput": 4682
@@ -6534,10 +6936,10 @@
           "bytesInOutput": 979
         },
         "src/functional-requirements.ts": {
-          "bytesInOutput": 7864
+          "bytesInOutput": 7867
         },
         "src/generic-official-store-search.ts": {
-          "bytesInOutput": 15776
+          "bytesInOutput": 15814
         },
         "src/known-product-url.ts": {
           "bytesInOutput": 1856
@@ -6591,10 +6993,10 @@
           "bytesInOutput": 128
         },
         "src/product-requirements.ts": {
-          "bytesInOutput": 7200
+          "bytesInOutput": 7887
         },
         "src/product-value-evidence.ts": {
-          "bytesInOutput": 4807
+          "bytesInOutput": 5077
         },
         "src/quote-authorization.ts": {
           "bytesInOutput": 752
@@ -6618,10 +7020,10 @@
           "bytesInOutput": 6137
         },
         "src/search-products.ts": {
-          "bytesInOutput": 51330
+          "bytesInOutput": 51565
         },
         "src/search-requirements-context.ts": {
-          "bytesInOutput": 6450
+          "bytesInOutput": 6454
         },
         "src/search-result-summary.ts": {
           "bytesInOutput": 5529
@@ -6630,19 +7032,19 @@
           "bytesInOutput": 8103
         },
         "src/server.ts": {
-          "bytesInOutput": 216440
+          "bytesInOutput": 216705
         },
         "src/shopify-cart-quote.ts": {
-          "bytesInOutput": 12440
+          "bytesInOutput": 12443
         },
         "src/shopify-client.ts": {
           "bytesInOutput": 181
         },
         "src/shopify-global-catalog-client.ts": {
-          "bytesInOutput": 23611
+          "bytesInOutput": 23617
         },
         "src/shopify-match.ts": {
-          "bytesInOutput": 12639
+          "bytesInOutput": 13023
         },
         "src/shopify-official-store-search.ts": {
           "bytesInOutput": 14776
@@ -6651,7 +7053,10 @@
           "bytesInOutput": 1432
         },
         "src/shopify-selected-product.ts": {
-          "bytesInOutput": 6843
+          "bytesInOutput": 7106
+        },
+        "src/shopify-variant-price.ts": {
+          "bytesInOutput": 4156
         },
         "src/snapshot-products.ts": {
           "bytesInOutput": 826
@@ -6702,7 +7107,7 @@
           "bytesInOutput": 12162
         },
         "src/watch-store.ts": {
-          "bytesInOutput": 13771
+          "bytesInOutput": 13778
         },
         "src/web-product-recovery.ts": {
           "bytesInOutput": 6569

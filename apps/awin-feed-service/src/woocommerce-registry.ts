@@ -36,7 +36,7 @@ export type WooMerchant = z.infer<typeof WooMerchantSchema>;
 export type WooRegistry = z.infer<typeof WooRegistrySchema>;
 
 // Access registry only. No entry grants merchant trust, shipping, or affiliate approval.
-export const DEFAULT_WOO_REGISTRY: WooRegistry = WooRegistrySchema.parse({ version: "2026-09-09-priority-1002", stores: [
+export const DEFAULT_WOO_REGISTRY: WooRegistry = WooRegistrySchema.parse({ version: "2026-09-09-priority-1003", stores: [
   { merchantId: "offerman-woodshop", name: "Offerman Woodshop", origin: "https://offermanwoodshop.com", productPathPrefixes: ["/store/"], categories: ["trivet", "wood", "kitchen", "home"], brands: ["Offerman"],
     currency: "USD", marketEvidence: "https://offermanwoodshop.com/faq/", evidenceUrl: "https://offermanwoodshop.com/wp-json/wc/store/v1/products/43848", reviewedAt: "2026-09-08", enabled: true, capabilities: { search: true, variations: true } },
   { merchantId: "root-science", name: "Root Science", origin: "https://www.shoprootscience.com", productPathPrefixes: ["/shop/"], categories: ["skin", "serum", "firm"], brands: ["Root Science"],
@@ -49,7 +49,13 @@ export const DEFAULT_WOO_REGISTRY: WooRegistry = WooRegistrySchema.parse({ versi
     currency: "USD", marketEvidence: "https://support.scrubdaddy.com/support/solutions/articles/156000158436-how-do-orders-ship-", evidenceUrl: "https://scrubdaddy.com/wp-json/wc/store/v1/products/769455", reviewedAt: "2026-09-08", enabled: true, capabilities: { search: true, variations: false } },
   ...REVIEWED_WOO_ADDITIONS,
   {"merchantId":"recool-hair","name":"Recool Hair","origin":"https://www.recoolhair.com","apiPath":"/wp-json/wc/store/v1","productPathPrefixes":["/product/"],"imageHosts":[],"aliases":[],"brands":["Recool Hair"],"categories":["wig","human hair wig","hair extension","lace wig"],"currency":"USD","marketEvidence":"https://www.recoolhair.com/product/ombre-brown-yaki-straight-pre-layered-cut-glueless-wig.html","requiresOptionSelection":true,"reviewedAt":"2026-09-09","evidenceUrl":"https://www.recoolhair.com/wp-json/wc/store/v1/products/407531","enabled":true,"capabilities":{"search":true,"variations":false}},
-  {"merchantId":"silent-sound-system","name":"Silent Sound System","origin":"https://silentsoundsystem.com","apiPath":"/wp-json/wc/store/v1","productPathPrefixes":["/product/"],"imageHosts":[],"aliases":[],"brands":["Silent Sound System"],"categories":["headphone","headphones","wireless headphone","silent disco","audio"],"currency":"USD","marketEvidence":"https://silentsoundsystem.com/","requiresOptionSelection":true,"reviewedAt":"2026-09-09","evidenceUrl":"https://silentsoundsystem.com/wp-json/wc/store/v1/products/61500","enabled":true,"capabilities":{"search":true,"variations":false}}
+  {"merchantId":"silent-sound-system","name":"Silent Sound System","origin":"https://silentsoundsystem.com","apiPath":"/wp-json/wc/store/v1","productPathPrefixes":["/product/"],"imageHosts":[],"aliases":[],"brands":["Silent Sound System"],"categories":["headphone","headphones","wireless headphone","silent disco","audio"],"currency":"USD","marketEvidence":"https://silentsoundsystem.com/","requiresOptionSelection":true,"reviewedAt":"2026-09-09","evidenceUrl":"https://silentsoundsystem.com/wp-json/wc/store/v1/products/61500","enabled":true,"capabilities":{"search":true,"variations":false}},
+  { merchantId: "hidden-secrets-wigs", name: "Hidden Secrets Wigs", origin: "https://www.hiddensecretswigs.com",
+    apiPath: "/wp-json/wc/store/v1", productPathPrefixes: ["/product/"], imageHosts: ["cdn.shortpixel.ai"], aliases: [],
+    brands: ["Raquel Welch"], categories: ["wig", "wigs", "synthetic wig"], currency: "USD",
+    marketEvidence: "https://www.hiddensecretswigs.com/wigs-for-sale/", reviewedAt: "2026-09-09",
+    evidenceUrl: "https://www.hiddensecretswigs.com/wp-json/wc/store/v1/products/19030", enabled: true,
+    capabilities: { search: true, variations: true } }
 ] });
 
 export function wooRegistryFromEnvironment(input: Readonly<Record<string, string | undefined>>): WooRegistry | undefined {

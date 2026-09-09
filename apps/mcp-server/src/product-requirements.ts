@@ -4,7 +4,7 @@ import { sanitizeExternalText } from "./execution/external-data-fence.js";
 import { functionalFeatureEvidence, requiredPrimaryUseFeatures } from "./functional-requirements.js";
 import { boundNamedIdentityRequirement } from "./named-product-identity.js";
 import { missingChargingRequirements } from "./decision-constraints.js";
-import { isPartialPriceListing } from "./shopify-match.js";
+import { isPartialPriceListing, namedProductEditionAssessment } from "./shopify-match.js";
 import { isTrustedMerchant, type MerchantTrustEvidence } from "./merchant-trust.js";
 import { requirementDomain } from "./merchant-requirements.js";
 import { assessCoffeeCategory, assessCoffeeCompatibility, coffeeCompatibilityRequirement, parseCoffeeCategory, requestedCoffeeSystem } from "./coffee-category.js";
@@ -100,6 +100,13 @@ export function evaluateProductRequirements(product: RequirementProduct, input: 
         source: coffee.status === "UNKNOWN" ? "MISSING" : product.evidenceSource ?? "PRODUCT", observed: coffee.evidence });
       continue;
     }
+    const edition = editionAssessment(product, input.query, requirement);
+    if (edition !== undefined) {
+      entries.push({ requirement: sanitizeExternalText(requirement, 200), status: edition.status,
+        source: edition.status === "UNKNOWN" ? "MISSING" : product.evidenceSource ?? "PRODUCT",
+        observed: sanitizeExternalText(edition.observed, 240) });
+      continue;
+    }
     const named = namedProductAssessment(product, boundNamedIdentityRequirement(requirement, input.query));
     if (named !== undefined) {
       entries.push({ requirement: sanitizeExternalText(requirement, 200), status: named.status,
@@ -170,6 +177,15 @@ export function evaluateProductRequirements(product: RequirementProduct, input: 
         status: merchant.status === "MATCHED" ? "CONTRADICTED" : "UNKNOWN" });
       continue;
     }
+    const edition = editionAssessment(product, input.query, excluded);
+    if (edition !== undefined) {
+      if (edition.status !== "CONTRADICTED") entries.push({
+        requirement: sanitizeExternalText(`excluded: ${excluded}`, 200),
+        status: edition.status === "MATCHED" ? "CONTRADICTED" : edition.status,
+        source: edition.status === "UNKNOWN" ? "MISSING" : product.evidenceSource ?? "PRODUCT",
+        observed: sanitizeExternalText(edition.observed, 240) });
+      continue;
+    }
     const coffee = coffeeRequirementAssessment(product, input, excluded);
     if (coffee?.status === "UNKNOWN") {
       entries.push({ requirement: sanitizeExternalText(`excluded: ${excluded}`, 200), status: "UNKNOWN", source: "MISSING", observed: coffee.evidence });
@@ -190,7 +206,14 @@ export function evaluateProductRequirements(product: RequirementProduct, input: 
       : unknown.length > 0 ? "NEEDS_VERIFICATION" : "SATISFIED" };
   return { matched, contradicted, unknown,
     preferences: input.preferences.filter(feature =>
-      (merchantRequirementAssessment(product, feature)?.status ?? coffeeRequirementAssessment(product, input, feature)?.status ?? namedProductAssessment(product, feature)?.status ?? productClaimAssessment(product, feature)?.status ?? evaluateFeature(isColorRequirement(feature) ? colorText : text, feature)) === "MATCHED"), assessment };
+      (merchantRequirementAssessment(product, feature)?.status ?? coffeeRequirementAssessment(product, input, feature)?.status ?? editionAssessment(product, input.query, feature)?.status ?? namedProductAssessment(product, feature)?.status ?? productClaimAssessment(product, feature)?.status ?? evaluateFeature(isColorRequirement(feature) ? colorText : text, feature)) === "MATCHED"), assessment };
+}
+
+function editionAssessment(product: RequirementProduct, query: string | undefined, requirement: string) {
+  return namedProductEditionAssessment(query, requirement, { title: product.title,
+    ...(product.brand === undefined ? {} : { brand: product.brand }),
+    ...(product.sku === undefined ? {} : { sku: product.sku }),
+    ...(product.variantDimensions === undefined ? {} : { variantDimensions: product.variantDimensions }) });
 }
 
 /** A shared description cannot satisfy a form or system that the selected offer

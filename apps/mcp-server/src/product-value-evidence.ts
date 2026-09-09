@@ -92,6 +92,7 @@ function packageQuantity(product: ValueProduct): Pick<UnitPriceEvidence, "quanti
 /** A stable identity never overrides variant, condition or packaging conflicts. */
 export function comparableSameProduct(left: ValueProduct, right: ValueProduct): boolean {
   if (!left.condition || left.condition === "UNKNOWN" || left.condition !== right.condition) return false;
+  if (!consistentCondition(left) || !consistentCondition(right)) return false;
   if (normalized(left.mpn) !== "" && normalized(right.mpn) !== "" && normalized(left.mpn) !== normalized(right.mpn)) return false;
   const stable = (left.gtins ?? []).some(gtin => gtin !== "" && right.gtins?.includes(gtin)) ||
     normalized(left.brand) !== "" && normalized(left.brand) === normalized(right.brand) && (
@@ -107,6 +108,7 @@ export function comparableSameProduct(left: ValueProduct, right: ValueProduct): 
 
 export function comparableUnitPrices(left: ValueProduct, right: ValueProduct): [UnitPriceEvidence, UnitPriceEvidence] | undefined {
   if (left.condition !== "NEW" || right.condition !== "NEW") return undefined;
+  if (!consistentCondition(left) || !consistentCondition(right)) return undefined;
   const family = comparableFamily(left);
   if (!family || family !== comparableFamily(right)) return undefined;
   const a = unitPriceEvidence(left);
@@ -142,9 +144,17 @@ function comparableFamily(product: ValueProduct): string | undefined {
 }
 
 function variantKey(product: ValueProduct, omitQuantity = false): string {
-  return Object.entries(product.variantDimensions ?? {}).filter(([key, value]) => !omitQuantity ||
+  return Object.entries(product.variantDimensions ?? {}).filter(([key]) => !conditionDimension(key)).filter(([key, value]) => !omitQuantity ||
       !(/volume|capacity|pack|count|quantity|size|容量|数量|规格/iu.test(key) &&
         /^(?:\d+(?:\.\d+)?\s*(?:ml|millilit(?:er|re)s?|l|lit(?:er|re)s?|count|ct|pack|pieces?|pcs|毫升|升|件装|片装|个装)|pack\s+of\s+\d+)$/iu.test(value.trim())))
     .map(([key, value]) => `${normalized(key)}=${normalized(value)}`).sort().join("|");
+}
+function conditionDimension(key: string): boolean {
+  return /^(?:(?:item|product) )?condition$/u.test(normalized(key));
+}
+/** Only an explicit option agreeing with the already verified condition is redundant. */
+function consistentCondition(product: ValueProduct): boolean {
+  return Object.entries(product.variantDimensions ?? {}).filter(([key]) => conditionDimension(key))
+    .every(([, value]) => normalized(value).replace(/[\s-]+/gu, "_") === normalized(product.condition));
 }
 function normalized(value: string | undefined): string { return value?.normalize("NFKC").trim().toLocaleLowerCase("en-US") ?? ""; }

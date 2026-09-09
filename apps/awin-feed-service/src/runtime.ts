@@ -74,6 +74,17 @@ export async function startAwinFeedRuntime(
   let activeRuntimeRefresh: Promise<void> | undefined;
   let staleAlerted = false;
   const scheduleQuickRetry = (): void => {
+    const { lastErrorCode, lastErrorDetailCode } = controller.getState();
+    const transient = lastErrorDetailCode === "SOURCE_TIMEOUT" ||
+      lastErrorDetailCode === "SOURCE_HTTP_429" || lastErrorDetailCode === "SOURCE_HTTP_5XX" ||
+      (lastErrorDetailCode === "OTHER" &&
+        (lastErrorCode === "SOURCE_REQUEST_FAILED" || lastErrorCode === "SOURCE_READ_FAILED"));
+    if (!transient) {
+      if (quickRetryTimer !== undefined) clearTimeout(quickRetryTimer);
+      quickRetryTimer = undefined;
+      quickRetryNumber = 0;
+      return;
+    }
     if (closed || quickRetryTimer !== undefined) return;
     const delay = quickRetryDelayMs(quickRetryNumber, random);
     quickRetryNumber = Math.min(quickRetryNumber + 1, 3);
@@ -103,6 +114,13 @@ export async function startAwinFeedRuntime(
     })();
     activeRuntimeRefresh = refresh.finally(() => {
       activeRuntimeRefresh = undefined;
+      const state = controller.getState();
+      writeLog(`[awin-feed-refresh] ${JSON.stringify({
+        event: "awin_feed_refresh_settled",
+        feedStatus: state.snapshot === undefined ? "unavailable" : state.lastErrorAt === undefined ? "ready" : "degraded",
+        quickRetryScheduled: !closed && quickRetryTimer !== undefined,
+        consecutiveRefreshFailures: state.consecutiveRefreshFailures ?? 0
+      })}`);
     });
     return activeRuntimeRefresh;
   };
@@ -145,6 +163,7 @@ export async function startAwinFeedRuntime(
       clearInterval(timer);
       clearInterval(staleTimer);
       if (quickRetryTimer !== undefined) clearTimeout(quickRetryTimer);
+      quickRetryTimer = undefined;
       if (offersTimer !== undefined) clearInterval(offersTimer);
       if (registryTimer !== undefined) clearInterval(registryTimer);
       try {

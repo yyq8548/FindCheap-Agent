@@ -38,6 +38,9 @@ jobs:
       - name: Run one-click launcher dry run
         shell: cmd
         run: installers\windows\Install-FindCheap-Agent.cmd --dry-run
+      - name: Verify cache recovery and installed distribution
+        shell: powershell
+        run: ./installers/windows/Test-Installer.ps1
       - name: Package Windows installer
         shell: pwsh
         run: |
