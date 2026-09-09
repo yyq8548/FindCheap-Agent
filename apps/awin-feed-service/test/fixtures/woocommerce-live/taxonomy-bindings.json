@@ -1,0 +1,1164 @@
+{
+  "schemaVersion": 1,
+  "note": "Selected existing public observations reduced to identity, price, attribute mapping and images. No synthetic merchant facts; no new GET.",
+  "stores": [
+    {
+      "evidenceKind": "SAVED_PUBLIC_WOO_GET",
+      "sampleRole": "CONTROLLER_SAMPLE",
+      "observedAt": "2026-09-08T23:09:45.078Z",
+      "readerFile": "artifacts/woo-1000/reader-03/breadtopia-com.json",
+      "sourceUrls": [
+        "https://breadtopia.com/wp-json/wc/store/v1/products?search=Flour&per_page=5",
+        "https://breadtopia.com/wp-json/wc/store/v1/products/427977",
+        "https://breadtopia.com/wp-json/wc/store/v1/products?type=variation&parent=427977&per_page=3",
+        "https://breadtopia.com/wp-json/wc/store/v1/products/427980"
+      ],
+      "store": {
+        "merchantId": "breadtopia-com",
+        "name": "Breadtopia",
+        "origin": "https://breadtopia.com",
+        "apiPath": "/wp-json/wc/store/v1",
+        "productPathPrefixes": [
+          "/store/"
+        ],
+        "imageHosts": [],
+        "aliases": [],
+        "brands": [
+          "Breadtopia"
+        ],
+        "categories": [
+          "food",
+          "flour",
+          "baking supplies",
+          "kitchen"
+        ],
+        "currency": "USD",
+        "marketEvidence": "https://breadtopia.com/store/organic-extra-fancy-durum-pasta-flour/?attribute_pa_select-weight=10-lbs",
+        "reviewedAt": "2026-09-08",
+        "evidenceUrl": "https://breadtopia.com/wp-json/wc/store/v1/products/427977",
+        "enabled": true,
+        "capabilities": {
+          "search": true,
+          "variations": true
+        }
+      },
+      "parent": {
+        "id": 427977,
+        "parent": 0,
+        "name": "Organic Extra Fancy Durum Pasta Flour",
+        "type": "variable",
+        "permalink": "https://breadtopia.com/store/organic-extra-fancy-durum-pasta-flour/",
+        "prices": {
+          "price": "1010",
+          "currency_code": "USD",
+          "currency_minor_unit": 2,
+          "regular_price": "1010",
+          "sale_price": "1010",
+          "price_range": {
+            "min_amount": "1010",
+            "max_amount": "8795"
+          },
+          "currency_symbol": "$",
+          "currency_decimal_separator": ".",
+          "currency_thousand_separator": ",",
+          "currency_prefix": "$",
+          "currency_suffix": ""
+        },
+        "is_in_stock": true,
+        "is_on_backorder": false,
+        "attributes": [
+          {
+            "name": "Weight",
+            "terms": [
+              {
+                "name": "10 lbs",
+                "id": 491,
+                "slug": "10-lbs"
+              },
+              {
+                "name": "3 lbs",
+                "id": 842,
+                "slug": "3-lbs"
+              },
+              {
+                "name": "40 lbs",
+                "id": 1107,
+                "slug": "40-lbs"
+              }
+            ],
+            "id": 4,
+            "taxonomy": "pa_select-weight",
+            "has_variations": true
+          }
+        ],
+        "categories": [
+          {
+            "name": "Refined White Flour",
+            "id": 1052,
+            "slug": "refined-white-flour",
+            "link": "https://breadtopia.com/product-category/grains-flours/refined-white-flour/"
+          }
+        ],
+        "brands": [
+          {
+            "name": "Breadtopia",
+            "id": 1206,
+            "slug": "breadtopia",
+            "link": "https://breadtopia.com/brand/breadtopia/"
+          }
+        ],
+        "sku": "5190",
+        "images": [
+          {
+            "id": 428440,
+            "src": "https://breadtopia.com/wp-content/uploads/2026/04/BT-EF-Durum-Pasta-Flour-2.jpg",
+            "thumbnail": "https://breadtopia.com/wp-content/uploads/2026/04/BT-EF-Durum-Pasta-Flour-2-350x434.jpg",
+            "srcset": "https://breadtopia.com/wp-content/uploads/2026/04/BT-EF-Durum-Pasta-Flour-2.jpg 1280w, https://breadtopia.com/wp-content/uploads/2026/04/BT-EF-Durum-Pasta-Flour-2-242x300.jpg 242w, https://breadtopia.com/wp-content/uploads/2026/04/BT-EF-Durum-Pasta-Flour-2-825x1024.jpg 825w, https://breadtopia.com/wp-content/uploads/2026/04/BT-EF-Durum-Pasta-Flour-2-60x74.jpg 60w, https://breadtopia.com/wp-content/uploads/2026/04/BT-EF-Durum-Pasta-Flour-2-320x397.jpg 320w, https://breadtopia.com/wp-content/uploads/2026/04/BT-EF-Durum-Pasta-Flour-2-350x434.jpg 350w, https://breadtopia.com/wp-content/uploads/2026/04/BT-EF-Durum-Pasta-Flour-2-680x844.jpg 680w",
+            "sizes": "(max-width: 1280px) 100vw, 1280px",
+            "thumbnail_srcset": "https://breadtopia.com/wp-content/uploads/2026/04/BT-EF-Durum-Pasta-Flour-2-350x434.jpg 350w, https://breadtopia.com/wp-content/uploads/2026/04/BT-EF-Durum-Pasta-Flour-2-242x300.jpg 242w, https://breadtopia.com/wp-content/uploads/2026/04/BT-EF-Durum-Pasta-Flour-2-825x1024.jpg 825w, https://breadtopia.com/wp-content/uploads/2026/04/BT-EF-Durum-Pasta-Flour-2-60x74.jpg 60w, https://breadtopia.com/wp-content/uploads/2026/04/BT-EF-Durum-Pasta-Flour-2-320x397.jpg 320w, https://breadtopia.com/wp-content/uploads/2026/04/BT-EF-Durum-Pasta-Flour-2-680x844.jpg 680w, https://breadtopia.com/wp-content/uploads/2026/04/BT-EF-Durum-Pasta-Flour-2.jpg 1280w",
+            "thumbnail_sizes": "(max-width: 350px) 100vw, 350px",
+            "name": "BT-EF-Durum-Pasta-Flour 2",
+            "alt": "Close-up of a mound of Extra Fancy Durum Pasta Flour against a white background with a prominent yellow \"PASTA FLOUR\" label."
+          }
+        ],
+        "_links": {
+          "self": [
+            {
+              "href": "https://breadtopia.com/wp-json/wc/store/v1/products/427977",
+              "targetHints": {
+                "allow": [
+                  "GET"
+                ]
+              }
+            }
+          ],
+          "collection": [
+            {
+              "href": "https://breadtopia.com/wp-json/wc/store/v1/products"
+            }
+          ],
+          "upsells": [
+            {
+              "embeddable": true,
+              "href": "https://breadtopia.com/wp-json/wc/store/v1/products?include=21699,23635,98339,247728,21241"
+            }
+          ],
+          "related": [
+            {
+              "embeddable": true,
+              "href": "https://breadtopia.com/wp-json/wc/store/v1/products?related=427977&per_page=10"
+            }
+          ]
+        },
+        "variations": [
+          {
+            "id": 427980,
+            "attributes": [
+              {
+                "name": "Weight",
+                "value": "10-lbs"
+              }
+            ]
+          }
+        ]
+      },
+      "child": {
+        "id": 427980,
+        "parent": 427977,
+        "name": "Organic Extra Fancy Durum Pasta Flour",
+        "type": "variation",
+        "permalink": "https://breadtopia.com/store/organic-extra-fancy-durum-pasta-flour/?attribute_pa_select-weight=10-lbs",
+        "prices": {
+          "price": "2530",
+          "currency_code": "USD",
+          "currency_minor_unit": 2,
+          "regular_price": "2530",
+          "sale_price": "2530",
+          "price_range": null,
+          "currency_symbol": "$",
+          "currency_decimal_separator": ".",
+          "currency_thousand_separator": ",",
+          "currency_prefix": "$",
+          "currency_suffix": ""
+        },
+        "is_in_stock": true,
+        "is_on_backorder": false,
+        "attributes": [],
+        "categories": [],
+        "brands": [],
+        "sku": "5190-10",
+        "images": [
+          {
+            "id": 428440,
+            "src": "https://breadtopia.com/wp-content/uploads/2026/04/BT-EF-Durum-Pasta-Flour-2.jpg",
+            "thumbnail": "https://breadtopia.com/wp-content/uploads/2026/04/BT-EF-Durum-Pasta-Flour-2-350x434.jpg",
+            "srcset": "https://breadtopia.com/wp-content/uploads/2026/04/BT-EF-Durum-Pasta-Flour-2.jpg 1280w, https://breadtopia.com/wp-content/uploads/2026/04/BT-EF-Durum-Pasta-Flour-2-242x300.jpg 242w, https://breadtopia.com/wp-content/uploads/2026/04/BT-EF-Durum-Pasta-Flour-2-825x1024.jpg 825w, https://breadtopia.com/wp-content/uploads/2026/04/BT-EF-Durum-Pasta-Flour-2-60x74.jpg 60w, https://breadtopia.com/wp-content/uploads/2026/04/BT-EF-Durum-Pasta-Flour-2-320x397.jpg 320w, https://breadtopia.com/wp-content/uploads/2026/04/BT-EF-Durum-Pasta-Flour-2-350x434.jpg 350w, https://breadtopia.com/wp-content/uploads/2026/04/BT-EF-Durum-Pasta-Flour-2-680x844.jpg 680w",
+            "sizes": "(max-width: 1280px) 100vw, 1280px",
+            "thumbnail_srcset": "https://breadtopia.com/wp-content/uploads/2026/04/BT-EF-Durum-Pasta-Flour-2-350x434.jpg 350w, https://breadtopia.com/wp-content/uploads/2026/04/BT-EF-Durum-Pasta-Flour-2-242x300.jpg 242w, https://breadtopia.com/wp-content/uploads/2026/04/BT-EF-Durum-Pasta-Flour-2-825x1024.jpg 825w, https://breadtopia.com/wp-content/uploads/2026/04/BT-EF-Durum-Pasta-Flour-2-60x74.jpg 60w, https://breadtopia.com/wp-content/uploads/2026/04/BT-EF-Durum-Pasta-Flour-2-320x397.jpg 320w, https://breadtopia.com/wp-content/uploads/2026/04/BT-EF-Durum-Pasta-Flour-2-680x844.jpg 680w, https://breadtopia.com/wp-content/uploads/2026/04/BT-EF-Durum-Pasta-Flour-2.jpg 1280w",
+            "thumbnail_sizes": "(max-width: 350px) 100vw, 350px",
+            "name": "BT-EF-Durum-Pasta-Flour 2",
+            "alt": "Close-up of a mound of Extra Fancy Durum Pasta Flour against a white background with a prominent yellow \"PASTA FLOUR\" label."
+          }
+        ],
+        "_links": {
+          "up": [
+            {
+              "href": "https://breadtopia.com/wp-json/wc/store/v1/products/427977"
+            }
+          ],
+          "self": [
+            {
+              "href": "https://breadtopia.com/wp-json/wc/store/v1/products/427980",
+              "targetHints": {
+                "allow": [
+                  "GET"
+                ]
+              }
+            }
+          ],
+          "collection": [
+            {
+              "href": "https://breadtopia.com/wp-json/wc/store/v1/products"
+            }
+          ],
+          "related": [
+            {
+              "embeddable": true,
+              "href": "https://breadtopia.com/wp-json/wc/store/v1/products?related=427980&per_page=10"
+            }
+          ]
+        }
+      },
+      "expected": {
+        "productId": 427977,
+        "variationId": 427980,
+        "itemPrice": {
+          "amountCents": 2530,
+          "currency": "USD"
+        },
+        "merchantUrl": "https://breadtopia.com/store/organic-extra-fancy-durum-pasta-flour/?attribute_pa_select-weight=10-lbs",
+        "selectedAttributes": {
+          "weight": "10-lbs"
+        }
+      }
+    },
+    {
+      "evidenceKind": "SAVED_PUBLIC_WOO_GET",
+      "sampleRole": "CONTROLLER_SAMPLE",
+      "observedAt": "2026-09-08T23:07:54.942Z",
+      "readerFile": "artifacts/woo-1000/reader-03/bulkmemorycards-com.json",
+      "sourceUrls": [
+        "https://bulkmemorycards.com/wp-json/wc/store/v1/products?per_page=3",
+        "https://bulkmemorycards.com/wp-json/wc/store/v1/products?search=Toshiba&per_page=5",
+        "https://bulkmemorycards.com/wp-json/wc/store/v1/products/90776",
+        "https://bulkmemorycards.com/wp-json/wc/store/v1/products?type=variation&parent=90776&per_page=3",
+        "https://bulkmemorycards.com/wp-json/wc/store/v1/products/90781"
+      ],
+      "store": {
+        "merchantId": "bulkmemorycards-com",
+        "name": "Everything But Stromboli LLC",
+        "origin": "https://bulkmemorycards.com",
+        "apiPath": "/wp-json/wc/store/v1",
+        "productPathPrefixes": [
+          "/shop/"
+        ],
+        "imageHosts": [],
+        "aliases": [],
+        "brands": [
+          "Toshiba",
+          "SanDisk",
+          "Samsung"
+        ],
+        "categories": [
+          "electronics",
+          "memory card",
+          "sd card",
+          "usb flash drive"
+        ],
+        "currency": "USD",
+        "marketEvidence": "https://bulkmemorycards.com/contact/",
+        "reviewedAt": "2026-09-08",
+        "evidenceUrl": "https://bulkmemorycards.com/wp-json/wc/store/v1/products/90776",
+        "enabled": true,
+        "capabilities": {
+          "search": true,
+          "variations": true
+        }
+      },
+      "parent": {
+        "id": 90776,
+        "parent": 0,
+        "name": "Toshiba 8GB MicroSD Card on Trays (C08G2T2)",
+        "type": "variable",
+        "permalink": "https://bulkmemorycards.com/shop/microsd-cards/microsd-8gb/8gb-sd-class-4/8gb-toshiba-microsd-card-class-4/",
+        "prices": {
+          "price": "995",
+          "currency_code": "USD",
+          "currency_minor_unit": 2,
+          "regular_price": "995",
+          "sale_price": "995",
+          "price_range": {
+            "min_amount": "995",
+            "max_amount": "1020"
+          },
+          "currency_symbol": "$",
+          "currency_decimal_separator": ".",
+          "currency_thousand_separator": ",",
+          "currency_prefix": "$",
+          "currency_suffix": ""
+        },
+        "is_in_stock": true,
+        "is_on_backorder": false,
+        "attributes": [
+          {
+            "name": "Packaging Preference MicroSD",
+            "terms": [
+              {
+                "name": "Bulk in Plastic Case (+$.25)",
+                "id": 436,
+                "slug": "bulk-in-plastic-case-25",
+                "default": false
+              },
+              {
+                "name": "Bulk on Tray",
+                "id": 664,
+                "slug": "bulk-on-tray",
+                "default": true
+              },
+              {
+                "name": "Bulk in ESD Bag",
+                "id": 665,
+                "slug": "bulk-in-esd-bag",
+                "default": false
+              }
+            ],
+            "id": 7,
+            "taxonomy": "pa_packaging-microsd",
+            "has_variations": true
+          }
+        ],
+        "categories": [
+          {
+            "name": "MicroSD 8GB Class 4",
+            "id": 175,
+            "slug": "8gb-sd-class-4",
+            "link": "https://bulkmemorycards.com/product-category/microsd-cards/microsd-8gb/8gb-sd-class-4/"
+          },
+          {
+            "name": "MicroSD Cards",
+            "id": 37,
+            "slug": "microsd-cards",
+            "link": "https://bulkmemorycards.com/product-category/microsd-cards/"
+          },
+          {
+            "name": "MicroSD 8GB",
+            "id": 165,
+            "slug": "microsd-8gb",
+            "link": "https://bulkmemorycards.com/product-category/microsd-cards/microsd-8gb/"
+          },
+          {
+            "name": "All MicroSD Class 10 Cards",
+            "id": 95,
+            "slug": "microsd-class-10",
+            "link": "https://bulkmemorycards.com/product-category/microsd-cards/microsd-class-10/"
+          }
+        ],
+        "brands": [
+          {
+            "name": "Toshiba",
+            "id": 449,
+            "slug": "toshiba",
+            "link": "https://bulkmemorycards.com/brand/toshiba/"
+          }
+        ],
+        "sku": "8GB TF SD-C08G2T2 PARENT",
+        "images": [
+          {
+            "id": 90780,
+            "src": "https://bulkmemorycards.com/wp-content/uploads/2026/08/Toshiba-8GB-TF.png",
+            "thumbnail": "https://bulkmemorycards.com/wp-content/uploads/2026/08/Toshiba-8GB-TF.png",
+            "srcset": "https://bulkmemorycards.com/wp-content/uploads/2026/08/Toshiba-8GB-TF.png 188w, https://bulkmemorycards.com/wp-content/uploads/2026/08/Toshiba-8GB-TF-64x69.png 64w",
+            "sizes": "(max-width: 188px) 100vw, 188px",
+            "thumbnail_srcset": "https://bulkmemorycards.com/wp-content/uploads/2026/08/Toshiba-8GB-TF.png 188w, https://bulkmemorycards.com/wp-content/uploads/2026/08/Toshiba-8GB-TF-64x69.png 64w",
+            "thumbnail_sizes": "(max-width: 188px) 100vw, 188px",
+            "name": "Toshiba 8GB TF",
+            "alt": ""
+          },
+          {
+            "id": 90780,
+            "src": "https://bulkmemorycards.com/wp-content/uploads/2026/08/Toshiba-8GB-TF.png",
+            "thumbnail": "https://bulkmemorycards.com/wp-content/uploads/2026/08/Toshiba-8GB-TF.png",
+            "srcset": "https://bulkmemorycards.com/wp-content/uploads/2026/08/Toshiba-8GB-TF.png 188w, https://bulkmemorycards.com/wp-content/uploads/2026/08/Toshiba-8GB-TF-64x69.png 64w",
+            "sizes": "(max-width: 188px) 100vw, 188px",
+            "thumbnail_srcset": "https://bulkmemorycards.com/wp-content/uploads/2026/08/Toshiba-8GB-TF.png 188w, https://bulkmemorycards.com/wp-content/uploads/2026/08/Toshiba-8GB-TF-64x69.png 64w",
+            "thumbnail_sizes": "(max-width: 188px) 100vw, 188px",
+            "name": "Toshiba 8GB TF",
+            "alt": ""
+          }
+        ],
+        "_links": {
+          "self": [
+            {
+              "href": "https://bulkmemorycards.com/wp-json/wc/store/v1/products/90776",
+              "targetHints": {
+                "allow": [
+                  "GET"
+                ]
+              }
+            }
+          ],
+          "collection": [
+            {
+              "href": "https://bulkmemorycards.com/wp-json/wc/store/v1/products"
+            }
+          ],
+          "upsells": [
+            {
+              "embeddable": true,
+              "href": "https://bulkmemorycards.com/wp-json/wc/store/v1/products?include=22906,3282,22924,22914"
+            }
+          ],
+          "related": [
+            {
+              "embeddable": true,
+              "href": "https://bulkmemorycards.com/wp-json/wc/store/v1/products?related=90776&per_page=10"
+            }
+          ]
+        },
+        "variations": [
+          {
+            "id": 90781,
+            "attributes": [
+              {
+                "name": "Packaging Preference MicroSD",
+                "value": "bulk-in-plastic-case-25"
+              }
+            ]
+          }
+        ]
+      },
+      "child": {
+        "id": 90781,
+        "parent": 90776,
+        "name": "Toshiba 8GB MicroSD Card on Trays (C08G2T2)",
+        "type": "variation",
+        "permalink": "https://bulkmemorycards.com/shop/microsd-cards/microsd-8gb/8gb-sd-class-4/8gb-toshiba-microsd-card-class-4/?attribute_pa_packaging-microsd=bulk-in-plastic-case-25",
+        "prices": {
+          "price": "1020",
+          "currency_code": "USD",
+          "currency_minor_unit": 2,
+          "regular_price": "1020",
+          "sale_price": "1020",
+          "price_range": null,
+          "currency_symbol": "$",
+          "currency_decimal_separator": ".",
+          "currency_thousand_separator": ",",
+          "currency_prefix": "$",
+          "currency_suffix": ""
+        },
+        "is_in_stock": true,
+        "is_on_backorder": false,
+        "attributes": [],
+        "categories": [],
+        "brands": [],
+        "sku": "8GB TF SD-C08G2T2 -BULK-",
+        "images": [
+          {
+            "id": 30786,
+            "src": "https://bulkmemorycards.com/wp-content/uploads/2021/07/microsd-plastic-case.jpeg",
+            "thumbnail": "https://bulkmemorycards.com/wp-content/uploads/2021/07/microsd-plastic-case-300x300.jpeg",
+            "srcset": "https://bulkmemorycards.com/wp-content/uploads/2021/07/microsd-plastic-case.jpeg 1008w, https://bulkmemorycards.com/wp-content/uploads/2021/07/microsd-plastic-case-295x300.jpeg 295w, https://bulkmemorycards.com/wp-content/uploads/2021/07/microsd-plastic-case-768x780.jpeg 768w, https://bulkmemorycards.com/wp-content/uploads/2021/07/microsd-plastic-case-600x610.jpeg 600w, https://bulkmemorycards.com/wp-content/uploads/2021/07/microsd-plastic-case-64x65.jpeg 64w",
+            "sizes": "(max-width: 1008px) 100vw, 1008px",
+            "thumbnail_srcset": "https://bulkmemorycards.com/wp-content/uploads/2021/07/microsd-plastic-case-300x300.jpeg 300w, https://bulkmemorycards.com/wp-content/uploads/2021/07/microsd-plastic-case-150x150.jpeg 150w, https://bulkmemorycards.com/wp-content/uploads/2021/07/microsd-plastic-case-350x350.jpeg 350w, https://bulkmemorycards.com/wp-content/uploads/2021/07/microsd-plastic-case-600x600.jpeg 600w, https://bulkmemorycards.com/wp-content/uploads/2021/07/microsd-plastic-case-100x100.jpeg 100w, https://bulkmemorycards.com/wp-content/uploads/2021/07/microsd-plastic-case-64x65.jpeg 64w",
+            "thumbnail_sizes": "(max-width: 300px) 100vw, 300px",
+            "name": "microsd plastic case",
+            "alt": ""
+          }
+        ],
+        "_links": {
+          "up": [
+            {
+              "href": "https://bulkmemorycards.com/wp-json/wc/store/v1/products/90776"
+            }
+          ],
+          "self": [
+            {
+              "href": "https://bulkmemorycards.com/wp-json/wc/store/v1/products/90781",
+              "targetHints": {
+                "allow": [
+                  "GET"
+                ]
+              }
+            }
+          ],
+          "collection": [
+            {
+              "href": "https://bulkmemorycards.com/wp-json/wc/store/v1/products"
+            }
+          ],
+          "related": [
+            {
+              "embeddable": true,
+              "href": "https://bulkmemorycards.com/wp-json/wc/store/v1/products?related=90781&per_page=10"
+            }
+          ]
+        }
+      },
+      "expected": {
+        "productId": 90776,
+        "variationId": 90781,
+        "itemPrice": {
+          "amountCents": 1020,
+          "currency": "USD"
+        },
+        "merchantUrl": "https://bulkmemorycards.com/shop/microsd-cards/microsd-8gb/8gb-sd-class-4/8gb-toshiba-microsd-card-class-4/?attribute_pa_packaging-microsd=bulk-in-plastic-case-25",
+        "selectedAttributes": {
+          "packaging preference microsd": "bulk-in-plastic-case-25"
+        }
+      }
+    },
+    {
+      "evidenceKind": "SAVED_PUBLIC_WOO_GET",
+      "sampleRole": "READER_SAMPLE",
+      "observedAt": "2026-09-08T23:13:58.762Z",
+      "readerFile": "artifacts/woo-1000/reader-04/mancinomats-com.json",
+      "sourceUrls": [
+        "https://www.mancinomats.com/wp-json/wc/store/v1/products?search=Tumble&per_page=5",
+        "https://www.mancinomats.com/wp-json/wc/store/v1/products/7655",
+        "https://www.mancinomats.com/wp-json/wc/store/v1/products?type=variation&parent=7655&per_page=3",
+        "https://www.mancinomats.com/wp-json/wc/store/v1/products/7660"
+      ],
+      "store": {
+        "merchantId": "mancinomats-com",
+        "name": "Mancino Mats",
+        "origin": "https://www.mancinomats.com",
+        "apiPath": "/wp-json/wc/store/v1",
+        "productPathPrefixes": [
+          "/product/"
+        ],
+        "imageHosts": [],
+        "aliases": [],
+        "brands": [
+          "Mancino"
+        ],
+        "categories": [
+          "gymnastics mats",
+          "gymnastics training equipment"
+        ],
+        "currency": "USD",
+        "marketEvidence": "https://www.mancinomats.com/contact-us/",
+        "reviewedAt": "2026-09-08",
+        "evidenceUrl": "https://www.mancinomats.com/wp-json/wc/store/v1/products/26582",
+        "enabled": true,
+        "capabilities": {
+          "search": true,
+          "variations": true
+        }
+      },
+      "parent": {
+        "id": 7655,
+        "parent": 0,
+        "name": "Cheer Tumble Trainers",
+        "type": "variable",
+        "permalink": "https://www.mancinomats.com/product/mancino-cheer-tumble-trainers/",
+        "prices": {
+          "price": "44400",
+          "currency_code": "USD",
+          "currency_minor_unit": 2,
+          "regular_price": "44400",
+          "sale_price": "44400",
+          "price_range": {
+            "min_amount": "44400",
+            "max_amount": "70800"
+          },
+          "currency_symbol": "$",
+          "currency_decimal_separator": ".",
+          "currency_thousand_separator": ",",
+          "currency_prefix": "$",
+          "currency_suffix": ""
+        },
+        "is_in_stock": true,
+        "is_on_backorder": false,
+        "attributes": [
+          {
+            "name": "Size &amp; Style",
+            "terms": [
+              {
+                "name": "CPSB-TT2530 - 30\"W x 25\"h",
+                "id": 0,
+                "slug": "CPSB-TT2530 - 30\"W x 25\"h"
+              },
+              {
+                "name": "CPSB-TT3030 - 30\"W x 30\"h",
+                "id": 0,
+                "slug": "CPSB-TT3030 - 30\"W x 30\"h"
+              },
+              {
+                "name": "CPSB-TT3035 - 30\"W x 35\"h",
+                "id": 0,
+                "slug": "CPSB-TT3035 - 30\"W x 35\"h"
+              }
+            ],
+            "id": 0,
+            "taxonomy": null,
+            "has_variations": true
+          }
+        ],
+        "categories": [
+          {
+            "name": "Add your logo!",
+            "id": 1223,
+            "slug": "add-your-logo",
+            "link": "https://www.mancinomats.com/product-category/add-your-logo/"
+          },
+          {
+            "name": "Back Handspring Mat",
+            "id": 1198,
+            "slug": "back-handspring-mat",
+            "link": "https://www.mancinomats.com/product-category/cheer-equipment/back-handspring-mat/"
+          },
+          {
+            "name": "Cheer Equipment",
+            "id": 1177,
+            "slug": "cheer-equipment",
+            "link": "https://www.mancinomats.com/product-category/cheer-equipment/"
+          },
+          {
+            "name": "Cheer Training Shapes",
+            "id": 5014,
+            "slug": "cheer-training-shapes",
+            "link": "https://www.mancinomats.com/product-category/cheer-equipment/cheer-training-shapes/"
+          }
+        ],
+        "brands": [],
+        "sku": "CPSB-TT",
+        "images": [
+          {
+            "id": 7662,
+            "src": "https://www.mancinomats.com/wp-content/uploads/2018/12/products-cheer-tumble-trainers.jpg",
+            "thumbnail": "https://www.mancinomats.com/wp-content/uploads/2018/12/products-cheer-tumble-trainers.jpg",
+            "srcset": "https://www.mancinomats.com/wp-content/uploads/2018/12/products-cheer-tumble-trainers.jpg 150w, https://www.mancinomats.com/wp-content/uploads/2018/12/products-cheer-tumble-trainers.jpg 1200w",
+            "sizes": "(max-width: 1200px) 100vw, 1200px",
+            "thumbnail_srcset": "https://www.mancinomats.com/wp-content/uploads/2018/12/products-cheer-tumble-trainers.jpg 150w, https://www.mancinomats.com/wp-content/uploads/2018/12/products-cheer-tumble-trainers.jpg 1200w",
+            "thumbnail_sizes": "(max-width: 300px) 100vw, 300px",
+            "name": "back handspring mat &#8211; mancino mats",
+            "alt": "back handspring mat - mancino mats"
+          },
+          {
+            "id": 7663,
+            "src": "https://www.mancinomats.com/wp-content/uploads/2018/12/products-add-your-logo-upcharge-mancino-tumble-trainer.jpg",
+            "thumbnail": "https://www.mancinomats.com/wp-content/uploads/2018/12/products-add-your-logo-upcharge-mancino-tumble-trainer.jpg",
+            "srcset": "https://www.mancinomats.com/wp-content/uploads/2018/12/products-add-your-logo-upcharge-mancino-tumble-trainer.jpg 150w, https://www.mancinomats.com/wp-content/uploads/2018/12/products-add-your-logo-upcharge-mancino-tumble-trainer.jpg 1200w",
+            "sizes": "(max-width: 1200px) 100vw, 1200px",
+            "thumbnail_srcset": "https://www.mancinomats.com/wp-content/uploads/2018/12/products-add-your-logo-upcharge-mancino-tumble-trainer.jpg 150w, https://www.mancinomats.com/wp-content/uploads/2018/12/products-add-your-logo-upcharge-mancino-tumble-trainer.jpg 1200w",
+            "thumbnail_sizes": "(max-width: 300px) 100vw, 300px",
+            "name": "add your gym logo and brand to a mancino tumble trainer &#8211; mancino mats &#8211; handspring trainers",
+            "alt": "add your gym logo and brand to a mancino tumble trainer - mancino mats - handspring trainers"
+          },
+          {
+            "id": 7664,
+            "src": "https://www.mancinomats.com/wp-content/uploads/2018/12/products-mancino-tumble-trainers-3-sizes_1_1.jpg",
+            "thumbnail": "https://www.mancinomats.com/wp-content/uploads/2018/12/products-mancino-tumble-trainers-3-sizes_1_1.jpg",
+            "srcset": "https://www.mancinomats.com/wp-content/uploads/2018/12/products-mancino-tumble-trainers-3-sizes_1_1.jpg 150w, https://www.mancinomats.com/wp-content/uploads/2018/12/products-mancino-tumble-trainers-3-sizes_1_1.jpg 1200w",
+            "sizes": "(max-width: 1200px) 100vw, 1200px",
+            "thumbnail_srcset": "https://www.mancinomats.com/wp-content/uploads/2018/12/products-mancino-tumble-trainers-3-sizes_1_1.jpg 150w, https://www.mancinomats.com/wp-content/uploads/2018/12/products-mancino-tumble-trainers-3-sizes_1_1.jpg 1200w",
+            "thumbnail_sizes": "(max-width: 300px) 100vw, 300px",
+            "name": "mancino mats back handspring trainers mats 3 sizes for different gymnasts",
+            "alt": "mancino mats back handspring trainers mats 3 sizes for different gymnasts"
+          }
+        ],
+        "_links": {
+          "self": [
+            {
+              "href": "https://www.mancinomats.com/wp-json/wc/store/v1/products/7655",
+              "targetHints": {
+                "allow": [
+                  "GET"
+                ]
+              }
+            }
+          ],
+          "collection": [
+            {
+              "href": "https://www.mancinomats.com/wp-json/wc/store/v1/products"
+            }
+          ],
+          "upsells": [
+            {
+              "embeddable": true,
+              "href": "https://www.mancinomats.com/wp-json/wc/store/v1/products?include=4548,4601,4610"
+            }
+          ],
+          "related": [
+            {
+              "embeddable": true,
+              "href": "https://www.mancinomats.com/wp-json/wc/store/v1/products?related=7655&per_page=10"
+            }
+          ]
+        },
+        "variations": [
+          {
+            "id": 7660,
+            "attributes": [
+              {
+                "name": "Size &amp; Style",
+                "value": "CPSB-TT3035 - 30\"W x 35\"h"
+              }
+            ]
+          }
+        ]
+      },
+      "child": {
+        "id": 7660,
+        "parent": 7655,
+        "name": "Cheer Tumble Trainers",
+        "type": "variation",
+        "permalink": "https://www.mancinomats.com/product/mancino-cheer-tumble-trainers/?attribute_size-style=CPSB-TT3035+-+30%22W+x+35%22h",
+        "prices": {
+          "price": "70800",
+          "currency_code": "USD",
+          "currency_minor_unit": 2,
+          "regular_price": "70800",
+          "sale_price": "70800",
+          "price_range": null,
+          "currency_symbol": "$",
+          "currency_decimal_separator": ".",
+          "currency_thousand_separator": ",",
+          "currency_prefix": "$",
+          "currency_suffix": ""
+        },
+        "is_in_stock": true,
+        "is_on_backorder": false,
+        "attributes": [],
+        "categories": [],
+        "brands": [],
+        "sku": "CPSB-TT3035",
+        "images": [
+          {
+            "id": 7661,
+            "src": "https://www.mancinomats.com/wp-content/uploads/2018/12/products-tumble-trainer-30x35_3_1.jpg",
+            "thumbnail": "https://www.mancinomats.com/wp-content/uploads/2018/12/products-tumble-trainer-30x35_3_1.jpg",
+            "srcset": "https://www.mancinomats.com/wp-content/uploads/2018/12/products-tumble-trainer-30x35_3_1.jpg 150w, https://www.mancinomats.com/wp-content/uploads/2018/12/products-tumble-trainer-30x35_3_1.jpg 1200w",
+            "sizes": "(max-width: 1200px) 100vw, 1200px",
+            "thumbnail_srcset": "https://www.mancinomats.com/wp-content/uploads/2018/12/products-tumble-trainer-30x35_3_1.jpg 150w, https://www.mancinomats.com/wp-content/uploads/2018/12/products-tumble-trainer-30x35_3_1.jpg 1200w",
+            "thumbnail_sizes": "(max-width: 300px) 100vw, 300px",
+            "name": "mancino mats tumble trainers handspring",
+            "alt": "mancino mats tumble trainers handspring"
+          }
+        ],
+        "_links": {
+          "up": [
+            {
+              "href": "https://www.mancinomats.com/wp-json/wc/store/v1/products/7655"
+            }
+          ],
+          "self": [
+            {
+              "href": "https://www.mancinomats.com/wp-json/wc/store/v1/products/7660",
+              "targetHints": {
+                "allow": [
+                  "GET"
+                ]
+              }
+            }
+          ],
+          "collection": [
+            {
+              "href": "https://www.mancinomats.com/wp-json/wc/store/v1/products"
+            }
+          ],
+          "related": [
+            {
+              "embeddable": true,
+              "href": "https://www.mancinomats.com/wp-json/wc/store/v1/products?related=7660&per_page=10"
+            }
+          ]
+        }
+      },
+      "expected": {
+        "productId": 7655,
+        "variationId": 7660,
+        "itemPrice": {
+          "amountCents": 70800,
+          "currency": "USD"
+        },
+        "merchantUrl": "https://www.mancinomats.com/product/mancino-cheer-tumble-trainers/?attribute_size-style=CPSB-TT3035+-+30%22W+x+35%22h",
+        "selectedAttributes": {
+          "size &amp; style": "CPSB-TT3035 - 30\"W x 35\"h"
+        }
+      }
+    },
+    {
+      "evidenceKind": "SAVED_PUBLIC_WOO_GET",
+      "sampleRole": "CONTROLLER_SAMPLE",
+      "observedAt": "2026-09-08T23:41:54.261Z",
+      "readerFile": "artifacts/woo-1000/reader-07/mybookcave-com.json",
+      "sourceUrls": [
+        "https://mybookcave.com/wp-json/wc/store/v1/products?per_page=3",
+        "https://mybookcave.com/wp-json/wc/store/v1/products?search=Dragon&per_page=5",
+        "https://mybookcave.com/wp-json/wc/store/v1/products/397793",
+        "https://mybookcave.com/wp-json/wc/store/v1/products?type=variation&parent=397793&per_page=3",
+        "https://mybookcave.com/wp-json/wc/store/v1/products/397989"
+      ],
+      "store": {
+        "merchantId": "mybookcave-com",
+        "name": "mybookcave.com",
+        "origin": "https://mybookcave.com",
+        "apiPath": "/wp-json/wc/store/v1",
+        "productPathPrefixes": [
+          "/product/"
+        ],
+        "imageHosts": [],
+        "aliases": [],
+        "brands": [
+          "Book Cave"
+        ],
+        "categories": [
+          "t-shirts",
+          "reader gifts"
+        ],
+        "currency": "USD",
+        "marketEvidence": "https://mybookcave.com/product/book-dragon-t-shirt/?attribute_bella-canvas-colors=Aqua&attribute_clothing-sizes=XS",
+        "reviewedAt": "2026-09-08",
+        "evidenceUrl": "https://mybookcave.com/wp-json/wc/store/v1/products/397793",
+        "enabled": true,
+        "capabilities": {
+          "search": true,
+          "variations": true
+        }
+      },
+      "parent": {
+        "id": 397793,
+        "parent": 0,
+        "name": "Classic Book Dragon T-Shirt | Fantasy Reader Graphic Tee",
+        "type": "variable",
+        "permalink": "https://mybookcave.com/product/book-dragon-t-shirt/",
+        "prices": {
+          "price": "2499",
+          "currency_code": "USD",
+          "currency_minor_unit": 2,
+          "regular_price": "2499",
+          "sale_price": "2499",
+          "price_range": {
+            "min_amount": "2499",
+            "max_amount": "2799"
+          },
+          "currency_symbol": "$",
+          "currency_decimal_separator": ".",
+          "currency_thousand_separator": ",",
+          "currency_prefix": "$",
+          "currency_suffix": ""
+        },
+        "is_in_stock": true,
+        "is_on_backorder": false,
+        "attributes": [
+          {
+            "name": "Bella + Canvas Colors",
+            "terms": [
+              {
+                "name": "White",
+                "id": 0,
+                "slug": "White"
+              },
+              {
+                "name": "Ash",
+                "id": 0,
+                "slug": "Ash"
+              },
+              {
+                "name": "Natural",
+                "id": 0,
+                "slug": "Natural"
+              },
+              {
+                "name": "Athletic Heather",
+                "id": 0,
+                "slug": "Athletic Heather"
+              },
+              {
+                "name": "Asphalt",
+                "id": 0,
+                "slug": "Asphalt"
+              },
+              {
+                "name": "Black",
+                "id": 0,
+                "slug": "Black"
+              },
+              {
+                "name": "Heather Peach",
+                "id": 0,
+                "slug": "Heather Peach"
+              },
+              {
+                "name": "Heather Mauve",
+                "id": 0,
+                "slug": "Heather Mauve"
+              },
+              {
+                "name": "Heather Clay",
+                "id": 0,
+                "slug": "Heather Clay"
+              },
+              {
+                "name": "Pink",
+                "id": 0,
+                "slug": "Pink"
+              },
+              {
+                "name": "Charity Pink",
+                "id": 0,
+                "slug": "Charity Pink"
+              },
+              {
+                "name": "Red",
+                "id": 0,
+                "slug": "Red"
+              },
+              {
+                "name": "Heather Mint",
+                "id": 0,
+                "slug": "Heather Mint"
+              },
+              {
+                "name": "Heather Green",
+                "id": 0,
+                "slug": "Heather Green"
+              },
+              {
+                "name": "Light Blue",
+                "id": 0,
+                "slug": "Light Blue"
+              },
+              {
+                "name": "Aqua",
+                "id": 0,
+                "slug": "Aqua"
+              },
+              {
+                "name": "Heather Team Purple",
+                "id": 0,
+                "slug": "Heather Team Purple"
+              }
+            ],
+            "id": 0,
+            "taxonomy": null,
+            "has_variations": true
+          },
+          {
+            "name": "Clothing sizes",
+            "terms": [
+              {
+                "name": "XS",
+                "id": 0,
+                "slug": "XS"
+              },
+              {
+                "name": "S",
+                "id": 0,
+                "slug": "S"
+              },
+              {
+                "name": "M",
+                "id": 0,
+                "slug": "M"
+              },
+              {
+                "name": "L",
+                "id": 0,
+                "slug": "L"
+              },
+              {
+                "name": "XL",
+                "id": 0,
+                "slug": "XL"
+              },
+              {
+                "name": "2XL",
+                "id": 0,
+                "slug": "2XL"
+              },
+              {
+                "name": "3XL",
+                "id": 0,
+                "slug": "3XL"
+              }
+            ],
+            "id": 0,
+            "taxonomy": null,
+            "has_variations": true
+          }
+        ],
+        "categories": [
+          {
+            "name": "International Bookworms",
+            "id": 7543,
+            "slug": "international-bookworms",
+            "link": "https://mybookcave.com/product-category/themes/international-bookworms/"
+          },
+          {
+            "name": "Shirts",
+            "id": 7534,
+            "slug": "shirts",
+            "link": "https://mybookcave.com/product-category/physical-products/apparel/shirts/"
+          }
+        ],
+        "brands": [],
+        "sku": "",
+        "images": [
+          {
+            "id": 397880,
+            "src": "https://mybookcave.com/app/uploads/2026/04/14621903531363005150_2048.jpeg",
+            "thumbnail": "https://mybookcave.com/app/uploads/2026/04/14621903531363005150_2048-300x300.jpeg",
+            "srcset": "https://mybookcave.com/app/uploads/2026/04/14621903531363005150_2048.jpeg 2048w, https://mybookcave.com/app/uploads/2026/04/14621903531363005150_2048-300x300.jpeg 300w, https://mybookcave.com/app/uploads/2026/04/14621903531363005150_2048-400x400.jpeg 400w, https://mybookcave.com/app/uploads/2026/04/14621903531363005150_2048-150x150.jpeg 150w, https://mybookcave.com/app/uploads/2026/04/14621903531363005150_2048-1536x1536.jpeg 1536w, https://mybookcave.com/app/uploads/2026/04/14621903531363005150_2048-800x800.jpeg 800w, https://mybookcave.com/app/uploads/2026/04/14621903531363005150_2048-1320x1320.jpeg 1320w, https://mybookcave.com/app/uploads/2026/04/14621903531363005150_2048-600x600.jpeg 600w, https://mybookcave.com/app/uploads/2026/04/14621903531363005150_2048-100x100.jpeg 100w",
+            "sizes": "(max-width: 2048px) 100vw, 2048px",
+            "thumbnail_srcset": "https://mybookcave.com/app/uploads/2026/04/14621903531363005150_2048-300x300.jpeg 300w, https://mybookcave.com/app/uploads/2026/04/14621903531363005150_2048-400x400.jpeg 400w, https://mybookcave.com/app/uploads/2026/04/14621903531363005150_2048-150x150.jpeg 150w, https://mybookcave.com/app/uploads/2026/04/14621903531363005150_2048-1536x1536.jpeg 1536w, https://mybookcave.com/app/uploads/2026/04/14621903531363005150_2048-800x800.jpeg 800w, https://mybookcave.com/app/uploads/2026/04/14621903531363005150_2048-1320x1320.jpeg 1320w, https://mybookcave.com/app/uploads/2026/04/14621903531363005150_2048-600x600.jpeg 600w, https://mybookcave.com/app/uploads/2026/04/14621903531363005150_2048-100x100.jpeg 100w, https://mybookcave.com/app/uploads/2026/04/14621903531363005150_2048.jpeg 2048w",
+            "thumbnail_sizes": "(max-width: 300px) 100vw, 300px",
+            "name": "14621903531363005150_2048.jpeg",
+            "alt": "Bella + Canvas book lover t-shirt featuring an original classic book dragon design for fantasy readers"
+          },
+          {
+            "id": 397910,
+            "src": "https://mybookcave.com/app/uploads/2026/04/14000659106623845301_2048.jpeg",
+            "thumbnail": "https://mybookcave.com/app/uploads/2026/04/14000659106623845301_2048-300x300.jpeg",
+            "srcset": "https://mybookcave.com/app/uploads/2026/04/14000659106623845301_2048.jpeg 2048w, https://mybookcave.com/app/uploads/2026/04/14000659106623845301_2048-300x300.jpeg 300w, https://mybookcave.com/app/uploads/2026/04/14000659106623845301_2048-400x400.jpeg 400w, https://mybookcave.com/app/uploads/2026/04/14000659106623845301_2048-150x150.jpeg 150w, https://mybookcave.com/app/uploads/2026/04/14000659106623845301_2048-1536x1536.jpeg 1536w, https://mybookcave.com/app/uploads/2026/04/14000659106623845301_2048-800x800.jpeg 800w, https://mybookcave.com/app/uploads/2026/04/14000659106623845301_2048-1320x1320.jpeg 1320w, https://mybookcave.com/app/uploads/2026/04/14000659106623845301_2048-600x600.jpeg 600w, https://mybookcave.com/app/uploads/2026/04/14000659106623845301_2048-100x100.jpeg 100w",
+            "sizes": "(max-width: 2048px) 100vw, 2048px",
+            "thumbnail_srcset": "https://mybookcave.com/app/uploads/2026/04/14000659106623845301_2048-300x300.jpeg 300w, https://mybookcave.com/app/uploads/2026/04/14000659106623845301_2048-400x400.jpeg 400w, https://mybookcave.com/app/uploads/2026/04/14000659106623845301_2048-150x150.jpeg 150w, https://mybookcave.com/app/uploads/2026/04/14000659106623845301_2048-1536x1536.jpeg 1536w, https://mybookcave.com/app/uploads/2026/04/14000659106623845301_2048-800x800.jpeg 800w, https://mybookcave.com/app/uploads/2026/04/14000659106623845301_2048-1320x1320.jpeg 1320w, https://mybookcave.com/app/uploads/2026/04/14000659106623845301_2048-600x600.jpeg 600w, https://mybookcave.com/app/uploads/2026/04/14000659106623845301_2048-100x100.jpeg 100w, https://mybookcave.com/app/uploads/2026/04/14000659106623845301_2048.jpeg 2048w",
+            "thumbnail_sizes": "(max-width: 300px) 100vw, 300px",
+            "name": "14000659106623845301_2048.jpeg",
+            "alt": ""
+          },
+          {
+            "id": 397911,
+            "src": "https://mybookcave.com/app/uploads/2026/04/6782118943142146437_2048.jpeg",
+            "thumbnail": "https://mybookcave.com/app/uploads/2026/04/6782118943142146437_2048-300x300.jpeg",
+            "srcset": "https://mybookcave.com/app/uploads/2026/04/6782118943142146437_2048.jpeg 2048w, https://mybookcave.com/app/uploads/2026/04/6782118943142146437_2048-300x300.jpeg 300w, https://mybookcave.com/app/uploads/2026/04/6782118943142146437_2048-400x400.jpeg 400w, https://mybookcave.com/app/uploads/2026/04/6782118943142146437_2048-150x150.jpeg 150w, https://mybookcave.com/app/uploads/2026/04/6782118943142146437_2048-1536x1536.jpeg 1536w, https://mybookcave.com/app/uploads/2026/04/6782118943142146437_2048-800x800.jpeg 800w, https://mybookcave.com/app/uploads/2026/04/6782118943142146437_2048-1320x1320.jpeg 1320w, https://mybookcave.com/app/uploads/2026/04/6782118943142146437_2048-600x600.jpeg 600w, https://mybookcave.com/app/uploads/2026/04/6782118943142146437_2048-100x100.jpeg 100w",
+            "sizes": "(max-width: 2048px) 100vw, 2048px",
+            "thumbnail_srcset": "https://mybookcave.com/app/uploads/2026/04/6782118943142146437_2048-300x300.jpeg 300w, https://mybookcave.com/app/uploads/2026/04/6782118943142146437_2048-400x400.jpeg 400w, https://mybookcave.com/app/uploads/2026/04/6782118943142146437_2048-150x150.jpeg 150w, https://mybookcave.com/app/uploads/2026/04/6782118943142146437_2048-1536x1536.jpeg 1536w, https://mybookcave.com/app/uploads/2026/04/6782118943142146437_2048-800x800.jpeg 800w, https://mybookcave.com/app/uploads/2026/04/6782118943142146437_2048-1320x1320.jpeg 1320w, https://mybookcave.com/app/uploads/2026/04/6782118943142146437_2048-600x600.jpeg 600w, https://mybookcave.com/app/uploads/2026/04/6782118943142146437_2048-100x100.jpeg 100w, https://mybookcave.com/app/uploads/2026/04/6782118943142146437_2048.jpeg 2048w",
+            "thumbnail_sizes": "(max-width: 300px) 100vw, 300px",
+            "name": "6782118943142146437_2048.jpeg",
+            "alt": ""
+          }
+        ],
+        "_links": {
+          "self": [
+            {
+              "href": "https://mybookcave.com/wp-json/wc/store/v1/products/397793",
+              "targetHints": {
+                "allow": [
+                  "GET"
+                ]
+              }
+            }
+          ],
+          "collection": [
+            {
+              "href": "https://mybookcave.com/wp-json/wc/store/v1/products"
+            }
+          ],
+          "related": [
+            {
+              "embeddable": true,
+              "href": "https://mybookcave.com/wp-json/wc/store/v1/products?related=397793&per_page=10"
+            }
+          ]
+        },
+        "variations": [
+          {
+            "id": 397989,
+            "attributes": [
+              {
+                "name": "Bella + Canvas Colors",
+                "value": "Aqua"
+              },
+              {
+                "name": "Clothing sizes",
+                "value": "XS"
+              }
+            ]
+          }
+        ]
+      },
+      "child": {
+        "id": 397989,
+        "parent": 397793,
+        "name": "Classic Book Dragon T-Shirt | Fantasy Reader Graphic Tee",
+        "type": "variation",
+        "permalink": "https://mybookcave.com/product/book-dragon-t-shirt/?attribute_bella-canvas-colors=Aqua&attribute_clothing-sizes=XS",
+        "prices": {
+          "price": "2499",
+          "currency_code": "USD",
+          "currency_minor_unit": 2,
+          "regular_price": "2499",
+          "sale_price": "2499",
+          "price_range": null,
+          "currency_symbol": "$",
+          "currency_decimal_separator": ".",
+          "currency_thousand_separator": ",",
+          "currency_prefix": "$",
+          "currency_suffix": ""
+        },
+        "is_in_stock": true,
+        "is_on_backorder": false,
+        "attributes": [],
+        "categories": [],
+        "brands": [],
+        "sku": "BC27670904777477001459",
+        "images": [
+          {
+            "id": 397900,
+            "src": "https://mybookcave.com/app/uploads/2026/04/5322821307012004225_2048.jpeg",
+            "thumbnail": "https://mybookcave.com/app/uploads/2026/04/5322821307012004225_2048-300x300.jpeg",
+            "srcset": "https://mybookcave.com/app/uploads/2026/04/5322821307012004225_2048.jpeg 2048w, https://mybookcave.com/app/uploads/2026/04/5322821307012004225_2048-300x300.jpeg 300w, https://mybookcave.com/app/uploads/2026/04/5322821307012004225_2048-400x400.jpeg 400w, https://mybookcave.com/app/uploads/2026/04/5322821307012004225_2048-150x150.jpeg 150w, https://mybookcave.com/app/uploads/2026/04/5322821307012004225_2048-1536x1536.jpeg 1536w, https://mybookcave.com/app/uploads/2026/04/5322821307012004225_2048-800x800.jpeg 800w, https://mybookcave.com/app/uploads/2026/04/5322821307012004225_2048-1320x1320.jpeg 1320w, https://mybookcave.com/app/uploads/2026/04/5322821307012004225_2048-600x600.jpeg 600w, https://mybookcave.com/app/uploads/2026/04/5322821307012004225_2048-100x100.jpeg 100w",
+            "sizes": "(max-width: 2048px) 100vw, 2048px",
+            "thumbnail_srcset": "https://mybookcave.com/app/uploads/2026/04/5322821307012004225_2048-300x300.jpeg 300w, https://mybookcave.com/app/uploads/2026/04/5322821307012004225_2048-400x400.jpeg 400w, https://mybookcave.com/app/uploads/2026/04/5322821307012004225_2048-150x150.jpeg 150w, https://mybookcave.com/app/uploads/2026/04/5322821307012004225_2048-1536x1536.jpeg 1536w, https://mybookcave.com/app/uploads/2026/04/5322821307012004225_2048-800x800.jpeg 800w, https://mybookcave.com/app/uploads/2026/04/5322821307012004225_2048-1320x1320.jpeg 1320w, https://mybookcave.com/app/uploads/2026/04/5322821307012004225_2048-600x600.jpeg 600w, https://mybookcave.com/app/uploads/2026/04/5322821307012004225_2048-100x100.jpeg 100w, https://mybookcave.com/app/uploads/2026/04/5322821307012004225_2048.jpeg 2048w",
+            "thumbnail_sizes": "(max-width: 300px) 100vw, 300px",
+            "name": "5322821307012004225_2048.jpeg",
+            "alt": ""
+          }
+        ],
+        "_links": {
+          "up": [
+            {
+              "href": "https://mybookcave.com/wp-json/wc/store/v1/products/397793"
+            }
+          ],
+          "self": [
+            {
+              "href": "https://mybookcave.com/wp-json/wc/store/v1/products/397989",
+              "targetHints": {
+                "allow": [
+                  "GET"
+                ]
+              }
+            }
+          ],
+          "collection": [
+            {
+              "href": "https://mybookcave.com/wp-json/wc/store/v1/products"
+            }
+          ],
+          "related": [
+            {
+              "embeddable": true,
+              "href": "https://mybookcave.com/wp-json/wc/store/v1/products?related=397989&per_page=10"
+            }
+          ]
+        }
+      },
+      "expected": {
+        "productId": 397793,
+        "variationId": 397989,
+        "itemPrice": {
+          "amountCents": 2499,
+          "currency": "USD"
+        },
+        "merchantUrl": "https://mybookcave.com/product/book-dragon-t-shirt/?attribute_bella-canvas-colors=Aqua&attribute_clothing-sizes=XS",
+        "selectedAttributes": {
+          "bella + canvas colors": "Aqua",
+          "clothing sizes": "XS"
+        }
+      }
+    }
+  ]
+}

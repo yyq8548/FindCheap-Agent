@@ -4,6 +4,7 @@ import { PRIMARY_BLOCK_REASON_CODES, assessRanking, compareRankingAssessments, h
 import type { VisualReviewAssessment } from "./visual-review-policy.js";
 import { costAdvantage, isCurrentDeal, type ValueProduct } from "./product-value-evidence.js";
 import { missingChargingRequirements } from "./decision-constraints.js";
+import { isCoffeeCapsuleRequest, requestedCoffeeSystem, type CoffeeCompatibilityAssessment, type CoffeeRequest } from "./coffee-category.js";
 
 export const RECOMMENDATION_REASON_CODES = [
   "EXACT_MATCH",
@@ -29,6 +30,7 @@ type RecommendationProduct = ValueProduct & {
   title: string;
   matchStatus: "EXACT" | "DISCOVERY_MATCH" | "SIMILAR";
   requestIdentityStatus?: RequestIdentityStatus | undefined;
+  coffeeCompatibility?: CoffeeCompatibilityAssessment | undefined;
   visualReviewAssessment?: VisualReviewAssessment | undefined;
   visualReviewRequired?: boolean | undefined;
   presentationGroup?: "OFFICIAL_STORE" | "TRUSTED_MATCH" | "BEST_VALUE" | "RESEARCH_ONLY" | undefined;
@@ -193,6 +195,17 @@ function chargingCompatibilityClarification(input: SearchProductsInput): {
     ? `请确认${labels.join("、")}。`
     : `Please confirm ${joinEnglish(labels)}.`,
     evidence: `EV charger compatibility lacks ${missing.join(", ")}` };
+}
+
+export function coffeeCompatibilityClarification(input: CoffeeRequest & { responseLocale?: string | undefined }, hasCapsuleOffer = false): {
+  kind: "COFFEE_COMPATIBILITY"; question: string; evidence: string;
+} | undefined {
+  if ((!isCoffeeCapsuleRequest(input) && !hasCapsuleOffer) || requestedCoffeeSystem(input) !== undefined) return undefined;
+  const chinese = input.responseLocale === "zh-CN" || (input.responseLocale === undefined && /\p{Script=Han}/u.test(input.query));
+  return { kind: "COFFEE_COMPATIBILITY", question: chinese
+    ? "你的咖啡机完整型号或胶囊系统是什么？例如 Nespresso Original、Vertuo、Dolce Gusto 或 Keurig K-Cup；确认兼容性后再选首选。"
+    : "What is your coffee machine's full model or capsule system (for example Nespresso Original, Vertuo, Dolce Gusto or Keurig K-Cup)? I need to verify compatibility before choosing a primary recommendation.",
+    evidence: "coffee capsule machine system is not specified" };
 }
 
 function joinEnglish(values: string[]): string {

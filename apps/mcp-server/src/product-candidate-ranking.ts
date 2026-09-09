@@ -51,6 +51,7 @@ function candidateRanking(candidate: UnifiedCandidate, evaluatedAtMs: number) {
     ...candidateValueProduct(candidate, evaluatedAtMs),
     title: candidateTitle(candidate), matchStatus: candidate.identityStatus,
     requestIdentityStatus: candidate.requestIdentityStatus,
+    coffeeCompatibility: candidate.coffeeCompatibility,
     recommendationTier: candidate.recommendationTier, merchantTrust: trust,
     availability: source.availability, requiredFeatureLimitations: candidate.requiredFeatureLimitations,
     requirementAssessment: candidate.requirementAssessment,

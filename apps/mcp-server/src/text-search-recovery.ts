@@ -2,6 +2,7 @@ import { z } from "zod";
 import { WebConsentStatusSchema, WebDiscoveryOutcomeSchema } from "./web-product-recovery.js";
 import type { UnifiedSearchExecution } from "./search-products.js";
 import { countComparableMerchants, countDisplayEligibleCandidates, countQualifiedMatchCandidates, countRecommendationEligibleCandidates } from "./product-candidate-ranking.js";
+import { isCompletedShopifyPage, wooCoverageState } from "./source-failure.js";
 
 export const TextSearchRecoverySchema = z.object({
   action: z.enum(["NONE", "REQUEST_WEB_SEARCH", "REPORT_UNVERIFIED_MERCHANT", "REPORT_INCOMPLETE"]),
@@ -20,6 +21,9 @@ export function textSearchRecovery(execution: UnifiedSearchExecution, allowAlter
   const qualifiedMatches = countQualifiedMatchCandidates(execution.candidates);
   const awaitingVerification = execution.candidates.length - qualified;
   const comparableMerchants = countComparableMerchants(execution.candidates);
+  const wooCoverage = wooCoverageState(execution.woocommerceResult, execution.sourceFailures, execution.woocommercePasses);
+  const sourceUnavailable = Object.entries(execution.sourceStatus).some(([source, status]) => source === "woocommerce" ? !wooCoverage.completed :
+    status === "UNAVAILABLE" || (status === "PARTIAL" && !(source === "shopify" && isCompletedShopifyPage(execution.shopifyResult, execution.sourceFailures))));
   const base = { qualified, recommendable, qualifiedMatches, awaitingVerification, ...(compareMerchants ? { comparableMerchants } : {}) };
   if (execution.searchRun?.diagnostics().budgetExhausted) return { ...base,
     action: "REPORT_INCOMPLETE" as const, reason: "BUDGET_EXHAUSTED" as const };
@@ -32,10 +36,10 @@ export function textSearchRecovery(execution: UnifiedSearchExecution, allowAlter
   // The execution layer independently assesses safe recovery. A transient failed
   // source is incomplete coverage, not a veto on another authorized read-only source.
   if (execution.chromeFallbackEligible) return { ...base, action: "REQUEST_WEB_SEARCH" as const,
-    reason: Object.values(execution.sourceStatus).some(value => value === "UNAVAILABLE" || value === "PARTIAL")
+    reason: sourceUnavailable
       ? "SOURCE_UNAVAILABLE" as const : qualified > 0 && qualifiedMatches === 0 ? "MERCHANT_UNVERIFIED" as const
         : awaitingVerification > 0 ? "REQUIREMENTS_UNVERIFIED" as const : "NO_QUALIFIED_MATCH" as const };
-  if (Object.values(execution.sourceStatus).some(value => value === "UNAVAILABLE" || value === "PARTIAL") ||
+  if (sourceUnavailable ||
     ["UNAVAILABLE", "PARTIAL"].includes(execution.officialStoreFallback.status)) return { ...base,
     action: "REPORT_INCOMPLETE" as const, reason: "SOURCE_UNAVAILABLE" as const };
   if (qualified > 0 && qualifiedMatches === 0 && execution.candidates.filter(candidate =>

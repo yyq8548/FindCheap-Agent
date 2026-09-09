@@ -15,11 +15,16 @@ const base = { affiliateState: "NONE", recommendationTier: "HIGH_RATED_UNVERIFIE
   identityEvidence: [], resultGroup: "REQUESTED_PRODUCT" } as const;
 
 function woo(overrides: Partial<WooProduct> = {}): WooProduct {
+  const selectedAttributes = overrides.selectedAttributes ?? { Color: "Black", Size: "M" };
+  const defaultUrl = new URL(familyUrl);
+  defaultUrl.searchParams.set("variation_id", String(overrides.variationId ?? 101));
+  defaultUrl.searchParams.set("attribute_color", selectedAttributes.Color!.toLowerCase());
+  defaultUrl.searchParams.set("attribute_size", selectedAttributes.Size!);
   return WooProductSchema.parse({ sourceKind: "WOOCOMMERCE_STORE_API", merchantId: "woo-fixture", merchantName: "Fixture Clothing",
     sourceHost: "woo-fixture.example", productId: 100, parentProductId: 100, variationId: 101, productType: "variation",
     title: "Fitted shirt", category: "shirt", condition: "NEW", sku: "SHIRT-BLK-M",
     attributes: [], variantDimensions: { Color: ["Black", "White"], Size: ["M", "L"] },
-    selectedAttributes: { Color: "Black", Size: "M" }, merchantUrl: selectedUrl, images: [],
+    selectedAttributes, merchantUrl: defaultUrl.href, images: [],
     itemPrice: { amountCents: 3200, currency: "USD" }, priceEvidence: { amountMinor: "3200", currency: "USD",
       currencyMinorUnit: 2, scope: "VARIANT", taxBasis: "UNKNOWN" }, availability: "IN_STOCK", availabilityScope: "VARIANT",
     checkedAt: "2026-09-08T15:34:17.000Z", ...overrides });
@@ -39,6 +44,9 @@ function shopifyCandidate(overrides: Partial<ShopifyProduct> = {}): UnifiedCandi
 }
 
 describe("Woo source-owned product anchors", () => {
+  it("still rejects an explicitly supplied URL that contradicts the fixture child", () => {
+    expect(() => woo({ variationId: 102, merchantUrl: selectedUrl })).toThrow();
+  });
   it("binds merchant, parent, child, selected dimensions and the requested URL", () => {
     const product = woo();
     const anchor = createWooProductAnchor(product);
@@ -145,7 +153,8 @@ describe("cross-source global identity evidence", () => {
     const other = woo({ merchantId: "other-fixture", sourceHost: "other-fixture.example", gtin: "4006381333931",
       merchantUrl: selectedUrl.replace("woo-fixture.example", "other-fixture.example") });
     expect(matchesWooAnchoredCandidate(wooCandidate(other), anchor)).toBe(true);
-    expect(matchesWooAnchoredCandidate(wooCandidate(woo({ ...other, selectedAttributes: { Color: "White", Size: "M" } })), anchor)).toBe(false);
+    expect(matchesWooAnchoredCandidate(wooCandidate(woo({ ...other, selectedAttributes: { Color: "White", Size: "M" },
+      merchantUrl: other.merchantUrl.replace("attribute_color=black", "attribute_color=white") })), anchor)).toBe(false);
   });
 });
 

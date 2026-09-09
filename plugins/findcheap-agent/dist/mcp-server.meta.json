@@ -3736,6 +3736,10 @@
         }
       ]
     },
+    "../../packages/contracts/src/woocommerce-product-url.ts": {
+      "format": "esm",
+      "imports": []
+    },
     "../../packages/contracts/src/woocommerce.ts": {
       "format": "esm",
       "imports": [
@@ -3743,6 +3747,11 @@
           "kind": "import-statement",
           "original": "zod",
           "path": "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/index.js"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./woocommerce-product-url.js",
+          "path": "../../packages/contracts/src/woocommerce-product-url.ts"
         }
       ]
     },
@@ -4312,6 +4321,11 @@
           "kind": "import-statement",
           "original": "./decision-constraints.js",
           "path": "src/decision-constraints.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./coffee-category.js",
+          "path": "src/coffee-category.ts"
         }
       ]
     },
@@ -4453,6 +4467,11 @@
           "kind": "import-statement",
           "original": "./source-failure.js",
           "path": "src/source-failure.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./product-candidate-ranking.js",
+          "path": "src/product-candidate-ranking.ts"
         }
       ]
     },
@@ -5026,6 +5045,11 @@
       "imports": [
         {
           "kind": "import-statement",
+          "original": "./coffee-category.js",
+          "path": "src/coffee-category.ts"
+        },
+        {
+          "kind": "import-statement",
           "original": "./named-product-identity.js",
           "path": "src/named-product-identity.ts"
         },
@@ -5323,6 +5347,11 @@
           "kind": "import-statement",
           "original": "./product-candidate-ranking.js",
           "path": "src/product-candidate-ranking.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./source-failure.js",
+          "path": "src/source-failure.ts"
         }
       ]
     },
@@ -5561,6 +5590,11 @@
       "imports": [
         {
           "kind": "import-statement",
+          "original": "../../../packages/contracts/src/woocommerce-product-url.js",
+          "path": "../../packages/contracts/src/woocommerce-product-url.ts"
+        },
+        {
+          "kind": "import-statement",
           "original": "./merchant-trust.js",
           "path": "src/merchant-trust.ts"
         }
@@ -5569,7 +5603,7 @@
   },
   "outputs": {
     "../../plugins/findcheap-agent/dist/mcp-server.js": {
-      "bytes": 1083774,
+      "bytes": 1099920,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
@@ -5845,7 +5879,7 @@
           "bytesInOutput": 1981
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/core.js": {
-          "bytesInOutput": 12301
+          "bytesInOutput": 12298
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/refs/data.json": {
           "bytesInOutput": 359
@@ -6219,8 +6253,11 @@
         "../../packages/contracts/src/official-storefront.ts": {
           "bytesInOutput": 2446
         },
+        "../../packages/contracts/src/woocommerce-product-url.ts": {
+          "bytesInOutput": 1632
+        },
         "../../packages/contracts/src/woocommerce.ts": {
-          "bytesInOutput": 6421
+          "bytesInOutput": 6795
         },
         "../../packages/network-safety/src/safe-fetch.ts": {
           "bytesInOutput": 8384
@@ -6241,7 +6278,7 @@
           "bytesInOutput": 541
         },
         "src/coffee-category.ts": {
-          "bytesInOutput": 3735
+          "bytesInOutput": 7480
         },
         "src/deal-assessment.ts": {
           "bytesInOutput": 4682
@@ -6283,7 +6320,7 @@
           "bytesInOutput": 7867
         },
         "src/generic-official-store-search.ts": {
-          "bytesInOutput": 15811
+          "bytesInOutput": 15808
         },
         "src/known-product-url.ts": {
           "bytesInOutput": 1856
@@ -6313,7 +6350,7 @@
           "bytesInOutput": 712
         },
         "src/product-candidate-ranking.ts": {
-          "bytesInOutput": 8124
+          "bytesInOutput": 8166
         },
         "src/product-card-telemetry.ts": {
           "bytesInOutput": 814
@@ -6331,7 +6368,7 @@
           "bytesInOutput": 12930
         },
         "src/product-recommendation.ts": {
-          "bytesInOutput": 4811
+          "bytesInOutput": 5523
         },
         "src/product-reference.ts": {
           "bytesInOutput": 128
@@ -6349,25 +6386,25 @@
           "bytesInOutput": 3739
         },
         "src/ranking-assessment.ts": {
-          "bytesInOutput": 3288
+          "bytesInOutput": 3549
         },
         "src/recommendation-message.ts": {
-          "bytesInOutput": 2008
+          "bytesInOutput": 2325
         },
         "src/retrieval-plan.ts": {
-          "bytesInOutput": 859
+          "bytesInOutput": 1010
         },
         "src/sales-tax-estimator.ts": {
           "bytesInOutput": 1784
         },
         "src/search-diagnostics.ts": {
-          "bytesInOutput": 4053
+          "bytesInOutput": 5355
         },
         "src/search-products.ts": {
-          "bytesInOutput": 50115
+          "bytesInOutput": 51768
         },
         "src/search-requirements-context.ts": {
-          "bytesInOutput": 6378
+          "bytesInOutput": 6373
         },
         "src/search-result-summary.ts": {
           "bytesInOutput": 5412
@@ -6376,7 +6413,7 @@
           "bytesInOutput": 8103
         },
         "src/server.ts": {
-          "bytesInOutput": 204906
+          "bytesInOutput": 207497
         },
         "src/shopify-cart-quote.ts": {
           "bytesInOutput": 12440
@@ -6385,10 +6422,10 @@
           "bytesInOutput": 181
         },
         "src/shopify-global-catalog-client.ts": {
-          "bytesInOutput": 22195
+          "bytesInOutput": 23617
         },
         "src/shopify-match.ts": {
-          "bytesInOutput": 12399
+          "bytesInOutput": 12553
         },
         "src/shopify-official-store-search.ts": {
           "bytesInOutput": 14776
@@ -6397,7 +6434,7 @@
           "bytesInOutput": 1432
         },
         "src/shopify-selected-product.ts": {
-          "bytesInOutput": 6859
+          "bytesInOutput": 6857
         },
         "src/snapshot-products.ts": {
           "bytesInOutput": 826
@@ -6406,13 +6443,13 @@
           "bytesInOutput": 11978
         },
         "src/source-failure.ts": {
-          "bytesInOutput": 2361
+          "bytesInOutput": 4113
         },
         "src/stdio.ts": {
           "bytesInOutput": 1090
         },
         "src/text-search-recovery.ts": {
-          "bytesInOutput": 2019
+          "bytesInOutput": 2110
         },
         "src/visual-candidate-images.ts": {
           "bytesInOutput": 6960
@@ -6445,10 +6482,10 @@
           "bytesInOutput": 1394
         },
         "src/woocommerce-client.ts": {
-          "bytesInOutput": 2190
+          "bytesInOutput": 2242
         },
         "src/woocommerce-product.ts": {
-          "bytesInOutput": 2189
+          "bytesInOutput": 2097
         }
       }
     }

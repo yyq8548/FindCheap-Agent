@@ -28,7 +28,7 @@ function woo(overrides: Partial<WooProduct> = {}): WooProduct {
     sourceHost: "woo-one.example", productId: 1000, parentProductId: 1000, variationId: 1001, productType: "variation",
     title: "Black boat neck mini dress", category: "dress", description: "Black boat neck mini dress", condition: "NEW",
     attributes: [], variantDimensions: { Color: ["Black"], Size: ["S", "M"] }, selectedAttributes: { Color: "Black", Size: "S" },
-    merchantUrl: "https://woo-one.example/product/dress?variation_id=1001", images: [{ id: "image-1001", url: "https://merchant-cdn.example/dress.webp" }],
+    merchantUrl: `https://woo-one.example/product/dress?variation_id=${overrides.variationId ?? 1001}`, images: [{ id: "image-1001", url: "https://merchant-cdn.example/dress.webp" }],
     imageUrl: "https://merchant-cdn.example/dress.webp", itemPrice: { amountCents: 2200, currency: "USD" },
     priceEvidence: { amountMinor: "2200", currency: "USD", currencyMinorUnit: 2, scope: "VARIANT", taxBasis: "UNKNOWN" },
     availability: "IN_STOCK", availabilityScope: "VARIANT", rating: { value: 4.8, reviewCount: 25, scale: 5, productId: 1000 }, checkedAt,
@@ -96,7 +96,10 @@ describe("WooCommerce visual source contract", () => {
     ["parent", { productId: 2000, parentProductId: 2000, rating: undefined }],
     ["variant", { variationId: 1002 }]
   ] satisfies Array<[string, Partial<WooProduct>]>)("binds visual fingerprints to the Woo %s", (_field, change) => {
-    expect(sourceProductFingerprint("WOOCOMMERCE", woo(change))).not.toEqual(sourceProductFingerprint("WOOCOMMERCE", woo()));
+    // A shared family URL isolates parent/child hashing from differences in URL text.
+    const merchantUrl = "https://woo-one.example/product/dress";
+    expect(sourceProductFingerprint("WOOCOMMERCE", woo({ merchantUrl, ...change })))
+      .not.toEqual(sourceProductFingerprint("WOOCOMMERCE", woo({ merchantUrl })));
   });
   it("keeps Woo and Shopify source namespaces separate for identical merchant/host/numeric handles", () => {
     const product = woo();

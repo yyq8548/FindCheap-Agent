@@ -18,6 +18,8 @@ export type ShopifySearchInput = {
   zipCode?: string | undefined;
   membershipIds?: string[] | undefined;
   includeOutOfStock?: boolean | undefined;
+  /** Server-owned cursor for the actual translated Catalog query. */
+  continuation?: { query: string; cursor: string };
 };
 
 export type ShopifySelectionMode = "LOWEST_PRICE" | "MERCHANT_DIVERSE";
@@ -60,6 +62,13 @@ export type ShopifySearchResult = {
   coverage: "COMPLETE" | "PARTIAL";
   merchantsQueried: number;
   merchantsSucceeded: number;
+  pagination?: {
+    query: string;
+    hasNextPage: boolean;
+    nextCursor?: string;
+    /** Upstream estimate, never an exact product or merchant denominator. */
+    estimatedTotalCount?: number;
+  };
   maxItemPriceCents?: number;
   comparison: {
     status: "SAME_PRODUCT" | "DISCOVERY_ONLY";
@@ -91,6 +100,7 @@ export type ShopifySearchResult = {
     merchantTrustRegistryVersion: string;
     merchantsFailed: number;
     coveragePercent: number;
+    coverageScope?: "RETURNED_PAGE";
     failedMerchantIds: string[];
     timedOutMerchantIds: string[];
     registryVersion: string;

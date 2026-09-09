@@ -21,4 +21,21 @@ describe("Woo independent registry", () => {
     expect(WooRegistrySchema.safeParse({ version: "test", stores: [merchant, merchant] }).success).toBe(false);
     expect(WooRegistrySchema.safeParse({ version: "test", stores: [{ ...merchant, origin: "https://127.0.0.1" }] }).success).toBe(false);
   });
+  it("loads a 1,000-store override with complete merchant evidence within a bounded payload", () => {
+    const stores = Array.from({ length: 1_000 }, (_, index) => ({ ...merchant,
+      merchantId: `merchant-${index}`, name: `Example Consumer Store ${index}`, origin: `https://merchant-${index}.example`,
+      evidenceUrl: `https://merchant-${index}.example/wp-json/wc/store/v1/products/123456`,
+      marketEvidence: `https://merchant-${index}.example/shipping-and-returns/`, apiPath: "/wp-json/wc/store/v1",
+      imageHosts: [`images.merchant-${index}.example`], aliases: [`www.merchant-${index}.example`],
+      categories: ["beauty", "skincare", "serum", "cleanser"], brands: ["Example Consumer Brand"]
+    }));
+    const raw = JSON.stringify({ version: "test-1000", stores });
+    expect(Buffer.byteLength(raw)).toBeGreaterThan(512 * 1024);
+    const registry = wooRegistryFromEnvironment({ WOOCOMMERCE_SOURCE_ENABLED: "true", WOOCOMMERCE_REGISTRY_JSON: raw });
+    expect(registry?.stores).toHaveLength(1_000);
+    expect(registry?.stores[999]?.marketEvidence).toBe("https://merchant-999.example/shipping-and-returns/");
+  });
+  it("rejects oversized override text before parsing", () => {
+    expect(() => wooRegistryFromEnvironment({ WOOCOMMERCE_SOURCE_ENABLED: "true", WOOCOMMERCE_REGISTRY_JSON: " ".repeat(2 * 1024 * 1024 + 1) })).toThrow("Woo registry too large");
+  });
 });

@@ -157,6 +157,13 @@ const ProductSchema = z.object({
   rating: RatingSchema.nullish(),
   variants: z.array(VariantSchema).max(100)
 }).passthrough();
+const CursorSchema = z.string().min(1).max(4_096);
+const CatalogPaginationSchema = z.object({
+  has_next_page: z.boolean(),
+  cursor: CursorSchema.nullish(),
+  total_count: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).nullish()
+}).passthrough().refine(value => !value.has_next_page || typeof value.cursor === "string",
+  "a remaining Catalog page requires a cursor");
 const CatalogEnvelopeSchema = z.object({
   jsonrpc: z.literal("2.0"),
   id: z.union([z.string(), z.number()]),
@@ -167,6 +174,7 @@ const CatalogEnvelopeSchema = z.object({
         status: z.literal("success")
       }).passthrough(),
       products: z.array(z.unknown()).max(50),
+      pagination: CatalogPaginationSchema.nullish(),
       messages: z.array(z.unknown()).max(100).nullish()
     }).passthrough()
   }).passthrough()
@@ -238,6 +246,10 @@ const CHINESE_QUERY_REPLACEMENTS = [
   ["花卉", "floral", "floral"],
   ["连衣裙", "dress", "dress"],
   ["裙子", "dress", "dress"],
+  ["胶囊咖啡", "coffee capsules", "coffee capsules"],
+  ["咖啡胶囊", "coffee capsules", "coffee capsules"],
+  ["速溶咖啡", "instant coffee", "instant coffee"],
+  ["咖啡粉", "ground coffee", "ground coffee"],
   ["咖啡豆", "coffee beans", "coffee"],
   ["咖啡", "coffee", "coffee"],
   ["笔记本电脑", "laptop", "laptop"],
@@ -335,7 +347,16 @@ export function createShopifyGlobalCatalogPort(
       const startedAt = monotonicNow();
       try {
         const sourceQuery = input.query ?? input.handle?.replaceAll("-", " ") ?? "";
-        const plan = planCatalogQueries(sourceQuery);
+        const allowedPlan = planCatalogQueries(sourceQuery);
+        const continuation = input.continuation === undefined ? undefined : z.object({
+          query: z.string().min(1).max(4_096), cursor: CursorSchema
+        }).parse(input.continuation);
+        const continuedQuery = continuation === undefined ? undefined :
+          allowedPlan.find(attempt => attempt.query === continuation.query);
+        if (continuation !== undefined && continuedQuery === undefined) {
+          throw new Error("Catalog continuation does not belong to the current query");
+        }
+        const plan = continuedQuery === undefined ? allowedPlan : [continuedQuery];
         let totals = emptyAttemptTotals();
         let latest: ShopifySearchResult | undefined;
         for (const [index, attempt] of plan.entries()) {
@@ -364,7 +385,9 @@ export function createShopifyGlobalCatalogPort(
               timeoutMs,
               relaxed: attempt.kind === "RELAXED",
               catalogVersion: parsed.result.structuredContent.ucp.version,
-              malformedProductsExcluded: catalogProducts.malformedProductsExcluded
+              malformedProductsExcluded: catalogProducts.malformedProductsExcluded,
+              query: attempt.query,
+              pagination: parsed.result.structuredContent.pagination ?? undefined
             }
           );
           totals = addAttemptTotals(totals, latest.diagnostics);
@@ -378,7 +401,7 @@ export function createShopifyGlobalCatalogPort(
               ...totals
             }
           };
-          if (latest.products.length > 0) return latest;
+          if (latest.products.length > 0 || latest.pagination?.hasNextPage || continuation !== undefined) return latest;
         }
         if (latest === undefined) throw new Error("catalog query plan is empty");
         return latest;
@@ -409,6 +432,10 @@ function searchRequest(input: ShopifySearchInput, profileUrl: string, query: str
         meta: { "ucp-agent": { profile: profileUrl } },
         catalog: {
           query,
+          pagination: {
+            limit: Math.min(50, Math.max(1, Math.trunc(input.limit))),
+            ...(input.continuation === undefined ? {} : { cursor: input.continuation.cursor })
+          },
           filters: {
             ships_to: { country: "US" },
             ...(input.includeOutOfStock === true ? {} : { available: true }),
@@ -451,6 +478,8 @@ function buildResult(
     relaxed: boolean;
     catalogVersion: string;
     malformedProductsExcluded: number;
+    query: string;
+    pagination?: z.infer<typeof CatalogPaginationSchema> | undefined;
   }
 ): ShopifySearchResult {
   const unsupportedConditions = products.reduce((count, product) => count + product.variants.filter((variant) =>
@@ -514,9 +543,16 @@ function buildResult(
 
   return {
     source: "SHOPIFY_GLOBAL_CATALOG",
-    coverage: "COMPLETE",
+    coverage: context.pagination?.has_next_page ? "PARTIAL" : "COMPLETE",
     merchantsQueried: merchantCount,
     merchantsSucceeded: merchantCount,
+    ...(context.pagination === undefined ? {} : { pagination: {
+      query: context.query,
+      hasNextPage: context.pagination.has_next_page,
+      ...(context.pagination.has_next_page && context.pagination.cursor != null
+        ? { nextCursor: context.pagination.cursor } : {}),
+      ...(context.pagination.total_count == null ? {} : { estimatedTotalCount: context.pagination.total_count })
+    } }),
     ...(input.maxItemPriceCents === undefined ? {} : { maxItemPriceCents: input.maxItemPriceCents }),
     comparison: sameProduct === undefined
       ? {
@@ -557,6 +593,7 @@ function buildResult(
       merchantTrustRegistryVersion: currentMerchantTrustRegistryVersion(),
       merchantsFailed: 0,
       coveragePercent: 100,
+      coverageScope: "RETURNED_PAGE",
       failedMerchantIds: [],
       timedOutMerchantIds: [],
       registryVersion: `shopify-global-${context.catalogVersion}`,

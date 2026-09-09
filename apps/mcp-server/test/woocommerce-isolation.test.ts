@@ -15,11 +15,13 @@ const base = {
 };
 
 function wooProduct(overrides: Partial<WooProduct> = {}): WooProduct {
+  const defaultUrl = new URL(url);
+  defaultUrl.searchParams.set("variation_id", String(overrides.variationId ?? 2001));
   return WooProductSchema.parse({
     sourceKind: "WOOCOMMERCE_STORE_API", merchantId: "woo-shop", merchantName: "Woo Shop", sourceHost: "woo-shop.example",
     productId: 2000, parentProductId: 2000, variationId: 2001, title: "Black mechanical keyboard", category: "keyboard",
     productType: "variation", condition: "NEW", attributes: ["Color: Black"],
-    selectedAttributes: { Color: "Black" }, variantDimensions: { Color: ["Black"] }, merchantUrl: url, images: [],
+    selectedAttributes: { Color: "Black" }, variantDimensions: { Color: ["Black"] }, merchantUrl: defaultUrl.href, images: [],
     itemPrice: { amountCents: 2300, currency: "USD" },
     priceEvidence: { amountMinor: "2300", currency: "USD", currencyMinorUnit: 2, scope: "VARIANT", taxBasis: "UNKNOWN" },
     availability: "OUT_OF_STOCK", availabilityScope: "VARIANT", checkedAt: "2026-09-08T16:00:00.000Z", ...overrides

@@ -10,16 +10,19 @@ const request = () => vi.fn(async () => new Response("[]", { headers: { "content
 type SavedSample = { merchantId: string; observedAt: string; raw: WooRawProduct; parent?: WooRawProduct;
   expected: Pick<WooProduct, "productId" | "variationId" | "itemPrice" | "selectedAttributes" | "merchantUrl"> };
 const samples = JSON.parse(await readFile(new URL("fixtures/woocommerce-expansion-200/accepted-samples.json", import.meta.url), "utf8")) as SavedSample[];
+// Preserve the original 200-store cohort and its recorded observations across later expansions.
+const originalRegistry = { ...DEFAULT_WOO_REGISTRY, stores: DEFAULT_WOO_REGISTRY.stores.slice(0, 200) };
+const unboundSamples = new Set(["gap-antenna", "kristin-dunn-books", "maple-city-roasters", "max200",
+  "richardsons-candy-kitchen", "rising-star-coffee", "suttons-shoes", "uzzi"]);
 
 describe("reviewed 200-merchant Woo expansion", () => {
   it("loads exactly 200 distinct enabled USD stores without granting trust or affiliate approval", () => {
-    expect(DEFAULT_WOO_REGISTRY.version).toBe("2026-09-08-expanded-200");
-    expect(DEFAULT_WOO_REGISTRY.stores).toHaveLength(200);
+    expect(originalRegistry.stores).toHaveLength(200);
     expect(samples).toHaveLength(150);
-    expect(new Set(DEFAULT_WOO_REGISTRY.stores.slice(50).map(store => store.merchantId))).toEqual(new Set(samples.map(sample => sample.merchantId)));
-    const hosts = DEFAULT_WOO_REGISTRY.stores.flatMap(store => [new URL(store.origin).hostname, ...store.aliases]);
+    expect(new Set(originalRegistry.stores.slice(50).map(store => store.merchantId))).toEqual(new Set(samples.map(sample => sample.merchantId)));
+    const hosts = originalRegistry.stores.flatMap(store => [new URL(store.origin).hostname, ...store.aliases]);
     expect(new Set(hosts).size).toBe(hosts.length);
-    for (const store of DEFAULT_WOO_REGISTRY.stores) {
+    for (const store of originalRegistry.stores) {
       expect(store.enabled && store.capabilities.search && store.currency === "USD" && Boolean(store.marketEvidence)).toBe(true);
       expect(store).not.toHaveProperty("trust");
       expect(store).not.toHaveProperty("affiliate");
@@ -28,7 +31,7 @@ describe("reviewed 200-merchant Woo expansion", () => {
 
   it("keeps two complementary six-store passes and never labels 200-store coverage complete", async () => {
     const send = request();
-    const controller = createWooCommerceController(DEFAULT_WOO_REGISTRY, { resolve, request: send });
+    const controller = createWooCommerceController(originalRegistry, { resolve, request: send });
     const input = WooSearchInputSchema.parse({ query: "bounded-200-store-coverage" });
     const first = await controller.search(input);
     const second = await controller.search({ ...input, continuation: first.continuation! });
@@ -44,7 +47,7 @@ describe("reviewed 200-merchant Woo expansion", () => {
     { query: "General Pencil charcoal", id: "general-pencil" },
     { query: "Restoration Games Thunder Road", id: "restoration-games" }
   ])("routes the real newly admitted $id brand within six merchants", async ({ query, id }) => {
-    const result = await createWooCommerceController(DEFAULT_WOO_REGISTRY, { resolve, request: request() }).search(WooSearchInputSchema.parse({ query }));
+    const result = await createWooCommerceController(originalRegistry, { resolve, request: request() }).search(WooSearchInputSchema.parse({ query }));
     expect(result.stores[0]?.merchantId).toBe(id);
     expect(result.diagnostics.plannedStores).toBe(6);
   });
@@ -58,14 +61,23 @@ describe("reviewed 200-merchant Woo expansion", () => {
     const raw = await reader.product(store, sample.raw.id, budget());
     const parent = sample.parent === undefined ? undefined : await reader.product(store, sample.parent.id, budget());
     const product = normalizeWooProduct(raw, store, sample.observedAt, parent)!;
-    expect(product).toMatchObject(sample.expected);
-    expect(product.itemPrice!.amountCents).toBeGreaterThan(0);
+    const { itemPrice: historicalPrice, ...identity } = sample.expected;
+    expect(product).toMatchObject(identity);
+    if (unboundSamples.has(sample.merchantId)) {
+      expect(historicalPrice).toBeDefined();
+      expect(product.itemPrice).toBeUndefined();
+      expect(product.availability).toBe("UNKNOWN");
+      expect(product.priceEvidence.scope).toBe("UNKNOWN");
+    } else {
+      expect(product.itemPrice).toEqual(historicalPrice);
+      expect(product.itemPrice!.amountCents).toBeGreaterThan(0);
+    }
     expect(product.images.length).toBeGreaterThan(0);
     expect(product.images.every(image => [new URL(store.origin).hostname, ...store.imageHosts].includes(new URL(image.url).hostname))).toBe(true);
     if (parent !== undefined) {
       expect(store.capabilities.variations).toBe(true);
       expect(normalizeWooProduct(parent, store, sample.observedAt)?.itemPrice).toBeUndefined();
-      expect(product.priceEvidence.scope).toBe("VARIANT");
+      expect(product.priceEvidence.scope).toBe(unboundSamples.has(sample.merchantId) ? "UNKNOWN" : "VARIANT");
     }
   });
 });

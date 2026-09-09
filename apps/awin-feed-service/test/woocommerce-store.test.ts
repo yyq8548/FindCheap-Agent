@@ -29,8 +29,23 @@ describe("Woo source observations", () => {
     const child = normalizeWooProduct({ ...raw, id: 11, type: "variation", parent: 10 }, store, at, parent)!;
     expect(child.selectedAttributes).toEqual({ size: "M" });
     expect(child.variantDimensions.color).toBeUndefined();
+    expect(child.itemPrice).toBeUndefined();
+    expect(child.priceEvidence.scope).toBe("UNKNOWN");
+    expect(child.availability).toBe("UNKNOWN");
     expect(wooMatchesRequirements(child, { color: "Red" })).toBe(false);
     expect(normalizeWooProduct({ ...raw, id: 11, type: "variation", parent: 10, attributes: [{ name: "Color", value: "Red" }] }, store, at, parent)?.selectedAttributes).toEqual({ color: "Red", size: "M" });
+  });
+  it("does not price a wildcard child when a required parent dimension is missing", () => {
+    const parent = { ...raw, type: "variable", attributes: [{ name: "Color", has_variations: true, terms: [{ name: "Red" }, { name: "Blue" }] }], variations: [{ id: 11, attributes: [] }] };
+    const child = { ...raw, id: 11, type: "variation", parent: 10 };
+    const unresolved = normalizeWooProduct(child, store, at, parent)!;
+    expect(unresolved).toMatchObject({ variationId: 11, selectedAttributes: {}, priceEvidence: { scope: "UNKNOWN" }, availability: "UNKNOWN" });
+    expect(unresolved.itemPrice).toBeUndefined();
+    expect(normalizeWooProduct({ ...child, attributes: [{ name: "Color", value: "Red" }] }, store, at, parent)).toMatchObject({ selectedAttributes: { color: "Red" }, itemPrice: { amountCents: 1099 }, priceEvidence: { scope: "VARIANT" }, availability: "IN_STOCK" });
+  });
+  it("does not require descriptive attributes that are not variation choices", () => {
+    const parent = { ...raw, type: "variable", attributes: [{ name: "Material", has_variations: false, terms: [{ name: "Wood" }] }], variations: [{ id: 11, attributes: [{ name: "Size", value: "M" }] }] };
+    expect(normalizeWooProduct({ ...raw, id: 11, type: "variation", parent: 10 }, store, at, parent)).toMatchObject({ selectedAttributes: { size: "M" }, itemPrice: { amountCents: 1099 }, priceEvidence: { scope: "VARIANT" } });
   });
   it.each([12, {}, []])("still rejects malformed parent variation values: %j", async value => {
     const payload = { ...raw, type: "variable", variations: [{ id: 11, attributes: [{ name: "Color", value }] }] };

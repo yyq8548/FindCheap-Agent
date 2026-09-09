@@ -112,14 +112,16 @@ async function connect(
 describe("shopping MCP server", () => {
   it("keeps three-tier card order and ordinal references when a value card is the primary choice", async () => {
     const base = await shopifyPort.search({ query: "Valhalla Java", comparisonMode: "DISCOVERY", selectionMode: "MERCHANT_DIVERSE", limit: 2 });
-    const first = { ...base.products[0]!, productType: "coffee pods", condition: "NEW" as const };
+    const first = { ...base.products[0]!, productType: "coffee pods", condition: "NEW" as const,
+      variantDimensions: { ...base.products[0]!.variantDimensions, "Capsule System": "Keurig K-Cup" } };
     const second = { ...first, handle: "value-offer", merchantId: "best-buy", merchant: "Best Buy", sourceHost: "bestbuy.com",
       merchantUrl: "https://bestbuy.com/products/value-offer", itemPrice: { amountCents: 999, currency: "USD" as const },
       merchantTrust: { level: "ESTABLISHED_RETAILER" as const, verification: "INDEPENDENT" as const, evidence: ["fixture reviewed"] } };
     const search = vi.fn(async () => ({ ...base, products: [first, second] }));
     const client = await connect({ search });
     const result = await client.callTool({ name: "search_products", arguments: { query: "810063341254",
-      brand: "Death Wish Coffee", brandMode: "REQUIRED", productType: "coffee pods", comparisonMode: "SAME_PRODUCT", limit: 4 } });
+      brand: "Death Wish Coffee", brandMode: "REQUIRED", productType: "coffee pods", comparisonMode: "SAME_PRODUCT",
+      requiredFeatures: ["Compatible with Keurig K-Cup"], limit: 4 } });
     expect(result.isError).not.toBe(true);
     const snapshot = result.structuredContent as { renderId: string; products: Array<{ selectionId: string; handle: string; presentationGroup: string }>;
       recommendation: { primarySelectionId: string } };
@@ -154,12 +156,12 @@ describe("shopping MCP server", () => {
     const selectionTool = tools.tools.find((candidate) => candidate.name === "sync_product_card_selection");
     const metricsTool = tools.tools.find((candidate) => candidate.name === "report_product_card_metrics");
     expect(searchTool?._meta).toMatchObject({
-      ui: { resourceUri: "ui://findcheap/product-cards/v43.html" },
-      "openai/outputTemplate": "ui://findcheap/product-cards/v43.html"
+      ui: { resourceUri: "ui://findcheap/product-cards/v44.html" },
+      "openai/outputTemplate": "ui://findcheap/product-cards/v44.html"
     });
     expect(renderTool?._meta).toMatchObject({
       ui: {
-        resourceUri: "ui://findcheap/product-cards/v43.html",
+        resourceUri: "ui://findcheap/product-cards/v44.html",
         visibility: ["app"]
       }
     });
@@ -178,15 +180,15 @@ describe("shopping MCP server", () => {
     expect(resources.resources).toHaveLength(2);
     expect(resources.resources).toEqual(expect.arrayContaining([expect.objectContaining({
       name: "findcheap-product-cards",
-      uri: "ui://findcheap/product-cards/v43.html",
+      uri: "ui://findcheap/product-cards/v44.html",
       mimeType: "text/html;profile=mcp-app"
     }), expect.objectContaining({
       name: "findcheap-product-comparison",
-      uri: "ui://findcheap/product-comparison/v13.html",
+      uri: "ui://findcheap/product-comparison/v14.html",
       mimeType: "text/html;profile=mcp-app"
     })]));
 
-    const resource = await client.readResource({ uri: "ui://findcheap/product-cards/v43.html" });
+    const resource = await client.readResource({ uri: "ui://findcheap/product-cards/v44.html" });
     const content = resource.contents[0];
     const html = content !== undefined && "text" in content ? content.text : "";
     expect(html).toContain("ui/notifications/tool-result");
@@ -458,7 +460,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.18.2",
+        version: "0.18.3",
         terminalStage: "DOM_RENDERED",
         stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
       }
@@ -467,7 +469,7 @@ describe("shopping MCP server", () => {
     expect(result.structuredContent).toEqual({ status: "RECORDED" });
     expect(record).toHaveBeenCalledWith(expect.objectContaining({
       renderId,
-      version: "0.18.2",
+      version: "0.18.3",
       terminalStage: "DOM_RENDERED",
       stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
     }));
@@ -475,7 +477,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.18.2",
+        version: "0.18.3",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 14 }
       }
@@ -485,7 +487,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.18.2",
+        version: "0.18.3",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 300_001 }
       }
@@ -496,7 +498,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId: "22222222-2222-4222-8222-222222222222",
-        version: "0.18.2",
+        version: "0.18.3",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 1 }
       }

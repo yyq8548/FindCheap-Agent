@@ -4,7 +4,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createAwinFeedController, createAwinFeedHttpServer } from "../src/service.js";
 import { parseAwinFeedServiceEnvironment } from "../src/environment.js";
 import type { WooCommerceController } from "../src/woocommerce.js";
-import type { WooSearchResult } from "../../../packages/contracts/src/woocommerce.js";
+import { WooSearchResultSchema, WooStoreResultSchema, type WooSearchResult } from "../../../packages/contracts/src/woocommerce.js";
+import { z } from "zod";
+import { createWooCommercePortFromEnvironment } from "../../mcp-server/src/woocommerce-client.js";
 
 const servers: Server[] = [];
 afterEach(async () => { await Promise.all(servers.splice(0).map((server) => new Promise<void>((resolve) => { server.closeAllConnections(); server.close(() => resolve()); }))); });
@@ -24,6 +26,32 @@ function controller(): WooCommerceController {
 }
 async function post(base: string, path: string, body: unknown) { return fetch(`${base}/v1/woocommerce/${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }); }
 describe("Woo service HTTP boundary", () => {
+  it.each([undefined, "unknown"])("keeps the strict legacy store shape without a recognized coverage capability: %s", async capability => {
+    const result = boundedResult();
+    const woo = controller(); woo.search = vi.fn(async () => result);
+    const base = await start(woo);
+    const response = await fetch(`${base}/v1/woocommerce/search`, { method: "POST",
+      headers: { "content-type": "application/json", ...(capability ? { "x-findcheap-woo-coverage": capability } : {}) }, body: JSON.stringify({ query: "coffee" }) });
+    const body = await response.json();
+    // v0.18.2 accepts these fields strictly; an optional additive field still breaks it.
+    const legacy = WooSearchResultSchema.extend({ stores: z.array(WooStoreResultSchema.omit({ boundedReasons: true })).max(6) });
+    expect(legacy.safeParse(body).success).toBe(true);
+    expect(body).toMatchObject({ status: "PARTIAL", diagnostics: { truncated: true }, stores: [{ reason: "BUDGET_EXHAUSTED" }] });
+    expect(result.stores[0]?.boundedReasons).toEqual(["PRODUCT_PAGE_LIMIT"]);
+    expect(response.headers.get("vary")).toBe("x-findcheap-woo-coverage");
+  });
+  it("negotiates bounded reasons through the current client without poisoning the legacy representation", async () => {
+    const result = boundedResult();
+    const woo = controller(); woo.search = vi.fn(async () => result);
+    const base = await start(woo);
+    const port = createWooCommercePortFromEnvironment({ WOOCOMMERCE_API_BASE_URL: "https://source.example" }, {
+      fetch: (url, init) => fetch(new URL(new URL(String(url)).pathname, base), init)
+    })!;
+    expect((await port.search({ query: "coffee", limit: 12, market: "US", currency: "USD" })).stores[0]?.boundedReasons).toEqual(["PRODUCT_PAGE_LIMIT"]);
+    const old = await post(base, "search", { query: "coffee" });
+    expect((await old.json()).stores[0]).not.toHaveProperty("boundedReasons");
+    expect((await port.search({ query: "coffee", limit: 12, market: "US", currency: "USD" })).stores[0]?.boundedReasons).toEqual(["PRODUCT_PAGE_LIMIT"]);
+  });
   it("is absent by default and leaves existing endpoint methods intact", async () => {
     const base = await start();
     expect((await post(base, "search", { query: "desk" })).status).toBe(404);
@@ -60,3 +88,11 @@ describe("Woo service HTTP boundary", () => {
     expect(woo.search).toHaveBeenCalledTimes(1);
   });
 });
+
+function boundedResult(): WooSearchResult {
+  return { source: "WOOCOMMERCE_STORE_API", schemaVersion: 1, registryVersion: "test", requestId: "bounded-test",
+    status: "PARTIAL", snapshotAt: "2026-09-09T02:00:00.000Z", products: [],
+    stores: [{ merchantId: "sample", status: "PARTIAL", reason: "BUDGET_EXHAUSTED", boundedReasons: ["PRODUCT_PAGE_LIMIT"], requests: 2, returned: 0 }],
+    diagnostics: { eligibleStores: 1000, plannedStores: 1, attemptedStores: 1, succeededStores: 0, failedStores: 1, skippedStores: 999, physicalRequests: 2,
+      responseBytes: 2, cacheHits: 0, elapsedMs: 1, truncated: true, registryCoverageComplete: false } };
+}

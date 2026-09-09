@@ -15,6 +15,7 @@ export type WooCommerceController = {
 };
 type Dependencies = Pick<FetchPolicy, "resolve" | "request"> & { now?: () => number };
 type Health = { failures: number; until: number; probe: boolean };
+type BoundedReason = NonNullable<WooStoreResult["boundedReasons"]>[number];
 
 export function createWooCommerceController(registryInput: WooRegistry, dependencies: Dependencies = {}): WooCommerceController {
   const registry = WooRegistrySchema.parse(registryInput);
@@ -68,7 +69,7 @@ export function createWooCommerceController(registryInput: WooRegistry, dependen
   function budget(signal?: AbortSignal, timeout = 8_000): WooReadBudget {
     return { signal: signal === undefined ? AbortSignal.timeout(timeout) : AbortSignal.any([signal, AbortSignal.timeout(timeout)]), requests: 0, bytes: 0, maxRequests: 18, maxBytes: 8 * 1024 * 1024 };
   }
-  async function variants(store: WooMerchant, parent: WooRawProduct, requirements: WooVariantRequirements, limits: WooReadBudget): Promise<{ products: WooProduct[]; truncated: boolean; failure?: unknown }> {
+  async function variants(store: WooMerchant, parent: WooRawProduct, requirements: WooVariantRequirements, limits: WooReadBudget): Promise<{ products: WooProduct[]; truncated: boolean; boundedReasons?: BoundedReason[]; failure?: unknown }> {
     if (!store.capabilities.variations) throw new WooReadError("UNSUPPORTED");
     const products: WooProduct[] = [];
     let truncated = false;
@@ -85,7 +86,8 @@ export function createWooCommerceController(registryInput: WooRegistry, dependen
       if (result.totalPages <= page) break;
       truncated = page === 2;
     }
-    return { products: products.slice(0, 24), truncated: truncated || products.length > 24 };
+    const boundedReasons: BoundedReason[] = [...(truncated ? ["VARIANT_PAGE_LIMIT" as const] : []), ...(products.length > 24 ? ["VARIANT_LIMIT" as const] : [])];
+    return { products: products.slice(0, 24), truncated: boundedReasons.length > 0, ...(boundedReasons.length > 0 ? { boundedReasons } : {}) };
   }
   return {
     async search(value, options = {}) {
@@ -145,6 +147,7 @@ export function createWooCommerceController(registryInput: WooRegistry, dependen
         if (blocked !== undefined) return { result: { ...result, status: "SKIPPED" as const, reason: blocked }, products: collected, truncated: true };
         if (state !== undefined && state.failures >= 3) state.probe = true;
         let truncated = false;
+        const boundedReasons = new Set<BoundedReason>();
         let retried = false;
         const local: WooReadBudget = { signal: limits.signal, get requests() { return limits.requests; }, set requests(value) { limits.requests = value; },
           get bytes() { return limits.bytes; }, set bytes(value) { limits.bytes = value; }, maxRequests: 18, maxBytes: limits.maxBytes, onRequest: () => { assertReadable(store.merchantId); result.requests += 1; } };
@@ -168,16 +171,18 @@ export function createWooCommerceController(registryInput: WooRegistry, dependen
                 const children = await variants(store, raw, input.requirements ?? {}, local);
                 collected.push(...children.products.filter((child) => eligibleProduct(child, input) && (urlSelection?.variationId === undefined || child.variationId === urlSelection.variationId)));
                 truncated ||= children.truncated;
+                for (const reason of children.boundedReasons ?? []) boundedReasons.add(reason);
                 if (children.failure !== undefined) throw children.failure;
               } else if (urlSelection?.variationId === undefined && eligibleProduct(product, input)) collected.push(remember(product));
               if (collected.length >= input.limit) break;
             }
             if (response.totalPages <= page || collected.length >= input.limit || input.productUrl !== undefined) break;
-            if (page === 2) truncated = true;
+            if (page === 2) { truncated = true; boundedReasons.add("PRODUCT_PAGE_LIMIT"); }
           }
           recordSuccess(store.merchantId, state);
           result.returned = collected.length;
           if (truncated) result.status = "PARTIAL";
+          if (boundedReasons.size > 0) result.boundedReasons = [...boundedReasons];
         } catch (error) {
           const reason = error instanceof WooReadError ? error.reason : "UPSTREAM_UNAVAILABLE";
           result.status = collected.length > 0 ? "PARTIAL" : "UNAVAILABLE";

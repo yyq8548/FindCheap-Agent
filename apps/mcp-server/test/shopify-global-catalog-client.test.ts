@@ -59,6 +59,13 @@ describe("Shopify Global Catalog client", () => {
     expect(planCatalogQueries("猫砂")[0]?.query).toBe("cat litter");
   });
 
+  it.each([
+    ["胶囊咖啡", "coffee capsules"], ["咖啡胶囊", "coffee capsules"],
+    ["咖啡粉", "ground coffee"], ["速溶咖啡", "instant coffee"]
+  ])("preserves the requested coffee form when translating %s", (query, expected) => {
+    expect(planCatalogQueries(query)).toEqual([{ kind: "PRIMARY", query: expected }]);
+  });
+
   it("runs one bounded relaxed query only after the primary result is empty", async () => {
     const fetch = vi.fn()
       .mockResolvedValueOnce(catalogResponse([]))
@@ -656,7 +663,93 @@ describe("Shopify Global Catalog client", () => {
   });
 });
 
-function catalogResponse(products: unknown[], version = "2026-04-08"): Response {
+describe("bounded Global Catalog pagination", () => {
+  it("sends the requested page size and continues an opaque cursor without reading further pages", async () => {
+    const firstProduct = product({ shopId: "610", merchant: "First Store", host: "first.example", price: 1200 });
+    const nextProduct = product({ shopId: "611", merchant: "Next Store", host: "next.example", price: 1300 });
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(catalogResponse([firstProduct], "2026-08-25", {
+        has_next_page: true, cursor: "opaque-page-2", total_count: 371
+      }))
+      .mockResolvedValueOnce(catalogResponse([nextProduct]));
+    const port = createShopifyGlobalCatalogPort({ SHOPIFY_AGENT_PROFILE_URL: profileUrl }, { fetch });
+    const input = { query: "Sony WH-1000XM5", limit: 12, maxItemPriceCents: 2000 };
+    const first = await port.search(input);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(first.coverage).toBe("PARTIAL");
+    expect(first.pagination).toEqual({ query: input.query, hasNextPage: true,
+      nextCursor: "opaque-page-2", estimatedTotalCount: 371 });
+    expect(first.diagnostics.coverageScope).toBe("RETURNED_PAGE");
+    const second = await port.search({ ...input,
+      continuation: { query: first.pagination!.query, cursor: first.pagination!.nextCursor! } });
+    expect(fetch).toHaveBeenCalledTimes(2);
+    const requests = fetch.mock.calls.map(call => JSON.parse(String(call[1]!.body)).params.arguments.catalog);
+    expect(requests[0].pagination).toEqual({ limit: 12 });
+    expect(requests[1]).toEqual({ ...requests[0], pagination: { limit: 12, cursor: "opaque-page-2" } });
+    expect(second.products[0]?.merchant).toBe("Next Store");
+    expect(second.coverage).toBe("COMPLETE");
+    expect(second.pagination).toEqual({ query: input.query, hasNextPage: false, estimatedTotalCount: 1 });
+  });
+
+  it("returns a remaining page even when the current page has no usable products", async () => {
+    const fetch = vi.fn(async () => catalogResponse([], "2026-08-25", {
+      has_next_page: true, cursor: "next-matching-page", total_count: 30
+    }));
+    const port = createShopifyGlobalCatalogPort({ SHOPIFY_AGENT_PROFILE_URL: profileUrl }, { fetch });
+    const result = await port.search({ query: "逗猫棒", limit: 12 });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(result.pagination).toMatchObject({ query: "cat wand toy", nextCursor: "next-matching-page" });
+    expect(result.diagnostics.queryAttempts).toBe(1);
+  });
+
+  it("continues the actual translated or relaxed query once, without restarting the primary plan", async () => {
+    const fetch = vi.fn(async (_url: string, _init: RequestInit) => catalogResponse([]));
+    const port = createShopifyGlobalCatalogPort({ SHOPIFY_AGENT_PROFILE_URL: profileUrl }, { fetch });
+    const result = await port.search({ query: "逗猫棒", limit: 12,
+      continuation: { query: "cat toy", cursor: "relaxed-page-2" } });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(String(fetch.mock.calls[0]![1]!.body)).params.arguments.catalog)
+      .toMatchObject({ query: "cat toy", pagination: { cursor: "relaxed-page-2", limit: 12 } });
+    expect(result.pagination?.query).toBe("cat toy");
+    expect(result.diagnostics.fallbackQueryUsed).toBe(true);
+  });
+
+  it("rejects a cursor attached to a changed query before making a request", async () => {
+    const fetch = vi.fn(async (_url: string, _init: RequestInit) => catalogResponse([]));
+    const port = createShopifyGlobalCatalogPort({ SHOPIFY_AGENT_PROFILE_URL: profileUrl }, { fetch });
+    await expect(port.search({ query: "coffee capsules", limit: 12,
+      continuation: { query: "cat toy", cursor: "stale-page-2" } })).rejects.toThrow();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { has_next_page: true },
+    { has_next_page: "false", cursor: "bad" },
+    { has_next_page: true, cursor: "x".repeat(4097) },
+    { has_next_page: false, total_count: -1 }
+  ])("does not silently call malformed pagination complete: %j", async pagination => {
+    const fetch = vi.fn(async () => catalogResponse([], "2026-08-25", pagination));
+    const port = createShopifyGlobalCatalogPort({ SHOPIFY_AGENT_PROFILE_URL: profileUrl }, { fetch });
+    await expect(port.search({ query: "coffee capsules", limit: 12 })).rejects.toThrow("CATALOG_SCHEMA_CHANGED");
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("caps the upstream page size at 50 and respects cancellation", async () => {
+    const fetch = vi.fn(async (_url: string, _init: RequestInit) => catalogResponse([]));
+    const port = createShopifyGlobalCatalogPort({ SHOPIFY_AGENT_PROFILE_URL: profileUrl }, { fetch });
+    await port.search({ query: "coffee capsules", limit: 75 });
+    expect(JSON.parse(String(fetch.mock.calls[0]![1]!.body)).params.arguments.catalog.pagination.limit).toBe(50);
+    const controller = new AbortController();
+    controller.abort();
+    await expect(port.search({ query: "coffee capsules", limit: 12, signal: controller.signal,
+      continuation: { query: "coffee capsules", cursor: "page-2" } })).rejects.toThrow();
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+});
+
+function catalogResponse(products: unknown[], version = "2026-04-08", pagination: unknown = {
+  has_next_page: false, total_count: products.length
+}): Response {
   return Response.json({
     jsonrpc: "2.0",
     id: 1,
@@ -665,7 +758,7 @@ function catalogResponse(products: unknown[], version = "2026-04-08"): Response 
         ucp: { version, status: "success" },
         products,
         messages: [],
-        pagination: { has_next_page: false, total_count: products.length }
+        pagination
       }
     }
   });

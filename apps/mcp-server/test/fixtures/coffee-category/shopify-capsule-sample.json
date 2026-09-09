@@ -1,0 +1,1072 @@
+{
+  "schemaVersion": 1,
+  "evidenceKind": "SAVED_REAL_SHOPIFY_CATALOG_OBSERVATION",
+  "observedAt": "2026-09-08T22:26:05.060Z",
+  "sourceCommit": "a4d51c7a3155756458f17aafcbf7e45cab82cfb4",
+  "note": "Unmodified public Catalog response from September 8. Offline replay is not current availability, machine compatibility, or native-host acceptance.",
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "structuredContent": {
+        "ucp": {
+          "version": "2026-04-08",
+          "capabilities": {
+            "dev.ucp.shopping.catalog.search": [
+              {
+                "version": "2026-04-08",
+                "spec": "https://ucp.dev/2026-04-08/specification/catalog",
+                "schema": "https://ucp.dev/2026-04-08/schemas/shopping/catalog_search.json"
+              }
+            ],
+            "dev.ucp.shopping.catalog.lookup": [
+              {
+                "version": "2026-04-08",
+                "spec": "https://ucp.dev/2026-04-08/specification/catalog",
+                "schema": "https://ucp.dev/2026-04-08/schemas/shopping/catalog_lookup.json"
+              }
+            ],
+            "dev.shopify.catalog.global": [
+              {
+                "version": "2026-04-08",
+                "spec": "https://shopify.dev/docs/agents/catalog/global-catalog",
+                "schema": "https://shopify.dev/ucp/schemas/2026-04-08/shopify_catalog_global.json",
+                "extends": [
+                  "dev.ucp.shopping.catalog.search",
+                  "dev.ucp.shopping.catalog.lookup"
+                ],
+                "requires": {
+                  "protocol": {
+                    "min": "2026-04-08"
+                  }
+                }
+              }
+            ]
+          },
+          "status": "success"
+        },
+        "products": [
+          {
+            "id": "gid://shopify/p/hPV4Ue6tfMu4hfKtk8CDJ",
+            "title": "BLEND 9 - POWERFUL",
+            "description": {
+              "plain": "Dark roast coffee capsules blending robusta and arabica for a full-bodied, creamy espresso experience."
+            },
+            "rating": {
+              "value": 4.8,
+              "scale_min": 1,
+              "scale_max": 5,
+              "count": 1246
+            },
+            "metadata": {
+              "unique_selling_points": [
+                "Crafted with Indian robusta, specialty arabicas, and Colombian arabica for a powerful, creamy espresso in a Nespresso-compatible capsule."
+              ],
+              "top_features": "Blend of Indian robusta, specialty arabicas, and Colombian arabica delivers a complex, full-bodied flavor profile\nDark roast enhances caramelized sugars, sweet toffee, and nutty notes for a rich espresso\nOxygen barrier technology preserves freshness and flavor as if the beans were roasted today\nCompatible with Nespresso OriginalLine capsules for convenient, high-quality espresso at home\nPowerful, creamy taste ideal for both black or milk-based coffee preferences",
+              "tech_specs": "Strength: 9/10\nCapsule Type: Nespresso OriginalLine compatible\nOrigin Blend: Brazil, India, Nicaragua, Colombia\nRoast Level: Dark\nCapsules per Box: 10\nAllergen Information: None"
+            },
+            "media": [
+              {
+                "type": "image",
+                "url": "https://cdn.shopify.com/s/files/1/0899/0254/products/Coffee2U_Blend_9_30pk.jpg",
+                "alt_text": "BLEND 9 - POWERFUL"
+              }
+            ],
+            "variants": [
+              {
+                "id": "gid://shopify/ProductVariant/15438736425054",
+                "title": "BLEND 9 - POWERFUL",
+                "description": {
+                  "plain": "STRENGTH POWERFUL: 9/10 TASTING NOTES Full bodied, Powerful, Creamy ORIGINS Brazil, India, Nicaragua, Colombia GREAT FOR"
+                },
+                "url": "https://www.coffeecapsules2u.com.au/products/blend-9-powerful-30-pack?variant=15438736425054&_gsid=YRz9x4BcvpZw&utm_source=shopify&utm_medium=catalog",
+                "price": {
+                  "amount": 800,
+                  "currency": "USD"
+                },
+                "availability": {
+                  "available": true
+                },
+                "options": [
+                  {
+                    "name": "Quantity",
+                    "label": "30 pack"
+                  }
+                ],
+                "media": [
+                  {
+                    "type": "image",
+                    "url": "https://cdn.shopify.com/s/files/1/0899/0254/products/Coffee2U_Blend_9_30pk.jpg",
+                    "alt_text": "BLEND 9 - POWERFUL"
+                  }
+                ],
+                "seller": {
+                  "id": "gid://shopify/Shop/8990254",
+                  "name": "COFFEE CAPSULES 2U",
+                  "url": "https://www.coffeecapsules2u.com.au",
+                  "domain": "coffee-capsules-2-u.myshopify.com",
+                  "links": [
+                    {
+                      "type": "privacy_policy",
+                      "url": "https://checkout.shopify.com/8990254/policies/8065091.html"
+                    },
+                    {
+                      "type": "terms_of_service",
+                      "url": "https://checkout.shopify.com/8990254/policies/8065155.html"
+                    },
+                    {
+                      "type": "refund_policy",
+                      "url": "https://checkout.shopify.com/8990254/policies/8065027.html"
+                    }
+                  ]
+                },
+                "checkout_url": "https://www.coffeecapsules2u.com.au/cart/15438736425054:1?_gsid=YRz9x4BcvpZw&utm_source=shopify&utm_medium=catalog",
+                "condition": [
+                  "new"
+                ],
+                "eligible": {
+                  "native_checkout": false
+                }
+              }
+            ],
+            "price_range": {
+              "min": {
+                "amount": 800,
+                "currency": "USD"
+              },
+              "max": {
+                "amount": 800,
+                "currency": "USD"
+              }
+            }
+          },
+          {
+            "id": "gid://shopify/p/7u2RbAUyDDAathDk8DNhhZ",
+            "title": "BLEND 10 - INTENSE",
+            "description": {
+              "plain": "Intense dark roast coffee capsules with robust flavors, crafted for Nespresso machines."
+            },
+            "rating": {
+              "value": 4.8,
+              "scale_min": 1,
+              "scale_max": 5,
+              "count": 943
+            },
+            "metadata": {
+              "unique_selling_points": [
+                "Very dark roast with heavy robusta content, delivering intense, spicy, and smoky flavor in a fresh, oxygen-barrier packed capsule."
+              ],
+              "top_features": "Very dark roast with heavy robusta content for bold, natural flavors\nBrazilian arabica accents provide balanced, aromatic notes\nIntense, dynamic, and spicy taste profile for a unique coffee experience\n100% oxygen barrier technology ensures freshness as fresh as when roasted\nCompatible with Nespresso Original-line machines for versatile brewing",
+              "tech_specs": "Capsule count: 10 per box\nRoast level: Very dark\nOrigin: Brazil, India\nCaffeine content: Not specified\nAllergen information: None of the above\nDietary preferences: None of the above"
+            },
+            "media": [
+              {
+                "type": "image",
+                "url": "https://cdn.shopify.com/s/files/1/0899/0254/products/Coffee2U_Blend_10_30pk.jpg",
+                "alt_text": "BLEND 10 - INTENSE"
+              }
+            ],
+            "variants": [
+              {
+                "id": "gid://shopify/ProductVariant/15394626338910",
+                "title": "BLEND 10 - INTENSE",
+                "description": {
+                  "plain": "STRENGTH INTENSE: 10/10 TASTING NOTES Intense, Dynamic, Spicy ORIGINS Brazil, India GREAT FOR"
+                },
+                "url": "https://www.coffeecapsules2u.com.au/products/blend-10-intense-30-pack?variant=15394626338910&_gsid=YRz9x4BcvpZw&utm_source=shopify&utm_medium=catalog",
+                "price": {
+                  "amount": 800,
+                  "currency": "USD"
+                },
+                "availability": {
+                  "available": true
+                },
+                "media": [
+                  {
+                    "type": "image",
+                    "url": "https://cdn.shopify.com/s/files/1/0899/0254/products/Coffee2U_Blend_10_30pk.jpg",
+                    "alt_text": "BLEND 10 - INTENSE"
+                  }
+                ],
+                "seller": {
+                  "id": "gid://shopify/Shop/8990254",
+                  "name": "COFFEE CAPSULES 2U",
+                  "url": "https://www.coffeecapsules2u.com.au",
+                  "domain": "coffee-capsules-2-u.myshopify.com",
+                  "links": [
+                    {
+                      "type": "privacy_policy",
+                      "url": "https://checkout.shopify.com/8990254/policies/8065091.html"
+                    },
+                    {
+                      "type": "terms_of_service",
+                      "url": "https://checkout.shopify.com/8990254/policies/8065155.html"
+                    },
+                    {
+                      "type": "refund_policy",
+                      "url": "https://checkout.shopify.com/8990254/policies/8065027.html"
+                    }
+                  ]
+                },
+                "checkout_url": "https://www.coffeecapsules2u.com.au/cart/15394626338910:1?_gsid=YRz9x4BcvpZw&utm_source=shopify&utm_medium=catalog",
+                "condition": [
+                  "new"
+                ],
+                "eligible": {
+                  "native_checkout": false
+                }
+              }
+            ],
+            "price_range": {
+              "min": {
+                "amount": 800,
+                "currency": "USD"
+              },
+              "max": {
+                "amount": 800,
+                "currency": "USD"
+              }
+            }
+          },
+          {
+            "id": "gid://shopify/p/1XNSWo6Zc5kDFaXZEIECsZ",
+            "title": "Midtown Roast Coffee Capsules",
+            "description": {
+              "plain": "Bright and slightly acidic roast coffee capsules designed for compatibility with L or Barista systems."
+            },
+            "metadata": {
+              "unique_selling_points": [
+                "Exclusive compatibility with L or Barista systems and a unique roast profile with caramelized sugars and melted chocolate notes."
+              ],
+              "top_features": "Bright and slightly acidic roast delivers a unique flavor profile for coffee lovers\nSmooth finish ensures a balanced and enjoyable cup\nExclusive compatibility with L or Barista systems for seamless integration\nWarm caramelized sugars and melted chocolate hints evoke a cozy atmosphere",
+              "tech_specs": "Roast Profile: Bright, slightly acidic\nFinish: Smooth\nCompatibility: L or Barista systems only\nFlavor Notes: Caramelized sugars, melted chocolate"
+            },
+            "media": [
+              {
+                "type": "image",
+                "url": "https://cdn.shopify.com/s/files/1/0319/0764/3436/files/PDP-LoR-Peets_Midtown-Coffee-1266x1492.png",
+                "alt_text": "Peet's Coffee single-serve coffee capsules packaging with two capsules in front"
+              }
+            ],
+            "variants": [
+              {
+                "id": "gid://shopify/ProductVariant/44558789574700",
+                "title": "Midtown Roast Coffee Capsules",
+                "description": {
+                  "plain": "COFFEE CAPSULES ARE EXCLUSIVELY COMPATIBLE with the L’OR BARISTA System A bright and slightly acidic roast that produces a smooth finish. This cup will remind you of warm nights hinting at caramelized sugars and melted chocolate."
+                },
+                "url": "https://www.peets.com/products/midtown-roast-coffee-capsules?variant=44558789574700&_gsid=YRz9x4BcvpZw&utm_source=shopify&utm_medium=catalog",
+                "price": {
+                  "amount": 1199,
+                  "currency": "USD"
+                },
+                "availability": {
+                  "available": true
+                },
+                "media": [
+                  {
+                    "type": "image",
+                    "url": "https://cdn.shopify.com/s/files/1/0319/0764/3436/files/PDP-LoR-Peets_Midtown-Coffee-1266x1492.png",
+                    "alt_text": "Peet's Coffee single-serve coffee capsules packaging with two capsules in front"
+                  }
+                ],
+                "seller": {
+                  "id": "gid://shopify/Shop/31907643436",
+                  "name": "Peet's Coffee",
+                  "url": "https://www.peets.com",
+                  "domain": "peets-coffee.myshopify.com",
+                  "links": [
+                    {
+                      "type": "privacy_policy",
+                      "url": "https://checkout.shopify.com/31907643436/policies/17827954732.html"
+                    },
+                    {
+                      "type": "terms_of_service",
+                      "url": "https://checkout.shopify.com/31907643436/policies/17827987500.html"
+                    },
+                    {
+                      "type": "refund_policy",
+                      "url": "https://checkout.shopify.com/31907643436/policies/17827921964.html"
+                    },
+                    {
+                      "type": "shipping_policy",
+                      "url": "https://checkout.shopify.com/31907643436/policies/17828020268.html"
+                    }
+                  ]
+                },
+                "checkout_url": "https://www.peets.com/cart/44558789574700:1?_gsid=YRz9x4BcvpZw&utm_source=shopify&utm_medium=catalog",
+                "rating": {
+                  "value": 4.9,
+                  "scale_min": 1,
+                  "scale_max": 5,
+                  "count": 100
+                },
+                "condition": [
+                  "new"
+                ],
+                "eligible": {
+                  "native_checkout": false
+                }
+              }
+            ],
+            "price_range": {
+              "min": {
+                "amount": 1199,
+                "currency": "USD"
+              },
+              "max": {
+                "amount": 1199,
+                "currency": "USD"
+              }
+            }
+          },
+          {
+            "id": "gid://shopify/p/4qq4P3r0OQpR2TcahZ5Ayr",
+            "title": "French Roast OneCUP™ Coffee Pods",
+            "description": {
+              "plain": "Classic French roast coffee pods with rich dark chocolate and brown spice notes in a convenient single-serve format."
+            },
+            "rating": {
+              "value": 4.9,
+              "scale_min": 1,
+              "scale_max": 5,
+              "count": 5466
+            },
+            "options": [
+              {
+                "name": "Size",
+                "values": [
+                  {
+                    "label": "12 Count"
+                  },
+                  {
+                    "label": "36 Count"
+                  },
+                  {
+                    "label": "80 Count"
+                  },
+                  {
+                    "label": "120 Count"
+                  }
+                ]
+              }
+            ],
+            "metadata": {
+              "unique_selling_points": [
+                "Single origin dark roast French coffee pods with long smoky finish and rich chocolate flavor."
+              ],
+              "top_features": "Single origin dark roast beans deliver authentic French coffee taste\nRich dark chocolate and brown spice notes enhance the flavor profile\nLong smoky finish provides a unique coffee experience\nConvenient single-cup pod for easy preparation and portability\nNo added flavors or artificial ingredients for pure coffee enjoyment",
+              "tech_specs": "Roast: Dark\nCoffee Type: 100% Arabica\nCaffeine Content: Regular\nAllergen Information: None\nDietary Preferences: Single origin\nCountry of Origin: United States"
+            },
+            "media": [
+              {
+                "type": "image",
+                "url": "https://cdn.shopify.com/s/files/1/0271/1558/5622/files/47052_Amazon_BPlus_OC_FrenchRoast_12CT_Tile1_MainImage.jpg",
+                "alt_text": "French Roast OneCUP™ Coffee Pods 12 Count"
+              }
+            ],
+            "variants": [
+              {
+                "id": "gid://shopify/ProductVariant/31551507693654",
+                "title": "French Roast OneCUP™ Coffee Pods",
+                "description": {
+                  "plain": "This classic French Roast will fill your cup with notes of rich dark chocolate & brown spice. Let the depths of this dark roasted 100% Arabica bean coffee linger on your tongue with its long, smoky finish each morning. Roast Level: Dark Tasting Notes: Rich dark chocolate & brown spice, long smoky finish"
+                },
+                "url": "https://sfbaycoffee.com/products/sf-bay-french-roast-onecups?variant=31551507693654&_gsid=YRz9x4BcvpZw&utm_source=shopify&utm_medium=catalog",
+                "price": {
+                  "amount": 1359,
+                  "currency": "USD"
+                },
+                "availability": {
+                  "available": true
+                },
+                "options": [
+                  {
+                    "name": "Size",
+                    "label": "12 Count"
+                  }
+                ],
+                "media": [
+                  {
+                    "type": "image",
+                    "url": "https://cdn.shopify.com/s/files/1/0271/1558/5622/files/47052_Amazon_BPlus_OC_FrenchRoast_12CT_Tile1_MainImage.jpg",
+                    "alt_text": "French Roast OneCUP™ Coffee Pods 12 Count"
+                  }
+                ],
+                "seller": {
+                  "id": "gid://shopify/Shop/27115585622",
+                  "name": "SF Bay Coffee",
+                  "url": "https://sfbaycoffee.com",
+                  "domain": "sf-bay-coffee.myshopify.com",
+                  "links": [
+                    {
+                      "type": "privacy_policy",
+                      "url": "https://checkout.shopify.com/27115585622/policies/13615923286.html"
+                    },
+                    {
+                      "type": "terms_of_service",
+                      "url": "https://checkout.shopify.com/27115585622/policies/13615956054.html"
+                    },
+                    {
+                      "type": "refund_policy",
+                      "url": "https://checkout.shopify.com/27115585622/policies/13615890518.html"
+                    },
+                    {
+                      "type": "shipping_policy",
+                      "url": "https://checkout.shopify.com/27115585622/policies/13615988822.html"
+                    }
+                  ]
+                },
+                "checkout_url": "https://sfbaycoffee.com/cart/31551507693654:1?_gsid=YRz9x4BcvpZw&utm_source=shopify&utm_medium=catalog",
+                "rating": {
+                  "value": 4.8,
+                  "scale_min": 1,
+                  "scale_max": 5,
+                  "count": 972
+                },
+                "condition": [
+                  "new"
+                ],
+                "eligible": {
+                  "native_checkout": false
+                }
+              }
+            ],
+            "price_range": {
+              "min": {
+                "amount": 1359,
+                "currency": "USD"
+              },
+              "max": {
+                "amount": 1359,
+                "currency": "USD"
+              }
+            }
+          },
+          {
+            "id": "gid://shopify/p/4fHSC5u5bIdqTnl5pIEGMv",
+            "title": "BLEND 5 - SMOOTH",
+            "description": {
+              "plain": "Blend 5 Coffee Capsules offer a smooth, balanced, and chocolaty coffee experience with beans from Indonesia, Ethiopia, Nicaragua, and Colombia."
+            },
+            "rating": {
+              "value": 4.8,
+              "scale_min": 1,
+              "scale_max": 5,
+              "count": 844
+            },
+            "metadata": {
+              "unique_selling_points": [
+                "Carefully blended medium roast capsules combining Indonesian, Nicaraguan, Ethiopian, and Colombian Arabica beans for a unique, melt-in-your-mouth flavor."
+              ],
+              "top_features": "Medium roast preserves subtle flavors and caramel notes for a refined cup\nBlend of Indonesian, Nicaraguan, Ethiopian, and Colombian Arabica beans delivers a balanced, chocolaty taste\nNespresso-compatible capsules ensure easy brewing and convenience\nSealed and packed fresh to maintain optimal freshness and taste",
+              "tech_specs": "Capsule Count: 10 per box\nRoast Level: Medium\nOrigin Beans: Indonesia, Ethiopia, Nicaragua, Colombia\nFlavor Notes: Smooth, balanced, chocolaty\nNespresso Compatible: Yes"
+            },
+            "media": [
+              {
+                "type": "image",
+                "url": "https://cdn.shopify.com/s/files/1/0899/0254/products/Coffee2U_Blend_5_30pk.jpg",
+                "alt_text": "BLEND 5 - SMOOTH"
+              }
+            ],
+            "variants": [
+              {
+                "id": "gid://shopify/ProductVariant/15438701068382",
+                "title": "BLEND 5 - SMOOTH",
+                "description": {
+                  "plain": "STRENGTH SMOOTH: 5/10 TASTING NOTES Smooth, Balanced, Chocolaty ORIGINS Indonesia, Ethiopia, Nicaragua, Colombia GREAT FOR"
+                },
+                "url": "https://www.coffeecapsules2u.com.au/products/blend-5-smooth-30-pack?variant=15438701068382&_gsid=YRz9x4BcvpZw&utm_source=shopify&utm_medium=catalog",
+                "price": {
+                  "amount": 800,
+                  "currency": "USD"
+                },
+                "availability": {
+                  "available": true
+                },
+                "media": [
+                  {
+                    "type": "image",
+                    "url": "https://cdn.shopify.com/s/files/1/0899/0254/products/Coffee2U_Blend_5_30pk.jpg",
+                    "alt_text": "BLEND 5 - SMOOTH"
+                  }
+                ],
+                "seller": {
+                  "id": "gid://shopify/Shop/8990254",
+                  "name": "COFFEE CAPSULES 2U",
+                  "url": "https://www.coffeecapsules2u.com.au",
+                  "domain": "coffee-capsules-2-u.myshopify.com",
+                  "links": [
+                    {
+                      "type": "privacy_policy",
+                      "url": "https://checkout.shopify.com/8990254/policies/8065091.html"
+                    },
+                    {
+                      "type": "terms_of_service",
+                      "url": "https://checkout.shopify.com/8990254/policies/8065155.html"
+                    },
+                    {
+                      "type": "refund_policy",
+                      "url": "https://checkout.shopify.com/8990254/policies/8065027.html"
+                    }
+                  ]
+                },
+                "checkout_url": "https://www.coffeecapsules2u.com.au/cart/15438701068382:1?_gsid=YRz9x4BcvpZw&utm_source=shopify&utm_medium=catalog",
+                "condition": [
+                  "new"
+                ],
+                "eligible": {
+                  "native_checkout": false
+                }
+              }
+            ],
+            "price_range": {
+              "min": {
+                "amount": 800,
+                "currency": "USD"
+              },
+              "max": {
+                "amount": 800,
+                "currency": "USD"
+              }
+            }
+          },
+          {
+            "id": "gid://shopify/p/5kI3T8sCsiZWvFOxkVQk0J",
+            "title": "Espresso Capsules",
+            "description": {
+              "plain": "Premium dark roast espresso capsules crafted from 100% Arabica beans for a rich, Italian-style coffee experience."
+            },
+            "rating": {
+              "value": 4.8,
+              "scale_min": 1,
+              "scale_max": 5,
+              "count": 809
+            },
+            "metadata": {
+              "unique_selling_points": [
+                "Single origin dark roast blend of 100% Arabica beans, designed exclusively for the Espressotoria system."
+              ],
+              "top_features": "Single origin blend of 100% Arabica beans delivers a smooth, balanced flavor profile\nDark roast creates a rich, full-bodied cup with Italian espresso characteristics\nCompatible exclusively with Espressotoria system for optimal extraction and taste\nConvenient single-serve capsules offer quick, easy preparation without brewing equipment",
+              "tech_specs": "Capsule count: 12 per box\nNet weight per box: 78 g\nCapsule weight: 6.5 g each\nCoffee roast: Dark\nCoffee bean species: Arabica\nAllergen information: None"
+            },
+            "media": [
+              {
+                "type": "image",
+                "url": "https://cdn.shopify.com/s/files/1/0556/0860/6895/files/VittoriaSL_Esp_Fr_V2.png",
+                "alt_text": "Vittoria Espresso Capsules in front view, 12-pack box with capsules visible"
+              }
+            ],
+            "variants": [
+              {
+                "id": "gid://shopify/ProductVariant/43267836772527",
+                "title": "Espresso Capsules",
+                "description": {
+                  "plain": "Vittoria Espresso coffee is a blend of premium 100% Arabica coffees, predominantly from Central and South America. A dark roasted coffee blend featuring a rich, full and flavoursome cup with characteristics of an Italian style espresso."
+                },
+                "url": "https://www.vittoriacoffee.com/products/espresso-capsules-espressotoria?variant=43267836772527&_gsid=YRz9x4BcvpZw&utm_source=shopify&utm_medium=catalog",
+                "price": {
+                  "amount": 1100,
+                  "currency": "AUD"
+                },
+                "availability": {
+                  "available": true
+                },
+                "media": [
+                  {
+                    "type": "image",
+                    "url": "https://cdn.shopify.com/s/files/1/0556/0860/6895/files/VittoriaSL_Esp_Fr_V2.png",
+                    "alt_text": "Vittoria Espresso Capsules in front view, 12-pack box with capsules visible"
+                  }
+                ],
+                "seller": {
+                  "id": "gid://shopify/Shop/55608606895",
+                  "name": "Vittoria Coffee",
+                  "url": "https://www.vittoriacoffee.com",
+                  "domain": "vittoriacoffee.myshopify.com",
+                  "links": [
+                    {
+                      "type": "privacy_policy",
+                      "url": "https://checkout.shopify.com/55608606895/policies/23726325935.html"
+                    },
+                    {
+                      "type": "terms_of_service",
+                      "url": "https://checkout.shopify.com/55608606895/policies/23726358703.html"
+                    },
+                    {
+                      "type": "refund_policy",
+                      "url": "https://checkout.shopify.com/55608606895/policies/23726293167.html"
+                    },
+                    {
+                      "type": "shipping_policy",
+                      "url": "https://checkout.shopify.com/55608606895/policies/23726391471.html"
+                    }
+                  ]
+                },
+                "checkout_url": "https://www.vittoriacoffee.com/cart/43267836772527:1?_gsid=YRz9x4BcvpZw&utm_source=shopify&utm_medium=catalog",
+                "rating": {
+                  "value": 4.9,
+                  "scale_min": 1,
+                  "scale_max": 5,
+                  "count": 138
+                },
+                "condition": [
+                  "new"
+                ],
+                "eligible": {
+                  "native_checkout": false
+                }
+              }
+            ],
+            "price_range": {
+              "min": {
+                "amount": 1100,
+                "currency": "AUD"
+              },
+              "max": {
+                "amount": 1100,
+                "currency": "AUD"
+              }
+            }
+          },
+          {
+            "id": "gid://shopify/p/6c1UJH0mf2BwdRTcifV97B",
+            "title": "Orthodox | House Espresso Capsules",
+            "description": {
+              "plain": "Premium Nespresso-compatible capsules blending Colombian and Brazilian beans for a versatile, high-quality espresso experience."
+            },
+            "rating": {
+              "value": 4.9,
+              "scale_min": 1,
+              "scale_max": 5,
+              "count": 183
+            },
+            "options": [
+              {
+                "name": "Amount",
+                "values": [
+                  {
+                    "label": "Carton (60 Capsules)"
+                  },
+                  {
+                    "label": "Sleeve (10 Capsules)"
+                  }
+                ]
+              }
+            ],
+            "metadata": {
+              "unique_selling_points": [
+                "Crafted with small-scale farmers in Colombia and Brazil, these capsules deliver a balanced, Italian-inspired flavor with a third-wave twist, compatible with most Nespresso machines."
+              ],
+              "top_features": "Blend of Colombian and Brazilian beans: Offers a balanced, versatile flavor profile for any occasion\nNespresso Classic compatible: Ensures broad machine compatibility for easy use at home or in cafés\nSingle origin selection: Supports small-scale farmers and guarantees traceable, high-quality beans\nLower oxygen transmission rate: Preserves freshness and enhances cup quality over time\nEasy recycling program: Allows convenient drop-off of used capsules at local ST ALi locations",
+              "tech_specs": "Capsule count: 60 or 100 capsules per box (varies by variant)\nBean origin: Colombia, Brazil, Peru (varies by variant)\nRoast level: Medium-dark, Medium, Dark (varies by variant)\nCaffeine content: Regular\nFlavor notes: Apple jam, Fudge, Chocolate, Coffee\nCompatible machines: Most Nespresso OriginalLine and select models"
+            },
+            "media": [
+              {
+                "type": "image",
+                "url": "https://cdn.shopify.com/s/files/1/2350/4463/files/orthodox_box.png",
+                "alt_text": "Orthodox | House Espresso Capsules"
+              }
+            ],
+            "variants": [
+              {
+                "id": "gid://shopify/ProductVariant/12302695333911",
+                "title": "Orthodox | House Espresso Capsules",
+                "description": {
+                  "plain": "Our most popular blend, meticulously crafted from Colombian and Brazilian components for a versatile coffee to suit any occasion. Now in Nespresso® classic compatible capsules. APPLE JAM | FUDGE | CHOCOLATE COUNTRY: 60% Colombia | 40% Brazil REGION: Tolima Department | Poços de Caldas, South Minas CULTIVAR: Caturra, Colombia, Castillo | Red Bourbon PROCESSING: Washed | Natural Will they work with my machine? Our capsules have been specifically formulated to work with most current Nespresso® machines. For a full list of compatible machines, check out our FAQ here Want to recycle your capsules? Either drop them off at ST. ALi South Melbourne or contact us!"
+                },
+                "url": "https://stali.com.au/products/orthodox-blend-capsules?variant=12302695333911&_gsid=YRz9x4BcvpZw&utm_source=shopify&utm_medium=catalog",
+                "price": {
+                  "amount": 7200,
+                  "currency": "AUD"
+                },
+                "availability": {
+                  "available": true
+                },
+                "options": [
+                  {
+                    "name": "Amount",
+                    "label": "Carton (60 Capsules)"
+                  }
+                ],
+                "media": [
+                  {
+                    "type": "image",
+                    "url": "https://cdn.shopify.com/s/files/1/2350/4463/files/orthodox_box.png",
+                    "alt_text": "Orthodox | House Espresso Capsules"
+                  }
+                ],
+                "seller": {
+                  "id": "gid://shopify/Shop/23504463",
+                  "name": "ST. ALi",
+                  "url": "https://stali.com.au",
+                  "domain": "stali.myshopify.com",
+                  "links": [
+                    {
+                      "type": "privacy_policy",
+                      "url": "https://checkout.shopify.com/23504463/policies/1540849687.html"
+                    },
+                    {
+                      "type": "terms_of_service",
+                      "url": "https://checkout.shopify.com/23504463/policies/1540882455.html"
+                    },
+                    {
+                      "type": "refund_policy",
+                      "url": "https://checkout.shopify.com/23504463/policies/1540816919.html"
+                    },
+                    {
+                      "type": "shipping_policy",
+                      "url": "https://checkout.shopify.com/23504463/policies/2311061527.html"
+                    }
+                  ]
+                },
+                "checkout_url": "https://stali.com.au/cart/12302695333911:1?_gsid=YRz9x4BcvpZw&utm_source=shopify&utm_medium=catalog",
+                "rating": {
+                  "value": 4.4,
+                  "scale_min": 1,
+                  "scale_max": 5,
+                  "count": 230
+                },
+                "condition": [
+                  "new"
+                ],
+                "eligible": {
+                  "native_checkout": false
+                }
+              }
+            ],
+            "price_range": {
+              "min": {
+                "amount": 7200,
+                "currency": "AUD"
+              },
+              "max": {
+                "amount": 7200,
+                "currency": "AUD"
+              }
+            }
+          },
+          {
+            "id": "gid://shopify/p/3LVwffoExAoUgigZtDhXPQ",
+            "title": "INTENSE ESPRESSO COFFEE CAPSULES",
+            "description": {
+              "plain": "Dark roast espresso capsules delivering robust, intense flavor for coffee lovers."
+            },
+            "rating": {
+              "value": 4.8,
+              "scale_min": 1,
+              "scale_max": 5,
+              "count": 88
+            },
+            "metadata": {
+              "unique_selling_points": [
+                "Expertly crafted dark roast espresso capsules from Costa Rica, offering a powerful and authentic coffee experience."
+              ],
+              "top_features": "Single origin dark roast delivers a rich, intense flavor profile for coffee enthusiasts\nExpertly roasted by master roaster and cupper ensuring consistent quality\nConvenient capsule format for easy preparation and portability\nNo artificial additives for a pure coffee experience",
+              "tech_specs": "Caffeine Content: Regular\nRoast: Dark\nOrigin: Costa Rica\nFlavor: Coffee\nDietary Preferences: Single origin\nAllergen Information: None of the above"
+            },
+            "media": [
+              {
+                "type": "image",
+                "url": "https://cdn.shopify.com/s/files/1/0832/2475/6522/files/costa-rican-coffee-britt-espresso-intense-front-view.webp",
+                "alt_text": "INTENSE ESPRESSO COFFEE CAPSULES"
+              }
+            ],
+            "variants": [
+              {
+                "id": "gid://shopify/ProductVariant/46790108184874",
+                "title": "INTENSE ESPRESSO COFFEE CAPSULES",
+                "description": {
+                  "plain": "Dive into the depth of flavor with Café Britt's Intense Espresso Coffee Capsules. Expertly crafted by our master roaster and master cupper, this blend exemplifies the robust character of a dark roast without compromise. Whether you have a penchant for potent flavors or simply seek a coffee that delivers a powerful punch, this espresso stands ready to elevate your coffee experience to new heights. It's not just about intensity; it's about the rich tapestry of tastes that a dark roast can offer. Discover your preference, discover Café Britt."
+                },
+                "url": "https://www.cafebritt.com/products/intense-espresso-coffee-capsules?variant=46790108184874&_gsid=YRz9x4BcvpZw&utm_source=shopify&utm_medium=catalog",
+                "price": {
+                  "amount": 1895,
+                  "currency": "USD"
+                },
+                "availability": {
+                  "available": true
+                },
+                "media": [
+                  {
+                    "type": "image",
+                    "url": "https://cdn.shopify.com/s/files/1/0832/2475/6522/files/costa-rican-coffee-britt-espresso-intense-front-view.webp",
+                    "alt_text": "INTENSE ESPRESSO COFFEE CAPSULES"
+                  }
+                ],
+                "seller": {
+                  "id": "gid://shopify/Shop/83224756522",
+                  "name": "Café Britt",
+                  "url": "https://www.cafebritt.com",
+                  "domain": "faabaa-2.myshopify.com",
+                  "links": [
+                    {
+                      "type": "privacy_policy",
+                      "url": "https://checkout.shopify.com/83224756522/policies/36378935594.html"
+                    },
+                    {
+                      "type": "terms_of_service",
+                      "url": "https://checkout.shopify.com/83224756522/policies/36378968362.html"
+                    },
+                    {
+                      "type": "refund_policy",
+                      "url": "https://checkout.shopify.com/83224756522/policies/36378902826.html"
+                    },
+                    {
+                      "type": "shipping_policy",
+                      "url": "https://checkout.shopify.com/83224756522/policies/36379001130.html"
+                    }
+                  ]
+                },
+                "checkout_url": "https://www.cafebritt.com/cart/46790108184874:1?_gsid=YRz9x4BcvpZw&utm_source=shopify&utm_medium=catalog",
+                "rating": {
+                  "value": 4.8,
+                  "scale_min": 1,
+                  "scale_max": 5,
+                  "count": 87
+                },
+                "condition": [
+                  "new"
+                ],
+                "eligible": {
+                  "native_checkout": false
+                }
+              }
+            ],
+            "price_range": {
+              "min": {
+                "amount": 1895,
+                "currency": "USD"
+              },
+              "max": {
+                "amount": 1895,
+                "currency": "USD"
+              }
+            }
+          },
+          {
+            "id": "gid://shopify/p/721XyqTdOHNfabjvEOQ4N9",
+            "title": "Espresso Capsules",
+            "description": {
+              "plain": "Dark roast 100% Arabica espresso capsules delivering authentic Italian flavor for Nespresso Original machines."
+            },
+            "rating": {
+              "value": 4.8,
+              "scale_min": 1,
+              "scale_max": 5,
+              "count": 101
+            },
+            "options": [
+              {
+                "name": "Size",
+                "values": [
+                  {
+                    "label": "10 Capsules"
+                  },
+                  {
+                    "label": "20 Capsules"
+                  }
+                ]
+              }
+            ],
+            "metadata": {
+              "unique_selling_points": [
+                "Original Vittoria blend of 100% Arabica coffee, dark roasted for a strong, smooth Italian espresso taste, compatible with Nespresso Original machines."
+              ],
+              "top_features": "100% Arabica beans: Ensures a smooth, balanced espresso flavor\nDark roast profile: Delivers a strong, rich taste with honey and toast notes\nCompatible with Nespresso Original machines: Allows seamless use in popular pod systems\nAustralian made: Supports local production and quality assurance\nPackaged for freshness: Maintains optimal taste and aroma",
+              "tech_specs": "Capsule count: 60 per pack\nNet weight: 312 g\nCoffee roast: Dark\nCoffee bean species: Arabica\nIntesity: 14/15\nCompatible machines: Nespresso Original Line\nCountry of origin: Australia"
+            },
+            "media": [
+              {
+                "type": "image",
+                "url": "https://cdn.shopify.com/s/files/1/0556/0860/6895/files/VittoriaSL_Espresso_Pod_c620a7d4-7df6-4a15-8e97-be9dc8df1e4d.png",
+                "alt_text": "Vittoria Espresso Nespresso* Compatible Capsules"
+              }
+            ],
+            "variants": [
+              {
+                "id": "gid://shopify/ProductVariant/43267568992431",
+                "title": "Espresso Capsules",
+                "description": {
+                  "plain": "Espresso is our original blend, first created over 65 years ago. This iconic blend of 100% Arabica coffee has been dark roasted to achieve a strong, smooth flavour of traditional Italian espresso."
+                },
+                "url": "https://www.vittoriacoffee.com/products/espresso-capsules?variant=43267568992431&_gsid=YRz9x4BcvpZw&utm_source=shopify&utm_medium=catalog",
+                "price": {
+                  "amount": 950,
+                  "currency": "AUD"
+                },
+                "availability": {
+                  "available": true
+                },
+                "options": [
+                  {
+                    "name": "Size",
+                    "label": "10 Capsules"
+                  }
+                ],
+                "media": [
+                  {
+                    "type": "image",
+                    "url": "https://cdn.shopify.com/s/files/1/0556/0860/6895/files/VittoriaSL_Espresso_Pod_c620a7d4-7df6-4a15-8e97-be9dc8df1e4d.png",
+                    "alt_text": "Vittoria Espresso Nespresso* Compatible Capsules"
+                  }
+                ],
+                "seller": {
+                  "id": "gid://shopify/Shop/55608606895",
+                  "name": "Vittoria Coffee",
+                  "url": "https://www.vittoriacoffee.com",
+                  "domain": "vittoriacoffee.myshopify.com",
+                  "links": [
+                    {
+                      "type": "privacy_policy",
+                      "url": "https://checkout.shopify.com/55608606895/policies/23726325935.html"
+                    },
+                    {
+                      "type": "terms_of_service",
+                      "url": "https://checkout.shopify.com/55608606895/policies/23726358703.html"
+                    },
+                    {
+                      "type": "refund_policy",
+                      "url": "https://checkout.shopify.com/55608606895/policies/23726293167.html"
+                    },
+                    {
+                      "type": "shipping_policy",
+                      "url": "https://checkout.shopify.com/55608606895/policies/23726391471.html"
+                    }
+                  ]
+                },
+                "checkout_url": "https://www.vittoriacoffee.com/cart/43267568992431:1?_gsid=YRz9x4BcvpZw&utm_source=shopify&utm_medium=catalog",
+                "rating": {
+                  "value": 4.9,
+                  "scale_min": 1,
+                  "scale_max": 5,
+                  "count": 61
+                },
+                "condition": [
+                  "new"
+                ],
+                "eligible": {
+                  "native_checkout": false
+                }
+              }
+            ],
+            "price_range": {
+              "min": {
+                "amount": 950,
+                "currency": "AUD"
+              },
+              "max": {
+                "amount": 950,
+                "currency": "AUD"
+              }
+            }
+          },
+          {
+            "id": "gid://shopify/p/3nck2l1B49MaJLvzT3CdIr",
+            "title": "Italian Capsules",
+            "description": {
+              "plain": "Medium roast Italian coffee capsules made from 100% Arabica beans for a smooth, crema-rich experience."
+            },
+            "rating": {
+              "value": 4.7,
+              "scale_min": 1,
+              "scale_max": 5,
+              "count": 436
+            },
+            "metadata": {
+              "unique_selling_points": [
+                "Original Italian blend capsules crafted from 100% Arabica beans with a medium body and rich crema, compatible with Espressotoria system machines."
+              ],
+              "top_features": "100% Arabica beans: Delivers a smooth, balanced flavor profile\nMedium roast: Balances acidity and body for a classic Italian coffee experience\nRich crema: Ensures a luxurious, frothy finish\nCompatible with Espressotoria system: Designed for seamless use with Vittoria's espresso machines\nSingle origin: Traces back to Italy for authentic regional flavor",
+              "tech_specs": "Capsule count: 12 per box\nTotal net weight: 78 g per box\nCapsule net weight: 6.5 g each\nCaffeine content: Regular\nCoffee roast: Medium\nFlavor: Coffee"
+            },
+            "media": [
+              {
+                "type": "image",
+                "url": "https://cdn.shopify.com/s/files/1/0556/0860/6895/files/VittoriaSL_Ita_Fr_Cap_V2.png",
+                "alt_text": "Vittoria Italian Capsules in front view, 12-pack of Espressotoria compatible capsules"
+              }
+            ],
+            "variants": [
+              {
+                "id": "gid://shopify/ProductVariant/43267811868847",
+                "title": "Italian Capsules",
+                "description": {
+                  "plain": "Italian is one of Vittoria’s original blends, reminiscent of Italian style coffee. Italian blend is a roast of 100% Arabica coffee beans with a medium body delivering a smooth finish with rich crema. Italian blend is perfect as a short black or with milk."
+                },
+                "url": "https://www.vittoriacoffee.com/products/italian-capsules-espressotoria?variant=43267811868847&_gsid=YRz9x4BcvpZw&utm_source=shopify&utm_medium=catalog",
+                "price": {
+                  "amount": 1100,
+                  "currency": "AUD"
+                },
+                "availability": {
+                  "available": true
+                },
+                "media": [
+                  {
+                    "type": "image",
+                    "url": "https://cdn.shopify.com/s/files/1/0556/0860/6895/files/VittoriaSL_Ita_Fr_Cap_V2.png",
+                    "alt_text": "Vittoria Italian Capsules in front view, 12-pack of Espressotoria compatible capsules"
+                  }
+                ],
+                "seller": {
+                  "id": "gid://shopify/Shop/55608606895",
+                  "name": "Vittoria Coffee",
+                  "url": "https://www.vittoriacoffee.com",
+                  "domain": "vittoriacoffee.myshopify.com",
+                  "links": [
+                    {
+                      "type": "privacy_policy",
+                      "url": "https://checkout.shopify.com/55608606895/policies/23726325935.html"
+                    },
+                    {
+                      "type": "terms_of_service",
+                      "url": "https://checkout.shopify.com/55608606895/policies/23726358703.html"
+                    },
+                    {
+                      "type": "refund_policy",
+                      "url": "https://checkout.shopify.com/55608606895/policies/23726293167.html"
+                    },
+                    {
+                      "type": "shipping_policy",
+                      "url": "https://checkout.shopify.com/55608606895/policies/23726391471.html"
+                    }
+                  ]
+                },
+                "checkout_url": "https://www.vittoriacoffee.com/cart/43267811868847:1?_gsid=YRz9x4BcvpZw&utm_source=shopify&utm_medium=catalog",
+                "rating": {
+                  "value": 4.9,
+                  "scale_min": 1,
+                  "scale_max": 5,
+                  "count": 74
+                },
+                "condition": [
+                  "new"
+                ],
+                "eligible": {
+                  "native_checkout": false
+                }
+              }
+            ],
+            "price_range": {
+              "min": {
+                "amount": 1100,
+                "currency": "AUD"
+              },
+              "max": {
+                "amount": 1100,
+                "currency": "AUD"
+              }
+            }
+          }
+        ],
+        "messages": [],
+        "pagination": {
+          "has_next_page": true,
+          "total_count": 371,
+          "cursor": "eyJvZmZzZXQiOjEwLCJ0b3RhbF9jb3VudCI6MzcxLCJyZXR1cm5lZCI6MTB9"
+        }
+      }
+    }
+  }
+}

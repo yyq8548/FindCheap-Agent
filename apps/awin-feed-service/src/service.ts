@@ -894,7 +894,14 @@ async function handleRequest(
         response.end(image); return;
       }
       const body = await readJsonRequest(request);
-      if (path === "/v1/woocommerce/search") json(response, 200, await woocommerce.search(WooSearchInputSchema.parse(body), { signal: abort.signal }));
+      if (path === "/v1/woocommerce/search") {
+        const result = await woocommerce.search(WooSearchInputSchema.parse(body), { signal: abort.signal });
+        response.setHeader("vary", "x-findcheap-woo-coverage");
+        // Older clients validate store records strictly. Keep cached controller facts intact.
+        json(response, 200, request.headers["x-findcheap-woo-coverage"] === "1" ? result : {
+          ...result, stores: result.stores.map(({ boundedReasons: _boundedReasons, ...store }) => store)
+        });
+      }
       else if (path === "/v1/woocommerce/products/lookup") json(response, 200, await woocommerce.lookup(WooLookupInputSchema.parse(body), { signal: abort.signal }));
       else { const input = WooInspectionInputSchema.parse(body); json(response, 200, await woocommerce.inspect(input.target, input.requirements, { signal: abort.signal })); }
     } catch (error) {

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isBoundWooProductUrl, isReadOnlyWooProductUrl } from "./woocommerce-product-url.js";
 
 const Id = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 const MerchantId = z.string().regex(/^[a-z0-9][a-z0-9_-]{0,79}$/u);
@@ -45,7 +46,7 @@ export const WooProductSchema = z.object({
   productType: z.enum(["simple", "variable", "variation"]), category: z.string().max(300),
   condition: z.enum(["NEW", "USED", "REFURBISHED", "OPEN_BOX", "UNKNOWN"]).default("UNKNOWN"),
   attributes: z.array(Text).max(100), variantDimensions: Dimensions, selectedAttributes: Attributes,
-  merchantUrl: HttpsUrl, imageUrl: HttpsUrl.optional(), images: z.array(z.object({ id: z.string().min(1).max(128), url: HttpsUrl }).strict()).max(12),
+  merchantUrl: HttpsUrl.refine(isReadOnlyWooProductUrl, "read-only WooCommerce product URL required"), imageUrl: HttpsUrl.optional(), images: z.array(z.object({ id: z.string().min(1).max(128), url: HttpsUrl }).strict()).max(12),
   itemPrice: z.object({ amountCents: z.number().int().nonnegative().max(100_000_000), currency: z.literal("USD") }).strict().optional(),
   priceEvidence: z.object({
     amountMinor: z.string().regex(/^\d{1,16}$/u).optional(), currency: z.string().regex(/^[A-Z]{3}$/u),
@@ -56,6 +57,9 @@ export const WooProductSchema = z.object({
   rating: z.object({ value: z.number().min(0).max(5), reviewCount: z.number().int().nonnegative().max(100_000_000), scale: z.literal(5), productId: Id }).strict().optional(),
   checkedAt: Timestamp
 }).strict().superRefine((product, context) => {
+  if (!isBoundWooProductUrl(product)) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["merchantUrl"], message: "product URL selections must match bound variant evidence" });
+  }
   if (new URL(product.merchantUrl).hostname !== product.sourceHost) {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ["sourceHost"], message: "merchant URL must match observed host" });
   }
@@ -78,6 +82,8 @@ export const WooProductSchema = z.object({
 export const WooStoreResultSchema = z.object({
   merchantId: MerchantId, status: z.enum(["COMPLETE", "PARTIAL", "UNAVAILABLE", "SKIPPED"]),
   reason: z.enum(["TIMEOUT", "RATE_LIMITED", "ACCESS_DENIED", "SECURITY_REJECTED", "INVALID_RESPONSE", "UPSTREAM_UNAVAILABLE", "BUDGET_EXHAUSTED", "CIRCUIT_OPEN", "NOT_ELIGIBLE", "NOT_FOUND", "UNSUPPORTED", "CANCELLED"]).optional(),
+  boundedReasons: z.array(z.enum(["PRODUCT_PAGE_LIMIT", "VARIANT_PAGE_LIMIT", "VARIANT_LIMIT"]))
+    .min(1).max(3).refine(values => new Set(values).size === values.length, "Duplicate bounded reason").optional(),
   requests: z.number().int().nonnegative().max(18), returned: z.number().int().nonnegative().max(100)
 }).strict();
 export const WooSearchResultSchema = z.object({

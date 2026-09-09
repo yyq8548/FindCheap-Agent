@@ -1,0 +1,137 @@
+{
+  "schemaVersion": 1,
+  "fixtureKind": "SAVED_REAL_LOCAL_CONTROLLER_LOOKUP",
+  "observedAt": "2026-09-09T03:05:31.070Z",
+  "scope": "Actual public Woo observations through current local production reader/controller and final registry; not Railway or native-host acceptance. DTOs retained unchanged. No current request occurs during tests.",
+  "observations": [
+    {
+      "sourceReceipt": "artifacts/woo-1000/verification/registry-live-final/bostonsbestcoffee-com.json",
+      "target": {
+        "merchantId": "bostonsbestcoffee-com",
+        "productId": 15094,
+        "variationId": 15095
+      },
+      "result": {
+        "source": "WOOCOMMERCE_STORE_API",
+        "registryVersion": "2026-09-09-expanded-1000",
+        "status": "FOUND",
+        "product": {
+          "sourceKind": "WOOCOMMERCE_STORE_API",
+          "merchantId": "bostonsbestcoffee-com",
+          "merchantName": "Boston’s Best Coffee Roasters",
+          "sourceHost": "bostonsbestcoffee.com",
+          "productId": 15094,
+          "parentProductId": 15094,
+          "variationId": 15095,
+          "title": "Wicked Awesome Organic Ultimate Roast Single Serve Cups",
+          "description": "",
+          "sku": "101628",
+          "productType": "variation",
+          "category": "",
+          "condition": "UNKNOWN",
+          "attributes": [
+            "size | count: 32-pods",
+            "size-or-count: 32-pods"
+          ],
+          "variantDimensions": {
+            "size | count": [
+              "32-pods"
+            ],
+            "size-or-count": [
+              "32-pods"
+            ]
+          },
+          "selectedAttributes": {
+            "size | count": "32-pods",
+            "size-or-count": "32-pods"
+          },
+          "merchantUrl": "https://bostonsbestcoffee.com/product/wicked-awesome-organic-ultimate-roast-single-serve-cups/?attribute_pa_size-or-count=32-pods",
+          "imageUrl": "https://bostonsbestcoffee.com/wp-content/uploads/2017/09/ultimate-wicked.jpg",
+          "images": [
+            {
+              "id": "2c314d4a49596907c88e33503671c2d88b91e482eeb47c804088a07210866be4",
+              "url": "https://bostonsbestcoffee.com/wp-content/uploads/2017/09/ultimate-wicked.jpg"
+            }
+          ],
+          "itemPrice": {
+            "amountCents": 2495,
+            "currency": "USD"
+          },
+          "priceEvidence": {
+            "amountMinor": "2495",
+            "currency": "USD",
+            "currencyMinorUnit": 2,
+            "scope": "VARIANT",
+            "taxBasis": "UNKNOWN"
+          },
+          "availability": "IN_STOCK",
+          "availabilityScope": "VARIANT",
+          "rating": {
+            "value": 0,
+            "reviewCount": 0,
+            "scale": 5,
+            "productId": 15095
+          },
+          "checkedAt": "2026-09-09T03:05:33.409Z"
+        },
+        "checkedAt": "2026-09-09T03:05:33.412Z"
+      }
+    },
+    {
+      "sourceReceipt": "artifacts/woo-1000/verification/registry-live-final/meanmugcoffeeco-com.json",
+      "target": {
+        "merchantId": "meanmugcoffeeco-com",
+        "productId": 744
+      },
+      "result": {
+        "source": "WOOCOMMERCE_STORE_API",
+        "registryVersion": "2026-09-09-expanded-1000",
+        "status": "FOUND",
+        "product": {
+          "sourceKind": "WOOCOMMERCE_STORE_API",
+          "merchantId": "meanmugcoffeeco-com",
+          "merchantName": "Mean Mug Coffee Company",
+          "sourceHost": "meanmugcoffeeco.com",
+          "productId": 744,
+          "title": "Meanest Brew K-Cups",
+          "description": "Your favorite coffee in K-Cups – now looking better than ever! This 12 count box is the perfect way to conveniently say “Hello” to your morning cup without all the extra work.",
+          "productType": "simple",
+          "category": "",
+          "condition": "UNKNOWN",
+          "attributes": [],
+          "variantDimensions": {},
+          "selectedAttributes": {},
+          "merchantUrl": "https://meanmugcoffeeco.com/product/meanest-brew-k-cups/",
+          "imageUrl": "https://meanmugcoffeeco.com/wp-content/uploads/2025/02/Guatemala_K-Cup-2-Large.jpeg",
+          "images": [
+            {
+              "id": "5a40eee17ad817255782ce65b462cb834911726739d4cadc1afd210b71b36a17",
+              "url": "https://meanmugcoffeeco.com/wp-content/uploads/2025/02/Guatemala_K-Cup-2-Large.jpeg"
+            }
+          ],
+          "itemPrice": {
+            "amountCents": 899,
+            "currency": "USD"
+          },
+          "priceEvidence": {
+            "amountMinor": "899",
+            "currency": "USD",
+            "currencyMinorUnit": 2,
+            "scope": "PRODUCT",
+            "taxBasis": "UNKNOWN"
+          },
+          "availability": "IN_STOCK",
+          "availabilityScope": "PRODUCT",
+          "rating": {
+            "value": 0,
+            "reviewCount": 0,
+            "scale": 5,
+            "productId": 744
+          },
+          "checkedAt": "2026-09-09T03:05:34.275Z"
+        },
+        "checkedAt": "2026-09-09T03:05:34.276Z"
+      }
+    }
+  ]
+}

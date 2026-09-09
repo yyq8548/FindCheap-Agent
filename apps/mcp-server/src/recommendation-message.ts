@@ -9,7 +9,8 @@ const LIMITATIONS: Record<"zh-CN" | "en-US", Record<PrimaryBlockReasonCode, stri
     UNFULFILLED_REQUIREMENTS: "必要要求尚未满足或核实",
     SIMILAR_ONLY: "仅为替代或相似商品",
     MISSING_PRICE: "商品价格尚未核实",
-    VISUAL_REVIEW_REQUIRED: "所选变体的图片匹配尚未复核"
+    VISUAL_REVIEW_REQUIRED: "所选变体的图片匹配尚未复核",
+    COFFEE_SYSTEM_UNVERIFIED: "胶囊系统兼容性尚未核实；请提供咖啡机完整型号或胶囊系统"
   },
   "en-US": {
     IDENTITY_UNVERIFIED: "product name or edition needs confirmation; confirm the edition or provide a product link",
@@ -18,7 +19,8 @@ const LIMITATIONS: Record<"zh-CN" | "en-US", Record<PrimaryBlockReasonCode, stri
     UNFULFILLED_REQUIREMENTS: "required features are unmet or unverified",
     SIMILAR_ONLY: "only alternative or similar products are available",
     MISSING_PRICE: "item price is unverified",
-    VISUAL_REVIEW_REQUIRED: "visual matching for the selected variant needs review"
+    VISUAL_REVIEW_REQUIRED: "visual matching for the selected variant needs review",
+    COFFEE_SYSTEM_UNVERIFIED: "capsule system compatibility is unverified; provide the full coffee machine model or capsule system"
   }
 };
 

@@ -40,10 +40,14 @@ function priced(amountCents: number): Pick<WooProduct, "itemPrice" | "priceEvide
 }
 
 function variant(overrides: Partial<WooProduct> = {}): WooProduct {
+  const selectedAttributes = overrides.selectedAttributes ?? { Color: "Black", Size: "US 7" };
+  const defaultUrl = new URL("https://fixture-shop.example/product/ballet-flats");
+  defaultUrl.searchParams.set("variation_id", String(overrides.variationId ?? 2001));
+  for (const [key, value] of Object.entries(selectedAttributes)) defaultUrl.searchParams.set(`attribute_${key.toLowerCase()}`, value);
   return product({ productId: 2000, parentProductId: 2000, variationId: 2001, productType: "variation",
-    title: "Fixture ballet flats", category: "ballet flats", selectedAttributes: { Color: "Black", Size: "US 7" },
+    title: "Fixture ballet flats", category: "ballet flats", selectedAttributes,
     variantDimensions: { Color: ["Black", "Red"], Size: ["US 7", "US 8"] },
-    merchantUrl: "https://fixture-shop.example/product/ballet-flats?attribute_color=black&attribute_size=us-7",
+    merchantUrl: defaultUrl.href,
     priceEvidence: { amountMinor: "2200", currency: "USD", currencyMinorUnit: 2, scope: "VARIANT", taxBasis: "UNKNOWN" },
     availabilityScope: "VARIANT", ...overrides });
 }
@@ -218,6 +222,7 @@ const variants: VariantCase[] = [
     observations: () => [variant()], expectedPrices: [] },
   { id: "V05", description: "out of stock child cannot inherit parent availability", input: { query: "trivet", productType: "trivet" },
     observations: () => [variant({ productId: 43848, parentProductId: 43848, variationId: 43860, title: "Dovetail and Amorphous Kitchen Trivets", category: "trivet",
+      merchantUrl: "https://fixture-shop.example/product/kitchen-trivets?variation_id=43860&attribute_type=Amorphous+Trivet&attribute_species=Eucalyptus",
       selectedAttributes: { Type: "Amorphous Trivet", Species: "Eucalyptus" }, availability: "OUT_OF_STOCK" })], expectedPrices: [] },
   { id: "V06", description: "four count cannot satisfy six count requirement", input: { query: "sponge", productType: "sponge", requiredFeatures: ["6 count"] },
     observations: () => [product({ title: "Scrub Daddy Original sponge 4 count", category: "sponge", ...priced(1499) })], expectedPrices: [] },

@@ -4,12 +4,12 @@ import { SearchRun } from "./search-run.js";
 import { deduplicateCandidateOffers, type OfferObservation } from "./offer-equivalence.js";
 import { resolveKnownProductUrl } from "./known-product-url.js";
 import { compileSourceQuery, discoveryTarget, isExplicitCategoryQuery } from "./retrieval-plan.js";
-import { assessCoffeeCategory, isCoffeeCategoryRefinement, parseCoffeeCategory, type CoffeeCategory } from "./coffee-category.js";
+import { assessCoffeeCategory, assessCoffeeCompatibility, coffeeCompatibilityRequirement, isCoffeeCategoryRefinement, parseCoffeeCategory, type CoffeeCategory, type CoffeeCompatibilityAssessment, type CoffeeRequest } from "./coffee-category.js";
 import type { WooProduct, WooSearchResult } from "../../../packages/contracts/src/woocommerce.js";
 import type { WooCommerceCatalogPort } from "./woocommerce-client.js";
 import { wooProductFacts, wooProductUrl, matchesWooProductUrl, type CatalogProductFacts } from "./woocommerce-product.js";
 import { createWooProductAnchor, matchesWooProductAnchor, matchesWooAnchoredCandidate, type WooProductAnchor } from "./woo-product-identity.js";
-import { classifySourceFailure, type SourceFailure } from "./source-failure.js";
+import { allowsIndependentSourceRecovery, classifySourceFailure, isCompletedShopifyPage, wooCoverageState, wooStoreSourceFailure, type SourceFailure } from "./source-failure.js";
 import type { ValueEvidence } from "./product-value-evidence.js";
 import { candidateFingerprint, sourceProductFingerprint, visualQueryHash } from "./visual-source-fingerprints.js";
 import { assessVisualVerdict, type VisualHardRequirements, type VisualReviewAssessment } from "./visual-review-policy.js";
@@ -191,6 +191,7 @@ type CandidateBase = {
   preferenceEvidence: string[];
   requiredFeatureLimitations: string[];
   requirementAssessment?: RequirementAssessment;
+  coffeeCompatibility?: CoffeeCompatibilityAssessment;
   verifiedCoupons: VerifiedDeal[];
   dealLookupStatus?: DealLookupResult["status"];
   identityStatus: Exclude<ShopifyMatchStatus, "IRRELEVANT">;
@@ -291,8 +292,11 @@ export type UnifiedSearchExecution = {
   candidates: UnifiedCandidate[];
   awinResult?: AwinSearchResult;
   shopifyResult?: ShopifySearchResult;
+  shopifyPasses?: Array<{ pass: 1 | 2; operation: "QUERY" | "CONTINUATION" | "NO_INCREMENT";
+    coverage: "COMPLETE" | "PARTIAL" | "UNAVAILABLE"; returnedProducts: number; hasNextPage?: boolean; estimatedTotalCount?: number }>;
   ebayResult?: EbaySearchResult;
   woocommerceResult?: WooSearchResult;
+  woocommercePasses?: Array<Pick<WooSearchResult, "registryVersion" | "status" | "stores" | "diagnostics"> & { pass: 1 | 2 }>;
   sourceStatus: {
     awin: "SKIPPED" | "COMPLETE" | "UNAVAILABLE";
     shopify: "SKIPPED" | "COMPLETE" | "PARTIAL" | "UNAVAILABLE";
@@ -567,8 +571,10 @@ export async function searchProducts(
   const affiliateEligible = shouldQueryAwin(sourceQuery);
   let awinResult: AwinSearchResult | undefined;
   let shopifyResult: ShopifySearchResult | undefined;
+  const shopifyPasses: NonNullable<UnifiedSearchExecution["shopifyPasses"]> = [];
   let ebayResult: EbaySearchResult | undefined;
   let woocommerceResult: WooSearchResult | undefined;
+  const woocommercePasses: NonNullable<UnifiedSearchExecution["woocommercePasses"]> = [];
   let wooStatus: NonNullable<UnifiedSearchExecution["sourceStatus"]["woocommerce"]> = ports.woocommerce ? "UNAVAILABLE" : "SKIPPED";
   let awinStatus: UnifiedSearchExecution["sourceStatus"]["awin"] = affiliateEligible
     ? "UNAVAILABLE"
@@ -640,7 +646,7 @@ export async function searchProducts(
         const index = next++;
         const product = products[index]!;
         const key = productReferenceKey(product);
-        const assessment = evaluateConstraints(product, { ...input,
+        const assessment = evaluateSearchProductRequirements(product, { ...input,
           requiredFeatures: productRequirementFeatures(input.requiredFeatures),
           features: productRequirementFeatures(input.features), excludedFeatures: productRequirementFeatures(input.excludedFeatures) });
         const missingRequiredBrand = !product.brand?.trim() && assessBrand(input,
@@ -722,12 +728,22 @@ export async function searchProducts(
     }
   };
   const queryShopify = async (query: string, limit: number, merge: boolean): Promise<void> => {
+    let operation: "QUERY" | "CONTINUATION" = "QUERY";
     try {
-      query = compileSourceQuery("SHOPIFY", query, { pass: merge ? 2 : 1, identityQuery, visual: input.visualInput !== undefined });
+      const continuation = merge && shopifyResult?.pagination?.hasNextPage && shopifyResult.pagination.nextCursor !== undefined
+        ? { query: shopifyResult.pagination.query, cursor: shopifyResult.pagination.nextCursor } : undefined;
+      query = continuation !== undefined ? sourceQueries[1].shopify ?? sourceQuery
+        : compileSourceQuery("SHOPIFY", query, { pass: merge ? 2 : 1, identityQuery, visual: input.visualInput !== undefined });
+      if (merge && continuation === undefined && query === sourceQueries[1].shopify) {
+        shopifyPasses.push({ pass: 2, operation: "NO_INCREMENT", coverage: shopifyStatus === "SKIPPED" ? "UNAVAILABLE" : shopifyStatus, returnedProducts: 0 });
+        return;
+      }
+      operation = continuation === undefined ? "QUERY" : "CONTINUATION";
       sourceQueries[merge ? 2 : 1].shopify = query;
-      const response = await searchRun.read("SHOPIFY", JSON.stringify([query, limit]), (signal) => ports.shopify.search({
+      const response = await searchRun.read("SHOPIFY", JSON.stringify([query, limit, continuation]), (signal) => ports.shopify.search({
         query,
         limit,
+        ...(continuation === undefined ? {} : { continuation }),
         signal,
         comparisonMode: searchIntent === "VISUAL_DISCOVERY" ? "DISCOVERY" : input.comparisonMode,
         ...(input.visualInput === undefined ? {} : { includeOutOfStock: true }),
@@ -739,6 +755,9 @@ export async function searchProducts(
       const result = { ...response, products: await inspectRequiredVariants(response.products) };
       observeProducts("SHOPIFY", result.products);
       shopifyResult = result;
+      shopifyPasses.push({ pass: merge ? 2 : 1, operation, coverage: result.coverage, returnedProducts: result.products.length,
+        ...(result.pagination === undefined ? {} : { hasNextPage: result.pagination.hasNextPage,
+          ...(result.pagination.estimatedTotalCount === undefined ? {} : { estimatedTotalCount: result.pagination.estimatedTotalCount }) }) });
       observedShopifyProducts = mergeShopifyProducts(observedShopifyProducts, result.products);
       shopifyStatus = result.coverage;
       if (input.visualInput !== undefined) searchRun.recordVisualStage("NORMALIZED", result.products.map((product) => sourceProductFingerprint("SHOPIFY", product)), { source: "SHOPIFY", queryHash: visualQueryHash(query) });
@@ -759,6 +778,7 @@ export async function searchProducts(
     } catch (error) {
       shopifyStatus = shopifyResult === undefined ? "UNAVAILABLE" : "PARTIAL";
       shopifyError ??= productSourceError(error);
+      shopifyPasses.push({ pass: merge ? 2 : 1, operation, coverage: shopifyStatus, returnedProducts: 0 });
       recordFailure("SHOPIFY", error);
     }
   };
@@ -783,15 +803,13 @@ export async function searchProducts(
       const result = !merge && directWooResult !== undefined ? directWooResult
         : await searchRun.read("WOOCOMMERCE", JSON.stringify(request), async signal => { const result = await ports.woocommerce!.search(request, { signal }); searchRun.recordWooRead(result.diagnostics); return result; });
       woocommerceResult = result;
+      woocommercePasses.push({ pass: merge ? 2 : 1, registryVersion: result.registryVersion, status: result.status,
+        stores: structuredClone(result.stores), diagnostics: { ...result.diagnostics } });
       wooStatus = result.status === "NOT_CONFIGURED" ? "SKIPPED" : result.status;
       observeProducts("WOOCOMMERCE", result.products);
       if (result.status === "UNAVAILABLE" || result.status === "PARTIAL") {
         const reasons = new Set(result.stores.flatMap(store => store.reason ? [store.reason] : []));
-        for (const reason of reasons) sourceFailures.push({ source: "WOOCOMMERCE",
-          kind: reason === "TIMEOUT" ? "TIMEOUT" : reason === "RATE_LIMITED" ? "RATE_LIMITED" :
-            reason === "SECURITY_REJECTED" ? "SECURITY_REJECTED" : reason === "ACCESS_DENIED" ? "SOURCE_REJECTED" :
-              reason === "INVALID_RESPONSE" ? "SCHEMA_INVALID" : reason === "BUDGET_EXHAUSTED" ? "BUDGET_EXHAUSTED" : "UPSTREAM_ERROR",
-          retryable: ["TIMEOUT", "RATE_LIMITED", "UPSTREAM_UNAVAILABLE", "CIRCUIT_OPEN"].includes(reason) });
+        for (const reason of reasons) sourceFailures.push(wooStoreSourceFailure(reason));
       }
       const incoming = result.products.filter(product => directWooUrl === undefined || matchesWooProductUrl(product, directWooUrl)).map(product => woocommerceCandidate(product, input, searchIntent, identityQuery,
         featureExcludedKeys, brandExcludedKeys, identityExcludedKeys, visualExcludedKeys)).filter((candidate): candidate is UnifiedCandidate => candidate !== undefined);
@@ -970,12 +988,12 @@ export async function searchProducts(
       2,
       expandedQuery,
       awinResult,
-      shopifyResult,
+      shopifyPasses.some(pass => pass.pass === 2 && pass.returnedProducts > 0) ? shopifyResult : undefined,
       ebayResult,
       affiliateCandidates,
       shopifyCandidates,
       ebayCandidates
-    ), ...(ports.woocommerce ? { rawProducts: { awin: awinResult?.products.length ?? 0, shopify: shopifyResult?.products.length ?? 0, ebay: ebayResult?.products.length ?? 0, woocommerce: woocommerceResult?.products.length ?? 0 }, acceptedCandidates: { awin: affiliateCandidates.length, shopify: shopifyCandidates.length, ebay: ebayCandidates.length, woocommerce: wooCandidates.length } } : {}), sourceQueries: sourceQueries[2] });
+    ), ...(ports.woocommerce ? { rawProducts: { awin: awinResult?.products.length ?? 0, shopify: shopifyPasses.find(pass => pass.pass === 2)?.returnedProducts ?? 0, ebay: ebayResult?.products.length ?? 0, woocommerce: woocommerceResult?.products.length ?? 0 }, acceptedCandidates: { awin: affiliateCandidates.length, shopify: shopifyCandidates.length, ebay: ebayCandidates.length, woocommerce: wooCandidates.length } } : {}), sourceQueries: sourceQueries[2] });
   }
 
   const officialSeed = earlyOfficialSeed ?? officialStoreSeed(observedShopifyProducts, input);
@@ -1041,23 +1059,26 @@ export async function searchProducts(
         evaluatedAtMs,
         searchIntent === "CATEGORY_DISCOVERY" && !input.compareMerchants
       ).slice(0, input.comparisonMode === "SAME_PRODUCT" ? Math.min(3, input.limit) : input.limit);
+  const shopifyPageCompleted = isCompletedShopifyPage(shopifyResult, sourceFailures);
+  const wooCoverage = wooCoverageState(woocommerceResult, sourceFailures, woocommercePasses);
   const queriedSourcesComplete =
     awinStatus !== "UNAVAILABLE" &&
     ebayStatus !== "UNAVAILABLE" &&
-    String(wooStatus) !== "UNAVAILABLE" && String(wooStatus) !== "PARTIAL" &&
+    String(wooStatus) !== "UNAVAILABLE" && wooCoverage.completed &&
     shopifyStatus !== "UNAVAILABLE" &&
-    shopifyStatus !== "PARTIAL" &&
+    (shopifyStatus !== "PARTIAL" || shopifyPageCompleted) &&
     officialStoreFallback.status !== "PARTIAL" && officialStoreFallback.status !== "UNAVAILABLE";
   const chromeFallbackEligible =
     (input.visualInput === undefined ? countQualifiedMatchCandidates(candidates) === 0 ||
       (input.compareMerchants === true && countComparableMerchants(candidates) < 2) : candidates.length === 0) &&
     !searchRun.diagnostics().budgetExhausted &&
-    !sourceFailures.some(failure => !failure.retryable) &&
-    (queriedSourcesComplete || (sourceFailures.length > 0 && sourceFailures.every(failure => failure.retryable) &&
+    wooCoverage.recoveryAllowed &&
+    sourceFailures.every(allowsIndependentSourceRecovery) &&
+    (queriedSourcesComplete || (sourceFailures.length > 0 && sourceFailures.every(allowsIndependentSourceRecovery) &&
       // A partial result without a typed reason cannot be treated as a known
       // transient failure. Recovery is independent, not proof of completeness.
-      (String(wooStatus) !== "PARTIAL" || sourceFailures.some(failure => failure.source === "WOOCOMMERCE")) &&
-      (String(shopifyStatus) !== "PARTIAL" || sourceFailures.some(failure => failure.source === "SHOPIFY")) &&
+      (String(wooStatus) !== "PARTIAL" || wooCoverage.completed || sourceFailures.some(failure => failure.source === "WOOCOMMERCE")) &&
+      (String(shopifyStatus) !== "PARTIAL" || shopifyPageCompleted || sourceFailures.some(failure => failure.source === "SHOPIFY")) &&
       (officialStoreFallback.status !== "PARTIAL" || sourceFailures.some(failure => failure.source === "OFFICIAL")))) &&
     searchPasses === 2;
 
@@ -1073,7 +1094,7 @@ export async function searchProducts(
       previousRechecked: input.visualInput === undefined && input.contextMode !== "NEW_PRODUCT" && input.contextMode !== "AMBIGUOUS" ? Math.min(18, input.previousCandidates?.length ?? 0) : 0,
       previousRetained: retainedPrevious().length,
       eligibleUnique: new Set(rawCandidates.map(candidateKey)).size,
-      requirementsMatchedUnique: new Set(rawCandidates.filter(candidate => candidate.requiredFeatureLimitations.length === 0 && candidate.requirementAssessment?.status !== "CONFLICT").map(candidateKey)).size,
+      requirementsMatchedUnique: new Set(rawCandidates.filter(candidate => countDisplayEligibleCandidates([candidate], input.allowAlternatives) > 0).map(candidateKey)).size,
       recommendableUnique: countRecommendationEligibleCandidates(rawCandidates),
       presentedUnique: new Set(candidates.map(candidateKey)).size
     },
@@ -1082,9 +1103,10 @@ export async function searchProducts(
     ...(reviewPool === undefined ? {} : { reviewPool }),
     ...(awinResult === undefined ? {} : { awinResult }),
     ...(shopifyResult === undefined ? {} : { shopifyResult }),
+    shopifyPasses,
     ...(ebayResult === undefined ? {} : { ebayResult }),
     sourceStatus: { awin: awinStatus, shopify: shopifyStatus, ebay: ebayStatus, ...(ports.woocommerce ? { woocommerce: wooStatus } : {}) },
-    ...(woocommerceResult === undefined ? {} : { woocommerceResult }),
+    ...(woocommerceResult === undefined ? {} : { woocommerceResult, woocommercePasses }),
     ...(awinError === undefined && shopifyError === undefined && ebayError === undefined && wooError === undefined
       ? {}
       : {
@@ -1266,6 +1288,7 @@ function awinCandidate(
     {
       title: product.title,
       productType: product.category,
+      merchantUrl: product.merchantUrl,
       ...(product.requirementEvidence === undefined ? {} : { description: product.requirementEvidence }),
       ...(verifiedBrand === undefined ? {} : { brand: verifiedBrand })
     },
@@ -1273,14 +1296,14 @@ function awinCandidate(
     key,
     identityExcludedKeys,
     false,
-    requestedCoffeeCategory(input)
+    requestedCoffeeCategory(input), input
   );
   if (identity === undefined) return undefined;
   const registeredTrust = resolveMerchantTrust(new URL(product.merchantUrl).hostname, product.merchant);
   const merchantTrust = registeredTrust.level === "RISKY" || registeredTrust.verification === "INDEPENDENT" ? registeredTrust
     : { level: "ESTABLISHED_RETAILER" as const, verification: "INDEPENDENT" as const,
       evidence: ["approved Awin merchant manually verified by FindCheap"] };
-  const evidence = evaluateConstraints({ title: product.title, productType: product.category,
+  const evidence = evaluateSearchProductRequirements({ title: product.title, productType: product.category,
     description: product.requirementEvidence, evidenceSource: "FEED", itemPrice: product.itemPrice, merchantTrust }, input);
   if (evidence.contradicted.length > 0) {
     featureExcludedKeys.add(key);
@@ -1300,6 +1323,7 @@ function awinCandidate(
     preferenceEvidence: unique([...evidence.preferences, ...brand.preferenceEvidence]),
     requiredFeatureLimitations: evidence.unknown,
     requirementAssessment: evidence.assessment,
+    ...(identity.coffeeCompatibility === undefined ? {} : { coffeeCompatibility: identity.coffeeCompatibility }),
     verifiedCoupons: [],
     identityStatus: visualIdentityStatus(identity.status, visual),
     requestIdentityStatus: input.visualInput === undefined ? identity.requestIdentityStatus : undefined,
@@ -1368,7 +1392,7 @@ function assessCatalogProduct(
     return undefined;
   }
   if (!conditionMatches(product.condition, input.conditionPreference)) return undefined;
-  const evidence = evaluateConstraints(product, input);
+  const evidence = evaluateSearchProductRequirements(product, input);
   if (evidence.contradicted.length > 0) {
     featureExcludedKeys.add(key);
     return undefined;
@@ -1379,6 +1403,7 @@ function assessCatalogProduct(
     identityQuery,
     {
       title: product.title,
+      merchantUrl: product.merchantUrl,
       ...(identityMatchingBrand === undefined ? {} : { brand: identityMatchingBrand }),
       ...(product.description === undefined ? {} : { description: product.description }),
       ...(product.sku === undefined ? {} : { sku: product.sku }),
@@ -1393,7 +1418,7 @@ function assessCatalogProduct(
     key,
     identityExcludedKeys,
     allowsConfigurationDiscovery(input, evidence, product.merchantTrust),
-    requestedCoffeeCategory(input)
+    requestedCoffeeCategory(input), input
   );
   if (identity === undefined) return undefined;
   const visual = visualIdentity(input, {
@@ -1412,6 +1437,7 @@ function assessCatalogProduct(
     preferenceEvidence: unique([...evidence.preferences, ...brand.preferenceEvidence]),
     requiredFeatureLimitations: evidence.unknown,
     requirementAssessment: evidence.assessment,
+    ...(identity.coffeeCompatibility === undefined ? {} : { coffeeCompatibility: identity.coffeeCompatibility }),
     verifiedCoupons: [],
     identityStatus: visualIdentityStatus(identity.status, visual),
     requestIdentityStatus: input.visualInput === undefined ? identity.requestIdentityStatus : undefined,
@@ -1493,14 +1519,15 @@ function candidateIdentity(
   searchIntent: ProductSearchIntent,
   allowAlternatives: boolean,
   query: string,
-  candidate: ShopifyMatchCandidate,
+  candidate: ShopifyMatchCandidate & { merchantUrl?: string },
   sourceStatus: Exclude<ShopifyMatchStatus, "IRRELEVANT">,
   key: string,
   excluded: Set<string>,
   allowConfigurationDiscovery = false,
-  coffeeCategory?: CoffeeCategory
+  coffeeCategory?: CoffeeCategory,
+  coffeeRequest?: CoffeeRequest
 ): { status: Exclude<ShopifyMatchStatus, "IRRELEVANT">; evidence: string[];
-  requestIdentityStatus?: RequestIdentityStatus } | undefined {
+  requestIdentityStatus?: RequestIdentityStatus; coffeeCompatibility?: CoffeeCompatibilityAssessment } | undefined {
   if (isPartialPriceListing(candidate) && classifyShopifyCandidate(query, candidate).status === "IRRELEVANT") {
     excluded.add(key);
     return undefined;
@@ -1511,8 +1538,12 @@ function candidateIdentity(
     return undefined;
   }
   const coffeeEvidence = coffee === undefined ? [] : [coffee.evidence];
+  const compatibility = coffeeRequest === undefined ? undefined : assessCoffeeCompatibility(coffeeRequest, candidate);
+  if (compatibility?.status === "CONTRADICTED") { excluded.add(key); return undefined; }
+  const compatibilityEvidence = compatibility === undefined || compatibility.status === "NOT_APPLICABLE"
+    ? {} : { coffeeCompatibility: compatibility };
   if (searchIntent !== "EXACT_PRODUCT") {
-    return { status: sourceStatus, evidence: coffeeEvidence,
+    return { status: sourceStatus, evidence: coffeeEvidence, ...compatibilityEvidence,
       ...(coffee?.status === "UNKNOWN" ? { requestIdentityStatus: "NEEDS_VERIFICATION" as const } : {}) };
   }
   const identity = classifyShopifyCandidate(query, candidate);
@@ -1526,6 +1557,7 @@ function candidateIdentity(
   if (identity.status === "SIMILAR" && allowConfigurationDiscovery) {
     return {
       status: "DISCOVERY_MATCH",
+      ...compatibilityEvidence,
       evidence: unique([
         ...identity.evidence,
         ...coffeeEvidence,
@@ -1535,13 +1567,13 @@ function candidateIdentity(
     };
   }
   const requestIdentityStatus = coffee?.status === "UNKNOWN" ? "NEEDS_VERIFICATION" : assessRequestIdentity(query, candidate, identity.status);
-  return { status: identity.status, requestIdentityStatus, evidence: [...identity.evidence, ...coffeeEvidence,
+  return { status: identity.status, requestIdentityStatus, ...compatibilityEvidence, evidence: [...identity.evidence, ...coffeeEvidence,
     ...(requestIdentityStatus === "NEEDS_VERIFICATION" ? ["requested product name or edition identity not verified"] : [])] };
 }
 
 function allowsConfigurationDiscovery(
   input: SearchProductsExecutionInput,
-  evidence: ReturnType<typeof evaluateConstraints>,
+  evidence: ReturnType<typeof evaluateSearchProductRequirements>,
   merchantTrust: ShopifyProduct["merchantTrust"]
 ): boolean {
   const required = unique([
@@ -1600,15 +1632,15 @@ function ebayCandidate(
     searchIntent,
     input.allowAlternatives,
     identityQuery,
-    { title: product.title, productType: product.category, description: product.attributes.join(" "), tags: product.attributes },
+    { title: product.title, productType: product.category, description: product.attributes.join(" "), tags: product.attributes, merchantUrl: product.merchantUrl },
     product.matchStatus,
     key,
     identityExcludedKeys,
     false,
-    requestedCoffeeCategory(input)
+    requestedCoffeeCategory(input), input
   );
   if (identity === undefined) return undefined;
-  const evidence = evaluateConstraints({ title: product.title, productType: product.category,
+  const evidence = evaluateSearchProductRequirements({ title: product.title, productType: product.category,
     description: product.attributes.join(" "), itemPrice: product.itemPrice,
     merchantTrust: resolveMerchantTrust(new URL(product.merchantUrl).hostname, product.sellerName) }, input);
   if (evidence.contradicted.length > 0) {
@@ -1629,6 +1661,7 @@ function ebayCandidate(
     preferenceEvidence: unique([...evidence.preferences, ...brand.preferenceEvidence]),
     requiredFeatureLimitations: evidence.unknown,
     requirementAssessment: evidence.assessment,
+    ...(identity.coffeeCompatibility === undefined ? {} : { coffeeCompatibility: identity.coffeeCompatibility }),
     verifiedCoupons: [],
     identityStatus: visualIdentityStatus(identity.status, visual),
     requestIdentityStatus: input.visualInput === undefined ? identity.requestIdentityStatus : undefined,
@@ -2113,7 +2146,7 @@ function normalize(value: string): string {
   return value.normalize("NFKC").toLocaleLowerCase("en-US").replace(/\s+/gu, " ").trim();
 }
 
-function evaluateConstraints(
+export function evaluateSearchProductRequirements(
   product: RequirementProduct,
   input: Pick<SearchProductsInput, "query" | "productType" | "primaryUse" | "preferredSize" | "requiredFeatures" | "excludedFeatures" | "preferences" | "features" | "featureMode" | "requiredSize" | "maxItemPriceCents">
 ) {
@@ -2125,10 +2158,21 @@ function evaluateConstraints(
     ...input.preferences,
     ...(input.featureMode === "PREFERRED" ? input.features : [])
   ]);
-  return evaluateProductRequirements(product, { requiredFeatures: required,
+  const evaluation = evaluateProductRequirements(product, { requiredFeatures: required,
     query: input.query, productType: input.productType, primaryUse: input.primaryUse,
     excludedFeatures: input.excludedFeatures, preferences, requiredSize: input.requiredSize,
     maxItemPriceCents: input.maxItemPriceCents });
+  const compatibility = assessCoffeeCompatibility(input, product);
+  if (compatibility.status !== "MATCHED") return evaluation;
+  const matched = new Set(required.filter(feature => coffeeCompatibilityRequirement(feature) === compatibility.requestedSystem));
+  if (matched.size === 0) return evaluation;
+  const unknown = evaluation.unknown.filter(feature => !matched.has(feature));
+  const contradicted = evaluation.contradicted.filter(feature => !matched.has(feature));
+  return { ...evaluation, unknown, contradicted, matched: unique([...evaluation.matched, ...matched]),
+    assessment: { ...evaluation.assessment,
+      status: contradicted.length > 0 ? "CONFLICT" as const : unknown.length > 0 ? "NEEDS_VERIFICATION" as const : "SATISFIED" as const,
+      entries: evaluation.assessment.entries.map(entry => matched.has(entry.requirement)
+        ? { ...entry, status: "MATCHED" as const, source: "PRODUCT" as const, observed: compatibility.evidence } : entry) } };
 }
 
 function inferredPackagingExclusions(

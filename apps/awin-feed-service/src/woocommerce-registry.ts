@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { REVIEWED_WOO_ADDITIONS } from "./woocommerce-merchants.js";
+import { isReadOnlyWooProductUrl } from "../../../packages/contracts/src/woocommerce-product-url.js";
 
 const Host = z.string().toLowerCase().regex(/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/u).max(253);
 const Prefix = z.string().regex(/^\/[a-zA-Z0-9/_-]*$/u).max(200);
@@ -34,7 +35,7 @@ export type WooMerchant = z.infer<typeof WooMerchantSchema>;
 export type WooRegistry = z.infer<typeof WooRegistrySchema>;
 
 // Access registry only. No entry grants merchant trust, shipping, or affiliate approval.
-export const DEFAULT_WOO_REGISTRY: WooRegistry = WooRegistrySchema.parse({ version: "2026-09-08-expanded-200", stores: [
+export const DEFAULT_WOO_REGISTRY: WooRegistry = WooRegistrySchema.parse({ version: "2026-09-09-expanded-1000", stores: [
   { merchantId: "offerman-woodshop", name: "Offerman Woodshop", origin: "https://offermanwoodshop.com", productPathPrefixes: ["/store/"], categories: ["trivet", "wood", "kitchen", "home"], brands: ["Offerman"],
     currency: "USD", marketEvidence: "https://offermanwoodshop.com/faq/", evidenceUrl: "https://offermanwoodshop.com/wp-json/wc/store/v1/products/43848", reviewedAt: "2026-09-08", enabled: true, capabilities: { search: true, variations: true } },
   { merchantId: "root-science", name: "Root Science", origin: "https://www.shoprootscience.com", productPathPrefixes: ["/shop/"], categories: ["skin", "serum", "firm"], brands: ["Root Science"],
@@ -53,7 +54,7 @@ export function wooRegistryFromEnvironment(input: Readonly<Record<string, string
   if (enabled !== "true" && enabled !== "false") throw new Error("WOOCOMMERCE_SOURCE_ENABLED must be true or false");
   if (enabled === "false") return undefined;
   const raw = input.WOOCOMMERCE_REGISTRY_JSON;
-  if (raw !== undefined && Buffer.byteLength(raw) > 512 * 1024) throw new Error("Woo registry too large");
+  if (raw !== undefined && Buffer.byteLength(raw) > 2 * 1024 * 1024) throw new Error("Woo registry too large");
   return WooRegistrySchema.parse(raw === undefined ? DEFAULT_WOO_REGISTRY : JSON.parse(raw));
 }
 
@@ -67,8 +68,9 @@ export function wooMerchantForUrl(registry: WooRegistry, value: string): WooMerc
 
 export function wooProductUrl(store: WooMerchant, value: string): string | undefined {
   let url: URL;
+  if (/[\s\\]/u.test(value)) return undefined;
   try { url = new URL(value, store.origin); } catch { return undefined; }
   if (wooMerchantForUrl({ version: "validation", stores: [store] }, url.href) === undefined) return undefined;
   url.hash = "";
-  return url.href;
+  return isReadOnlyWooProductUrl(url.href) ? url.href : undefined;
 }

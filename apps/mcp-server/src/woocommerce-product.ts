@@ -1,4 +1,5 @@
 import type { WooProduct } from "../../../packages/contracts/src/woocommerce.js";
+import { isBoundWooProductUrl, normalizedWooAttributeName, normalizedWooAttributeValue } from "../../../packages/contracts/src/woocommerce-product-url.js";
 import type { ShopifyProduct } from "./shopify-client.js";
 import { resolveMerchantTrust } from "./merchant-trust.js";
 import type { UnifiedCandidate } from "./search-products.js";
@@ -28,17 +29,16 @@ export function wooProductUrl(query: string): string | undefined {
 }
 
 export function matchesWooProductUrl(product: WooProduct, value: string): boolean {
+  if (!isBoundWooProductUrl({ ...product, merchantUrl: value })) return false;
   let target: URL, observed: URL;
   try { target = new URL(value); observed = new URL(product.merchantUrl); } catch { return false; }
   if (target.username || target.password || target.port || target.hash) return false;
   if (target.origin !== observed.origin || target.pathname.replace(/\/$/u, "") !== observed.pathname.replace(/\/$/u, "")) return false;
-  const normalize = (text: string) => text.normalize("NFKC").toLowerCase().replace(/[-_\s]+/gu, " ").trim();
   for (const [key, parameter] of target.searchParams) {
     if (key === "variation_id" && String(product.variationId) !== parameter) return false;
     if (key.startsWith("attribute_")) {
-      const dimension = key.replace(/^attribute_(?:pa_)?/u, "");
-      const selected = Object.entries(product.selectedAttributes).find(([name]) => normalize(name.replace(/^pa_/u, "")) === normalize(dimension));
-      if (selected === undefined || normalize(selected[1]) !== normalize(parameter)) return false;
+      const selected = Object.entries(product.selectedAttributes).find(([name]) => normalizedWooAttributeName(name) === normalizedWooAttributeName(key));
+      if (selected === undefined || normalizedWooAttributeValue(selected[1]) !== normalizedWooAttributeValue(parameter)) return false;
     } else if (key !== "variation_id" && !/^utm_/u.test(key) && !["gclid", "fbclid", "srsltid"].includes(key) && observed.searchParams.get(key) !== parameter) return false;
   }
   return true;

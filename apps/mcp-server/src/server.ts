@@ -8,7 +8,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { ErrorCode, McpError, type CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { productReferenceKey } from "./product-reference.js";
-import { RequirementAssessmentSchema, ambiguousShoeSize, evaluateProductRequirements, normalizedSizeRequirement } from "./product-requirements.js";
+import { RequirementAssessmentSchema, ambiguousShoeSize, normalizedSizeRequirement } from "./product-requirements.js";
 import { mergeSearchRequirements, shoppingRequirementLedger } from "./search-requirements-context.js";
 import { normalizePackageRequirements } from "./package-requirements.js";
 import { assessQualityEvidence, unitPriceEvidence, QualityEvidenceSchema, UnitPriceSchema, ValueEvidenceSchema } from "./product-value-evidence.js";
@@ -20,13 +20,13 @@ import { SearchRun, SearchBudgetError, SearchReadTimeoutError } from "./search-r
 import { buildVisualRetrievalQuery } from "./visual-retrieval-query.js";
 import { assessVisualVerdict, hasAdmissibleVisualConflict } from "./visual-review-policy.js";
 import { researchRecommendationMessage } from "./recommendation-message.js";
-import { searchDiagnostics, type SearchOutcome } from "./search-diagnostics.js";
+import { searchDiagnostics, shopifySearchCoverage, wooSearchCoverage, type SearchOutcome } from "./search-diagnostics.js";
 import { SourceValidationDetailsSchema } from "./source-failure.js";
 import { textSearchRecovery, TextSearchRecoverySchema } from "./text-search-recovery.js";
 import { WebRecoverySessions, WebConsentStatusSchema, WebDiscoveryOutcomeSchema, WebProductUrlSchema, WEB_SEARCH_LIMITS, webSearchQueries, readWebCandidates, type WebProductPagePort } from "./web-product-recovery.js";
 import { awaitWithSignal } from "./await-with-signal.js";
-import { evaluateRecoveredProducts, productIdentityBrand, woocommerceCandidate, resolveSearchIntent, parseStoredSearchRequest, requestedCoffeeCategory } from "./search-products.js";
-import { assessCoffeeCategory } from "./coffee-category.js";
+import { evaluateRecoveredProducts, evaluateSearchProductRequirements, productIdentityBrand, woocommerceCandidate, resolveSearchIntent, parseStoredSearchRequest, requestedCoffeeCategory } from "./search-products.js";
+import { assessCoffeeCategory, assessCoffeeCompatibility, COFFEE_SYSTEMS } from "./coffee-category.js";
 import { createExecutedToolRegistrar } from "./execution/tool-registry.js";
 import {
   ProductComparisonInputSchema,
@@ -86,6 +86,7 @@ import { MAX_PRODUCT_CARDS, candidateKey, compareRankedCandidates } from "./prod
 import {
   RECOMMENDATION_REASON_CODES,
   choosePrimaryRecommendation,
+  coffeeCompatibilityClarification,
   highVarianceClarification
 } from "./product-recommendation.js";
 import {
@@ -634,6 +635,10 @@ const ShopifyProductOutputSchema = z.object({
   preferenceEvidence: z.array(z.string()).optional(),
   requiredFeatureLimitations: z.array(z.string()).optional(),
   requirementAssessment: RequirementAssessmentSchema.optional(),
+  requirementAssessmentScope: z.literal("TYPED_REQUIREMENTS").optional(),
+  coffeeCompatibility: z.object({ status: z.enum(["NOT_APPLICABLE", "MATCHED", "UNKNOWN", "CONTRADICTED"]),
+    evidence: z.string().max(240), requestedSystem: z.enum(COFFEE_SYSTEMS).optional(),
+    observedSystems: z.array(z.enum(COFFEE_SYSTEMS)).max(COFFEE_SYSTEMS.length) }).strict().optional(),
   requestIdentityStatus: z.enum(["CONFIRMED", "NEEDS_VERIFICATION"]).optional(),
   resultGroup: z.enum(["REQUESTED_PRODUCT", "DISCOVERY", "ALTERNATIVE"]).optional(),
   presentationGroup: z.enum(["OFFICIAL_STORE", "TRUSTED_MATCH", "BEST_VALUE", "RESEARCH_ONLY"]).optional(),
@@ -814,9 +819,10 @@ const ShopifyProductsOutputShape = {
   recovery: TextSearchRecoverySchema.optional(),
   sourceFailures: z.array(z.object({
     source: z.enum(["AWIN", "SHOPIFY", "EBAY", "WOOCOMMERCE", "OFFICIAL"]),
-    kind: z.enum(["INVALID_QUERY", "SOURCE_REJECTED", "TIMEOUT", "RATE_LIMITED", "UPSTREAM_ERROR", "CONNECTION_FAILED", "SCHEMA_INVALID", "SECURITY_REJECTED", "BUDGET_EXHAUSTED", "UNKNOWN"]),
+    kind: z.enum(["INVALID_QUERY", "SOURCE_REJECTED", "TIMEOUT", "RATE_LIMITED", "UPSTREAM_ERROR", "CONNECTION_FAILED", "SCHEMA_INVALID", "SECURITY_REJECTED", "BUDGET_EXHAUSTED", "UNSUPPORTED", "UNKNOWN"]),
     phase: z.enum(["DNS", "REQUEST", "BODY"]).optional(),
     retryable: z.boolean(),
+    scope: z.enum(["SOURCE", "SEARCH"]).optional(),
     validation: SourceValidationDetailsSchema.optional()
   }).strict()).max(40).optional(),
   renderId: z.string().uuid().optional(),
@@ -851,7 +857,20 @@ const ShopifyProductsOutputShape = {
     web: z.enum(["COMPLETE", "PARTIAL"]).optional()
   }).optional(),
   searchIntent: z.enum(["EXACT_PRODUCT", "CATEGORY_DISCOVERY", "VISUAL_DISCOVERY"]).optional(),
-  woocommerceCoverage: WooSearchResultSchema.pick({ schemaVersion: true, registryVersion: true, status: true, stores: true, diagnostics: true }).optional(),
+  shopifyCoverage: z.object({ scope: z.literal("RETURNED_PAGES"), hasMoreResults: z.boolean().optional(),
+    passes: z.array(z.object({ pass: z.union([z.literal(1), z.literal(2)]), operation: z.enum(["QUERY", "CONTINUATION", "NO_INCREMENT"]),
+      coverage: z.enum(["COMPLETE", "PARTIAL", "UNAVAILABLE"]), returnedProducts: z.number().int().nonnegative(),
+      hasNextPage: z.boolean().optional(), estimatedTotalCount: z.number().int().nonnegative().optional() }).strict()).max(2)
+  }).strict().optional(),
+  woocommerceCoverage: WooSearchResultSchema.pick({ schemaVersion: true, registryVersion: true, status: true, stores: true, diagnostics: true }).extend({
+    scope: z.literal("LAST_PASS").optional(),
+    passes: z.array(WooSearchResultSchema.pick({ registryVersion: true, status: true, stores: true, diagnostics: true })
+      .extend({ pass: z.union([z.literal(1), z.literal(2)]) })).max(2).optional(),
+    cumulative: z.object({ scope: z.literal("CURRENT_SEARCH"), eligibleStores: z.number().int().nonnegative(),
+      attemptedMerchantIds: z.array(z.string()).max(12), completedMerchantIds: z.array(z.string()).max(12),
+      physicalRequests: z.number().int().nonnegative(), responseBytes: z.number().int().nonnegative(),
+      registryCoverageComplete: z.boolean() }).strict().optional()
+  }).optional(),
   sourceErrors: z.object({
     awin: z.literal("DATA_SOURCE_UNAVAILABLE").optional(),
     shopify: z.enum(["CATALOG_SCHEMA_CHANGED", "DATA_SOURCE_UNAVAILABLE"]).optional(),
@@ -893,6 +912,7 @@ const ShopifyProductsOutputShape = {
     offerCount: z.number().int().nonnegative()
   }),
   diagnostics: z.object({
+    coverageScope: z.literal("RETURNED_PAGE").optional(),
     apiDurationMs: z.number().int().nonnegative(),
     cacheStatus: z.enum(["MISS", "HIT", "COALESCED"]),
     chromeFallbackEligible: z.boolean(),
@@ -1220,6 +1240,10 @@ export type ProductCardContent = z.infer<typeof _ShopifyProductsOutputSchemaObje
 
 function recommendationInstruction(content: ProductCardContent): string {
   const chinese = content.locale === "zh-CN";
+  if (content.recommendation?.reasonCodes.includes("COFFEE_SYSTEM_UNVERIFIED")) return (chinese
+    ? "已找到胶囊商品，但咖啡机系统兼容性尚未核实，暂不指定首选。"
+    : "Coffee capsules were found, but machine-system compatibility is unverified; no primary recommendation is selected.") +
+    (content.recommendation.question === undefined ? "" : ` ${content.recommendation.question}`);
   if (content.recommendation?.state === "MATCHES_AVAILABLE") return chinese
     ? "已有符合要求的高评分商品可供比较；评分不代表商家已独立核验，暂不指定首选。"
     : "Highly rated products meet the requirements and are available to compare; ratings do not independently verify merchants or establish a primary choice.";
@@ -1265,6 +1289,7 @@ function unifiedResult(
       preferenceEvidence: candidate.preferenceEvidence,
       requiredFeatureLimitations: candidate.requiredFeatureLimitations,
       requirementAssessment: candidate.requirementAssessment,
+      coffeeCompatibility: candidate.coffeeCompatibility,
       resultGroup: candidate.resultGroup,
       presentationGroup: candidate.presentationGroup,
       ...(candidate.visualMatchGroup === undefined ? {} : {
@@ -1281,6 +1306,10 @@ function unifiedResult(
       if (family !== undefined) product.displayFamilyKey = family;
     }
   }
+  for (const product of products) if (product.requirementAssessment !== undefined) product.requirementAssessmentScope = "TYPED_REQUIREMENTS";
+  const wooCoverage = wooSearchCoverage(execution);
+  const shopifyCoverage = shopifySearchCoverage(execution);
+  const wooMerchantsQueried = new Set([...(wooCoverage?.cumulative.attemptedMerchantIds ?? []), ...(wooCoverage?.cumulative.completedMerchantIds ?? [])]).size;
   const affiliateCount = products.filter((product) => product.affiliateState === "APPROVED").length;
   const itemPriceCount = products.filter((product) => product.itemPrice !== undefined).length;
   const couponCount = new Set(products.flatMap(product => product.coupons.verified.map(deal =>
@@ -1418,9 +1447,10 @@ function unifiedResult(
       message,
       source: "UNIFIED_PRODUCT_SEARCH" as const,
       sources: execution.sourceStatus,
-      ...(execution.woocommerceResult === undefined ? {} : { woocommerceCoverage: { schemaVersion: execution.woocommerceResult.schemaVersion, registryVersion: execution.woocommerceResult.registryVersion, status: execution.woocommerceResult.status, stores: execution.woocommerceResult.stores, diagnostics: execution.woocommerceResult.diagnostics } }),
-      merchantsQueried: shopifyResponse.structuredContent.merchantsQueried + (execution.woocommerceResult?.diagnostics.attemptedStores ?? 0),
-      merchantsSucceeded: shopifyResponse.structuredContent.merchantsSucceeded + (execution.woocommerceResult?.diagnostics.succeededStores ?? 0),
+      ...(shopifyCoverage === undefined ? {} : { shopifyCoverage }),
+      ...(wooCoverage === undefined ? {} : { woocommerceCoverage: wooCoverage }),
+      merchantsQueried: shopifyResponse.structuredContent.merchantsQueried + wooMerchantsQueried,
+      merchantsSucceeded: shopifyResponse.structuredContent.merchantsSucceeded + (wooCoverage?.cumulative.completedMerchantIds.length ?? 0),
       searchIntent: execution.searchIntent,
       ...(execution.sourceErrors === undefined ? {} : { sourceErrors: execution.sourceErrors }),
       recommendation: {
@@ -1522,6 +1552,7 @@ function awinCardProduct(candidate: UnifiedCandidate): ProductCardProduct {
     preferenceEvidence: candidate.preferenceEvidence,
     requiredFeatureLimitations: candidate.requiredFeatureLimitations,
     requirementAssessment: candidate.requirementAssessment,
+    coffeeCompatibility: candidate.coffeeCompatibility,
     resultGroup: candidate.resultGroup,
     presentationGroup: candidate.presentationGroup,
     ...(candidate.visualMatchGroup === undefined ? {} : {
@@ -1588,6 +1619,7 @@ function wooCardProduct(candidate: UnifiedCandidate): ProductCardProduct {
     ...product, affiliateState: "NONE", recommendationTier: candidate.recommendationTier,
     featureEvidence: candidate.featureEvidence, preferenceEvidence: candidate.preferenceEvidence,
     requiredFeatureLimitations: candidate.requiredFeatureLimitations, requirementAssessment: candidate.requirementAssessment,
+    coffeeCompatibility: candidate.coffeeCompatibility,
     requestIdentityStatus: candidate.requestIdentityStatus, resultGroup: candidate.resultGroup, presentationGroup: candidate.presentationGroup,
     ...(candidate.visualMatchGroup === undefined ? {} : { visualMatchGroup: candidate.visualMatchGroup,
       visualReviewAssessment: candidate.visualReviewAssessment, visualMatchEvidence: candidate.visualMatchEvidence ?? [] }),
@@ -1620,6 +1652,7 @@ function ebayCardProduct(candidate: UnifiedCandidate): ProductCardProduct {
     preferenceEvidence: candidate.preferenceEvidence,
     requiredFeatureLimitations: candidate.requiredFeatureLimitations,
     requirementAssessment: candidate.requirementAssessment,
+    coffeeCompatibility: candidate.coffeeCompatibility,
     resultGroup: candidate.resultGroup,
     presentationGroup: candidate.presentationGroup,
     ...(candidate.visualMatchGroup === undefined ? {} : {
@@ -2358,6 +2391,11 @@ export function createShoppingServer(
           JSON.stringify([product.sourceHost.toLowerCase(), product.merchantId, deal.dealId])
         ))).size },
       ...(decision === undefined ? {} : { recommendation: { state: decision.state, reasonCodes: decision.reasonCodes } }) };
+    const compatibilityQuestion = request !== undefined && content.products.some(product => product.coffeeCompatibility?.status === "UNKNOWN")
+      ? coffeeCompatibilityClarification({ ...request, responseLocale: content.locale ?? request.responseLocale }, true) : undefined;
+    if (compatibilityQuestion !== undefined && content.recommendation !== undefined && content.recommendation.state !== "READY") {
+      content = { ...content, recommendation: { ...content.recommendation, question: compatibilityQuestion.question } };
+    }
     const goalId = request === undefined ? undefined : parent?.content.goalId ?? randomUUID();
     const consent = webSessions.current(goalId ?? renderId);
     if (content.recovery?.action === "REQUEST_WEB_SEARCH" && consent !== undefined && !consent.retryable) {
@@ -3975,8 +4013,10 @@ export function createShoppingServer(
       try {
         const observedInspection = await selectedProducts.inspect(selected, variantDimensions);
         const coffeeCategory = snapshot.request === undefined ? undefined : requestedCoffeeCategory(snapshot.request);
-        const inspection = coffeeCategory === undefined ? observedInspection : { ...observedInspection,
-          variants: observedInspection.variants.filter(product => assessCoffeeCategory(coffeeCategory, product).status !== "CONTRADICTED") };
+        const inspection = snapshot.request === undefined ? observedInspection : { ...observedInspection,
+          variants: observedInspection.variants.filter(product =>
+            (coffeeCategory === undefined || assessCoffeeCategory(coffeeCategory, product).status !== "CONTRADICTED") &&
+            assessCoffeeCompatibility(snapshot.request!, product).status !== "CONTRADICTED") };
         if (inspection.variants.length === 0) {
           const message = locale === "zh-CN"
             ? "这件商品没有符合所选条件的规格；没有改搜其他商品。"
@@ -4069,16 +4109,16 @@ export function createShoppingServer(
         const assessedProducts = derivedProducts.map(product => {
           if (nextRequest === undefined) return product;
           const source = derivedSource.products.find(value => productReferenceKey(value) === productReferenceKey(product));
-          const checked = evaluateProductRequirements(source ?? product, {
-            ...nextRequest,
-            requiredFeatures: [...nextRequest.requiredFeatures,
-              ...(nextRequest.featureMode === "REQUIRED" ? nextRequest.features : []),
-              ...(nextRequest.requiredSize === undefined ? [] : [normalizedSizeRequirement(nextRequest.requiredSize, nextRequest.productType ?? nextRequest.query)])]
-          });
+          const checked = evaluateSearchProductRequirements(source ?? product, { ...nextRequest,
+            requiredFeatures: [...nextRequest.requiredFeatures, ...(nextRequest.requiredSize === undefined ? []
+              : [normalizedSizeRequirement(nextRequest.requiredSize, nextRequest.productType ?? nextRequest.query)])] });
+          const compatibility = assessCoffeeCompatibility(nextRequest, source ?? product);
           const limitations = [...checked.unknown, ...checked.contradicted];
           if (nextRequest.maxItemPriceCents !== undefined &&
             (product.itemPrice === undefined || product.itemPrice.amountCents > nextRequest.maxItemPriceCents)) limitations.push("maximum item price");
           return { ...product, requirementAssessment: checked.assessment,
+            requirementAssessmentScope: "TYPED_REQUIREMENTS" as const,
+            ...(compatibility.status === "NOT_APPLICABLE" ? {} : { coffeeCompatibility: compatibility }),
             featureEvidence: checked.matched, requiredFeatureLimitations: limitations };
         });
         const derivedCandidates = snapshot.candidates?.flatMap((candidate): UnifiedCandidate[] => {
@@ -4090,6 +4130,7 @@ export function createShoppingServer(
             return { ...candidate, shopifyProduct: source, identityStatus: card.matchStatus, identityEvidence: card.matchEvidence,
               requestIdentityStatus: card.requestIdentityStatus, requiredFeatureLimitations: card.requiredFeatureLimitations ?? [],
               ...(card.requirementAssessment === undefined ? {} : { requirementAssessment: card.requirementAssessment }),
+              ...(card.coffeeCompatibility === undefined ? {} : { coffeeCompatibility: card.coffeeCompatibility }),
               featureEvidence: card.featureEvidence ?? [] };
           });
         });

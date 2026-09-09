@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { WooProductSchema, type WooProduct, type WooVariantRequirements, type WooStoreResult } from "../../../packages/contracts/src/woocommerce.js";
+import { normalizedWooAttributeName, normalizedWooAttributeValue } from "../../../packages/contracts/src/woocommerce-product-url.js";
 import { createPinnedRequest, safeFetchWithProvenance, type FetchPolicy } from "../../../packages/network-safety/src/safe-fetch.js";
 import { wooProductUrl, type WooMerchant } from "./woocommerce-registry.js";
 
@@ -12,7 +13,7 @@ const RawProduct = z.object({
   // Page-builder markup can swamp this optional display field; omit it instead of relaxing identity or response bounds.
   description: z.string().transform(value => value.length <= 200_000 ? value : undefined).optional(), is_password_protected: z.boolean().optional(),
   prices: z.object({ price: z.string().max(32).optional(), currency_code: z.string().regex(/^[A-Z]{3}$/u), currency_minor_unit: z.number().int().min(0).max(6) }).passthrough(),
-  is_in_stock: z.boolean().optional(), is_on_backorder: z.boolean().optional(), stock_status: z.string().max(40).optional(),
+  is_in_stock: z.boolean().optional(), is_purchasable: z.boolean().optional(), is_on_backorder: z.boolean().optional(), stock_status: z.string().max(40).optional(),
   average_rating: z.string().max(20).optional(), review_count: z.number().int().nonnegative().max(100_000_000).optional(),
   images: z.array(z.object({ id: z.number().int().nonnegative(), src: z.string().max(4_096) }).passthrough()).max(100).optional(),
   attributes: z.array(RawAttribute).max(24).optional(), categories: z.array(z.object({ name: z.string().max(300) }).passthrough()).max(100).optional(),
@@ -115,24 +116,44 @@ export function normalizeWooProduct(raw: WooRawProduct, store: WooMerchant, chec
   if (merchantUrl === undefined) return undefined;
   const selectedAttributes: Record<string, string> = {};
   const variantDimensions: Record<string, string[]> = {};
+  const select = (name: string, value: string): boolean => {
+    const previous = Object.entries(selectedAttributes).find(([key]) => normalizedWooAttributeName(key) === normalizedWooAttributeName(name));
+    if (previous !== undefined && normalizedWooAttributeValue(previous[1]) !== normalizedWooAttributeValue(value)) return false;
+    selectedAttributes[name] = value;
+    variantDimensions[name] = [value];
+    return true;
+  };
   for (const attribute of raw.attributes ?? []) {
     const name = dimensionKey(attribute.name);
     const values = attribute.value === undefined ? (attribute.terms ?? []).map((term) => cleanText(term.name)) : [cleanText(attribute.value)];
     if (values.length > 0) variantDimensions[name] = values;
-    if (isVariation && values.length === 1) selectedAttributes[name] = values[0]!;
+    if (isVariation && values.length === 1 && !select(name, values[0]!)) return undefined;
   }
   if (isVariation) {
     for (const attribute of parent?.variations?.find((item) => item.id === raw.id)?.attributes ?? []) {
       if (attribute.value === undefined || attribute.value.trim() === "") continue;
       const name = dimensionKey(attribute.name);
-      if (selectedAttributes[name] !== undefined && normalized(selectedAttributes[name]!) !== normalized(cleanText(attribute.value))) return undefined;
-      selectedAttributes[name] = cleanText(attribute.value);
-      variantDimensions[name] = [cleanText(attribute.value)];
+      if (!select(name, cleanText(attribute.value))) return undefined;
+    }
+    // Only parent attribute metadata proves a nontrivial display-name/taxonomy alias.
+    // The permalink is deliberately not consulted when creating selected facts.
+    for (const attribute of parent?.attributes ?? []) {
+      if (attribute.has_variations !== true || typeof attribute.taxonomy !== "string" || !/^pa_[a-zA-Z0-9_-]{1,77}$/u.test(attribute.taxonomy)) continue;
+      const selected = Object.entries(selectedAttributes).find(([key]) => normalizedWooAttributeName(key) === normalizedWooAttributeName(attribute.name));
+      if (selected !== undefined && normalizedWooAttributeName(attribute.taxonomy) !== normalizedWooAttributeName(attribute.name) &&
+        !select(dimensionKey(attribute.taxonomy), selected[1])) return undefined;
     }
   }
+  const requiredVariationDimensions = isVariation ? [
+    ...(parent?.attributes ?? []).filter((attribute) => attribute.has_variations === true).map((attribute) => dimensionKey(attribute.name)),
+    ...(parent?.variations?.find((item) => item.id === raw.id)?.attributes ?? []).map((attribute) => dimensionKey(attribute.name))
+  ] : [];
+  const unresolvedVariation = requiredVariationDimensions.some(key => !Object.keys(selectedAttributes)
+    .some(selected => normalizedWooAttributeName(selected) === normalizedWooAttributeName(key)));
+  const unpriced = unresolvedVariation || raw.is_purchasable === false;
   const amountMinor = raw.prices.price !== undefined && /^\d{1,16}$/u.test(raw.prices.price) ? raw.prices.price : undefined;
   const amountCents = amountMinor === undefined ? NaN : Number(amountMinor) * 10 ** (2 - raw.prices.currency_minor_unit);
-  const canPrice = raw.type !== "variable" && raw.prices.currency_code === "USD" && Number.isSafeInteger(amountCents) && amountCents >= 0 && amountCents <= 100_000_000;
+  const canPrice = raw.type !== "variable" && !unpriced && raw.prices.currency_code === "USD" && Number.isSafeInteger(amountCents) && amountCents >= 0 && amountCents <= 100_000_000;
   const images = (raw.images ?? []).flatMap((image) => {
     try {
       const url = new URL(image.src, store.origin);
@@ -158,8 +179,8 @@ export function normalizeWooProduct(raw: WooRawProduct, store: WooMerchant, chec
     variantDimensions, selectedAttributes, merchantUrl, images, ...(images[0] === undefined ? {} : { imageUrl: images[0].url }),
     ...(canPrice ? { itemPrice: { amountCents, currency: "USD" } } : {}),
     priceEvidence: { ...(amountMinor === undefined ? {} : { amountMinor }), currency: raw.prices.currency_code,
-      currencyMinorUnit: raw.prices.currency_minor_unit, scope: raw.type === "variable" ? "PARENT_RANGE" : isVariation ? "VARIANT" : "PRODUCT", taxBasis: "UNKNOWN" },
-    availability: stockAvailability(raw),
+      currencyMinorUnit: raw.prices.currency_minor_unit, scope: raw.type === "variable" ? "PARENT_RANGE" : unpriced ? "UNKNOWN" : isVariation ? "VARIANT" : "PRODUCT", taxBasis: "UNKNOWN" },
+    availability: unpriced ? "UNKNOWN" : stockAvailability(raw),
     availabilityScope: isVariation ? "VARIANT" : raw.type === "variable" ? "PARENT" : "PRODUCT", ...(rating === undefined ? {} : { rating }), checkedAt
   });
   return parsed.success ? parsed.data : undefined;
@@ -182,7 +203,7 @@ export function wooMatchesRequirements(product: WooProduct, requirements: WooVar
   });
 }
 function dimensionKey(value: string): string {
-  const key = value.toLowerCase().replace(/^(?:attribute_|pa_)/u, "").trim();
+  const key = value.toLowerCase().replace(/^attribute_(?:pa_)?|^pa_/u, "").trim();
   return key === "colour" ? "color" : key;
 }
 function normalized(value: string): string { return value.normalize("NFKC").toLowerCase().trim(); }

@@ -33,11 +33,28 @@ const shampoos: AwinProduct[] = [1, 2, 3].map(id => ({ merchantId: String(id), m
   affiliateUrl: `https://www.awin1.com/cread.php?awinmid=${id}&awinaffid=3047955&ued=https%3A%2F%2Fstore${id}.example%2Fproducts%2Fshampoo`, checkedAt }));
 
 describe("bounded source retrieval regression", () => {
+  it("uses a form-equivalent capsule query on the complementary catalog pass without widening named products", () => {
+    for (const source of ["AWIN", "SHOPIFY"] as const) {
+      expect(compileSourceQuery(source, "coffee capsules", { pass: 1, identityQuery: "coffee capsules", visual: false }))
+        .toBe("coffee capsules");
+      expect(compileSourceQuery(source, "coffee capsules", { pass: 2, identityQuery: "coffee capsules", visual: false }))
+        .toBe("coffee pods");
+      expect(compileSourceQuery(source, "coffee pods", { pass: 2, identityQuery: "coffee pods", visual: false }))
+        .toBe("coffee capsules");
+      for (const identityQuery of ["Nespresso Original coffee capsules", "Lavazza Espresso Maestro capsules", "coffee capsule machine"]) {
+        expect(compileSourceQuery(source, identityQuery, { pass: 2, identityQuery, visual: false })).toBe(identityQuery);
+      }
+      expect(compileSourceQuery(source, "coffee capsules", { pass: 2, identityQuery: "coffee capsules", visual: true }))
+        .toBe("coffee capsules");
+    }
+  });
+
   it("broadens only reviewed category-only Woo queries and preserves other retrieval boundaries", () => {
     for (const pass of [1, 2] as const) {
       for (const query of ["coffee", "coffee beans", "whole bean coffee", "咖啡豆", "ground coffee", "coffee pods", "instant coffee"]) {
         expect(compileSourceQuery("WOOCOMMERCE", query, { pass, identityQuery: query, visual: false })).toBe("coffee");
-        expect(compileSourceQuery("SHOPIFY", query, { pass, identityQuery: query, visual: false })).toBe(query);
+        expect(compileSourceQuery("SHOPIFY", query, { pass, identityQuery: query, visual: false }))
+          .toBe(query === "coffee pods" && pass === 2 ? "coffee capsules" : query);
         expect(compileSourceQuery("WOOCOMMERCE", query, { pass, identityQuery: query, visual: true })).toBe(query);
       }
       for (const query of ["JBC coffee beans", "coffee grinder", "coffee CF1234", "coffee beans organic", "coffee beans ground coffee"]) {

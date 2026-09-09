@@ -1628,7 +1628,7 @@ describe("unified product search", () => {
     expect(result.visualProductsExcluded).toBe(1);
   });
 
-  it("enforces the explicit DÔEN brand while reusing an identical second-pass source query", async () => {
+  it("enforces the explicit DÔEN brand without repeating an identical second-pass source query", async () => {
     const candidate = shopifyProduct("doen-black-lace", 27_800, "UNKNOWN", {
       merchant: "DÔEN",
       sourceHost: "www.shopdoen.com",
@@ -1675,14 +1675,15 @@ describe("unified product search", () => {
     expect(shopifySearch).toHaveBeenCalledTimes(1);
     expect(shopifySearch.mock.calls[0]?.[0].comparisonMode).toBe("SAME_PRODUCT");
     expect(shopifySearch.mock.calls[0]?.[0].query).toBe("DÔEN black lace tiered mini dress");
-    expect(result.searchRun?.diagnostics().cacheHits).toBeGreaterThanOrEqual(1);
+    expect(result.searchRun?.diagnostics().cacheHits).toBe(0);
+    expect(result.shopifyPasses?.[1]).toEqual({ pass: 2, operation: "NO_INCREMENT", coverage: "COMPLETE", returnedProducts: 0 });
     expect(result.sourcePassDiagnostics).toEqual([
       expect.objectContaining({ pass: 1, query: "DÔEN black lace tiered mini dress", acceptedCandidates: expect.objectContaining({ shopify: 1 }) }),
-      expect.objectContaining({ pass: 2, query: "DÔEN black lace tiered mini dress", acceptedCandidates: expect.objectContaining({ shopify: 1 }) })
+      expect.objectContaining({ pass: 2, query: "DÔEN black lace tiered mini dress", rawProducts: expect.objectContaining({ shopify: 0 }), acceptedCandidates: expect.objectContaining({ shopify: 1 }) })
     ]);
   });
 
-  it("returns no cards when both passes only find other brands", async () => {
+  it("returns no cards when the first source result only finds other brands and the identical second pass adds none", async () => {
     const otherBrand = shopifyProduct("other-black-lace", 13_900, "UNKNOWN", {
       title: "Black Lace Tiered Mini Dress",
       brand: "Other Brand",
@@ -1704,7 +1705,9 @@ describe("unified product search", () => {
     expect(result.brandProductsExcluded).toBe(1);
     expect(result.chromeFallbackEligible).toBe(true);
     expect(shopifySearch).toHaveBeenCalledTimes(1);
-    expect(result.searchRun?.diagnostics().cacheHits).toBeGreaterThan(0);
+    expect(result.searchRun?.diagnostics().cacheHits).toBe(0);
+    expect(result.shopifyPasses?.[1]).toEqual({ pass: 2, operation: "NO_INCREMENT", coverage: "COMPLETE", returnedProducts: 0 });
+    expect(result.sourcePassDiagnostics?.[1]?.rawProducts.shopify).toBe(0);
     expect(shopifySearch.mock.calls.every(([request]) => request.query?.startsWith("DÔEN ") === true)).toBe(true);
     expect(shopifySearch.mock.calls[0]?.[0].query).toBe("DÔEN dress black lace");
   });

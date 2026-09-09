@@ -21,6 +21,12 @@ export function compileSourceQuery(source: CatalogSource, query: string, options
     // category-only terms may broaden; eligibility still uses the original form.
     if (source === "WOOCOMMERCE" && parseCoffeeCategory(selected) !== undefined &&
       parseCoffeeCategory(options.identityQuery) !== undefined) selected = "coffee";
+    // A second catalog pass needs new retrieval evidence, not a cached repeat.
+    // These are form-equivalent category terms; named products stay literal.
+    if (source !== "WOOCOMMERCE" && options.pass === 2 && parseCoffeeCategory(selected) === "PODS" &&
+      parseCoffeeCategory(options.identityQuery) === "PODS") {
+      selected = /\bpods?\b|\bk[ -]?cups?\b/iu.test(selected) ? "coffee capsules" : "coffee pods";
+    }
   }
   // Awin's AND-token search rejects punctuation; the other catalog adapters
   // accept this conservative literal form without interpreting search syntax.

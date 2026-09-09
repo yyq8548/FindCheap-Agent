@@ -8,6 +8,8 @@ import type { WooProduct } from "../../../packages/contracts/src/woocommerce.js"
 type SavedSample = { merchantId: string; observedAt: string; raw: WooRawProduct; parent?: WooRawProduct;
   expected: Pick<WooProduct, "productId" | "variationId" | "itemPrice" | "selectedAttributes" | "merchantUrl"> };
 const samples = JSON.parse(await readFile(new URL("fixtures/woocommerce-expansion/accepted-samples.json", import.meta.url), "utf8")) as SavedSample[];
+// Historical observations stay intact; wildcard children do not bind every purchase dimension.
+const unboundSamples = new Set(["rockgeist", "warbonnet-outdoors"]);
 // Keep the original 50-store acceptance evidence separate from later additions.
 const originalRegistry = { ...DEFAULT_WOO_REGISTRY, stores: DEFAULT_WOO_REGISTRY.stores.slice(0, 50) };
 const resolve = async () => [{ address: "8.8.8.8", family: 4 }];
@@ -57,13 +59,20 @@ describe("reviewed 50-merchant Woo expansion", () => {
     const raw = await reader.product(store, sample.raw.id, budget());
     const parent = sample.parent === undefined ? undefined : await reader.product(store, sample.parent.id, budget());
     const product = normalizeWooProduct(raw, store, sample.observedAt, parent)!;
-    expect(product).toMatchObject(sample.expected);
+    const { itemPrice: historicalPrice, ...identity } = sample.expected;
+    expect(product).toMatchObject(identity);
+    if (unboundSamples.has(sample.merchantId)) {
+      expect(historicalPrice).toBeDefined();
+      expect(product.itemPrice).toBeUndefined();
+      expect(product.availability).toBe("UNKNOWN");
+      expect(product.priceEvidence.scope).toBe("UNKNOWN");
+    } else expect(product.itemPrice).toEqual(historicalPrice);
     expect(product.images.length).toBeGreaterThan(0);
     expect(product.images.every(image => [new URL(store.origin).hostname, ...store.imageHosts].includes(new URL(image.url).hostname))).toBe(true);
     if (parent !== undefined) {
       expect(store.capabilities.variations).toBe(true);
       expect(normalizeWooProduct(parent, store, sample.observedAt)?.itemPrice).toBeUndefined();
-      expect(product.priceEvidence.scope).toBe("VARIANT");
+      expect(product.priceEvidence.scope).toBe(unboundSamples.has(sample.merchantId) ? "UNKNOWN" : "VARIANT");
     }
   });
 });

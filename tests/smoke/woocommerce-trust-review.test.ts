@@ -38,17 +38,25 @@ const normalizedBrand = (brand: string) => brand.normalize("NFKD").replace(/\p{M
   .toLocaleLowerCase("en-US").replace(/[^a-z0-9]+/gu, "");
 
 describe("reviewed WooCommerce merchant trust data", () => {
-  it("covers each of the 200 access merchants exactly once without changing its identity", () => {
-    expect(review.accessRegistryVersion).toBe(DEFAULT_WOO_REGISTRY.version);
+  it("covers each of the original 200 access merchants exactly once without changing its identity", () => {
+    expect(review.accessRegistryVersion).toBe("2026-09-08-expanded-200");
     expect(review.stores).toHaveLength(200);
     expect(new Set(review.stores.map((store) => store.merchantId)).size).toBe(200);
     expect(new Set(review.stores.map((store) => hostFor(store.origin))).size).toBe(200);
     expect(review.stores.map((store) => store.merchantId).sort())
-      .toEqual(DEFAULT_WOO_REGISTRY.stores.map((store) => store.merchantId).sort());
+      .toEqual(DEFAULT_WOO_REGISTRY.stores.slice(0, 200).map((store) => store.merchantId).sort());
     for (const store of review.stores) {
       expect(DEFAULT_WOO_REGISTRY.stores.find((entry) => entry.merchantId === store.merchantId), store.merchantId)
         .toMatchObject({ name: store.name, origin: store.origin });
     }
+  });
+
+  it("does not extend the historical trust approvals to the 800 new access merchants", () => {
+    const added = DEFAULT_WOO_REGISTRY.stores.slice(200);
+    expect(added).toHaveLength(800);
+    const approvedHosts = new Set(approvals.map((approval) => approval.kind === "OFFICIAL_STOREFRONT"
+      ? approval.record.officialHost : approval.record.host));
+    for (const store of added) expect(approvedHosts.has(hostFor(store.origin)), store.merchantId).toBe(false);
   });
 
   it("retains the reviewed outcome denominator and the 319 bounded approvals", () => {

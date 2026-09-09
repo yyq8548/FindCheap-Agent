@@ -1,5 +1,30 @@
 import type { UnifiedSearchExecution } from "./search-products.js";
-import { SourceValidationDetailsSchema } from "./source-failure.js";
+import { allowsIndependentSourceRecovery, isCompletedShopifyPage, wooCoverageState, SourceValidationDetailsSchema } from "./source-failure.js";
+import { countDisplayEligibleCandidates } from "./product-candidate-ranking.js";
+
+/** Only typed coverage metadata is retained; source products and query text are omitted. */
+export function wooSearchCoverage(execution: Pick<UnifiedSearchExecution, "woocommerceResult" | "woocommercePasses" | "searchPasses">) {
+  const last = execution.woocommerceResult;
+  if (last === undefined) return undefined;
+  const passes = execution.woocommercePasses ?? [{ pass: execution.searchPasses, registryVersion: last.registryVersion,
+    status: last.status, stores: last.stores, diagnostics: last.diagnostics }];
+  const attemptedMerchantIds = [...new Set(passes.flatMap(pass => pass.stores.filter(store => store.requests > 0).map(store => store.merchantId)))];
+  const completedMerchantIds = [...new Set(passes.flatMap(pass => pass.stores.filter(store => store.status === "COMPLETE").map(store => store.merchantId)))];
+  const eligibleStores = Math.max(0, ...passes.map(pass => pass.diagnostics.eligibleStores));
+  return { schemaVersion: last.schemaVersion, registryVersion: last.registryVersion, status: last.status,
+    stores: last.stores, diagnostics: last.diagnostics, scope: "LAST_PASS" as const, passes,
+    cumulative: { scope: "CURRENT_SEARCH" as const, eligibleStores, attemptedMerchantIds, completedMerchantIds,
+      physicalRequests: passes.reduce((total, pass) => total + pass.diagnostics.physicalRequests, 0),
+      responseBytes: passes.reduce((total, pass) => total + pass.diagnostics.responseBytes, 0),
+      registryCoverageComplete: eligibleStores > 0 && completedMerchantIds.length === eligibleStores &&
+        passes.every(pass => pass.registryVersion === last.registryVersion) } };
+}
+
+export function shopifySearchCoverage(execution: Pick<UnifiedSearchExecution, "shopifyResult" | "shopifyPasses">) {
+  if (execution.shopifyPasses === undefined) return undefined;
+  return { scope: "RETURNED_PAGES" as const, passes: execution.shopifyPasses,
+    ...(execution.shopifyResult?.pagination === undefined ? {} : { hasMoreResults: execution.shopifyResult.pagination.hasNextPage }) };
+}
 
 export type SearchOutcome = "REVIEW_REQUIRED" | "IDENTITY_UNVERIFIED" | "REQUIREMENTS_UNVERIFIED" | "MATCH_FOUND" | "NO_CANDIDATES" |
   "SOURCE_UNAVAILABLE" | "NO_LOADABLE_IMAGES" | "CANDIDATES_CONFLICTED" |
@@ -14,18 +39,23 @@ export function searchDiagnostics(execution: UnifiedSearchExecution, outcome: Se
   const snapshotTime = execution.awinResult?.snapshotAt;
   const snapshotAt = snapshotTime !== undefined && Number.isFinite(Date.parse(snapshotTime))
     ? new Date(snapshotTime).toISOString() : undefined;
-  const sourceFailures = execution.sourceFailures?.map(({ source, kind, retryable, phase, validation }) => {
+  const sourceFailures = execution.sourceFailures?.map(({ source, kind, retryable, scope, phase, validation }) => {
     const safeValidation = SourceValidationDetailsSchema.safeParse(validation);
     return { source, kind, retryable,
+      ...(scope === "SOURCE" || scope === "SEARCH" ? { scope } : {}),
       ...(phase !== undefined && ["DNS", "REQUEST", "BODY"].includes(phase) ? { phase } : {}),
       ...(safeValidation.success ? { validation: safeValidation.data } : {}) };
   });
   const nonTransientFailure = ["SECURITY_REJECTED", "SCHEMA_INVALID", "INVALID_QUERY", "SOURCE_REJECTED", "BUDGET_EXHAUSTED", "UNKNOWN"]
-    .map(kind => sourceFailures?.find(failure => !failure.retryable && failure.kind === kind)).find(Boolean);
+    .map(kind => sourceFailures?.find(failure => !allowsIndependentSourceRecovery(failure) && failure.kind === kind)).find(Boolean);
   const sourceObservations = execution.sourcePassDiagnostics.reduce((total, pass) =>
     total + pass.rawProducts.awin + pass.rawProducts.shopify + pass.rawProducts.ebay + (pass.rawProducts.woocommerce ?? 0), 0) + (execution.webRecovery?.verified ?? 0);
   const funnel = execution.candidateFunnel;
   const retrieved = execution.retrievedProductHashes;
+  const wooCoverage = wooSearchCoverage(execution);
+  const wooState = wooCoverageState(execution.woocommerceResult, execution.sourceFailures, execution.woocommercePasses);
+  const shopifyCoverage = shopifySearchCoverage(execution);
+  const satisfiedReturned = countDisplayEligibleCandidates(execution.candidates, true);
   return {
     version: 1,
     ...run,
@@ -45,7 +75,9 @@ export function searchDiagnostics(execution: UnifiedSearchExecution, outcome: Se
     outcome: run?.budgetExhausted === true && outcome !== "MATCH_FOUND" && outcome !== "REVIEW_REQUIRED"
       ? "BUDGET_EXHAUSTED" as const : outcome,
     sources: execution.sourceStatus,
-    ...(execution.woocommerceResult === undefined ? {} : { woocommerce: { registryVersion: execution.woocommerceResult.registryVersion, status: execution.woocommerceResult.status, ...execution.woocommerceResult.diagnostics } }),
+    ...(shopifyCoverage === undefined ? {} : { shopifyCoverage }),
+    ...(wooCoverage === undefined ? {} : { woocommerce: { registryVersion: wooCoverage.registryVersion, status: wooCoverage.status,
+      ...wooCoverage.diagnostics, scope: wooCoverage.scope, passes: wooCoverage.passes, cumulative: wooCoverage.cumulative } }),
     ...(retrieved === undefined ? {} : { retrieval: {
       origin: "SERVER_TRACE" as const,
       order: "SOURCE_OBSERVATION_ORDER" as const,
@@ -70,8 +102,8 @@ export function searchDiagnostics(execution: UnifiedSearchExecution, outcome: Se
       sourceResults: sourceObservations,
       sourceResultsUnit: "OBSERVATIONS" as const,
       conflictingProducts: execution.featureProductsExcluded,
-      satisfiedReturned: execution.candidates.filter(candidate => candidate.requiredFeatureLimitations.length === 0).length,
-      awaitingVerification: execution.candidates.filter(candidate => candidate.requiredFeatureLimitations.length > 0).length,
+      satisfiedReturned,
+      awaitingVerification: execution.candidates.length - satisfiedReturned,
       trustedReturned: execution.candidates.filter(candidate => candidate.recommendationTier === "TRUSTED_OR_AFFILIATE").length
     },
     ...(funnel === undefined ? {} : { candidateFunnel: {
@@ -82,9 +114,11 @@ export function searchDiagnostics(execution: UnifiedSearchExecution, outcome: Se
     } }),
     termination: run?.budgetExhausted || outcome === "BUDGET_EXHAUSTED" ? "BUDGET_EXHAUSTED"
       : nonTransientFailure !== undefined ? nonTransientFailure.kind
-      : Object.values(execution.sourceStatus).some(value => value === "UNAVAILABLE" || value === "PARTIAL") ? "SOURCE_UNAVAILABLE"
-        : execution.candidates.length > 0 && execution.candidates.every(candidate => candidate.requiredFeatureLimitations.length > 0)
-          ? "REQUIREMENTS_UNVERIFIED" : "BOUNDED_SEARCH_COMPLETE",
+      : Object.entries(execution.sourceStatus).some(([source, status]) => source === "woocommerce" ? !wooState.completed : status === "UNAVAILABLE" ||
+        (status === "PARTIAL" && !(source === "shopify" && isCompletedShopifyPage(execution.shopifyResult, execution.sourceFailures)))) ? "SOURCE_UNAVAILABLE"
+        : satisfiedReturned === 0 && execution.candidates.some(candidate => candidate.requestIdentityStatus === "NEEDS_VERIFICATION")
+          ? "IDENTITY_UNVERIFIED" : execution.candidates.length > 0 && satisfiedReturned === 0
+            ? "REQUIREMENTS_UNVERIFIED" : "BOUNDED_SEARCH_COMPLETE",
     ...(snapshotAt === undefined ? {} : { awinSnapshotAt: snapshotAt }),
     candidatePool: (execution.reviewPool ?? execution.candidates).length,
     exclusions: {

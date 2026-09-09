@@ -2,9 +2,10 @@ import { visualReviewScore, type VisualReviewAssessment } from "./visual-review-
 import type { RequestIdentityStatus } from "./shopify-match.js";
 import { assessQualityEvidence, comparableUnitPrices, type QualityEvidence, type ValueProduct } from "./product-value-evidence.js";
 import { isHighRatedProduct } from "./merchant-trust.js";
+import type { CoffeeCompatibilityAssessment } from "./coffee-category.js";
 
 export const PRIMARY_BLOCK_REASON_CODES = [
-  "VARIANT_OUT_OF_STOCK", "IDENTITY_UNVERIFIED", "UNVERIFIED_MERCHANT", "UNFULFILLED_REQUIREMENTS", "SIMILAR_ONLY", "MISSING_PRICE", "VISUAL_REVIEW_REQUIRED"
+  "VARIANT_OUT_OF_STOCK", "IDENTITY_UNVERIFIED", "UNVERIFIED_MERCHANT", "UNFULFILLED_REQUIREMENTS", "SIMILAR_ONLY", "MISSING_PRICE", "VISUAL_REVIEW_REQUIRED", "COFFEE_SYSTEM_UNVERIFIED"
 ] as const;
 export type PrimaryBlockReasonCode = typeof PRIMARY_BLOCK_REASON_CODES[number];
 
@@ -12,6 +13,7 @@ export type RankingInput = Omit<ValueProduct, "itemPrice"> & {
   title: string;
   matchStatus: "EXACT" | "DISCOVERY_MATCH" | "SIMILAR";
   requestIdentityStatus?: RequestIdentityStatus | undefined;
+  coffeeCompatibility?: CoffeeCompatibilityAssessment | undefined;
   recommendationTier?: "TRUSTED_OR_AFFILIATE" | "HIGH_RATED_UNVERIFIED" | "GENERAL_UNVERIFIED" | undefined;
   merchantTrust: {
     verification: "INDEPENDENT" | "UNVERIFIED";
@@ -63,6 +65,8 @@ export function assessRanking(input: RankingInput): RankingAssessment {
   if (input.requestIdentityStatus === "NEEDS_VERIFICATION") primaryBlockReasons.push("IDENTITY_UNVERIFIED");
   if (!trusted) primaryBlockReasons.push("UNVERIFIED_MERCHANT");
   if (limitationCount > 0) primaryBlockReasons.push("UNFULFILLED_REQUIREMENTS");
+  if (input.coffeeCompatibility?.status === "UNKNOWN") primaryBlockReasons.push("COFFEE_SYSTEM_UNVERIFIED");
+  if (input.coffeeCompatibility?.status === "CONTRADICTED" && !primaryBlockReasons.includes("UNFULFILLED_REQUIREMENTS")) primaryBlockReasons.push("UNFULFILLED_REQUIREMENTS");
   const review = input.visualReviewAssessment;
   const scopedSimilar = review?.recommendationScope === "SIMILAR" && (review.group === "SAME_STYLE" || review.group === "HIGHLY_SIMILAR") &&
     review.matchCount >= 2 && review.structuralMatchCount >= 1 && visualReviewScore(review) > 0 && input.availability === "IN_STOCK";
@@ -73,7 +77,7 @@ export function assessRanking(input: RankingInput): RankingAssessment {
     // A source-reported product rating admits a matched offer to tier two, not
     // independent merchant verification, a primary choice or quote permission.
     displayEligible: input.merchantTrust.level !== "RISKY" && (trusted || isHighRatedProduct(input.productRating)) &&
-      primaryBlockReasons.every(reason => reason === "UNVERIFIED_MERCHANT"),
+      primaryBlockReasons.every(reason => reason === "UNVERIFIED_MERCHANT" || reason === "COFFEE_SYSTEM_UNVERIFIED"),
     primaryEligible: primaryBlockReasons.length === 0,
     primaryBlockReasons,
     matchRank: input.matchStatus === "EXACT" ? 0 : input.matchStatus === "DISCOVERY_MATCH" ? 1 : 2,

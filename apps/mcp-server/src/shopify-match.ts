@@ -1,3 +1,5 @@
+import { assessCoffeeCategory, parseCoffeeCategory } from "./coffee-category.js";
+
 export type ShopifyMatchStatus = "EXACT" | "DISCOVERY_MATCH" | "SIMILAR" | "IRRELEVANT";
 export type RequestIdentityStatus = "CONFIRMED" | "NEEDS_VERIFICATION";
 const MEASUREMENT_UNITS = "g|grams?|kg|mg|l|ml|cl|oz|lb|lbs|gb|tb|mb|pads?|count|ct|pcs|pc|pieces?|pack|pk|inch|inches|in|mm|cm|m|w|kw|v|mv|ma|mah|ah|hz|khz|mhz|ghz|wh|kwh";
@@ -163,6 +165,16 @@ export function classifyShopifyCandidate(
 ): ShopifyMatchResult {
   if (isPartialPriceListing(candidate) && !/\b(?:quote(?: request)? fee|quotation fee|deposit|down payment)\b|询价费|报价费|定金|订金|押金/iu.test(query)) {
     return irrelevant("listed amount is a quote fee or deposit, not the complete product price");
+  }
+  // Category-only coffee queries share the final candidate evidence policy.
+  // An absent optional Catalog category is not contradictory product evidence.
+  // Named products retain the exact identity checks below; UNKNOWN still needs
+  // verification in the shared candidate/recommendation pipeline.
+  const coffeeCategory = parseCoffeeCategory(query);
+  if (coffeeCategory !== undefined) {
+    const coffee = assessCoffeeCategory(coffeeCategory, candidate);
+    return coffee.status === "CONTRADICTED" ? irrelevant(coffee.evidence)
+      : { status: "DISCOVERY_MATCH", evidence: [coffee.evidence], missingTerms: [] };
   }
   // Apply only reviewed bilingual identity aliases. A translation is not a SKU
   // match, and both character and franchise remain mandatory even for discovery.
