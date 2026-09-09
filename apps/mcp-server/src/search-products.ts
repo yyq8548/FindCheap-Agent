@@ -3,12 +3,13 @@ import { normalizePackageRequirements } from "./package-requirements.js";
 import { SearchRun } from "./search-run.js";
 import { deduplicateCandidateOffers, type OfferObservation } from "./offer-equivalence.js";
 import { resolveKnownProductUrl } from "./known-product-url.js";
+import { createShopifyProductAnchor, matchesShopifyProductAnchor, hasConflictingShopifyVariantId, ShopifyProductAnchorSchema, type ShopifyProductAnchor } from "./shopify-product-anchor.js";
 import { compileSourceQuery, discoveryTarget, isExplicitCategoryQuery } from "./retrieval-plan.js";
 import { assessCoffeeCategory, assessCoffeeCompatibility, isCoffeeCategoryRefinement, parseCoffeeCategory, parseCoffeeCompatibilityQuery, type CoffeeCategory, type CoffeeCompatibilityAssessment, type CoffeeRequest } from "./coffee-category.js";
 import type { WooProduct, WooSearchResult } from "../../../packages/contracts/src/woocommerce.js";
 import type { WooCommerceCatalogPort } from "./woocommerce-client.js";
-import { wooProductFacts, wooProductUrl, matchesWooProductUrl, type CatalogProductFacts } from "./woocommerce-product.js";
-import { createWooProductAnchor, matchesWooProductAnchor, matchesWooAnchoredCandidate, type WooProductAnchor } from "./woo-product-identity.js";
+import { candidateProductFacts, wooProductFacts, wooProductUrl, matchesWooProductUrl, type CatalogProductFacts } from "./woocommerce-product.js";
+import { createWooProductAnchor, matchesWooProductAnchor, matchesWooAnchoredCandidate, WooProductAnchorSchema, type WooProductAnchor } from "./woo-product-identity.js";
 import { allowsIndependentSourceRecovery, classifySourceFailure, isCompletedShopifyPage, wooCoverageState, wooStoreSourceFailure, type SourceFailure } from "./source-failure.js";
 import type { ValueEvidence } from "./product-value-evidence.js";
 import { candidateFingerprint, sourceProductFingerprint, visualQueryHash } from "./visual-source-fingerprints.js";
@@ -164,13 +165,18 @@ export const SearchProductsInputSchema = z.object({
   featureMode: z.enum(["PREFERRED", "REQUIRED"]).default("PREFERRED")
 }).strict();
 
-export type SearchProductsInput = z.infer<typeof SearchProductsInputSchema> & { wooAnchor?: WooProductAnchor };
+export type SearchProductsInput = z.infer<typeof SearchProductsInputSchema> & { wooAnchor?: WooProductAnchor; shopifyAnchor?: ShopifyProductAnchor };
+export const StoredSearchProductsInputSchema = SearchProductsInputSchema.extend({ shopifyAnchor: ShopifyProductAnchorSchema.optional(),
+  wooAnchor: WooProductAnchorSchema.optional() });
 
 /** Only for trusted server state. Public tool arguments always use the strict
  * SearchProductsInputSchema, which rejects client-supplied identity anchors. */
-export function parseStoredSearchRequest(value: Record<string, unknown> & { wooAnchor?: WooProductAnchor }): SearchProductsInput {
-  const { wooAnchor, ...request } = value;
-  return { ...SearchProductsInputSchema.parse(request), ...(wooAnchor === undefined ? {} : { wooAnchor: structuredClone(wooAnchor) }) };
+export function parseStoredSearchRequest(value: Record<string, unknown>): SearchProductsInput {
+  const { wooAnchor, shopifyAnchor, ...parsed } = StoredSearchProductsInputSchema.parse(value);
+  const request = { ...parsed, ...(shopifyAnchor === undefined ? {} : { shopifyAnchor }) };
+  if (wooAnchor === undefined) return request;
+  const { variationId, ...wooIdentity } = wooAnchor;
+  return { ...request, wooAnchor: { ...wooIdentity, ...(variationId === undefined ? {} : { variationId }) } };
 }
 
 /** Internal execution controls. These are never exposed through the MCP schema. */
@@ -478,14 +484,15 @@ export async function searchProducts(
         });
         const sourceSize = selectedDimensions.find(([name]) => /^(?:shoe )?size$/iu.test(name))?.[1];
         const { searchRun: _searchRun, previousCandidates: _previousCandidates, deferVisualFiltering: _deferVisualFiltering,
-          relaxVisualRetrieval: _relaxVisualRetrieval, wooAnchor: _wooAnchor, ...request } = rawInput;
+          relaxVisualRetrieval: _relaxVisualRetrieval, wooAnchor: _wooAnchor, shopifyAnchor: _shopifyAnchor, ...request } = rawInput;
         const bound = SearchProductsInputSchema.safeParse({ ...request,
           query: [sourceProduct.brand, sourceProduct.title].filter(Boolean).join(" ").slice(0, 300),
           requiredFeatures: unique([...rawInput.requiredFeatures, ...selectedDimensions.map(([, value]) => value)]),
           ...(rawInput.requiredSize === undefined && sourceSize !== undefined ? { requiredSize: sourceSize } : {})
         });
         // Never truncate selected variant constraints to satisfy schema limits.
-        if (bound.success) resolvedRequest = bound.data;
+        if (bound.success) resolvedRequest = { ...bound.data, ...(directSeed.platform !== "SHOPIFY" ? {}
+          : { shopifyAnchor: createShopifyProductAnchor(sourceProduct, knownProductUrl.sourcePageUrl) }) };
       }
     } catch { /* The normal official pass records the shared read failure; no blind retry. */ }
   }
@@ -500,7 +507,7 @@ export async function searchProducts(
         (rawInput.wooAnchor === undefined || matchesWooProductAnchor(product, rawInput.wooAnchor)));
       if (observed !== undefined) {
         const { searchRun: _run, previousCandidates: _previous, deferVisualFiltering: _defer,
-          relaxVisualRetrieval: _relax, includeUnavailableVariants: _unavailable, wooAnchor: _anchor, ...request } = rawInput;
+          relaxVisualRetrieval: _relax, includeUnavailableVariants: _unavailable, wooAnchor: _anchor, shopifyAnchor: _shopifyAnchor, ...request } = rawInput;
         const officialBrand = knownProductUrl?.storefront.platform === "WOOCOMMERCE"
           ? observed.brand ?? knownProductUrl.storefront.brand : undefined;
         const bound = SearchProductsInputSchema.safeParse({ ...request,
@@ -1194,10 +1201,20 @@ function recoveryOfferKey(value: string): string {
 }
 
 function enforceWooAnchor(candidates: UnifiedCandidate[], input: SearchProductsInput, excluded: Set<string>): UnifiedCandidate[] {
-  return candidates.filter(candidate => {
-    if (input.wooAnchor === undefined || matchesWooAnchoredCandidate(candidate, input.wooAnchor)) return true;
+  return candidates.flatMap(candidate => {
+    if (input.shopifyAnchor !== undefined && candidate.source === "SHOPIFY_GLOBAL_CATALOG" &&
+      candidate.shopifyProduct.sourceKind !== "WEB_PRODUCT_PAGE" && hasConflictingShopifyVariantId(candidate.shopifyProduct, input.shopifyAnchor)) {
+      excluded.add(candidateKey(candidate));
+      return [];
+    }
+    const wooMatches = input.wooAnchor === undefined || matchesWooAnchoredCandidate(candidate, input.wooAnchor);
+    const shopifyMatches = input.shopifyAnchor === undefined || matchesShopifyProductAnchor(candidateProductFacts(candidate), input.shopifyAnchor);
+    if (wooMatches && shopifyMatches) return [candidate];
+    if (wooMatches && input.shopifyAnchor !== undefined && input.allowAlternatives) return [{ ...candidate,
+      identityStatus: "SIMILAR" as const, requestIdentityStatus: "NEEDS_VERIFICATION" as const, resultGroup: "ALTERNATIVE" as const,
+      identityEvidence: [...new Set([...candidate.identityEvidence, "Different product or unverified identity relative to the source URL; explicitly requested alternative only"])] }];
     excluded.add(candidateKey(candidate));
-    return false;
+    return [];
   });
 }
 
@@ -1468,6 +1485,10 @@ function assessCatalogProduct(
 
 type AssessmentArguments = [SearchProductsExecutionInput, ProductSearchIntent, string, Set<string>, Set<string>, Set<string>, Set<string>];
 function shopifyCandidate(product: ShopifyProduct, ...args: AssessmentArguments): UnifiedCandidate | undefined {
+  if (args[0].shopifyAnchor !== undefined && product.sourceKind !== "WEB_PRODUCT_PAGE" && hasConflictingShopifyVariantId(product, args[0].shopifyAnchor)) {
+    args[5].add(productReferenceKey(product));
+    return undefined;
+  }
   const assessed = assessCatalogProduct(product, ...args);
   if (!assessed) return undefined;
   const { facts, ...candidate } = assessed;
@@ -1491,9 +1512,9 @@ export function woocommerceCandidate(product: WooProduct, ...args: AssessmentArg
 }
 
 export function resolveSearchIntent(
-  input: Pick<SearchProductsInput, "query" | "comparisonMode" | "visualInput" | "brand" | "brandMode" | "productType" | "wooAnchor">
+  input: Pick<SearchProductsInput, "query" | "comparisonMode" | "visualInput" | "brand" | "brandMode" | "productType" | "wooAnchor" | "shopifyAnchor">
 ): ProductSearchIntent {
-  if (input.wooAnchor !== undefined || input.comparisonMode === "SAME_PRODUCT" || hasStrongProductIdentifier(input.query)) {
+  if (input.wooAnchor !== undefined || input.shopifyAnchor !== undefined || input.comparisonMode === "SAME_PRODUCT" || hasStrongProductIdentifier(input.query)) {
     return "EXACT_PRODUCT";
   }
   if (input.visualInput !== undefined) return "VISUAL_DISCOVERY";

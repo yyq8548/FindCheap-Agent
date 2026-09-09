@@ -28,7 +28,8 @@ import { SourceValidationDetailsSchema } from "./source-failure.js";
 import { textSearchRecovery, TextSearchRecoverySchema } from "./text-search-recovery.js";
 import { WebRecoverySessions, WebConsentStatusSchema, WebDiscoveryOutcomeSchema, WebProductUrlSchema, WEB_SEARCH_LIMITS, webSearchQueries, readWebCandidates, type WebProductPagePort } from "./web-product-recovery.js";
 import { awaitWithSignal } from "./await-with-signal.js";
-import { evaluateRecoveredProducts, evaluateSearchProductRequirements, productIdentityBrand, woocommerceCandidate, resolveSearchIntent, parseStoredSearchRequest, requestedCoffeeCategory } from "./search-products.js";
+import { evaluateRecoveredProducts, evaluateSearchProductRequirements, productIdentityBrand, woocommerceCandidate, resolveSearchIntent, parseStoredSearchRequest, requestedCoffeeCategory, StoredSearchProductsInputSchema } from "./search-products.js";
+import { inspectedShopifyProductAnchor, matchesShopifyProductAnchor, matchesSelectedShopifyInspection, hasConflictingShopifyVariantId } from "./shopify-product-anchor.js";
 import { assessCoffeeCategory, assessCoffeeCompatibility, COFFEE_SYSTEMS } from "./coffee-category.js";
 import { createExecutedToolRegistrar } from "./execution/tool-registry.js";
 import {
@@ -2340,7 +2341,7 @@ export function createShoppingServer(
         merchantId: z.string(), sourceHost: z.string(), handle: z.string(), checkedAt: z.string() }).passthrough()).max(256) }).passthrough(),
       sourceProductIndex: z.array(z.tuple([z.string(), z.object({ sourceKind: z.enum(["SHOPIFY_GLOBAL_CATALOG", "AWIN_PRODUCT_FEED", "EBAY_BROWSE", "WOOCOMMERCE_STORE_API"]), product: z.record(z.unknown()) }).strict()])).max(256),
       resolvedAwinProducts: z.array(z.tuple([z.string(), z.record(z.unknown())])).max(18),
-      request: SearchProductsInputSchema.optional(), chargingClarificationAsked: z.boolean()
+      request: StoredSearchProductsInputSchema.optional(), chargingClarificationAsked: z.boolean()
     }).strict().parse(value);
     const { request, ...required } = stored;
     return { ...required, ...(request === undefined ? {} : { request: parseStoredSearchRequest(request) }),
@@ -2496,7 +2497,13 @@ export function createShoppingServer(
   ): ProductCardContent & { renderId: string } => {
     const renderId = randomUUID();
     const parent = request?.parentRenderId === undefined ? undefined : renderSnapshots.get(request.parentRenderId);
-    const finalizedProducts = finalizeSnapshotProducts(content.products, request?.brand !== undefined, now().getTime());
+    const anchoredProducts = request?.shopifyAnchor === undefined ? content.products
+      : content.products.flatMap(product => product.sourceKind === "SHOPIFY_GLOBAL_CATALOG" && hasConflictingShopifyVariantId(product, request.shopifyAnchor!) ? []
+        : matchesShopifyProductAnchor(product, request.shopifyAnchor!) ? [product]
+        : request.allowAlternatives ? [{ ...product, matchStatus: "SIMILAR" as const, resultGroup: "ALTERNATIVE" as const,
+          requestIdentityStatus: "NEEDS_VERIFICATION" as const, card: { ...product.card, matchBadge: "SIMILAR" as const },
+          matchEvidence: [...new Set([...product.matchEvidence, "Different product or unverified identity relative to the source URL; explicitly requested alternative only"])] }] : []);
+    const finalizedProducts = finalizeSnapshotProducts(anchoredProducts, request?.brand !== undefined, now().getTime());
     const summary = summarizeSearchProducts(finalizedProducts, now().getTime());
     const previousSummary = summarizeSearchProducts(content.products, now().getTime());
     if (finalizedProducts.length !== content.products.length || content.comparison.offerCount !== summary.productCount ||
@@ -3665,7 +3672,7 @@ export function createShoppingServer(
     "finalize_visual_search",
     {
       title: "Finalize visual search",
-      description: "Visual-review stage for interactive image search. Use only candidate IDs and images returned by the latest tool result. Report directly visible matching and conflicting attributes. Obscured or low-confidence attributes cannot match or conflict. Clearly visible family, sleeve, neckline, and length conflicts exclude. Color or pattern difference alone may remain HIGHLY_SIMILAR only with a source-proven same brand and at least three independent structural matches; disclose the difference. Unknown brand cannot authorize colorway changes; merchant names and titles do not prove product brand. Same-color cross-brand structural alternatives remain allowed. POSSIBLE_SAME_ITEM additionally needs a distinguishing visible pattern, detail or mark; generic cut, color or name hints are insufficient. A visual verdict can exclude or rerank candidates, but cannot create EXACT identity. Each visual session is immutable and single-use. If the result has visualReview.finalAnswerAllowed=false, a final answer is forbidden: review every returned relaxed candidate and immediately call visualReview.requiredNextTool with its new visualSessionId. At most two visual review rounds. Reviewed HIGHLY_SIMILAR or SAME_STYLE alternatives are automatic for image searches when no confirmed purchasable same item is found; keep the returned recommendation scope and disclose differences. User-required features, excluded features, brand and budget remain hard constraints. Preserve unavailable same-item evidence without recommending purchase. Follow visualSearchOutcome: POSSIBLE is not confirmed, incomplete is not absence. Offer an opt-in restock Watch only; do not create one automatically. Changed variants marked visualReviewRequired need fresh visual review.",
+      description: "Visual-review stage for interactive image search. Use only candidate IDs and images returned by the latest tool result. Report directly visible matching and conflicting attributes. Keep each referenceEvidence and candidateEvidence to at most 160 characters. Use each attribute only once per verdict, in either matches or conflicts, never both. Obscured or low-confidence attributes cannot match or conflict. Clearly visible family, sleeve, neckline, and length conflicts exclude. Color or pattern difference alone may remain HIGHLY_SIMILAR only with a source-proven same brand and at least three independent structural matches; disclose the difference. Unknown brand cannot authorize colorway changes; merchant names and titles do not prove product brand. Same-color cross-brand structural alternatives remain allowed. POSSIBLE_SAME_ITEM additionally needs a distinguishing visible pattern, detail or mark; generic cut, color or name hints are insufficient. A visual verdict can exclude or rerank candidates, but cannot create EXACT identity. Each visual session is immutable and single-use. If the result has visualReview.finalAnswerAllowed=false, a final answer is forbidden: review every returned relaxed candidate and immediately call visualReview.requiredNextTool with its new visualSessionId. At most two visual review rounds. Reviewed HIGHLY_SIMILAR or SAME_STYLE alternatives are automatic for image searches when no confirmed purchasable same item is found; keep the returned recommendation scope and disclose differences. User-required features, excluded features, brand and budget remain hard constraints. Preserve unavailable same-item evidence without recommending purchase. Follow visualSearchOutcome: POSSIBLE is not confirmed, incomplete is not absence. Offer an opt-in restock Watch only; do not create one automatically. Changed variants marked visualReviewRequired need fresh visual review.",
       inputSchema: FinalizeVisualSearchInputSchema,
       outputSchema: ShopifyProductsOutputShape,
       annotations: {
@@ -4169,9 +4176,14 @@ export function createShoppingServer(
       };
       try {
         const observedInspection = await selectedProducts.inspect(selected, variantDimensions);
+        const previousAnchor = snapshot.request?.shopifyAnchor;
+        const inspectedAnchor = previousAnchor === undefined ? undefined
+          : inspectedShopifyProductAnchor(previousAnchor, selected, variantDimensions, observedInspection.variants);
         const coffeeCategory = snapshot.request === undefined ? undefined : requestedCoffeeCategory(snapshot.request);
         const inspection = snapshot.request === undefined ? observedInspection : { ...observedInspection,
           variants: observedInspection.variants.filter(product =>
+            (inspectedAnchor === undefined || matchesSelectedShopifyInspection(selected, variantDimensions, product) &&
+              (matchesShopifyProductAnchor(product, inspectedAnchor) || snapshot.request!.allowAlternatives)) &&
             (coffeeCategory === undefined || assessCoffeeCategory(coffeeCategory, product).status !== "CONTRADICTED") &&
             assessCoffeeCompatibility(snapshot.request!, product).status !== "CONTRADICTED") };
         if (inspection.variants.length === 0) {
@@ -4227,6 +4239,14 @@ export function createShoppingServer(
           : undefined;
         const nextRequest = snapshot.request === undefined ? undefined : parseStoredSearchRequest({
           ...snapshot.request, parentRenderId: renderId, responseLocale: locale,
+          ...(inspectedAnchor === undefined ? {} : { shopifyAnchor: inspectedAnchor }),
+          ...(inspectedAnchor === previousAnchor || previousAnchor === undefined ? {} : { requiredFeatures: [
+            ...snapshot.request.requiredFeatures.filter(feature => !Object.entries(previousAnchor.variantDimensions)
+              .some(([name, value]) => Object.keys(variantDimensions).some(key => key.toLowerCase() === name.toLowerCase()) &&
+                feature.toLowerCase() === value.toLowerCase())),
+            ...Object.entries(inspectedAnchor!.variantDimensions).filter(([name]) => Object.keys(variantDimensions)
+              .some(key => key.toLowerCase() === name.toLowerCase())).map(([, value]) => value)
+          ] }),
           ...(requestedSize === undefined ? {} : { requiredSize: verifiedSize ?? requestedSize[1] })
         });
         const inspectedKeys = new Set(inspection.variants.map(productReferenceKey));

@@ -1,4 +1,5 @@
-import type { WooProduct } from "../../../packages/contracts/src/woocommerce.js";
+import { WooProductSchema, type WooProduct } from "../../../packages/contracts/src/woocommerce.js";
+import { isBoundWooProductUrl } from "../../../packages/contracts/src/woocommerce-product-url.js";
 import type { UnifiedCandidate } from "./search-products.js";
 import { matchesWooProductUrl, candidateProductFacts } from "./woocommerce-product.js";
 
@@ -6,6 +7,14 @@ import { matchesWooProductUrl, candidateProductFacts } from "./woocommerce-produ
  * display title is never sufficient evidence to replace a requested URL. */
 export type WooProductAnchor = Pick<WooProduct, "merchantId" | "sourceHost" | "productId" | "productType" |
   "selectedAttributes" | "gtin" | "brand" | "mpn"> & { url: string; variationId?: number };
+
+/** Private persisted identity uses the source DTO's bounded fields, not arbitrary JSON. */
+export const WooProductAnchorSchema = WooProductSchema.innerType().pick({ merchantId: true, sourceHost: true,
+  productId: true, productType: true, selectedAttributes: true, gtin: true, brand: true, mpn: true, variationId: true })
+  .extend({ url: WooProductSchema.innerType().shape.merchantUrl }).strict().refine(anchor =>
+    new URL(anchor.url).hostname === anchor.sourceHost &&
+    (anchor.variationId === undefined || anchor.productType === "variation" && anchor.variationId !== anchor.productId) &&
+    isBoundWooProductUrl({ ...anchor, merchantUrl: anchor.url }), "Bound source-owned WooCommerce identity required");
 
 export function createWooProductAnchor(product: WooProduct, url = product.merchantUrl): WooProductAnchor {
   const selected = [...new URL(url).searchParams.keys()].some(key => key === "variation_id" || key.startsWith("attribute_"));

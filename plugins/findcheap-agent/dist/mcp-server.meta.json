@@ -4864,6 +4864,11 @@
         },
         {
           "kind": "import-statement",
+          "original": "./shopify-product-anchor.js",
+          "path": "src/shopify-product-anchor.ts"
+        },
+        {
+          "kind": "import-statement",
           "original": "./retrieval-plan.js",
           "path": "src/retrieval-plan.ts"
         },
@@ -5204,6 +5209,11 @@
         },
         {
           "kind": "import-statement",
+          "original": "./shopify-product-anchor.js",
+          "path": "src/shopify-product-anchor.ts"
+        },
+        {
+          "kind": "import-statement",
           "original": "./coffee-category.js",
           "path": "src/coffee-category.ts"
         },
@@ -5486,6 +5496,16 @@
           "kind": "import-statement",
           "original": "./sony-official-store-search.js",
           "path": "src/sony-official-store-search.ts"
+        }
+      ]
+    },
+    "src/shopify-product-anchor.ts": {
+      "format": "esm",
+      "imports": [
+        {
+          "kind": "import-statement",
+          "original": "zod",
+          "path": "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/index.js"
         }
       ]
     },
@@ -6063,6 +6083,16 @@
       "imports": [
         {
           "kind": "import-statement",
+          "original": "../../../packages/contracts/src/woocommerce.js",
+          "path": "../../packages/contracts/src/woocommerce.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "../../../packages/contracts/src/woocommerce-product-url.js",
+          "path": "../../packages/contracts/src/woocommerce-product-url.ts"
+        },
+        {
+          "kind": "import-statement",
           "original": "./woocommerce-product.js",
           "path": "src/woocommerce-product.ts"
         }
@@ -6101,7 +6131,7 @@
   },
   "outputs": {
     "../../plugins/findcheap-agent/dist/mcp-server.js": {
-      "bytes": 1406152,
+      "bytes": 1412041,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
@@ -7020,10 +7050,10 @@
           "bytesInOutput": 6137
         },
         "src/search-products.ts": {
-          "bytesInOutput": 51565
+          "bytesInOutput": 52509
         },
         "src/search-requirements-context.ts": {
-          "bytesInOutput": 6454
+          "bytesInOutput": 6550
         },
         "src/search-result-summary.ts": {
           "bytesInOutput": 5529
@@ -7032,7 +7062,7 @@
           "bytesInOutput": 8103
         },
         "src/server.ts": {
-          "bytesInOutput": 216705
+          "bytesInOutput": 217972
         },
         "src/shopify-cart-quote.ts": {
           "bytesInOutput": 12443
@@ -7048,6 +7078,9 @@
         },
         "src/shopify-official-store-search.ts": {
           "bytesInOutput": 14776
+        },
+        "src/shopify-product-anchor.ts": {
+          "bytesInOutput": 3164
         },
         "src/shopify-product-json.ts": {
           "bytesInOutput": 1432
@@ -7113,7 +7146,7 @@
           "bytesInOutput": 6569
         },
         "src/woo-product-identity.ts": {
-          "bytesInOutput": 1394
+          "bytesInOutput": 1812
         },
         "src/woocommerce-client.ts": {
           "bytesInOutput": 2242

@@ -31,7 +31,7 @@ export function shoppingRequirementLedger(input: SearchProductsInput) {
 export function mergeSearchRequirements(current: SearchProductsInput, previous: SearchProductsInput,
   previousCandidates: readonly { title: string; brand?: string | undefined }[] = []): SearchProductsInput {
   // Only the resolved server snapshot can supply an existing product anchor.
-  const { wooAnchor: _submittedAnchor, ...submitted } = current;
+  const { wooAnchor: _submittedAnchor, shopifyAnchor: _submittedShopifyAnchor, ...submitted } = current;
   current = submitted;
   current = normalizePackageRequirements(current);
   previous = normalizePackageRequirements(previous);
@@ -77,6 +77,7 @@ export function mergeSearchRequirements(current: SearchProductsInput, previous: 
     merged.query = current.query;
     delete merged.visualInput;
     delete merged.wooAnchor;
+    delete merged.shopifyAnchor;
     if (current.visualInput !== undefined) merged.visualInput = current.visualInput;
   }
   for (const key of ["maxItemPriceCents", "requiredSize", "preferredSize", "primaryUse", "brand", "productType", "zipCode", "membershipIds", "compareMerchants"] as const) {
@@ -98,6 +99,7 @@ export function mergeSearchRequirements(current: SearchProductsInput, previous: 
 function continuedIdentityQuery(current: SearchProductsInput, previous: SearchProductsInput,
   previousCandidates: readonly { title: string; brand?: string | undefined }[]): string {
   if (previous.wooAnchor !== undefined && current.query === previous.wooAnchor.url) return previous.query;
+  if (previous.shopifyAnchor !== undefined && current.query === previous.shopifyAnchor.url) return previous.query;
   // Within an already explicit EV category, "Tesla charging station" is a
   // category shorthand. This says nothing about vehicle/region compatibility.
   const evCategory = /^(?:ev (?:charging station|charger)|electric vehicle (?:charging station|charger)|充电桩)$/iu
