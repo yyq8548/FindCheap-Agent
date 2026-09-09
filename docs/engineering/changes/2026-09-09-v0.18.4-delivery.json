@@ -1,0 +1,529 @@
+{
+  "formatVersion": 1,
+  "recordedAt": "2026-09-09T16:02:35.671Z",
+  "version": "0.18.4",
+  "package": "0.18.4+codex.20260909154800",
+  "runtimeCommit": "1c4930cf1464f32e7bf45099097ff46f5081a308",
+  "remoteRuntimeShaVerified": true,
+  "local": {
+    "mcpBuild": "PASS",
+    "sourceBuild": "PASS",
+    "typecheck": "PASS",
+    "lint": "PASS",
+    "defaultFiles": 194,
+    "defaultAssertions": 3857,
+    "stdioAssertions": 5,
+    "realWooIntegrationAssertions": 3,
+    "unrelatedPostgresIntegration": "NOT_RUN",
+    "fullTurnPerformance": "NOT_VERIFIED"
+  },
+  "ci": [
+    {
+      "id": 34373359657,
+      "url": "https://github.com/yyq8548/FindCheap-Agent/actions/runs/34373359657",
+      "headSha": "1c4930cf1464f32e7bf45099097ff46f5081a308",
+      "conclusion": "success"
+    },
+    {
+      "id": 34373359855,
+      "url": "https://github.com/yyq8548/FindCheap-Agent/actions/runs/34373359855",
+      "headSha": "1c4930cf1464f32e7bf45099097ff46f5081a308",
+      "conclusion": "success"
+    }
+  ],
+  "deployment": {
+    "id": "26a940f5-413e-4f47-99c2-59004bae4ee3",
+    "status": "SUCCESS",
+    "createdAt": "2026-09-09T15:57:47.422Z",
+    "project": "9bf7a976-a5ca-4524-bb9b-457d1a4750b5",
+    "service": "FindCheap-Agent",
+    "environment": "production",
+    "sourceSha256": "0efd89b982da2b0e45a72ed31495452f95464156508d5106c0e3c41f8054f623",
+    "productionHashMatches": true,
+    "healthAndReadiness": "PASS"
+  },
+  "registries": [
+    {
+      "name": "official-legacy",
+      "count": 111,
+      "recordsSha256": "9c8c3b589486b3eb0c53bf8920f938a7588a85123afb6acb69f8bab49f3f932a",
+      "allRecordsUnchanged": true
+    },
+    {
+      "name": "official-v2",
+      "count": 248,
+      "recordsSha256": "a67aa83938d236d5378b20f660ac8908b2ce6c9b02c9fe5dde91d9764e2a15ec",
+      "allRecordsUnchanged": true
+    },
+    {
+      "name": "merchant-trust",
+      "count": 393,
+      "recordsSha256": "81a298ba3fbc5338c056c0d57fd54cba1bb65db86ded9aa48bbd34800a46c7f9",
+      "allRecordsUnchanged": true
+    }
+  ],
+  "woo": {
+    "registryVersion": "2026-09-09-priority-1002",
+    "eligibleStores": 1002,
+    "probes": [
+      {
+        "query": "wig",
+        "status": "COMPLETE",
+        "diagnostics": {
+          "eligibleStores": 1002,
+          "plannedStores": 3,
+          "attemptedStores": 3,
+          "succeededStores": 3,
+          "failedStores": 0,
+          "skippedStores": 999,
+          "physicalRequests": 3,
+          "responseBytes": 315896,
+          "cacheHits": 0,
+          "elapsedMs": 1528,
+          "truncated": true,
+          "registryCoverageComplete": false,
+          "routing": {
+            "scope": "CURRENT_PASS",
+            "matchedStores": 1,
+            "relevantPlanned": 1,
+            "explorationPlanned": 2
+          }
+        },
+        "stores": [
+          {
+            "merchantId": "recool-hair",
+            "status": "COMPLETE",
+            "requests": 1,
+            "returned": 12
+          },
+          {
+            "merchantId": "crane-usa-com",
+            "status": "COMPLETE",
+            "requests": 1,
+            "returned": 0
+          },
+          {
+            "merchantId": "international-publishers",
+            "status": "COMPLETE",
+            "requests": 1,
+            "returned": 1
+          }
+        ],
+        "productCount": 12
+      },
+      {
+        "query": "headphones",
+        "status": "PARTIAL",
+        "diagnostics": {
+          "eligibleStores": 1002,
+          "plannedStores": 3,
+          "attemptedStores": 3,
+          "succeededStores": 2,
+          "failedStores": 1,
+          "skippedStores": 999,
+          "physicalRequests": 4,
+          "responseBytes": 651344,
+          "cacheHits": 0,
+          "elapsedMs": 3364,
+          "truncated": true,
+          "registryCoverageComplete": false,
+          "routing": {
+            "scope": "CURRENT_PASS",
+            "matchedStores": 1,
+            "relevantPlanned": 1,
+            "explorationPlanned": 2
+          }
+        },
+        "stores": [
+          {
+            "merchantId": "silent-sound-system",
+            "status": "PARTIAL",
+            "reason": "UNSUPPORTED",
+            "boundedReasons": [
+              "PRODUCT_PAGE_LIMIT"
+            ],
+            "requests": 2,
+            "returned": 3
+          },
+          {
+            "merchantId": "taterbeartreats-com",
+            "status": "UNAVAILABLE",
+            "reason": "INVALID_RESPONSE",
+            "failureDetail": "CONTENT_TYPE",
+            "requests": 1,
+            "returned": 0
+          },
+          {
+            "merchantId": "equinesnaturals-com",
+            "status": "COMPLETE",
+            "requests": 1,
+            "returned": 0
+          }
+        ],
+        "productCount": 3
+      },
+      {
+        "query": "coffee capsules",
+        "status": "PARTIAL",
+        "diagnostics": {
+          "eligibleStores": 1002,
+          "plannedStores": 6,
+          "attemptedStores": 6,
+          "succeededStores": 4,
+          "failedStores": 2,
+          "skippedStores": 996,
+          "physicalRequests": 6,
+          "responseBytes": 269,
+          "cacheHits": 0,
+          "elapsedMs": 1868,
+          "truncated": true,
+          "registryCoverageComplete": false,
+          "routing": {
+            "scope": "CURRENT_PASS",
+            "matchedStores": 49,
+            "relevantPlanned": 6,
+            "explorationPlanned": 0
+          }
+        },
+        "stores": [
+          {
+            "merchantId": "woodlandscoffeeroasters-com",
+            "status": "COMPLETE",
+            "requests": 1,
+            "returned": 0
+          },
+          {
+            "merchantId": "meanmugcoffeeco-com",
+            "status": "COMPLETE",
+            "requests": 1,
+            "returned": 0
+          },
+          {
+            "merchantId": "bostonsbestcoffee-com",
+            "status": "COMPLETE",
+            "requests": 1,
+            "returned": 0
+          },
+          {
+            "merchantId": "maple-city-roasters",
+            "status": "UNAVAILABLE",
+            "reason": "INVALID_RESPONSE",
+            "failureDetail": "CONTENT_TYPE",
+            "requests": 1,
+            "returned": 0
+          },
+          {
+            "merchantId": "alexanderspremiumcoffee-com",
+            "status": "COMPLETE",
+            "requests": 1,
+            "returned": 0
+          },
+          {
+            "merchantId": "orleans-coffee",
+            "status": "UNAVAILABLE",
+            "reason": "SECURITY_REJECTED",
+            "requests": 1,
+            "returned": 0
+          }
+        ],
+        "productCount": 0
+      }
+    ],
+    "newSources": "RESEARCH_ONLY; extra option price and stock UNKNOWN; no trust grants",
+    "globalCoverage": false
+  },
+  "cache": {
+    "path": "C:/Users/chris/.codex/plugins/cache/findcheap-agent/findcheap-agent/0.18.4+codex.20260909154800",
+    "version": "0.18.4+codex.20260909154800",
+    "installed": true,
+    "enabled": true,
+    "checkedFiles": 14,
+    "normalizedParity": "PASS",
+    "mcpSha256": "c58b80f77e65b0ed704b2b8cddc0da372cd770e2a234e1debda69108bdda628e",
+    "installedStdioAssertions": 5,
+    "marketplaceUpgrade": "PASS",
+    "pluginAddCommand": "OLD_CACHE_BACKUP_ACCESS_DENIED",
+    "oldCachePreserved": true,
+    "independentVerification": "PASS"
+  },
+  "installedLive": {
+    "mode": "INSTALLED_BUNDLE_REAL_UPSTREAMS_SDK",
+    "checkedAt": "2026-09-09T16:00:27.669Z",
+    "server": {
+      "name": "findcheap-agent",
+      "version": "0.18.4"
+    },
+    "verdict": "PASS",
+    "continuation": "PASS",
+    "compatibilityRefinement": "PASS",
+    "immutableSnapshot": "PASS",
+    "steps": [
+      {
+        "name": "coffee",
+        "elapsedMs": 9401,
+        "goalRevision": 1,
+        "sources": {
+          "awin": "COMPLETE",
+          "shopify": "PARTIAL",
+          "ebay": "SKIPPED",
+          "woocommerce": "UNAVAILABLE"
+        },
+        "recommendation": {
+          "state": "MATCHES_AVAILABLE",
+          "reasonCodes": []
+        },
+        "products": [
+          {
+            "title": "Mariner's Blend Dark\u2028Roast Coffee",
+            "sourceKind": "SHOPIFY_GLOBAL_CATALOG",
+            "group": "TRUSTED_MATCH"
+          },
+          {
+            "title": "FLOW: Original Medium Roast Ground Coffee",
+            "sourceKind": "SHOPIFY_GLOBAL_CATALOG",
+            "group": "TRUSTED_MATCH"
+          },
+          {
+            "title": "FLOW: Original Medium Roast Whole Bean Coffee",
+            "sourceKind": "SHOPIFY_GLOBAL_CATALOG",
+            "group": "TRUSTED_MATCH"
+          },
+          {
+            "title": "Traditional Piñon",
+            "sourceKind": "SHOPIFY_GLOBAL_CATALOG",
+            "requestIdentityStatus": "NEEDS_VERIFICATION",
+            "group": "RESEARCH_ONLY"
+          },
+          {
+            "title": "Just Black Roast",
+            "sourceKind": "SHOPIFY_GLOBAL_CATALOG",
+            "requestIdentityStatus": "NEEDS_VERIFICATION",
+            "group": "RESEARCH_ONLY"
+          },
+          {
+            "title": "Heritage Blend",
+            "sourceKind": "SHOPIFY_GLOBAL_CATALOG",
+            "requestIdentityStatus": "NEEDS_VERIFICATION",
+            "group": "RESEARCH_ONLY"
+          }
+        ],
+        "sourceFailures": [
+          {
+            "source": "WOOCOMMERCE",
+            "kind": "TIMEOUT",
+            "retryable": true
+          }
+        ]
+      },
+      {
+        "name": "capsules",
+        "elapsedMs": 8293,
+        "goalRevision": 2,
+        "sources": {
+          "awin": "COMPLETE",
+          "shopify": "PARTIAL",
+          "ebay": "SKIPPED",
+          "woocommerce": "PARTIAL"
+        },
+        "recommendation": {
+          "state": "MATCHES_AVAILABLE",
+          "reasonCodes": [],
+          "question": "你的咖啡机完整型号或胶囊系统是什么？例如 Nespresso Original、Vertuo、Dolce Gusto 或 Keurig K-Cup；确认兼容性后再选首选。"
+        },
+        "products": [
+          {
+            "title": "Midtown Roast Coffee Capsules",
+            "sourceKind": "SHOPIFY_GLOBAL_CATALOG",
+            "coffeeCompatibility": {
+              "status": "UNKNOWN",
+              "evidence": "user machine model or capsule system is unverified",
+              "observedSystems": []
+            },
+            "group": "TRUSTED_MATCH"
+          },
+          {
+            "title": "Breakfast Blend OneCUPTM Coffee Pods",
+            "sourceKind": "SHOPIFY_GLOBAL_CATALOG",
+            "coffeeCompatibility": {
+              "status": "UNKNOWN",
+              "evidence": "user machine model or capsule system is unverified",
+              "observedSystems": []
+            },
+            "group": "TRUSTED_MATCH"
+          },
+          {
+            "title": "INTENSE ESPRESSO COFFEE CAPSULES",
+            "sourceKind": "SHOPIFY_GLOBAL_CATALOG",
+            "coffeeCompatibility": {
+              "status": "UNKNOWN",
+              "evidence": "user machine model or capsule system is unverified",
+              "observedSystems": []
+            },
+            "group": "TRUSTED_MATCH"
+          },
+          {
+            "title": "BLEND 10 - INTENSE",
+            "sourceKind": "SHOPIFY_GLOBAL_CATALOG",
+            "coffeeCompatibility": {
+              "status": "UNKNOWN",
+              "evidence": "user machine model or capsule system is unverified",
+              "observedSystems": []
+            },
+            "requestIdentityStatus": "NEEDS_VERIFICATION",
+            "group": "RESEARCH_ONLY"
+          },
+          {
+            "title": "BLEND 5 - SMOOTH",
+            "sourceKind": "SHOPIFY_GLOBAL_CATALOG",
+            "coffeeCompatibility": {
+              "status": "UNKNOWN",
+              "evidence": "user machine model or capsule system is unverified",
+              "observedSystems": []
+            },
+            "requestIdentityStatus": "NEEDS_VERIFICATION",
+            "group": "RESEARCH_ONLY"
+          },
+          {
+            "title": "BLEND 9 - POWERFUL",
+            "sourceKind": "SHOPIFY_GLOBAL_CATALOG",
+            "coffeeCompatibility": {
+              "status": "UNKNOWN",
+              "evidence": "user machine model or capsule system is unverified",
+              "observedSystems": []
+            },
+            "requestIdentityStatus": "NEEDS_VERIFICATION",
+            "group": "RESEARCH_ONLY"
+          }
+        ],
+        "sourceFailures": [
+          {
+            "source": "WOOCOMMERCE",
+            "kind": "TIMEOUT",
+            "retryable": true
+          }
+        ],
+        "wooRegistry": "2026-09-09-priority-1002"
+      },
+      {
+        "name": "original",
+        "elapsedMs": 12960,
+        "goalRevision": 3,
+        "sources": {
+          "awin": "COMPLETE",
+          "shopify": "PARTIAL",
+          "ebay": "SKIPPED",
+          "woocommerce": "COMPLETE"
+        },
+        "recommendation": {
+          "state": "RESEARCH_ONLY",
+          "reasonCodes": [
+            "IDENTITY_UNVERIFIED",
+            "UNVERIFIED_MERCHANT",
+            "UNFULFILLED_REQUIREMENTS"
+          ]
+        },
+        "products": [
+          {
+            "title": "BLEND 10 - INTENSE",
+            "sourceKind": "SHOPIFY_GLOBAL_CATALOG",
+            "coffeeCompatibility": {
+              "status": "UNKNOWN",
+              "evidence": "selected capsule system is missing or ambiguous",
+              "requestedSystem": "NESPRESSO_ORIGINAL",
+              "observedSystems": []
+            },
+            "requestIdentityStatus": "NEEDS_VERIFICATION",
+            "group": "RESEARCH_ONLY"
+          },
+          {
+            "title": "BLEND 5 - SMOOTH",
+            "sourceKind": "SHOPIFY_GLOBAL_CATALOG",
+            "coffeeCompatibility": {
+              "status": "UNKNOWN",
+              "evidence": "selected capsule system is missing or ambiguous",
+              "requestedSystem": "NESPRESSO_ORIGINAL",
+              "observedSystems": []
+            },
+            "requestIdentityStatus": "NEEDS_VERIFICATION",
+            "group": "RESEARCH_ONLY"
+          },
+          {
+            "title": "BLEND 9 - POWERFUL",
+            "sourceKind": "SHOPIFY_GLOBAL_CATALOG",
+            "coffeeCompatibility": {
+              "status": "UNKNOWN",
+              "evidence": "selected capsule system is missing or ambiguous",
+              "requestedSystem": "NESPRESSO_ORIGINAL",
+              "observedSystems": []
+            },
+            "requestIdentityStatus": "NEEDS_VERIFICATION",
+            "group": "RESEARCH_ONLY"
+          }
+        ],
+        "sourceFailures": [
+          {
+            "source": "WOOCOMMERCE",
+            "kind": "TIMEOUT",
+            "retryable": true
+          }
+        ],
+        "wooRegistry": "2026-09-09-priority-1002"
+      }
+    ],
+    "nativeHostAcceptance": false
+  },
+  "nativeMetadataReader": {
+    "checkedAt": "2026-09-09T15:55:30.56Z",
+    "scope": "Read-only official metadata for two isolated QA tasks; no chat or product calls",
+    "states": [
+      {
+        "taskId": "01a086ba-a5d4-70b3-8e94-a0ec736ca783",
+        "status": "ACTIVE",
+        "elapsedMs": 62
+      },
+      {
+        "taskId": "01a086a4-1fcf-7fb0-bad7-f04f740b75b6",
+        "status": "UNKNOWN",
+        "elapsedMs": 73
+      }
+    ]
+  },
+  "deferredByUser": [
+    "Original medicube reference image",
+    "40 business and 40 image human-labeled acceptance sets"
+  ],
+  "openAcceptance": [
+    "Authoritative host deletion and legacy Watch ownership migration",
+    "Host delivery/stop acknowledgement and recurring notification protocol",
+    "Original medicube identity and same-SKU cross-merchant offers",
+    "Sony same-color/condition cross-merchant acceptance",
+    "Historical Sony CODE failure not reproduced",
+    "Native quote form approval/decline/cancel and complete-turn P95"
+  ],
+  "hostApprovalFailure": "MCP tool call requires approval, but approval policy is never; not bypassed or counted as passed",
+  "publication": {
+    "tag": "v0.18.4",
+    "targetCommit": "1c4930cf1464f32e7bf45099097ff46f5081a308",
+    "url": "https://github.com/yyq8548/FindCheap-Agent/releases/tag/v0.18.4",
+    "publishedAt": "2026-09-09T16:01:01Z",
+    "installerAssets": "PASS_TAG_CI_AND_THREE_SHA256_CHECKS",
+    "assetWorkflowId": 34374030976,
+    "assets": [
+      {
+        "sha256": "51943808cc9ebcbf02986e32a123687b99191feb41046bbd352c4f1b5387d7a1",
+        "result": "PASS",
+        "name": "Install-FindCheap-Agent.cmd"
+      },
+      {
+        "sha256": "300f59491ee29dcbd2bb0014bef324b08d99742205cbbc3e8ef03008c9d8829c",
+        "result": "PASS",
+        "name": "Install-FindCheap-Agent.ps1"
+      },
+      {
+        "sha256": "304b2911434d2779af721513a1c4996a332beac1267522536e6193a74f91e2ee",
+        "result": "PASS",
+        "name": "Install-FindCheap-Agent-Windows.zip"
+      }
+    ]
+  }
+}
