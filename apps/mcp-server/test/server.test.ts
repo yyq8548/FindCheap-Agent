@@ -878,6 +878,14 @@ describe("shopping MCP server", () => {
       undefined,
       { selectedProducts: { inspect }, cartQuotes: { quote: quoteCart } }, true
     );
+    const tools = await client.listTools();
+    for (const name of ["inspect_selected_product", "inspect_selected_shopify_product"]) {
+      const description = tools.tools.find((tool) => tool.name === name)?.description;
+      expect(description).toContain("Only returned specs verified");
+      expect(description).toContain("capacity/weight/count/etc unknown");
+      expect(description).toContain("never from memory/user requirements");
+      expect(description).toContain("Optional gaps: no blocking/extra calls/questions");
+    }
     const first = await client.callTool({
       name: "search_shopify_products",
       arguments: {

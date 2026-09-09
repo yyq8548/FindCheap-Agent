@@ -39,6 +39,12 @@ describe("shopping friend guidance", () => {
     expect(selected).toContain("Check sequentially with each");
     expect(selected).toContain("updatedSnapshot");
     expect(selected).toContain("never mix IDs");
+    for (const instructions of [skill, prompt]) {
+      expect(instructions).toContain("Only returned specs verified");
+      expect(instructions).toContain("capacity/weight/count/etc unknown");
+      expect(instructions).toContain("never from memory/user requirements");
+      expect(instructions).toContain("Optional gaps: no blocking/extra calls/questions");
+    }
   });
 
   it("distinguishes a rated match from a merchant audit or a chosen best deal", () => {
