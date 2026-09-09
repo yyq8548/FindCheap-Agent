@@ -9,9 +9,9 @@ English | [简体中文](README.zh-CN.md)
 
 Product form: **Codex Plugin Agent**.
 
-Current source package: **v0.18.4** — task-bound shopping history and restart recovery, safer Watch persistence, Sony/coffee identity repairs, clear quote eligibility, and 1,002 configured WooCommerce storefronts. Deployment and installed-plugin state are verified separately in the release record.
+Current source package: **v0.18.5** — selected coffee-form and compatibility evidence, precise requirement corrections, Sony detail compatibility, and conservative subscription pricing. The 1,002-store access table and existing task-history/Watch boundaries remain. Deployment and installed-plugin state are verified separately in the release record.
 Nine-row comparisons and immutable selections remain.
-[Release and verification status](docs/releases/v0.18.4.md). [9/9 repair and test status](<改进计划 9_9.md>). [1,000-store baseline evidence](docs/engineering/changes/2026-09-08-woocommerce-expansion-1000-data.md). [Existing 200-merchant trust review](docs/product/woocommerce-merchant-trust-200.md).
+[Release and verification status](docs/releases/v0.18.5.md). [9/9 repair and test status](<改进计划 9_9.md>). [1,000-store baseline evidence](docs/engineering/changes/2026-09-08-woocommerce-expansion-1000-data.md). [Existing 200-merchant trust review](docs/product/woocommerce-merchant-trust-200.md).
 
 FindCheap Agent is a shopping-research Codex plugin for product search, offer matching, price checks, product cards, evidence-backed comparison views, verified deals, and shopping watches. Search is read-only; quotes and Watches have separate authorization boundaries. It returns up to eight products in three tiers: 2 official-store matches, 3 trusted or high-rated matches, and 3 best-value high-match options.
 

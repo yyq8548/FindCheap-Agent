@@ -4420,6 +4420,11 @@
           "kind": "import-statement",
           "original": "./merchant-requirements.js",
           "path": "src/merchant-requirements.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./coffee-category.js",
+          "path": "src/coffee-category.ts"
         }
       ]
     },
@@ -5757,7 +5762,7 @@
   },
   "outputs": {
     "../../plugins/findcheap-agent/dist/mcp-server.js": {
-      "bytes": 1123861,
+      "bytes": 1124554,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
@@ -6088,7 +6093,7 @@
           "bytesInOutput": 1981
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/core.js": {
-          "bytesInOutput": 12299
+          "bytesInOutput": 12295
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/refs/data.json": {
           "bytesInOutput": 359
@@ -6172,7 +6177,7 @@
           "bytesInOutput": 2382
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/discriminator/index.js": {
-          "bytesInOutput": 2294
+          "bytesInOutput": 2291
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/discriminator/types.js": {
           "bytesInOutput": 182
@@ -6181,7 +6186,7 @@
           "bytesInOutput": 236
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/format/format.js": {
-          "bytesInOutput": 1954
+          "bytesInOutput": 1951
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/vocabularies/format/index.js": {
           "bytesInOutput": 122
@@ -6424,7 +6429,7 @@
           "bytesInOutput": 649
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v4/core/schemas.js": {
-          "bytesInOutput": 18935
+          "bytesInOutput": 18932
         },
         "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v4/core/to-json-schema.js": {
           "bytesInOutput": 11445
@@ -6490,7 +6495,7 @@
           "bytesInOutput": 1937
         },
         "src/coffee-category.ts": {
-          "bytesInOutput": 7514
+          "bytesInOutput": 7539
         },
         "src/deal-assessment.ts": {
           "bytesInOutput": 4682
@@ -6529,10 +6534,10 @@
           "bytesInOutput": 979
         },
         "src/functional-requirements.ts": {
-          "bytesInOutput": 7867
+          "bytesInOutput": 7864
         },
         "src/generic-official-store-search.ts": {
-          "bytesInOutput": 15778
+          "bytesInOutput": 15776
         },
         "src/known-product-url.ts": {
           "bytesInOutput": 1856
@@ -6586,7 +6591,7 @@
           "bytesInOutput": 128
         },
         "src/product-requirements.ts": {
-          "bytesInOutput": 6406
+          "bytesInOutput": 7200
         },
         "src/product-value-evidence.ts": {
           "bytesInOutput": 4807
@@ -6613,10 +6618,10 @@
           "bytesInOutput": 6137
         },
         "src/search-products.ts": {
-          "bytesInOutput": 51704
+          "bytesInOutput": 51330
         },
         "src/search-requirements-context.ts": {
-          "bytesInOutput": 6416
+          "bytesInOutput": 6450
         },
         "src/search-result-summary.ts": {
           "bytesInOutput": 5529
@@ -6625,19 +6630,19 @@
           "bytesInOutput": 8103
         },
         "src/server.ts": {
-          "bytesInOutput": 216192
+          "bytesInOutput": 216440
         },
         "src/shopify-cart-quote.ts": {
-          "bytesInOutput": 12443
+          "bytesInOutput": 12440
         },
         "src/shopify-client.ts": {
           "bytesInOutput": 181
         },
         "src/shopify-global-catalog-client.ts": {
-          "bytesInOutput": 23617
+          "bytesInOutput": 23611
         },
         "src/shopify-match.ts": {
-          "bytesInOutput": 12643
+          "bytesInOutput": 12639
         },
         "src/shopify-official-store-search.ts": {
           "bytesInOutput": 14776
@@ -6646,7 +6651,7 @@
           "bytesInOutput": 1432
         },
         "src/shopify-selected-product.ts": {
-          "bytesInOutput": 6854
+          "bytesInOutput": 6843
         },
         "src/snapshot-products.ts": {
           "bytesInOutput": 826
@@ -6655,7 +6660,7 @@
           "bytesInOutput": 493
         },
         "src/sony-official-store-search.ts": {
-          "bytesInOutput": 11978
+          "bytesInOutput": 11993
         },
         "src/source-failure.ts": {
           "bytesInOutput": 4113
@@ -6697,7 +6702,7 @@
           "bytesInOutput": 12162
         },
         "src/watch-store.ts": {
-          "bytesInOutput": 13778
+          "bytesInOutput": 13771
         },
         "src/web-product-recovery.ts": {
           "bytesInOutput": 6569

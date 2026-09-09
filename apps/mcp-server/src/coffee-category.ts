@@ -115,7 +115,7 @@ export function assessCoffeeCategory(category: CoffeeCategory, candidate: Coffee
       if (/^(?:ground|ground coffee|研磨|已研磨)$/u.test(selected)) return "GROUND" as const;
       if (/^(?:pods?|capsules?)$/u.test(selected)) return "PODS" as const;
       if (/^(?:instant|soluble)$/u.test(selected)) return "INSTANT" as const;
-      if (/^grind(?: |$)|^研磨/u.test(normalize(key)) && /^(?:fine|medium|coarse|drip|espresso|french press)(?: grind| ground)?$/u.test(selected)) return "GROUND" as const;
+      if (/^grind(?: |$)|^研磨/u.test(normalize(key)) && /^(?:fine|medium|coarse|(?:auto )?drip|(?:home )?espresso|french(?: press)?)(?: grind| ground)?$/u.test(selected)) return "GROUND" as const;
       return undefined;
     });
     if (forms.some(form => form === undefined) || new Set(forms).size !== 1) {
@@ -170,12 +170,12 @@ export function isCoffeeCapsuleRequest(request: CoffeeRequest): boolean {
     requestedCoffeeSystem(request) !== undefined);
 }
 
-export function assessCoffeeCompatibility(request: CoffeeRequest, candidate: CoffeeCandidate): CoffeeCompatibilityAssessment {
+export function assessCoffeeCompatibility(request: CoffeeRequest, candidate: CoffeeCandidate,
+  requestedSystem: CoffeeSystem | undefined = requestedCoffeeSystem(request)): CoffeeCompatibilityAssessment {
   const broadCoffeeRequest = (parseCoffeeCategory(request.productType) ?? parseCoffeeCategory(request.query)) === "COFFEE";
   if (!isCoffeeCapsuleRequest(request) && !(broadCoffeeRequest && assessCoffeeCategory("PODS", candidate).status === "MATCHED")) {
     return { status: "NOT_APPLICABLE", evidence: "neither request nor selected product identifies prepared coffee capsules", observedSystems: [] };
   }
-  const requestedSystem = requestedCoffeeSystem(request);
   const selected = Object.entries(candidate.variantDimensions ?? {}).filter(([key]) => SYSTEM_DIMENSION.test(normalize(key)));
   const primary = systemEvidence([candidate.title, candidate.productType ?? ""]);
   const observed = selected.length > 0 ? systemEvidence(selected.map(([, value]) => value)) : primary;

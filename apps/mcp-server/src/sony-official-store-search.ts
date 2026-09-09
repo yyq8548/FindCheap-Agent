@@ -40,7 +40,7 @@ const BaseOptions = z.object({ selected: Option, options: z.array(z.union([Optio
 const Detail = z.object({ code: Code, name: z.string().min(1).max(1000), summary: z.string().min(1).max(5000),
   description: z.string().max(100_000).default(""), baseProduct: Code, url: z.string().max(4096), canonicalUrl: z.string().max(4096),
   gwModel: z.string().min(1).max(100).optional(), superModelName: z.string().min(1).max(100).optional(),
-  price: Price, stock: Stock, purchasable: z.boolean(), notSellable: z.boolean(),
+  price: Price, stock: Stock, purchasable: z.boolean(), notSellable: z.boolean().optional(),
   baseOptions: z.array(BaseOptions).length(1),
   upc: z.string().regex(/^\d{8,14}$/u).optional(),
   images: z.array(z.object({ imageType: z.string(), format: z.string(), url: z.string().max(4096) })).max(100).optional()
@@ -276,7 +276,7 @@ function toProduct(product: SonyDetail, checkedAt: Date): ShopifyProduct {
     condition: conditionOf(product), ...(imageUrl === undefined ? {} : { imageUrl }),
     itemPrice: { amountCents: cents(product.price.value), currency: "USD" as const },
     availability: !inStock(product.stock) ? "OUT_OF_STOCK" as const
-      : product.purchasable && !product.notSellable ? "IN_STOCK" as const : "UNKNOWN" as const,
+      : product.purchasable && product.notSellable === false ? "IN_STOCK" as const : "UNKNOWN" as const,
     merchantUrl: new URL(product.canonicalUrl, `https://${STORE_HOST}`).href, checkedAt: checkedAt.toISOString(), checkoutPlatform: "MERCHANT" as const
   };
   return result;

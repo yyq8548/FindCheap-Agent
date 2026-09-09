@@ -3110,7 +3110,7 @@ export function createShoppingServer(
       let parsedInput = normalizePackageRequirements(SearchProductsInputSchema.parse(rawInput));
       if (parsedInput.contextMode === "NEW_PRODUCT" && (parsedInput.parentRenderId !== undefined ||
         parsedInput.goalId !== undefined || parsedInput.goalRevision !== undefined)) return toolError("INVALID_ARGUMENTS");
-      if (parsedInput.removeRequiredFeatures.length > 0 && parsedInput.contextMode !== "CONTINUE_PREVIOUS_PRODUCT") return toolError("INVALID_ARGUMENTS");
+      if (parsedInput.removeRequiredFeatures.length > 0 && !["CONTINUE_PREVIOUS_PRODUCT", "CORRECT_PREVIOUS_PRODUCT"].includes(parsedInput.contextMode)) return toolError("INVALID_ARGUMENTS");
       if (["CONTINUE_PREVIOUS_PRODUCT", "CORRECT_PREVIOUS_PRODUCT"].includes(parsedInput.contextMode)) {
         if (parsedInput.parentRenderId === undefined && parsedInput.goalId === undefined) return toolError("MISSING_REFERENCE_CONTEXT");
         const parent = resolveSearchParent(parsedInput);
@@ -3474,6 +3474,7 @@ export function createShoppingServer(
       let parentRun: SearchRun | undefined;
       if (parsedInput.contextMode === "NEW_PRODUCT" && (parsedInput.parentRenderId !== undefined ||
         parsedInput.goalId !== undefined || parsedInput.goalRevision !== undefined)) return toolError("INVALID_ARGUMENTS");
+      if (parsedInput.removeRequiredFeatures.length > 0 && !["CONTINUE_PREVIOUS_PRODUCT", "CORRECT_PREVIOUS_PRODUCT"].includes(parsedInput.contextMode)) return toolError("INVALID_ARGUMENTS");
       if (["CONTINUE_PREVIOUS_PRODUCT", "CORRECT_PREVIOUS_PRODUCT"].includes(parsedInput.contextMode)) {
         if (parsedInput.parentRenderId === undefined && parsedInput.goalId === undefined) return toolError("MISSING_REFERENCE_CONTEXT");
         const parent = resolveSearchParent({ ...parsedInput, limit: 3 });

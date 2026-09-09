@@ -155,9 +155,16 @@ export function normalizeWooProduct(raw: WooRawProduct, store: WooMerchant, chec
   // Some merchants expose paid custom choices as "simple" products, including
   // has_options=false. An audited registry restriction takes precedence.
   const unpriced = unresolvedVariation || raw.is_purchasable === false || raw.has_options === true || store.requiresOptionSelection === true;
+  // A numeric subscription amount does not establish the billing period or
+  // complete purchase scope represented by itemPrice. Keep the raw amount and
+  // independently bound stock facts; ordinary zero-price products remain valid.
+  const explicitlyOneTime = /\bone[\s-]+time\s+purchase\b/iu.test(cleanText(raw.name));
+  const unknownBillingScope = [raw, ...(isVariation ? [parent!] : [])].some(product =>
+    /\bsubscriptions?\b/iu.test(cleanText(product.name)) || (!explicitlyOneTime &&
+      (product.categories ?? []).some(category => /\bsubscriptions?\b/iu.test(cleanText(category.name)))));
   const amountMinor = raw.prices.price !== undefined && /^\d{1,16}$/u.test(raw.prices.price) ? raw.prices.price : undefined;
   const amountCents = amountMinor === undefined ? NaN : Number(amountMinor) * 10 ** (2 - raw.prices.currency_minor_unit);
-  const canPrice = raw.type !== "variable" && !unpriced && raw.prices.currency_code === "USD" && Number.isSafeInteger(amountCents) && amountCents >= 0 && amountCents <= 100_000_000;
+  const canPrice = raw.type !== "variable" && !unpriced && !unknownBillingScope && raw.prices.currency_code === "USD" && Number.isSafeInteger(amountCents) && amountCents >= 0 && amountCents <= 100_000_000;
   const images = (raw.images ?? []).flatMap((image) => {
     try {
       const url = new URL(image.src, store.origin);
@@ -183,7 +190,7 @@ export function normalizeWooProduct(raw: WooRawProduct, store: WooMerchant, chec
     variantDimensions, selectedAttributes, merchantUrl, images, ...(images[0] === undefined ? {} : { imageUrl: images[0].url }),
     ...(canPrice ? { itemPrice: { amountCents, currency: "USD" } } : {}),
     priceEvidence: { ...(amountMinor === undefined ? {} : { amountMinor }), currency: raw.prices.currency_code,
-      currencyMinorUnit: raw.prices.currency_minor_unit, scope: raw.type === "variable" ? "PARENT_RANGE" : unpriced ? "UNKNOWN" : isVariation ? "VARIANT" : "PRODUCT", taxBasis: "UNKNOWN" },
+      currencyMinorUnit: raw.prices.currency_minor_unit, scope: raw.type === "variable" ? "PARENT_RANGE" : unpriced || unknownBillingScope ? "UNKNOWN" : isVariation ? "VARIANT" : "PRODUCT", taxBasis: "UNKNOWN" },
     availability: unpriced ? "UNKNOWN" : stockAvailability(raw),
     availabilityScope: isVariation ? "VARIANT" : raw.type === "variable" ? "PARENT" : "PRODUCT", ...(rating === undefined ? {} : { rating }), checkedAt
   });

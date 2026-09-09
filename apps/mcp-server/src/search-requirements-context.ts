@@ -35,7 +35,7 @@ export function mergeSearchRequirements(current: SearchProductsInput, previous: 
   current = submitted;
   current = normalizePackageRequirements(current);
   previous = normalizePackageRequirements(previous);
-  if (current.removeRequiredFeatures.length > 0 && current.contextMode !== "CONTINUE_PREVIOUS_PRODUCT") throw new Error("PRODUCT_CONTEXT_CONFLICT");
+  if (current.removeRequiredFeatures.length > 0 && !["CONTINUE_PREVIOUS_PRODUCT", "CORRECT_PREVIOUS_PRODUCT"].includes(current.contextMode)) throw new Error("PRODUCT_CONTEXT_CONFLICT");
   if (current.contextMode === "NEW_PRODUCT") return current;
   const correctingIdentity = current.contextMode === "CORRECT_PREVIOUS_PRODUCT";
   const retained: Record<string, unknown> = { ...previous };

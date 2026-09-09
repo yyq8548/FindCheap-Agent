@@ -1,0 +1,347 @@
+{
+  "observedAt": "2026-09-09T18:32:55.613Z",
+  "note": "Public read-only Store API observations. No Cart request. Subscription billing scope is absent; zero is retained as an observed amount, not assumed missing.",
+  "observations": [
+    {
+      "url": "https://jbccoffeeroasters.com/wp-json/wc/store/v1/products/399",
+      "status": 200,
+      "body": {
+        "id": 399,
+        "name": "Subscription Coffee",
+        "slug": "subscription-coffee",
+        "parent": 0,
+        "type": "variable",
+        "variation": "",
+        "permalink": "https://jbccoffeeroasters.com/product/subscription-coffee/",
+        "sku": "subscr-coffee",
+        "short_description": "",
+        "description": "",
+        "on_sale": false,
+        "prices": {
+          "price": "0",
+          "regular_price": "0",
+          "sale_price": "0",
+          "price_range": null,
+          "currency_code": "USD",
+          "currency_symbol": "$",
+          "currency_minor_unit": 2,
+          "currency_decimal_separator": ".",
+          "currency_thousand_separator": ",",
+          "currency_prefix": "$",
+          "currency_suffix": ""
+        },
+        "price_html": "<span class=\"woocommerce-Price-amount amount\"><span class=\"woocommerce-Price-currencySymbol\">&#036;</span>0.00</span>",
+        "average_rating": "0",
+        "review_count": 0,
+        "images": [],
+        "categories": [
+          {
+            "id": 53,
+            "name": "Coffee Subscription",
+            "slug": "coffee-subscription",
+            "link": "https://jbccoffeeroasters.com/product-category/coffee-subscription/"
+          }
+        ],
+        "tags": [],
+        "brands": [],
+        "attributes": [
+          {
+            "id": 1,
+            "name": "Grind",
+            "taxonomy": "pa_grind",
+            "has_variations": true,
+            "terms": [
+              {
+                "id": 45,
+                "name": "Auto Drip",
+                "slug": "auto-drip"
+              },
+              {
+                "id": 47,
+                "name": "Coarse (Cold Brew)",
+                "slug": "coarse"
+              },
+              {
+                "id": 46,
+                "name": "French Press/Chemex",
+                "slug": "french"
+              },
+              {
+                "id": 43,
+                "name": "Home Espresso",
+                "slug": "home-espresso"
+              },
+              {
+                "id": 44,
+                "name": "Pour Over (V60, Kalita, Etc.)",
+                "slug": "pour-over"
+              },
+              {
+                "id": 42,
+                "name": "Whole Bean",
+                "slug": "whole-bean"
+              }
+            ]
+          }
+        ],
+        "variations": [
+          {
+            "id": 684,
+            "attributes": [
+              {
+                "name": "Grind",
+                "value": "auto-drip"
+              }
+            ]
+          },
+          {
+            "id": 685,
+            "attributes": [
+              {
+                "name": "Grind",
+                "value": "coarse"
+              }
+            ]
+          },
+          {
+            "id": 686,
+            "attributes": [
+              {
+                "name": "Grind",
+                "value": "french"
+              }
+            ]
+          },
+          {
+            "id": 687,
+            "attributes": [
+              {
+                "name": "Grind",
+                "value": "home-espresso"
+              }
+            ]
+          },
+          {
+            "id": 688,
+            "attributes": [
+              {
+                "name": "Grind",
+                "value": "pour-over"
+              }
+            ]
+          },
+          {
+            "id": 689,
+            "attributes": [
+              {
+                "name": "Grind",
+                "value": "whole-bean"
+              }
+            ]
+          }
+        ],
+        "grouped_products": [],
+        "has_options": true,
+        "is_purchasable": true,
+        "is_in_stock": true,
+        "is_on_backorder": false,
+        "low_stock_remaining": null,
+        "stock_availability": {
+          "text": "",
+          "class": "in-stock"
+        },
+        "sold_individually": false,
+        "add_to_cart": {
+          "text": "Select options",
+          "description": "Select options for &ldquo;Subscription Coffee&rdquo;",
+          "url": "https://jbccoffeeroasters.com/product/subscription-coffee/",
+          "single_text": "Add to cart",
+          "minimum": 1,
+          "maximum": 9999,
+          "multiple_of": 1
+        },
+        "extensions": {}
+      }
+    },
+    {
+      "url": "https://jbccoffeeroasters.com/wp-json/wc/store/v1/products/684",
+      "status": 200,
+      "body": {
+        "id": 684,
+        "name": "Subscription Coffee",
+        "slug": "subscription-coffee-auto-drip",
+        "parent": 399,
+        "type": "variation",
+        "variation": "Grind: Auto Drip",
+        "permalink": "https://jbccoffeeroasters.com/product/subscription-coffee/?attribute_pa_grind=auto-drip",
+        "sku": "subscr-coffee",
+        "short_description": "",
+        "description": "",
+        "on_sale": false,
+        "prices": {
+          "price": "0",
+          "regular_price": "0",
+          "sale_price": "0",
+          "price_range": null,
+          "currency_code": "USD",
+          "currency_symbol": "$",
+          "currency_minor_unit": 2,
+          "currency_decimal_separator": ".",
+          "currency_thousand_separator": ",",
+          "currency_prefix": "$",
+          "currency_suffix": ""
+        },
+        "price_html": "<span class=\"woocommerce-Price-amount amount\"><span class=\"woocommerce-Price-currencySymbol\">&#036;</span>0.00</span>",
+        "average_rating": "0",
+        "review_count": 0,
+        "images": [],
+        "categories": [],
+        "tags": [],
+        "brands": [],
+        "attributes": [],
+        "variations": [],
+        "grouped_products": [],
+        "has_options": false,
+        "is_purchasable": true,
+        "is_in_stock": true,
+        "is_on_backorder": false,
+        "low_stock_remaining": null,
+        "stock_availability": {
+          "text": "",
+          "class": "in-stock"
+        },
+        "sold_individually": false,
+        "add_to_cart": {
+          "text": "Add to cart",
+          "description": "Add to cart: &ldquo;Subscription Coffee &#8211; Auto Drip&rdquo;",
+          "url": "https://jbccoffeeroasters.com/product/subscription-coffee/?attribute_pa_grind=auto-drip&#038;variation_id=684&#038;add-to-cart=399",
+          "single_text": "Add to cart",
+          "minimum": 1,
+          "maximum": 9999,
+          "multiple_of": 1
+        },
+        "extensions": {}
+      }
+    },
+    {
+      "url": "https://jbccoffeeroasters.com/wp-json/wc/store/v1/products/686",
+      "status": 200,
+      "body": {
+        "id": 686,
+        "name": "Subscription Coffee",
+        "slug": "subscription-coffee-french-press-chemex",
+        "parent": 399,
+        "type": "variation",
+        "variation": "Grind: French Press/Chemex",
+        "permalink": "https://jbccoffeeroasters.com/product/subscription-coffee/?attribute_pa_grind=french",
+        "sku": "subscr-coffee",
+        "short_description": "",
+        "description": "",
+        "on_sale": false,
+        "prices": {
+          "price": "0",
+          "regular_price": "0",
+          "sale_price": "0",
+          "price_range": null,
+          "currency_code": "USD",
+          "currency_symbol": "$",
+          "currency_minor_unit": 2,
+          "currency_decimal_separator": ".",
+          "currency_thousand_separator": ",",
+          "currency_prefix": "$",
+          "currency_suffix": ""
+        },
+        "price_html": "<span class=\"woocommerce-Price-amount amount\"><span class=\"woocommerce-Price-currencySymbol\">&#036;</span>0.00</span>",
+        "average_rating": "0",
+        "review_count": 0,
+        "images": [],
+        "categories": [],
+        "tags": [],
+        "brands": [],
+        "attributes": [],
+        "variations": [],
+        "grouped_products": [],
+        "has_options": false,
+        "is_purchasable": true,
+        "is_in_stock": true,
+        "is_on_backorder": false,
+        "low_stock_remaining": null,
+        "stock_availability": {
+          "text": "",
+          "class": "in-stock"
+        },
+        "sold_individually": false,
+        "add_to_cart": {
+          "text": "Add to cart",
+          "description": "Add to cart: &ldquo;Subscription Coffee &#8211; French Press/Chemex&rdquo;",
+          "url": "https://jbccoffeeroasters.com/product/subscription-coffee/?attribute_pa_grind=french&#038;variation_id=686&#038;add-to-cart=399",
+          "single_text": "Add to cart",
+          "minimum": 1,
+          "maximum": 9999,
+          "multiple_of": 1
+        },
+        "extensions": {}
+      }
+    },
+    {
+      "url": "https://jbccoffeeroasters.com/wp-json/wc/store/v1/products/687",
+      "status": 200,
+      "body": {
+        "id": 687,
+        "name": "Subscription Coffee",
+        "slug": "subscription-coffee-home-espresso",
+        "parent": 399,
+        "type": "variation",
+        "variation": "Grind: Home Espresso",
+        "permalink": "https://jbccoffeeroasters.com/product/subscription-coffee/?attribute_pa_grind=home-espresso",
+        "sku": "subscr-coffee",
+        "short_description": "",
+        "description": "",
+        "on_sale": false,
+        "prices": {
+          "price": "0",
+          "regular_price": "0",
+          "sale_price": "0",
+          "price_range": null,
+          "currency_code": "USD",
+          "currency_symbol": "$",
+          "currency_minor_unit": 2,
+          "currency_decimal_separator": ".",
+          "currency_thousand_separator": ",",
+          "currency_prefix": "$",
+          "currency_suffix": ""
+        },
+        "price_html": "<span class=\"woocommerce-Price-amount amount\"><span class=\"woocommerce-Price-currencySymbol\">&#036;</span>0.00</span>",
+        "average_rating": "0",
+        "review_count": 0,
+        "images": [],
+        "categories": [],
+        "tags": [],
+        "brands": [],
+        "attributes": [],
+        "variations": [],
+        "grouped_products": [],
+        "has_options": false,
+        "is_purchasable": true,
+        "is_in_stock": true,
+        "is_on_backorder": false,
+        "low_stock_remaining": null,
+        "stock_availability": {
+          "text": "",
+          "class": "in-stock"
+        },
+        "sold_individually": false,
+        "add_to_cart": {
+          "text": "Add to cart",
+          "description": "Add to cart: &ldquo;Subscription Coffee &#8211; Home Espresso&rdquo;",
+          "url": "https://jbccoffeeroasters.com/product/subscription-coffee/?attribute_pa_grind=home-espresso&#038;variation_id=687&#038;add-to-cart=399",
+          "single_text": "Add to cart",
+          "minimum": 1,
+          "maximum": 9999,
+          "multiple_of": 1
+        },
+        "extensions": {}
+      }
+    }
+  ]
+}

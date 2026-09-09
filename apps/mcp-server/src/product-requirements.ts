@@ -7,6 +7,7 @@ import { missingChargingRequirements } from "./decision-constraints.js";
 import { isPartialPriceListing } from "./shopify-match.js";
 import { isTrustedMerchant, type MerchantTrustEvidence } from "./merchant-trust.js";
 import { requirementDomain } from "./merchant-requirements.js";
+import { assessCoffeeCategory, assessCoffeeCompatibility, coffeeCompatibilityRequirement, parseCoffeeCategory, requestedCoffeeSystem } from "./coffee-category.js";
 
 /** Product/feed claims describe what the merchant says, not verified efficacy. */
 export const CandidateClaimEvidenceSchema = z.object({
@@ -93,6 +94,12 @@ export function evaluateProductRequirements(product: RequirementProduct, input: 
       entries.push(merchant);
       continue;
     }
+    const coffee = coffeeRequirementAssessment(product, input, requirement);
+    if (coffee !== undefined) {
+      entries.push({ requirement: sanitizeExternalText(requirement, 200), status: coffee.status,
+        source: coffee.status === "UNKNOWN" ? "MISSING" : product.evidenceSource ?? "PRODUCT", observed: coffee.evidence });
+      continue;
+    }
     const named = namedProductAssessment(product, boundNamedIdentityRequirement(requirement, input.query));
     if (named !== undefined) {
       entries.push({ requirement: sanitizeExternalText(requirement, 200), status: named.status,
@@ -163,7 +170,12 @@ export function evaluateProductRequirements(product: RequirementProduct, input: 
         status: merchant.status === "MATCHED" ? "CONTRADICTED" : "UNKNOWN" });
       continue;
     }
-    if ((namedProductAssessment(product, excluded)?.status ?? productClaimAssessment(product, excluded)?.status ?? evaluateFeature(isColorRequirement(excluded) ? colorText : text, excluded)) === "MATCHED") entries.push({
+    const coffee = coffeeRequirementAssessment(product, input, excluded);
+    if (coffee?.status === "UNKNOWN") {
+      entries.push({ requirement: sanitizeExternalText(`excluded: ${excluded}`, 200), status: "UNKNOWN", source: "MISSING", observed: coffee.evidence });
+      continue;
+    }
+    if ((coffee?.status ?? namedProductAssessment(product, excluded)?.status ?? productClaimAssessment(product, excluded)?.status ?? evaluateFeature(isColorRequirement(excluded) ? colorText : text, excluded)) === "MATCHED") entries.push({
       requirement: sanitizeExternalText(`excluded: ${excluded}`, 200), status: "CONTRADICTED", source: product.evidenceSource ?? "PRODUCT"
     });
   }
@@ -178,7 +190,24 @@ export function evaluateProductRequirements(product: RequirementProduct, input: 
       : unknown.length > 0 ? "NEEDS_VERIFICATION" : "SATISFIED" };
   return { matched, contradicted, unknown,
     preferences: input.preferences.filter(feature =>
-      (merchantRequirementAssessment(product, feature)?.status ?? namedProductAssessment(product, feature)?.status ?? productClaimAssessment(product, feature)?.status ?? evaluateFeature(isColorRequirement(feature) ? colorText : text, feature)) === "MATCHED"), assessment };
+      (merchantRequirementAssessment(product, feature)?.status ?? coffeeRequirementAssessment(product, input, feature)?.status ?? namedProductAssessment(product, feature)?.status ?? productClaimAssessment(product, feature)?.status ?? evaluateFeature(isColorRequirement(feature) ? colorText : text, feature)) === "MATCHED"), assessment };
+}
+
+/** A shared description cannot satisfy a form or system that the selected offer
+ * leaves unknown or contradicts. All requirement consumers use the same facts. */
+function coffeeRequirementAssessment(product: RequirementProduct, input: Requirements, requirement: string) {
+  const category = parseCoffeeCategory(requirement);
+  if (category !== undefined) return assessCoffeeCategory(category, product);
+  const exactSystem = coffeeCompatibilityRequirement(requirement);
+  const system = exactSystem ?? requestedCoffeeSystem({ query: requirement });
+  if (system === undefined) return undefined;
+  const compatibility = assessCoffeeCompatibility({ query: input.query ?? input.productType ?? "",
+    productType: input.productType, primaryUse: input.primaryUse, requiredFeatures: input.requiredFeatures }, product, system);
+  if (compatibility.status === "NOT_APPLICABLE") return undefined;
+  if (exactSystem === undefined) {
+    return { status: "UNKNOWN" as const, evidence: "system compatibility does not establish the complete combined requirement" };
+  }
+  return { status: compatibility.status, evidence: compatibility.evidence };
 }
 
 function merchantRequirementAssessment(product: RequirementProduct, requirement: string): RequirementAssessment["entries"][number] | undefined {

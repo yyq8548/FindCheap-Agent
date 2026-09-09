@@ -223,6 +223,34 @@ describe("Sony public official product reads", () => {
     expect(found?.availability).toBe("UNKNOWN");
   });
 
+  it("retains selected SKU facts when Sony omits notSellable without confirming purchasability", async () => {
+    // The live WH-1000XM5 Black FULL response omitted this field on 2026-09-09.
+    const selected = option("wh1000xm5-b", "Black", 299.99);
+    const { notSellable: _notSellable, ...product } = { ...detail("wh1000xm5-b"), name: "WH1000XM5/B",
+      gwModel: "WH-1000XM5", superModelName: "WH-1000XM5", baseProduct: "wh-1000xm5_base",
+      summary: "WH-1000XM5 Premium Wireless Noise Canceling Headphones | Black",
+      price: { currencyIso: "USD", value: 299.99 },
+      baseOptions: [{ selected, options: [selected], variantType: "SNAProductVariant" }] };
+    const [found] = await createSonyOfficialSearchPort({ fetchDocument: directSource(product) }).search(input({
+      query: "Sony WH-1000XM5 black", sourcePageUrl: `https://${host}${path}wh1000xm5-b`
+    }));
+    expect(found).toMatchObject({ sku: "wh1000xm5-b", mpn: "WH-1000XM5", variantDimensions: { Color: "Black" },
+      itemPrice: { amountCents: 29999, currency: "USD" }, availability: "UNKNOWN", availabilityScope: "SELECTED_VARIANT" });
+  });
+
+  it("does not confirm stock when Sony explicitly prohibits selling an in-stock SKU", async () => {
+    const [found] = await createSonyOfficialSearchPort({ fetchDocument: directSource({ ...detail(), notSellable: true }) })
+      .search(directInput());
+    expect(found?.availability).toBe("UNKNOWN");
+  });
+
+  it.each([null, "false", 0])("rejects an invalid notSellable value instead of coercing it: %s", async notSellable => {
+    const port = createSonyOfficialSearchPort({ fetchDocument: directSource({ ...detail(), notSellable }) });
+    await expect(port.search(directInput())).rejects.toMatchObject({ validation: {
+      provider: "SONY", stage: "DETAIL_RESPONSE", reason: "INVALID_SCHEMA", fields: ["OTHER"]
+    } });
+  });
+
   it("accepts an explicitly empty optional FULL description and skips wrong-model search hits before hydration", async () => {
     const product = detail(); product.description = "";
     const fetchDocument = vi.fn<OfficialShopifyFetch>(async url => ({ finalUrl: url, response: Response.json(new URL(url).pathname.endsWith("/search")

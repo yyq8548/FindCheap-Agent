@@ -9,7 +9,7 @@
 
 产品形式：**Codex 插件 Agent**。
 
-当前源码版本：**v0.18.3**。WooCommerce 访问表扩至 1,000 家，修复胶囊与机器兼容性核验、分页和受限来源恢复，保留九行比较及原选择。部署与已安装插件状态独立核验。[发布范围与验证状态](docs/releases/v0.18.3.md)；[千店数据与证据](docs/engineering/changes/2026-09-08-woocommerce-expansion-1000-data.md)；[可重复验收测试](docs/testing/capsule-search-and-woocommerce-expansion.md)。
+当前源码版本：**v0.18.5**。修复真实咖啡研磨别名、统一形态与兼容性证据、支持纠正商品时精确撤销单项条件、兼容Sony缺省详情字段，并保留订阅计价的未知边界。WooCommerce访问表仍为1,002家，访问资格不等于可信商家或同款覆盖。部署、安装和原生验收分别记录。[发布范围与验证状态](docs/releases/v0.18.5.md)；[改进计划](<改进计划 9_9.md>)；[千店数据与证据](docs/engineering/changes/2026-09-08-woocommerce-expansion-1000-data.md)。
 
 FindCheap Agent 是一个 Codex 购物研究插件，支持商品搜索、商品匹配、价格查询、商品卡片、证据驱动对比视图、已验证优惠和购物监控。检索只读；报价和 Watch 有独立授权边界。每次最多返回 8 个商品，分为三层：最多 2 个官网结果、3 个可信或高评分匹配、3 个高性价比高匹配结果。
 

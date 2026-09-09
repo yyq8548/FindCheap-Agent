@@ -4,7 +4,7 @@ import { SearchRun } from "./search-run.js";
 import { deduplicateCandidateOffers, type OfferObservation } from "./offer-equivalence.js";
 import { resolveKnownProductUrl } from "./known-product-url.js";
 import { compileSourceQuery, discoveryTarget, isExplicitCategoryQuery } from "./retrieval-plan.js";
-import { assessCoffeeCategory, assessCoffeeCompatibility, coffeeCompatibilityRequirement, isCoffeeCategoryRefinement, parseCoffeeCategory, type CoffeeCategory, type CoffeeCompatibilityAssessment, type CoffeeRequest } from "./coffee-category.js";
+import { assessCoffeeCategory, assessCoffeeCompatibility, isCoffeeCategoryRefinement, parseCoffeeCategory, type CoffeeCategory, type CoffeeCompatibilityAssessment, type CoffeeRequest } from "./coffee-category.js";
 import type { WooProduct, WooSearchResult } from "../../../packages/contracts/src/woocommerce.js";
 import type { WooCommerceCatalogPort } from "./woocommerce-client.js";
 import { wooProductFacts, wooProductUrl, matchesWooProductUrl, type CatalogProductFacts } from "./woocommerce-product.js";
@@ -155,7 +155,7 @@ export const SearchProductsInputSchema = z.object({
   clearConstraints: z.array(z.enum(["maxItemPriceCents", "requiredSize", "preferredSize", "requiredFeatures", "excludedFeatures", "preferences", "brand", "primaryUse", "allowAlternatives", "conditionPreference"])).max(10).default([])
     .describe("Clear only constraints the user explicitly withdrew; omitted constraints are retained on continuation"),
   removeRequiredFeatures: z.array(z.string().trim().min(1).max(160)).max(10).default([])
-    .describe("Exact prior requiredFeatures explicitly withdrawn by the user; CONTINUE with parentRenderId only. Never infer withdrawal from a symptom or a negative answer to another question"),
+    .describe("Exact prior requiredFeatures explicitly withdrawn by the user; CONTINUE or CORRECT with the original parentRenderId or goalId plus goalRevision. Removes only named entries and retains other requirements. Never infer withdrawal from a symptom or a negative answer to another question"),
   visualInput: VisualProductInputSchema.optional(),
   // Backward-compatible input for clients installed before v0.9.5.
   features: z.array(z.string().trim().min(1).max(160)).max(10)
@@ -2158,21 +2158,10 @@ export function evaluateSearchProductRequirements(
     ...input.preferences,
     ...(input.featureMode === "PREFERRED" ? input.features : [])
   ]);
-  const evaluation = evaluateProductRequirements(product, { requiredFeatures: required,
+  return evaluateProductRequirements(product, { requiredFeatures: required,
     query: input.query, productType: input.productType, primaryUse: input.primaryUse,
     excludedFeatures: input.excludedFeatures, preferences, requiredSize: input.requiredSize,
     maxItemPriceCents: input.maxItemPriceCents });
-  const compatibility = assessCoffeeCompatibility(input, product);
-  if (compatibility.status !== "MATCHED") return evaluation;
-  const matched = new Set(required.filter(feature => coffeeCompatibilityRequirement(feature) === compatibility.requestedSystem));
-  if (matched.size === 0) return evaluation;
-  const unknown = evaluation.unknown.filter(feature => !matched.has(feature));
-  const contradicted = evaluation.contradicted.filter(feature => !matched.has(feature));
-  return { ...evaluation, unknown, contradicted, matched: unique([...evaluation.matched, ...matched]),
-    assessment: { ...evaluation.assessment,
-      status: contradicted.length > 0 ? "CONFLICT" as const : unknown.length > 0 ? "NEEDS_VERIFICATION" as const : "SATISFIED" as const,
-      entries: evaluation.assessment.entries.map(entry => matched.has(entry.requirement)
-        ? { ...entry, status: "MATCHED" as const, source: "PRODUCT" as const, observed: compatibility.evidence } : entry) } };
 }
 
 function inferredPackagingExclusions(
