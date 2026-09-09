@@ -60,6 +60,8 @@ describe.each([["standalone", PRODUCT_COMPARISON_HTML], ["embedded", PRODUCT_CAR
     ["QUOTE_AUTHORIZATION_CANCELLED", "授权已取消"], ["PERMISSION_DENIED", "宿主未授予"],
     ["MISSING_REFERENCE_CONTEXT", "原商品引用"], ["QUOTE_REFERENCE_EXPIRED", "原商品引用"],
     ["QUOTE_TARGET_UNVERIFIED", "不支持本次报价"], ["QUOTE_RESULT_DISCARDED", "结果尚不确定"],
+    ["QUOTE_MERCHANT_UNVERIFIED", "商家尚未通过"], ["QUOTE_UNSUPPORTED", "不支持本次报价"],
+    ["QUOTE_CAPABILITY_NOT_CHECKED", "能力尚未核验"],
     ["UNRECOGNIZED", "结果尚不确定"]
   ])("preserves comparison and distinguishes %s without blind retry", async (code, expected) => {
     const ui = harness(html!);

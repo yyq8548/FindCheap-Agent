@@ -62,6 +62,20 @@ type Lease = { renderId: string; token: string; deadline: number; status: Consen
 export class WebRecoverySessions {
   readonly #leases = new Map<string, Lease>();
   constructor(private readonly now: () => number = Date.now) {}
+  closeGoal(scope: string, renderId: string): void {
+    if (!this.#leases.has(scope)) this.#leases.set(scope, { renderId, token: "", deadline: 0, status: "EXPIRED", attempt: 0, retryable: false });
+  }
+  history(): unknown {
+    return [...this.#leases].map(([scope, lease]) => ({ scope, renderId: lease.renderId, status: lease.status, attempt: lease.attempt }));
+  }
+  restoreHistory(history: unknown): this {
+    const entries = z.array(z.object({ scope: z.string().uuid(), renderId: z.string().uuid(),
+      status: WebConsentStatusSchema, attempt: z.number().int().min(0).max(2) }).strict()).max(64).parse(history);
+    for (const entry of entries) this.#leases.set(entry.scope, { renderId: entry.renderId, token: "", deadline: 0,
+      status: ["PERMISSION_DENIED", "PERMISSION_CANCELLED"].includes(entry.status) ? entry.status : "EXPIRED",
+      attempt: entry.attempt, retryable: false });
+    return this;
+  }
   forget(renderId: string): void {
     for (const [scope, lease] of this.#leases) {
       if (lease.renderId === renderId && ["READY", "APPROVAL_PENDING"].includes(lease.status)) {

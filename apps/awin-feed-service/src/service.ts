@@ -898,8 +898,11 @@ async function handleRequest(
         const result = await woocommerce.search(WooSearchInputSchema.parse(body), { signal: abort.signal });
         response.setHeader("vary", "x-findcheap-woo-coverage");
         // Older clients validate store records strictly. Keep cached controller facts intact.
-        json(response, 200, request.headers["x-findcheap-woo-coverage"] === "1" ? result : {
-          ...result, stores: result.stores.map(({ boundedReasons: _boundedReasons, ...store }) => store)
+        const coverageVersion = request.headers["x-findcheap-woo-coverage"];
+        const { routing: _routing, ...legacyDiagnostics } = result.diagnostics;
+        json(response, 200, coverageVersion === "2" ? result : {
+          ...result, diagnostics: legacyDiagnostics, stores: result.stores.map(({ boundedReasons, failureDetail: _failureDetail, ...store }) =>
+            coverageVersion === "1" && boundedReasons !== undefined ? { ...store, boundedReasons } : store)
         });
       }
       else if (path === "/v1/woocommerce/products/lookup") json(response, 200, await woocommerce.lookup(WooLookupInputSchema.parse(body), { signal: abort.signal }));

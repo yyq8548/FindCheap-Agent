@@ -7,7 +7,7 @@ import { WooSearchInputSchema } from "../../../packages/contracts/src/woocommerc
 function registry(count = 2) {
   return WooRegistrySchema.parse({ version: "test", stores: Array.from({ length: count }, (_, index) => ({
     merchantId: `store-${index}`, name: `Store ${index}`, origin: `https://store${index}.example`, productPathPrefixes: ["/"],
-    currency: "USD", reviewedAt: "2026-09-08", evidenceUrl: `https://store${index}.example`, enabled: true, capabilities: { search: true, variations: true }
+    currency: "USD", categories: ["desk"], reviewedAt: "2026-09-08", evidenceUrl: `https://store${index}.example`, enabled: true, capabilities: { search: true, variations: true }
   })) });
 }
 const resolve = async () => [{ address: "8.8.8.8", family: 4 }];

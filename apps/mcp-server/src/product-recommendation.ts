@@ -1,4 +1,5 @@
 import type { SearchProductsInput } from "./search-products.js";
+import { hasAmbiguousSonyFamily } from "./sony-family.js";
 import type { RequestIdentityStatus } from "./shopify-match.js";
 import { PRIMARY_BLOCK_REASON_CODES, assessRanking, compareRankingAssessments, hasEquivalentFitEvidence } from "./ranking-assessment.js";
 import type { VisualReviewAssessment } from "./visual-review-policy.js";
@@ -80,6 +81,13 @@ export function highVarianceClarification(input: SearchProductsInput): {
   question: string;
   evidence: string;
 } | undefined {
+  if (input.visualInput === undefined && hasAmbiguousSonyFamily(input.query)) return {
+    kind: "SHOPPING_PREFERENCES",
+    question: input.responseLocale === "zh-CN"
+      ? "你要的是 WH 头戴式，还是 WF 入耳式？确定后再查同款。"
+      : "Do you mean WH over-ear headphones or WF earbuds? Please choose the family before I search the same model.",
+    evidence: "Sony 1000XM family lacks an explicit WH/WF identity"
+  };
   if (input.comparisonMode !== "DISCOVERY" || input.visualInput !== undefined) return undefined;
   const searchable = [
     input.query,

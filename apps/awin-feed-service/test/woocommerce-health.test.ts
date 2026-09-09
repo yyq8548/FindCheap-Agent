@@ -5,7 +5,7 @@ import { WooSearchInputSchema } from "../../../packages/contracts/src/woocommerc
 
 const registry = (count = 8) => WooRegistrySchema.parse({ version: "health", stores: Array.from({ length: count }, (_, i) => ({
   merchantId: `store-${i}`, name: `Store ${i}`, origin: `https://store${i}.example`, productPathPrefixes: ["/"], currency: "USD",
-  reviewedAt: "2026-09-08", evidenceUrl: `https://store${i}.example`, enabled: true, capabilities: { search: true, variations: false }
+  categories: ["desk"], reviewedAt: "2026-09-08", evidenceUrl: `https://store${i}.example`, enabled: true, capabilities: { search: true, variations: false }
 })) });
 const resolve = async () => [{ address: "8.8.8.8", family: 4 }];
 const input = WooSearchInputSchema.parse({ query: "desk" });

@@ -12,6 +12,19 @@ function store(merchantId: string, categories: string[], brands: string[] = []):
 }
 
 describe("Woo form routing within a thousand-store access registry", () => {
+  it("prioritizes beverage categories over equipment for broad coffee", () => {
+    const stores = [store("roaster", ["ground coffee"]), store("equipment", ["coffee grinder", "coffee machine", "espresso machine"])];
+    expect(rankWooMerchants(stores, WooSearchInputSchema.parse({ query: "coffee" }))[0]?.merchantId).toBe("roaster");
+  });
+  it("reports absent category metadata and limits unrelated exploration to two merchants", async () => {
+    const stores = Array.from({ length: 1000 }, (_, id) => store(`book-${id}`, ["book"]));
+    const service = createWooCommerceController(WooRegistrySchema.parse({ version: "gap", stores }), {
+      resolve: async () => [{ address: "8.8.8.8", family: 4 }], request: async () => Response.json([])
+    });
+    const result = await service.search(WooSearchInputSchema.parse({ query: "human hair wig", productType: "wig" }));
+    expect(result.diagnostics).toMatchObject({ plannedStores: 2, physicalRequests: 2, registryCoverageComplete: false,
+      routing: { scope: "CURRENT_PASS", matchedStores: 0, relevantPlanned: 0, explorationPlanned: 2 } });
+  });
   it.each(["coffee capsules", "coffee pods", "胶囊咖啡"])("uses verified capsule categories for %s ahead of broad coffee labels", productType => {
     const generic = Array.from({ length: 999 }, (_, id) => store(`generic-${id}`, ["coffee", "espresso", "coffee beans"]));
     const capsuleStore = store("capsule-specialist", ["coffee pods"]);

@@ -51,9 +51,9 @@ describe("reviewed WooCommerce merchant trust data", () => {
     }
   });
 
-  it("does not extend the historical trust approvals to the 800 new access merchants", () => {
+  it("does not extend the historical trust approvals to the 802 later access merchants", () => {
     const added = DEFAULT_WOO_REGISTRY.stores.slice(200);
-    expect(added).toHaveLength(800);
+    expect(added).toHaveLength(802);
     const approvedHosts = new Set(approvals.map((approval) => approval.kind === "OFFICIAL_STOREFRONT"
       ? approval.record.officialHost : approval.record.host));
     for (const store of added) expect(approvedHosts.has(hostFor(store.origin)), store.merchantId).toBe(false);

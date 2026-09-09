@@ -156,12 +156,12 @@ describe("shopping MCP server", () => {
     const selectionTool = tools.tools.find((candidate) => candidate.name === "sync_product_card_selection");
     const metricsTool = tools.tools.find((candidate) => candidate.name === "report_product_card_metrics");
     expect(searchTool?._meta).toMatchObject({
-      ui: { resourceUri: "ui://findcheap/product-cards/v44.html" },
-      "openai/outputTemplate": "ui://findcheap/product-cards/v44.html"
+      ui: { resourceUri: "ui://findcheap/product-cards/v45.html" },
+      "openai/outputTemplate": "ui://findcheap/product-cards/v45.html"
     });
     expect(renderTool?._meta).toMatchObject({
       ui: {
-        resourceUri: "ui://findcheap/product-cards/v44.html",
+        resourceUri: "ui://findcheap/product-cards/v45.html",
         visibility: ["app"]
       }
     });
@@ -180,15 +180,15 @@ describe("shopping MCP server", () => {
     expect(resources.resources).toHaveLength(2);
     expect(resources.resources).toEqual(expect.arrayContaining([expect.objectContaining({
       name: "findcheap-product-cards",
-      uri: "ui://findcheap/product-cards/v44.html",
+      uri: "ui://findcheap/product-cards/v45.html",
       mimeType: "text/html;profile=mcp-app"
     }), expect.objectContaining({
       name: "findcheap-product-comparison",
-      uri: "ui://findcheap/product-comparison/v14.html",
+      uri: "ui://findcheap/product-comparison/v15.html",
       mimeType: "text/html;profile=mcp-app"
     })]));
 
-    const resource = await client.readResource({ uri: "ui://findcheap/product-cards/v44.html" });
+    const resource = await client.readResource({ uri: "ui://findcheap/product-cards/v45.html" });
     const content = resource.contents[0];
     const html = content !== undefined && "text" in content ? content.text : "";
     expect(html).toContain("ui/notifications/tool-result");
@@ -222,6 +222,8 @@ describe("shopping MCP server", () => {
     const tools = await client.listTools();
 
     expect(tools.tools.map((tool) => tool.name)).toEqual([
+      "get_shopping_history",
+      "clear_shopping_history",
       "search_products",
       "search_shopify_products",
       "search_awin_products",
@@ -238,7 +240,7 @@ describe("shopping MCP server", () => {
       "sync_product_card_selection",
       "report_product_card_metrics"
     ]);
-    expect(Object.keys(tools.tools[0]?.inputSchema.properties ?? {}).sort()).toEqual([
+    expect(Object.keys(tools.tools.find(tool => tool.name === "search_products")?.inputSchema.properties ?? {}).sort()).toEqual([
       "allowAlternatives",
       "brand",
       "brandMode",
@@ -310,7 +312,7 @@ describe("shopping MCP server", () => {
       .toEqual(["renderId", "revision", "selectionIds"]);
     expect(Object.keys(tools.tools.find((tool) => tool.name === "report_product_card_metrics")?.inputSchema.properties ?? {}).sort())
       .toEqual(["renderId", "stages", "terminalStage", "version"]);
-    expect(tools.tools[0]?.annotations).toMatchObject({
+    expect(tools.tools.find(tool => tool.name === "search_products")?.annotations).toMatchObject({
       readOnlyHint: false,
       destructiveHint: false
     });
@@ -460,7 +462,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.18.3",
+        version: "0.18.4",
         terminalStage: "DOM_RENDERED",
         stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
       }
@@ -469,7 +471,7 @@ describe("shopping MCP server", () => {
     expect(result.structuredContent).toEqual({ status: "RECORDED" });
     expect(record).toHaveBeenCalledWith(expect.objectContaining({
       renderId,
-      version: "0.18.3",
+      version: "0.18.4",
       terminalStage: "DOM_RENDERED",
       stages: { IFRAME_LOADED: 0, INITIALIZE_ACK: 12.5, DOM_RENDERED: 14 }
     }));
@@ -477,7 +479,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.18.3",
+        version: "0.18.4",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 14 }
       }
@@ -487,7 +489,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId,
-        version: "0.18.3",
+        version: "0.18.4",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 300_001 }
       }
@@ -498,7 +500,7 @@ describe("shopping MCP server", () => {
       name: "report_product_card_metrics",
       arguments: {
         renderId: "22222222-2222-4222-8222-222222222222",
-        version: "0.18.3",
+        version: "0.18.4",
         terminalStage: "DOM_RENDERED",
         stages: { DOM_RENDERED: 1 }
       }

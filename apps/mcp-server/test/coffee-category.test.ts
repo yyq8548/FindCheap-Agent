@@ -1,6 +1,27 @@
 import { describe, expect, it } from "vitest";
 import { assessCoffeeCategory, isCoffeeCategoryRefinement, parseCoffeeCategory, type CoffeeCategory } from "../src/coffee-category.js";
 
+describe("observed merchant coffee form dimensions", () => {
+  it.each(["Coffee product form", "Ground or whole bean", "coffee-product-form"])("uses selected %s before the parent title", key => {
+    expect(assessCoffeeCategory("WHOLE_BEAN", { title: "Whole Bean Coffee", variantDimensions: { [key]: "Ground" } }).status).toBe("CONTRADICTED");
+    expect(assessCoffeeCategory("GROUND", { title: "Whole Bean Coffee", variantDimensions: { [key]: "Ground" } }).status).toBe("MATCHED");
+    expect(assessCoffeeCategory("WHOLE_BEAN", { title: "House Blend Coffee", variantDimensions: { [key]: "Whole Bean" } }).status).toBe("MATCHED");
+  });
+  it("keeps conflicting and unselected forms unresolved", () => {
+    expect(assessCoffeeCategory("WHOLE_BEAN", { title: "Whole Bean Coffee", variantDimensions: {
+      "Coffee product form": "Whole Bean", "Ground or whole bean": "Ground"
+    } }).status).toBe("UNKNOWN");
+    expect(assessCoffeeCategory("WHOLE_BEAN", { title: "Whole Bean Coffee", variantDimensions: {
+      "Coffee product form": "Whole Bean or Ground"
+    } }).status).toBe("UNKNOWN");
+  });
+  it("does not let a coffee option establish a merchandise identity", () => {
+    expect(assessCoffeeCategory("WHOLE_BEAN", { title: "Coffee Candle", variantDimensions: {
+      "Coffee product form": "Whole Bean"
+    } }).status).toBe("CONTRADICTED");
+  });
+});
+
 describe("controlled coffee category phrases", () => {
   it.each<[string, CoffeeCategory]>([
     ["coffee", "COFFEE"], [" 咖啡 ", "COFFEE"], ["COFFEE", "COFFEE"],

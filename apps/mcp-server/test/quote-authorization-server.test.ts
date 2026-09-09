@@ -28,6 +28,24 @@ function deferred<T>() {
 }
 
 describe("interactive Cart quote authorization", () => {
+  it.each(["single", "batch"])("reports an unreviewed merchant before approval for %s quotes", async mode => {
+    const quote = vi.fn(async () => quoteResult());
+    const approve = vi.fn(async () => ({ action: "accept" as const, content: { approved: true } }));
+    const replay = await connectReplay(async () => searchResult(targets().map(target => ({ ...target,
+      merchantTrust: { level: "UNKNOWN", verification: "UNVERIFIED", evidence: [] }
+    }))), { cartQuotes: { quote } }, approve);
+    try {
+      const snapshot = await find(replay);
+      const result = await replay.client.callTool({ name: mode === "single" ? "quote_selected_shopify_product" : "quote_and_compare_selected_products",
+        arguments: { renderId: snapshot.renderId, zipCode: "33433", ...(mode === "single" ? { position: 1 }
+          : { selectionIds: snapshot.products.map(card => card.selectionId) }) } });
+      expect(result.isError).toBe(true);
+      expect(JSON.stringify(result.content)).toContain("[QUOTE_MERCHANT_UNVERIFIED]");
+      expect(JSON.stringify(result.content)).toContain("No quote Cart was created");
+      expect(approve).not.toHaveBeenCalled();
+      expect(quote).not.toHaveBeenCalled();
+    } finally { await replay.close(); }
+  });
   it("refuses a delivered-total Watch before asking for ZIP or a selected reference", async () => {
     const quote = vi.fn(async () => quoteResult());
     const approve = vi.fn(async () => ({ action: "accept" as const, content: { approved: true } }));
@@ -191,6 +209,7 @@ describe("interactive Cart quote authorization", () => {
         renderId: snapshot.renderId, position: 1, zipCode: "33433"
       } });
       expect(result.isError).toBe(true);
+      expect(JSON.stringify(result.content)).toContain("merchantTrust" in override ? "QUOTE_MERCHANT_UNVERIFIED" : "QUOTE_TARGET_UNVERIFIED");
       expect(approve).not.toHaveBeenCalled();
       expect(quote).not.toHaveBeenCalled();
     } finally { await replay.close(); }

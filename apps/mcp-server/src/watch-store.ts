@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, open, opendir, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 
 const WatchIdSchema = z.string().uuid();
@@ -171,10 +172,19 @@ export const WatchStopIntentSchema = z.object({
 }).strict();
 export type WatchStopIntent = z.infer<typeof WatchStopIntentSchema>;
 
+export const WatchCompletionNotificationSchema = z.object({
+  eventId: z.string().uuid(),
+  createdAt: z.string().datetime({ offset: true }),
+  status: z.literal("DELIVERY_UNCONFIRMED"),
+  message: z.string().min(1).max(4_000),
+  observation: z.record(z.string(), z.unknown())
+}).strict();
+
 export const WatchRecordSchema = z.object({
   watchId: z.string().uuid(),
   revision: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
   completionEventId: z.string().uuid().optional(),
+  completionNotification: WatchCompletionNotificationSchema.optional(),
   stopIntent: WatchStopIntentSchema.optional(),
   automationId: WatchAutomationIdSchema.optional(),
   schedulingState: z.enum(["PENDING", "BOUND"]).optional(),
@@ -186,6 +196,10 @@ export const WatchRecordSchema = z.object({
   wasSatisfied: z.boolean().optional(),
   lastObservation: z.record(z.string(), z.unknown()).optional()
 }).strict().superRefine((record, context) => {
+  if (record.completionNotification !== undefined && (record.status !== "COMPLETED" ||
+    record.spec.condition !== "RESTOCKED" || record.completionNotification.eventId !== record.completionEventId)) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "notification must match its one-shot completion event" });
+  }
   if (record.stopIntent !== undefined && (record.stopIntent.watchId !== record.watchId ||
     record.stopIntent.automationId !== record.automationId)) {
     context.addIssue({ code: z.ZodIssueCode.custom, message: "stop intent must match its Watch binding" });
@@ -225,6 +239,8 @@ function nextRevision(existing: WatchRecord | undefined, requested: WatchRecord,
   if (existing === undefined || (existing.revision ?? 0) !== (requested.revision ?? 0) ||
     (requested.status === "ACTIVE" && requested.stopIntent !== undefined) ||
     (existing.completionEventId !== undefined && existing.completionEventId !== requested.completionEventId) ||
+    (existing.status === "COMPLETED" &&
+      JSON.stringify(existing.completionNotification) !== JSON.stringify(requested.completionNotification)) ||
     (["EXPIRED", "COMPLETED"].includes(existing.status) && requested.status !== existing.status) ||
     (existing.stopIntent !== undefined && JSON.stringify(existing.stopIntent) !== JSON.stringify(requested.stopIntent)) ||
     (existing.automationId !== undefined && existing.automationId !== requested.automationId) ||
@@ -293,7 +309,7 @@ export function createMemoryWatchStore(): WatchStore {
   };
 }
 
-export function createJsonWatchStore(directory: string): WatchStore {
+export function createJsonWatchStore(directory: string, options: { kernelLock?: boolean } = {}): WatchStore {
   const maxRecordBytes = 256 * 1024;
   const maxDirectoryEntries = 2048;
   const fileFor = (watchId: string, woo: boolean) => join(directory,
@@ -366,7 +382,7 @@ export function createJsonWatchStore(directory: string): WatchStore {
     }
     return { records: records.sort((a, b) => a.createdAt.localeCompare(b.createdAt)), stops: [...stops.values()] };
   };
-  const locked = async <T>(action: () => Promise<T>): Promise<T> => {
+  const fileLocked = async <T>(action: () => Promise<T>): Promise<T> => {
     await ensure();
     const lockFile = join(directory, ".watch-store.lock");
     const started = performance.now();
@@ -382,6 +398,29 @@ export function createJsonWatchStore(directory: string): WatchStore {
     try { return await action(); }
     finally { await lock.close(); await rm(lockFile); }
   };
+  // New task directories never use the legacy file-lock protocol. SQLite owns
+  // this lock in the kernel, so a crashed writer cannot leave a stale owner file.
+  const kernelLocked = async <T>(action: () => Promise<T>): Promise<T> => {
+    await ensure();
+    const database = new DatabaseSync(join(directory, ".watch-store.sqlite"));
+    const started = performance.now();
+    let acquired = false;
+    try {
+      while (!acquired) {
+        try { database.exec("BEGIN IMMEDIATE"); acquired = true; }
+        catch (error) {
+          if (!(error instanceof Error) || !/database is locked/u.test(error.message)) throw error;
+          if (performance.now() - started >= 2000) throw new Error("WATCH_STORE_BUSY");
+          await new Promise(resolve => setTimeout(resolve, 25));
+        }
+      }
+      return await action();
+    } finally {
+      try { if (acquired) database.exec("ROLLBACK"); }
+      finally { database.close(); }
+    }
+  };
+  const locked = options.kernelLock === true ? kernelLocked : fileLocked;
   const writeAtomic = async (file: string, value: unknown) => {
     const content = `${JSON.stringify(value)}\n`;
     if (Buffer.byteLength(content, "utf8") > maxRecordBytes) throw new Error("WATCH_STORE_RECORD_INVALID");

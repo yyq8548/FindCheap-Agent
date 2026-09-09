@@ -3,7 +3,7 @@ name: deals-and-watch
 description: Verified Coupons, deals and shopping watches.
 ---
 
-# FindCheap Agent v0.18.3 Deals and Watch
+# FindCheap Agent v0.18.4 Deals and Watch
 
 Follow host requirements; announcements once. Skip optional file/Memory reads. Use receipts; no optional progress/tool narration. Retain limitations.
 

@@ -31,7 +31,7 @@ export function createWooCommercePortFromEnvironment(environment: Readonly<Recor
     const response = await request(new URL(`/v1/woocommerce/${path}`, base).href, {
       method: "POST", redirect: "error", signal,
       headers: { accept: "application/json", "content-type": "application/json",
-        ...(path === "search" ? { "x-findcheap-woo-coverage": "1" } : {}) }, body: JSON.stringify(input)
+        ...(path === "search" ? { "x-findcheap-woo-coverage": "2" } : {}) }, body: JSON.stringify(input)
     });
     if (response.status === 404) throw new Error("SOURCE_NOT_CONFIGURED");
     if (!response.ok) throw new Error(`WooCommerce Search service returned HTTP ${response.status}`);

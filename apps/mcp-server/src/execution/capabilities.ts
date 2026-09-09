@@ -34,7 +34,9 @@ const TOOL_CAPABILITIES: Readonly<Record<string, BackendCapability>> = {
   sync_product_card_selection: "CATALOG",
   report_product_card_metrics: "CATALOG",
   compare_selected_products: "CATALOG",
-  render_product_comparison: "CATALOG"
+  render_product_comparison: "CATALOG",
+  get_shopping_history: "CATALOG",
+  clear_shopping_history: "CATALOG"
 };
 
 export function requiredCapabilityForTool(name: string): BackendCapability {

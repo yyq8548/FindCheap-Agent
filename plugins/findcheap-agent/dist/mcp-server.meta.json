@@ -3847,6 +3847,41 @@
       "format": "esm",
       "imports": []
     },
+    "src/codex-task-metadata.ts": {
+      "format": "esm",
+      "imports": [
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:child_process"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:fs"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:os"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:path"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:readline"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./task-lifecycle.js",
+          "path": "src/task-lifecycle.ts"
+        }
+      ]
+    },
     "src/coffee-category.ts": {
       "format": "esm",
       "imports": []
@@ -4309,6 +4344,11 @@
       "imports": [
         {
           "kind": "import-statement",
+          "original": "./sony-family.js",
+          "path": "src/sony-family.ts"
+        },
+        {
+          "kind": "import-statement",
           "original": "./ranking-assessment.js",
           "path": "src/ranking-assessment.ts"
         },
@@ -4690,6 +4730,21 @@
       "imports": [
         {
           "kind": "import-statement",
+          "original": "./task-scope.js",
+          "path": "src/task-scope.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./task-state-store.js",
+          "path": "src/task-state-store.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./task-lifecycle.js",
+          "path": "src/task-lifecycle.ts"
+        },
+        {
+          "kind": "import-statement",
           "original": "./visual-source-fingerprints.js",
           "path": "src/visual-source-fingerprints.ts"
         },
@@ -4867,6 +4922,11 @@
           "kind": "import-statement",
           "original": "./shopify-match.js",
           "path": "src/shopify-match.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./sony-family.js",
+          "path": "src/sony-family.ts"
         },
         {
           "kind": "import-statement",
@@ -5057,6 +5117,11 @@
           "kind": "import-statement",
           "original": "./product-constraint-matcher.js",
           "path": "src/product-constraint-matcher.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./sony-family.js",
+          "path": "src/sony-family.ts"
         }
       ]
     },
@@ -5165,6 +5230,10 @@
         }
       ]
     },
+    "src/sony-family.ts": {
+      "format": "esm",
+      "imports": []
+    },
     "src/sony-official-store-search.ts": {
       "format": "esm",
       "imports": [
@@ -5223,6 +5292,16 @@
     "src/stdio.ts": {
       "format": "esm",
       "imports": [
+        {
+          "kind": "import-statement",
+          "original": "./task-state-store.js",
+          "path": "src/task-state-store.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./codex-task-metadata.js",
+          "path": "src/codex-task-metadata.ts"
+        },
         {
           "external": true,
           "kind": "import-statement",
@@ -5327,6 +5406,76 @@
           "kind": "import-statement",
           "original": "./woocommerce-client.js",
           "path": "src/woocommerce-client.ts"
+        }
+      ]
+    },
+    "src/task-lifecycle.ts": {
+      "format": "esm",
+      "imports": [
+        {
+          "kind": "import-statement",
+          "original": "zod",
+          "path": "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/index.js"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./task-state-store.js",
+          "path": "src/task-state-store.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./watch-store.js",
+          "path": "src/watch-store.ts"
+        }
+      ]
+    },
+    "src/task-scope.ts": {
+      "format": "esm",
+      "imports": [
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:async_hooks"
+        },
+        {
+          "kind": "import-statement",
+          "original": "zod",
+          "path": "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/index.js"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./task-state-store.js",
+          "path": "src/task-state-store.ts"
+        }
+      ]
+    },
+    "src/task-state-store.ts": {
+      "format": "esm",
+      "imports": [
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:crypto"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:fs"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:path"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:sqlite"
+        },
+        {
+          "kind": "import-statement",
+          "original": "zod",
+          "path": "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/index.js"
         }
       ]
     },
@@ -5509,6 +5658,11 @@
           "path": "node:path"
         },
         {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:sqlite"
+        },
+        {
           "kind": "import-statement",
           "original": "zod",
           "path": "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/index.js"
@@ -5603,10 +5757,75 @@
   },
   "outputs": {
     "../../plugins/findcheap-agent/dist/mcp-server.js": {
-      "bytes": 1099920,
+      "bytes": 1123861,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:crypto"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:fs"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:path"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:sqlite"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:child_process"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:fs"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:os"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:path"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:readline"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:crypto"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:fs/promises"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:path"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:sqlite"
+        },
         {
           "external": true,
           "kind": "import-statement",
@@ -5621,6 +5840,11 @@
           "external": true,
           "kind": "import-statement",
           "path": "node:process"
+        },
+        {
+          "external": true,
+          "kind": "import-statement",
+          "path": "node:async_hooks"
         },
         {
           "external": true,
@@ -5746,21 +5970,6 @@
           "external": true,
           "kind": "import-statement",
           "path": "node:crypto"
-        },
-        {
-          "external": true,
-          "kind": "import-statement",
-          "path": "node:fs/promises"
-        },
-        {
-          "external": true,
-          "kind": "import-statement",
-          "path": "node:path"
-        },
-        {
-          "external": true,
-          "kind": "import-statement",
-          "path": "node:crypto"
         }
       ],
       "inputs": {
@@ -5879,7 +6088,7 @@
           "bytesInOutput": 1981
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/core.js": {
-          "bytesInOutput": 12298
+          "bytesInOutput": 12299
         },
         "../../node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/refs/data.json": {
           "bytesInOutput": 359
@@ -6257,7 +6466,7 @@
           "bytesInOutput": 1632
         },
         "../../packages/contracts/src/woocommerce.ts": {
-          "bytesInOutput": 6795
+          "bytesInOutput": 7175
         },
         "../../packages/network-safety/src/safe-fetch.ts": {
           "bytesInOutput": 8384
@@ -6277,8 +6486,11 @@
         "src/backend.ts": {
           "bytesInOutput": 541
         },
+        "src/codex-task-metadata.ts": {
+          "bytesInOutput": 1937
+        },
         "src/coffee-category.ts": {
-          "bytesInOutput": 7480
+          "bytesInOutput": 7514
         },
         "src/deal-assessment.ts": {
           "bytesInOutput": 4682
@@ -6296,7 +6508,7 @@
           "bytesInOutput": 3881
         },
         "src/execution/capabilities.ts": {
-          "bytesInOutput": 952
+          "bytesInOutput": 1016
         },
         "src/execution/external-data-fence.ts": {
           "bytesInOutput": 1969
@@ -6308,19 +6520,19 @@
           "bytesInOutput": 2963
         },
         "src/execution/tool-executor.ts": {
-          "bytesInOutput": 2347
+          "bytesInOutput": 2438
         },
         "src/execution/tool-outcome.ts": {
-          "bytesInOutput": 2527
+          "bytesInOutput": 3256
         },
         "src/execution/tool-registry.ts": {
-          "bytesInOutput": 942
+          "bytesInOutput": 979
         },
         "src/functional-requirements.ts": {
           "bytesInOutput": 7867
         },
         "src/generic-official-store-search.ts": {
-          "bytesInOutput": 15808
+          "bytesInOutput": 15778
         },
         "src/known-product-url.ts": {
           "bytesInOutput": 1856
@@ -6368,7 +6580,7 @@
           "bytesInOutput": 12930
         },
         "src/product-recommendation.ts": {
-          "bytesInOutput": 5523
+          "bytesInOutput": 5949
         },
         "src/product-reference.ts": {
           "bytesInOutput": 128
@@ -6383,7 +6595,7 @@
           "bytesInOutput": 752
         },
         "src/quote-ui-feedback.ts": {
-          "bytesInOutput": 3739
+          "bytesInOutput": 4336
         },
         "src/ranking-assessment.ts": {
           "bytesInOutput": 3549
@@ -6398,25 +6610,25 @@
           "bytesInOutput": 1784
         },
         "src/search-diagnostics.ts": {
-          "bytesInOutput": 5355
+          "bytesInOutput": 6137
         },
         "src/search-products.ts": {
-          "bytesInOutput": 51768
+          "bytesInOutput": 51704
         },
         "src/search-requirements-context.ts": {
-          "bytesInOutput": 6373
+          "bytesInOutput": 6416
         },
         "src/search-result-summary.ts": {
-          "bytesInOutput": 5412
+          "bytesInOutput": 5529
         },
         "src/search-run.ts": {
           "bytesInOutput": 8103
         },
         "src/server.ts": {
-          "bytesInOutput": 207497
+          "bytesInOutput": 216192
         },
         "src/shopify-cart-quote.ts": {
-          "bytesInOutput": 12440
+          "bytesInOutput": 12443
         },
         "src/shopify-client.ts": {
           "bytesInOutput": 181
@@ -6425,7 +6637,7 @@
           "bytesInOutput": 23617
         },
         "src/shopify-match.ts": {
-          "bytesInOutput": 12553
+          "bytesInOutput": 12643
         },
         "src/shopify-official-store-search.ts": {
           "bytesInOutput": 14776
@@ -6434,10 +6646,13 @@
           "bytesInOutput": 1432
         },
         "src/shopify-selected-product.ts": {
-          "bytesInOutput": 6857
+          "bytesInOutput": 6854
         },
         "src/snapshot-products.ts": {
           "bytesInOutput": 826
+        },
+        "src/sony-family.ts": {
+          "bytesInOutput": 493
         },
         "src/sony-official-store-search.ts": {
           "bytesInOutput": 11978
@@ -6446,7 +6661,16 @@
           "bytesInOutput": 4113
         },
         "src/stdio.ts": {
-          "bytesInOutput": 1090
+          "bytesInOutput": 1219
+        },
+        "src/task-lifecycle.ts": {
+          "bytesInOutput": 1326
+        },
+        "src/task-scope.ts": {
+          "bytesInOutput": 3241
+        },
+        "src/task-state-store.ts": {
+          "bytesInOutput": 2722
         },
         "src/text-search-recovery.ts": {
           "bytesInOutput": 2110
@@ -6470,13 +6694,13 @@
           "bytesInOutput": 897
         },
         "src/watch-service.ts": {
-          "bytesInOutput": 11769
+          "bytesInOutput": 12162
         },
         "src/watch-store.ts": {
-          "bytesInOutput": 12680
+          "bytesInOutput": 13778
         },
         "src/web-product-recovery.ts": {
-          "bytesInOutput": 5959
+          "bytesInOutput": 6569
         },
         "src/woo-product-identity.ts": {
           "bytesInOutput": 1394

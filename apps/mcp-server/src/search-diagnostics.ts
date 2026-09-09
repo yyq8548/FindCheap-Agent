@@ -11,13 +11,25 @@ export function wooSearchCoverage(execution: Pick<UnifiedSearchExecution, "wooco
   const attemptedMerchantIds = [...new Set(passes.flatMap(pass => pass.stores.filter(store => store.requests > 0).map(store => store.merchantId)))];
   const completedMerchantIds = [...new Set(passes.flatMap(pass => pass.stores.filter(store => store.status === "COMPLETE").map(store => store.merchantId)))];
   const eligibleStores = Math.max(0, ...passes.map(pass => pass.diagnostics.eligibleStores));
+  const attemptedStorePasses = passes.flatMap(pass => pass.stores.filter(store => store.requests > 0));
   return { schemaVersion: last.schemaVersion, registryVersion: last.registryVersion, status: last.status,
     stores: last.stores, diagnostics: last.diagnostics, scope: "LAST_PASS" as const, passes,
     cumulative: { scope: "CURRENT_SEARCH" as const, eligibleStores, attemptedMerchantIds, completedMerchantIds,
+      attemptedStorePasses: attemptedStorePasses.length,
+      failedStorePasses: attemptedStorePasses.filter(store => store.status === "UNAVAILABLE" ||
+        store.status === "PARTIAL" && store.reason !== undefined).length,
       physicalRequests: passes.reduce((total, pass) => total + pass.diagnostics.physicalRequests, 0),
       responseBytes: passes.reduce((total, pass) => total + pass.diagnostics.responseBytes, 0),
       registryCoverageComplete: eligibleStores > 0 && completedMerchantIds.length === eligibleStores &&
         passes.every(pass => pass.registryVersion === last.registryVersion) } };
+}
+
+export function wooRoutingExplanation(coverage: ReturnType<typeof wooSearchCoverage>, locale: "en-US" | "zh-CN"): string {
+  if (coverage === undefined || coverage.passes.length === 0 ||
+    !coverage.passes.every(pass => pass.diagnostics.routing?.matchedStores === 0)) return "";
+  return locale === "zh-CN"
+    ? "WooCommerce 本次候选池没有匹配的商家类目或品牌元数据，仅作有限探索；这是覆盖缺口，不代表商品不存在。"
+    : "WooCommerce found no matching merchant category or brand metadata in this pass's candidate pool and used bounded exploration only; this is a coverage gap, not proof of product absence.";
 }
 
 export function shopifySearchCoverage(execution: Pick<UnifiedSearchExecution, "shopifyResult" | "shopifyPasses">) {

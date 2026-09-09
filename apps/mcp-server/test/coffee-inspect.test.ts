@@ -19,13 +19,13 @@ const productJson = { currency: "USD", title: "Whole Bean Coffee", handle: "whol
     { id: 1003, title: "Ground", available: true, price: 300, options: ["Ground"] }
   ] };
 
-describe("coffee form eligibility after registered Shopify inspection", () => {
+describe.each(["Grind", "Coffee product form", "Ground or whole bean"])("coffee form eligibility after registered Shopify inspection: %s", dimension => {
   it.each(["UNKNOWN", "WHOLE_BEAN", "GROUND"] as const)("keeps the %s form verdict through the derived snapshot", async form => {
-    const source = vi.fn(async () => searchResult([structuredClone(selected)]));
+    const source = vi.fn(async () => searchResult([{ ...structuredClone(selected), variantDimensions: { [dimension]: "Select a grind" } }]));
     const fetchProduct = vi.fn<ProductJsonFetch>(async (url, allowedHost) => {
       expect(url).toBe(`${canonicalUrl}.js`);
       expect(allowedHost).toBe("coffee-fixture.example");
-      return { finalUrl: url, response: Response.json(productJson) };
+      return { finalUrl: url, response: Response.json({ ...productJson, options: productJson.options.map(option => ({ ...option, name: dimension })) }) };
     });
     const inspector = createShopifySelectedProductInspector({ fetchProduct, clock: { now: () => REPLAY_NOW } });
     const replay = await connectReplay(source, { selectedProducts: inspector });
@@ -42,7 +42,7 @@ describe("coffee form eligibility after registered Shopify inspection", () => {
 
       const inspected = await replay.client.callTool({ name: "inspect_selected_product", arguments: {
         renderId: initial.renderId, selectionId: initial.products[0]!.selectionId,
-        ...(form === "UNKNOWN" ? {} : { variantDimensions: { Grind: form === "WHOLE_BEAN" ? "Whole Bean" : "Ground" } }) } });
+        ...(form === "UNKNOWN" ? {} : { variantDimensions: { [dimension]: form === "WHOLE_BEAN" ? "Whole Bean" : "Ground" } }) } });
       expect(inspected.isError, JSON.stringify(inspected.content)).not.toBe(true);
       expect(fetchProduct).toHaveBeenCalledTimes(1);
       expect(source).not.toHaveBeenCalled();
@@ -63,7 +63,7 @@ describe("coffee form eligibility after registered Shopify inspection", () => {
           expect(next.recommendation?.primarySelectionId).toBeUndefined();
         } else {
           expect(next.products[0]).toMatchObject({ handle: "1002", requestIdentityStatus: "CONFIRMED",
-            variantDimensions: { Grind: "Whole Bean" }, itemPrice: { amountCents: 275, currency: "USD" } });
+            variantDimensions: { [dimension]: "Whole Bean" }, itemPrice: { amountCents: 275, currency: "USD" } });
           expect(next.recommendation).toMatchObject({ state: "READY", primarySelectionId: next.products[0]!.selectionId });
         }
       }

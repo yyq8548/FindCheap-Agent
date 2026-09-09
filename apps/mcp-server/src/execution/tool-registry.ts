@@ -10,7 +10,8 @@ export type ExecutedToolRegistrar = Pick<McpServer, "registerTool">;
 
 export function createExecutedToolRegistrar(
   server: McpServer,
-  executor: ToolExecutor
+  executor: ToolExecutor,
+  runInScope: (extra: unknown, handler: () => Promise<CallToolResult>, name: string) => Promise<CallToolResult> = async (_extra, handler) => handler()
 ): ExecutedToolRegistrar {
   const registerTool = ((name: string, config: unknown, handler: UnknownToolHandler) => {
     const inputSchema = schemaParser(config, "inputSchema");
@@ -23,7 +24,7 @@ export function createExecutedToolRegistrar(
       ...(outputSchema === undefined ? {} : { outputSchema })
     });
     const wrapped = async (...args: unknown[]) => executor.execute(name, args[0], async (validatedInput) =>
-      await handler(validatedInput, ...args.slice(1)) as CallToolResult
+      runInScope(args[1], async () => await handler(validatedInput, ...args.slice(1)) as CallToolResult, name)
     );
     return Reflect.apply(server.registerTool, server, [name, boundaryConfig(config, inputSchema), wrapped]);
   }) as McpServer["registerTool"];

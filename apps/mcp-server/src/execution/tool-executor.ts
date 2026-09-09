@@ -115,6 +115,7 @@ export class ToolExecutor {
         structuredContent: parsedOutput.data as Record<string, unknown>
       });
     } catch (error) {
+      if (error instanceof Error && /^TASK_(?:STATE|SCOPE)_/u.test(error.message)) return toolError("TASK_STATE_UNAVAILABLE");
       if (error instanceof z.ZodError && phase === "INPUT_VALIDATION") {
         return toolError("INVALID_ARGUMENTS", { issues: safeInputIssues(error, spec.inputSchema) });
       }

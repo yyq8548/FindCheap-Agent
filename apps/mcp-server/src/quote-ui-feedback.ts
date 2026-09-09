@@ -33,7 +33,13 @@ export const QUOTE_UI_FEEDBACK_SCRIPT = String.raw`
         "QUOTE_REFERENCE_EXPIRED", "QUOTE_REFERENCE_UNAVAILABLE", "QUOTE_SELECTION_NOT_SYNCED", "QUOTE_SELECTION_EMPTY"].includes(code)) return (zh
         ? "原商品引用或选择记录已失效／未同步；未请求报价。请在对话中恢复原比较并核对选择。"
         : "The original product reference or selection is unavailable, expired or unsynced; no quote was requested. Restore the original comparison and verify its selection in chat.") + preserved;
-      if (["QUOTE_TARGET_UNVERIFIED", "QUOTE_CAPABILITY_NOT_CHECKED"].includes(code)) return (zh
+      if (code === "QUOTE_MERCHANT_UNVERIFIED") return (zh
+        ? "所选商家尚未通过独立可信审核；未请求授权或创建报价购物车。"
+        : "The selected merchant has not passed independent trust review; no approval was requested and no quote Cart was created.") + preserved;
+      if (code === "QUOTE_CAPABILITY_NOT_CHECKED") return (zh
+        ? "所选商品的报价能力尚未核验；未请求授权或创建报价购物车。"
+        : "The selected product's quote capability is not yet verified; no approval was requested and no quote Cart was created.") + preserved;
+      if (["QUOTE_TARGET_UNVERIFIED", "QUOTE_UNSUPPORTED"].includes(code)) return (zh
         ? "所选商品尚未通过报价资格核验，不支持本次报价；未创建报价购物车。请在商家页面确认总价。"
         : "The selected products have not passed quote eligibility checks; this quote is unsupported and no quote Cart was created. Confirm totals at the merchant.") + preserved;
       return (zh ? "报价结果尚不确定。先前授权的临时匿名购物车可能已创建；请在对话中核对结果，不要重复点击。"

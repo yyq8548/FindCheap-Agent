@@ -191,7 +191,7 @@ describe("FindCheap Agent plugin contract", () => {
     expect(skill).toContain("Explicit merchant trust/location/delivery remain requiredFeatures, not product keywords");
     expect(skill).toContain("US market ≠ US-based merchant; only require the latter when asked");
     expect(skill).toContain("Missing location stays unknown");
-    expect(skill).toContain("Unresolved Sony 1000XM6 → user-specified WH/WF-1000XM6: CONTINUE");
+    expect(skill).toContain("Unresolved Sony XM5/XM6 → specified WH/WF: CONTINUE");
     expect(skill).toContain("changing a fixed model/family or generation: CORRECT_PREVIOUS_PRODUCT");
   });
 
@@ -284,7 +284,7 @@ describe("FindCheap Agent plugin contract", () => {
     };
 
     expect(manifest.name).toBe("findcheap-agent");
-    expect(manifest.version).toMatch(/^0\.18\.3(?:\+codex\.)?/u);
+    expect(manifest.version).toMatch(/^0\.18\.4(?:\+codex\.)?/u);
     expect(manifest.interface.displayName).toBe("FindCheap Agent");
     expect(manifest.interface.longDescription).toMatch(/Codex Plugin Agent/u);
     expect(manifest.interface.longDescription).toMatch(/[Aa]uthorized.*Chrome/u);

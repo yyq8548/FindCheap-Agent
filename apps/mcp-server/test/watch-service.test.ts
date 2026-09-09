@@ -59,6 +59,44 @@ async function restockBaseline(store = createMemoryWatchStore()) {
 }
 
 describe("restock watch evidence", () => {
+  it("recovers the original notification after saving completes but the response is lost", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "findcheap-watch-lost-response-"));
+    watchDirectories.push(directory);
+    const store = createJsonWatchStore(directory);
+    const baseline = await restockBaseline(store);
+    const search = vi.fn(async () => searchResult([{ ...product, availability: "IN_STOCK" as const }]));
+    const interrupted = { ...store, async save(record: Parameters<typeof store.save>[0]) {
+      await store.save(record);
+      throw new Error("TEST_RESPONSE_LOST_AFTER_COMMIT");
+    } };
+    const lost = await evaluateWatch(baseline, interrupted, { search }, noDeals, undefined, now);
+    expect(lost.status).not.toBe("TRIGGERED");
+    const restarted = createJsonWatchStore(directory);
+    const recovered = await evaluateWatch((await restarted.get(baseline.watchId))!, restarted, { search }, noDeals,
+      undefined, new Date("2026-09-07T12:00:00.000Z"));
+    expect(recovered.status).toBe("COMPLETED");
+    expect(recovered.watch.completionNotification).toMatchObject({
+      eventId: recovered.watch.completionEventId, status: "DELIVERY_UNCONFIRMED", createdAt: checkedAt,
+      message: "Black Lace Dress is now in stock at Reviewed Store.",
+      observation: { availability: "IN_STOCK", checkedAt }
+    });
+    expect(recovered.message).toContain("delivery remains unconfirmed");
+    expect(search).toHaveBeenCalledTimes(1);
+    expect(await restarted.get(baseline.watchId)).toEqual(recovered.watch);
+  });
+
+  it("commits the notification together with the completion ID and does not emit a second trigger", async () => {
+    const store = createMemoryWatchStore();
+    const baseline = await restockBaseline(store);
+    const source: ShopifyPort = { search: async () => searchResult([{ ...product, availability: "IN_STOCK" }]) };
+    const first = await evaluateWatch(baseline, store, source, noDeals, undefined, now);
+    expect(first.watch.completionNotification).toEqual({ eventId: first.watch.completionEventId,
+      createdAt: checkedAt, status: "DELIVERY_UNCONFIRMED", message: first.message, observation: first.observation });
+    const repeated = await evaluateWatch(first.watch, store, source, noDeals, undefined, now);
+    expect(repeated.status).toBe("COMPLETED");
+    expect(repeated.watch.completionNotification).toEqual(first.watch.completionNotification);
+  });
+
   it("preserves one completion event and pending stop across JSON adapter restart", async () => {
     const directory = await mkdtemp(join(tmpdir(), "findcheap-watch-event-"));
     watchDirectories.push(directory);

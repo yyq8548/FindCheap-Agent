@@ -115,7 +115,8 @@ function continuedIdentityQuery(current: SearchProductsInput, previous: SearchPr
   const family = oldTokens.find(token => /^1000xm\d{1,2}$/u.test(token));
   const subtype = headphoneType(current.productType ?? previous.productType);
   const prefix = subtype === "OVER_EAR" ? "wh" : subtype === "IN_EAR" ? "wf" : undefined;
-  const qualifiesFamily = previous.brand?.toLowerCase() === "sony" && family !== undefined && prefix !== undefined &&
+  const requestedSony = previous.brand?.toLowerCase() === "sony" || previous.brand === undefined && oldTokens.includes("sony");
+  const qualifiesFamily = requestedSony && family !== undefined && prefix !== undefined &&
     newTokens.includes(prefix + family) && !oldTokens.some(token => /^w[fh]1000xm/u.test(token));
   if (qualifiesFamily) oldTokens = oldTokens.map(token => token === family ? prefix + family : token);
   if (same(oldTokens, newTokens)) return qualifiesFamily ? current.query : previous.query;

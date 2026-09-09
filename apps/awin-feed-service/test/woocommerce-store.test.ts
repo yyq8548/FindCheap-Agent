@@ -6,6 +6,15 @@ export const store = WooRegistrySchema.parse({ version: "test", stores: [{ merch
 export const raw: WooRawProduct = { id: 10, name: "Desk", type: "simple", permalink: "/product/desk", prices: { price: "1099", currency_code: "USD", currency_minor_unit: 2 }, is_in_stock: true };
 const at = "2026-09-08T12:00:00.000Z";
 describe("Woo source observations", () => {
+  it("keeps merchant-configured add-on prices and stock unverified even when the API calls it simple", () => {
+    const configured = { ...store, requiresOptionSelection: true };
+    const observation = normalizeWooProduct({ ...raw, is_purchasable: true, has_options: false }, configured, at)!;
+    expect(observation.itemPrice).toBeUndefined();
+    expect(observation.priceEvidence.scope).toBe("UNKNOWN");
+    expect(observation.availability).toBe("UNKNOWN");
+    expect(normalizeWooProduct({ ...raw, has_options: true }, store, at)?.itemPrice).toBeUndefined();
+    expect(normalizeWooProduct({ ...raw, has_options: false }, store, at)?.itemPrice?.amountCents).toBe(1099);
+  });
   it("keeps exact USD minor-unit facts and missing/foreign prices unpriced", () => {
     expect(normalizeWooProduct(raw, store, at)?.itemPrice).toEqual({ amountCents: 1099, currency: "USD" });
     for (const prices of [{ currency_code: "USD", currency_minor_unit: 2 }, { price: "1099", currency_code: "EUR", currency_minor_unit: 2 }, { price: "1.99", currency_code: "USD", currency_minor_unit: 2 }]) {

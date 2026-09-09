@@ -9,9 +9,9 @@ English | [简体中文](README.zh-CN.md)
 
 Product form: **Codex Plugin Agent**.
 
-Current source package: **v0.18.3** — 1,000 configured WooCommerce storefronts, capsule and machine-compatibility checks, useful search pagination, and bounded source recovery. Deployment and installed-plugin state are verified separately in the release record.
+Current source package: **v0.18.4** — task-bound shopping history and restart recovery, safer Watch persistence, Sony/coffee identity repairs, clear quote eligibility, and 1,002 configured WooCommerce storefronts. Deployment and installed-plugin state are verified separately in the release record.
 Nine-row comparisons and immutable selections remain.
-[Release and verification status](docs/releases/v0.18.3.md). [1,000-store data and evidence](docs/engineering/changes/2026-09-08-woocommerce-expansion-1000-data.md). [Repeatable acceptance tests](docs/testing/capsule-search-and-woocommerce-expansion.md). [Existing 200-merchant trust review](docs/product/woocommerce-merchant-trust-200.md).
+[Release and verification status](docs/releases/v0.18.4.md). [9/9 repair and test status](<改进计划 9_9.md>). [1,000-store baseline evidence](docs/engineering/changes/2026-09-08-woocommerce-expansion-1000-data.md). [Existing 200-merchant trust review](docs/product/woocommerce-merchant-trust-200.md).
 
 FindCheap Agent is a shopping-research Codex plugin for product search, offer matching, price checks, product cards, evidence-backed comparison views, verified deals, and shopping watches. Search is read-only; quotes and Watches have separate authorization boundaries. It returns up to eight products in three tiers: 2 official-store matches, 3 trusted or high-rated matches, and 3 best-value high-match options.
 
@@ -152,6 +152,12 @@ Codex creates a recurring Watch only after the user explicitly asks to be notifi
 
 ## Shopping watches
 
+### Task history
+
+On Codex stdio connections with trusted host task metadata, `get_shopping_history` restores saved requirements, original selection/comparison references and historical observations after restart. It does not refresh prices, stock, expired quote references or web permissions. Explicitly requested `clear_shopping_history` clears only this task's shopping history; Watch rules and host schedules are separate.
+
+Local storage uses `shopping-state-v1.sqlite` and `task-watches-v1/<task-id>` beneath `FINDCHEAP_STATE_DIR` (default `~/.findcheap-agent/watches-v1`). History retention is 30 days, at most 8 MiB per task and 500 task records including revision tombstones. It does not store chat transcripts, raw reference images or authorization tokens. Connections without trusted task metadata retain connection-local shopping state. Corruption, capacity exhaustion and concurrent-write conflicts return an error instead of silently losing or overwriting history. Automatic cleanup on task deletion awaits an authoritative host deletion receipt; explicit history clearing is available.
+
 Users can ask Codex to monitor a product and notify them when:
 
 - the price falls below a target
@@ -159,7 +165,9 @@ Users can ask Codex to monitor a product and notify them when:
 - an item returns to stock
 - a requested size, color, or variant is restocked
 
-Scheduling and notifications use native Codex Automation. Binding records a local reference, not verified host ownership or activity. The plugin persists rules and observations with revision-checked atomic saves. A verified restock completes once with a stable notification event ID; later checks do no source work. Actual notification delivery and host stopping are separate, unverified acceptance gates.
+Scheduling and notifications use native Codex Automation. New records are isolated by trusted Codex task metadata. Binding an Automation ID still records only a local scheduling reference. Confirmed task archive pauses local work and records any required stop; unarchive does not resume it. Unknown host state prevents new or executing task-bound Watch work. The plugin persists rules and observations with revision-checked atomic saves and crash-released locks. A verified restock completes once with a stable event and recoverable historical notification payload; later checks do no source work. Actual notification delivery and host stopping remain unverified acceptance gates.
+
+**Upgrade compatibility:** pre-v0.18.4 Watch records without trusted task ownership remain in their original directory. A new task-bound connection cannot claim them using a Watch ID. Their existing host schedules are not automatically stopped or migrated; verified ownership reconciliation is still required. Do not create duplicate schedules to bypass this restriction.
 
 Price thresholds are exclusive. A request for "below $40" stores `4000` cents and triggers at `$39.99`, not `$40.00`. Item-price monitoring remains available. Delivered-total Watch is currently refused before ZIP/reference clarification: one-time Cart approval does not authorize recurring mutations. Legacy delivered-total records remain readable but cannot request quotes.
 
@@ -228,8 +236,8 @@ The unified router uses eligible configured sources; bounded Chrome recovery fol
 
 WooCommerce joins the existing Backend search, visual candidates, comparisons, selected-product inspection, deals and item-price/stock Watch. Its Store API is per merchant: FindCheap supplies the access registry and aggregation. Registration or a WooCommerce platform key is not required for public product GETs; merchant access restrictions still apply.
 
-The v0.18.3 source table contains **1,000 storefronts: the original 200 plus 800 new search-only admissions**. Four qualified reserves stay outside runtime. New entries passed public USD product, exact variant, purchasability-page and US-market evidence checks; they receive no automatic official, trusted-retailer or affiliate status. Public directory positions guide discovery priority, not a claim that every store is popular. See the [complete list and qualification evidence](docs/engineering/changes/2026-09-08-woocommerce-expansion-1000-evidence.json) and [data summary](docs/engineering/changes/2026-09-08-woocommerce-expansion-1000-data.md).
+The v0.18.4 source table contains **1,002 storefronts: the original 1,000 plus two research-only additions**, Recool Hair (wigs) and Silent Sound System (headphones). The new stores expose extra product options whose final price/stock cannot be established by their Store API: these fields remain UNKNOWN and cannot support an exact-price recommendation or inventory Watch. They receive no official, trusted-retailer or affiliate status. Relevant stores are preferred; unrelated exploration is limited to two per round. This does not mean every store is queried or Sony products are covered. See the [two-store evidence](docs/engineering/changes/2026-09-09-woo-priority-admission.json), [baseline list](docs/engineering/changes/2026-09-08-woocommerce-expansion-1000-evidence.json) and [baseline qualification summary](docs/engineering/changes/2026-09-08-woocommerce-expansion-1000-data.md).
 
 Search selects at most six merchants per pass, with at most two Woo passes per Backend search. It does not scan all 1,000 stores. Coverage, stock, price and local-delivery limits remain visible; USD pricing does not guarantee delivery to a particular address. Product links and selected attributes must agree with the exact product and variant; incomplete choices cannot supply a confirmed price. Woo Cart and checkout remain unsupported.
 
-The source service remains disabled unless `WOOCOMMERCE_SOURCE_ENABLED=true`. The distributed plugin config points `WOOCOMMERCE_API_BASE_URL` to the public FindCheap source gateway; standalone MCP processes can supply a compatible HTTPS origin. An explicit MCP `WOOCOMMERCE_SOURCE_ENABLED=false` also disables this source. No checkout, account or administrative credentials are needed. Setup, response budgets and rollback are in the [WooCommerce runbook](docs/product/woocommerce-source-setup.md); actual production and cache rollout are recorded in [v0.18.3 delivery status](docs/releases/v0.18.3.md).
+The source service remains disabled unless `WOOCOMMERCE_SOURCE_ENABLED=true`. The distributed plugin config points `WOOCOMMERCE_API_BASE_URL` to the public FindCheap source gateway; standalone MCP processes can supply a compatible HTTPS origin. An explicit MCP `WOOCOMMERCE_SOURCE_ENABLED=false` also disables this source. No checkout, account or administrative credentials are needed. Setup, response budgets and rollback are in the [WooCommerce runbook](docs/product/woocommerce-source-setup.md); actual production and cache rollout are recorded in [v0.18.4 delivery status](docs/releases/v0.18.4.md).

@@ -20,10 +20,10 @@ describe("Woo merchant selection with 200 reviewed stores", () => {
     const service = controller(stores);
     const result = await service.search(WooSearchInputSchema.parse({ query: "pencil", preferredMerchantHost: "z-official.example" }));
     expect(result.stores[0]?.merchantId).toBe("z-official");
-    expect(result.diagnostics.plannedStores).toBe(6);
+    expect(result.diagnostics).toMatchObject({ plannedStores: 3, routing: { relevantPlanned: 1, explorationPlanned: 2 } });
     const unknown = await service.search(WooSearchInputSchema.parse({ query: "pencil", preferredMerchantHost: "unlisted.example" }));
     expect(unknown.stores.every(entry => stores.some(store => store.merchantId === entry.merchantId))).toBe(true);
-    expect(unknown.diagnostics.plannedStores).toBe(6);
+    expect(unknown.diagnostics).toMatchObject({ plannedStores: 2, routing: { matchedStores: 0, explorationPlanned: 2 } });
   });
   it("prioritizes an explicitly requested brand over many generic category labels", async () => {
     const generic = Array.from({ length: 7 }, (_, i) => store(`a-generic-${i}`, [], ["manual", "coffee", "grinder", "espresso", "travel"]));
@@ -39,7 +39,8 @@ describe("Woo merchant selection with 200 reviewed stores", () => {
   ])("routes $query to a reviewed category without changing product matching", async ({ query, category }) => {
     const result = await controller([...fillers(), store("z-specialist", [], [category])]).search(WooSearchInputSchema.parse({ query }));
     expect(result.stores[0]?.merchantId).toBe("z-specialist");
-    expect(result.diagnostics).toMatchObject({ eligibleStores: 200, plannedStores: 6, physicalRequests: 6, registryCoverageComplete: false });
+    expect(result.diagnostics).toMatchObject({ eligibleStores: 200, plannedStores: 3, physicalRequests: 3, registryCoverageComplete: false,
+      routing: { relevantPlanned: 1, explorationPlanned: 2 } });
   });
 
   it("normalizes punctuation, case and accents for a reviewed brand phrase", async () => {
@@ -63,8 +64,8 @@ describe("Woo merchant selection with 200 reviewed stores", () => {
     expect(first.stores.map(s => s.merchantId)).toEqual(repeated.stores.map(s => s.merchantId));
     expect(first.stores.map(s => s.merchantId)).not.toEqual(other.stores.map(s => s.merchantId));
     const next = await service.search({ ...firstInput, continuation: first.continuation! });
-    expect(new Set([...first.stores, ...next.stores].map(s => s.merchantId)).size).toBe(12);
-    expect(next.continuation).toBeUndefined();
+    expect(new Set([...first.stores, ...next.stores].map(s => s.merchantId)).size).toBe(4);
+    expect(next.continuation?.attemptedMerchantIds).toHaveLength(4);
     expect(next.diagnostics.registryCoverageComplete).toBe(false);
   });
 });

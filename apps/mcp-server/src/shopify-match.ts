@@ -132,6 +132,7 @@ export function hasStrongProductIdentifier(query: string): boolean {
  * Shared descriptions may recall candidates, but cannot resolve edition identity. */
 export function assessRequestIdentity(query: string, candidate: ShopifyMatchCandidate,
   status: ShopifyMatchStatus): RequestIdentityStatus {
+  if (hasAmbiguousSonyFamily(query)) return "NEEDS_VERIFICATION";
   if (status === "EXACT") return "CONFIRMED";
   if (status !== "DISCOVERY_MATCH") return "NEEDS_VERIFICATION";
   const singular = (token: string) => token === "pads" ? "pad" : token;
@@ -460,3 +461,4 @@ function compact(value: string): string {
 }
 import { namedProductIdentity, normalizeNamedProductIdentity } from "./named-product-identity.js";
 import { namedIdentityFeatureStatus } from "./product-constraint-matcher.js";
+import { hasAmbiguousSonyFamily } from "./sony-family.js";

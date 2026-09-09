@@ -334,8 +334,13 @@ describe("visual candidate image loader", () => {
     });
     await expect(createVisualCandidateImagePort(fetchImage, 1).load("https://merchant.example/photo.jpg"))
       .rejects.toMatchObject({ code: "IMAGE_PROCESSING_TIMEOUT" });
-    await expect(createVisualCandidateImagePort(fetchImage).load("https://merchant.example/photo.jpg", {
-      signal: AbortSignal.timeout(5)
+    const controller = new AbortController();
+    await expect(createVisualCandidateImagePort(async input => {
+      const result = await fetchImage(input);
+      controller.abort();
+      return result;
+    }).load("https://merchant.example/photo.jpg", {
+      signal: controller.signal
     })).rejects.toMatchObject({ code: "REQUEST_ABORTED" });
   });
 

@@ -34,7 +34,8 @@ describe("Woo service HTTP boundary", () => {
       headers: { "content-type": "application/json", ...(capability ? { "x-findcheap-woo-coverage": capability } : {}) }, body: JSON.stringify({ query: "coffee" }) });
     const body = await response.json();
     // v0.18.2 accepts these fields strictly; an optional additive field still breaks it.
-    const legacy = WooSearchResultSchema.extend({ stores: z.array(WooStoreResultSchema.omit({ boundedReasons: true })).max(6) });
+    const legacy = WooSearchResultSchema.extend({ stores: z.array(WooStoreResultSchema.omit({ boundedReasons: true, failureDetail: true })).max(6),
+      diagnostics: WooSearchResultSchema.shape.diagnostics.omit({ routing: true }) });
     expect(legacy.safeParse(body).success).toBe(true);
     expect(body).toMatchObject({ status: "PARTIAL", diagnostics: { truncated: true }, stores: [{ reason: "BUDGET_EXHAUSTED" }] });
     expect(result.stores[0]?.boundedReasons).toEqual(["PRODUCT_PAGE_LIMIT"]);
@@ -47,7 +48,16 @@ describe("Woo service HTTP boundary", () => {
     const port = createWooCommercePortFromEnvironment({ WOOCOMMERCE_API_BASE_URL: "https://source.example" }, {
       fetch: (url, init) => fetch(new URL(new URL(String(url)).pathname, base), init)
     })!;
-    expect((await port.search({ query: "coffee", limit: 12, market: "US", currency: "USD" })).stores[0]?.boundedReasons).toEqual(["PRODUCT_PAGE_LIMIT"]);
+    const current = await port.search({ query: "coffee", limit: 12, market: "US", currency: "USD" });
+    expect(current.stores[0]).toMatchObject({ boundedReasons: ["PRODUCT_PAGE_LIMIT"], failureDetail: "REQUEST_LIMIT" });
+    expect(current.diagnostics.routing).toMatchObject({ relevantPlanned: 1, explorationPlanned: 0 });
+    const v1 = await fetch(`${base}/v1/woocommerce/search`, { method: "POST", headers: {
+      "content-type": "application/json", "x-findcheap-woo-coverage": "1"
+    }, body: JSON.stringify({ query: "coffee" }) });
+    const v1Body = await v1.json();
+    expect(v1Body.stores[0].boundedReasons).toEqual(["PRODUCT_PAGE_LIMIT"]);
+    expect(v1Body.stores[0]).not.toHaveProperty("failureDetail");
+    expect(v1Body.diagnostics).not.toHaveProperty("routing");
     const old = await post(base, "search", { query: "coffee" });
     expect((await old.json()).stores[0]).not.toHaveProperty("boundedReasons");
     expect((await port.search({ query: "coffee", limit: 12, market: "US", currency: "USD" })).stores[0]?.boundedReasons).toEqual(["PRODUCT_PAGE_LIMIT"]);
@@ -92,7 +102,8 @@ describe("Woo service HTTP boundary", () => {
 function boundedResult(): WooSearchResult {
   return { source: "WOOCOMMERCE_STORE_API", schemaVersion: 1, registryVersion: "test", requestId: "bounded-test",
     status: "PARTIAL", snapshotAt: "2026-09-09T02:00:00.000Z", products: [],
-    stores: [{ merchantId: "sample", status: "PARTIAL", reason: "BUDGET_EXHAUSTED", boundedReasons: ["PRODUCT_PAGE_LIMIT"], requests: 2, returned: 0 }],
+    stores: [{ merchantId: "sample", status: "PARTIAL", reason: "BUDGET_EXHAUSTED", failureDetail: "REQUEST_LIMIT", boundedReasons: ["PRODUCT_PAGE_LIMIT"], requests: 2, returned: 0 }],
     diagnostics: { eligibleStores: 1000, plannedStores: 1, attemptedStores: 1, succeededStores: 0, failedStores: 1, skippedStores: 999, physicalRequests: 2,
-      responseBytes: 2, cacheHits: 0, elapsedMs: 1, truncated: true, registryCoverageComplete: false } };
+      responseBytes: 2, cacheHits: 0, elapsedMs: 1, truncated: true, registryCoverageComplete: false,
+      routing: { scope: "CURRENT_PASS", matchedStores: 1, relevantPlanned: 1, explorationPlanned: 0 } } };
 }

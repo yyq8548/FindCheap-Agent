@@ -5,7 +5,7 @@ import { WooInspectionResultSchema, WooLookupResultSchema, WooProductTargetSchem
 import { createPinnedRequest, safeFetch, type FetchPolicy } from "../../../packages/network-safety/src/safe-fetch.js";
 import { createWooStoreReader, normalizeWooProduct, wooMatchesRequirements, WooReadError, type WooReadBudget, type WooRawProduct, type WooStoreReader } from "./woocommerce-store.js";
 import { WooRegistrySchema, wooMerchantForUrl, type WooMerchant, type WooRegistry } from "./woocommerce-registry.js";
-import { rankWooMerchants } from "./woocommerce-routing.js";
+import { planWooMerchants } from "./woocommerce-routing.js";
 
 export type WooCommerceController = {
   search(input: WooSearchInput, options?: { signal?: AbortSignal }): Promise<WooSearchResult>;
@@ -78,9 +78,9 @@ export function createWooCommerceController(registryInput: WooRegistry, dependen
       try { result = await reader.list(store, new URLSearchParams({ type: "variation", parent: String(parent.id), per_page: "20", page: String(page) }), limits); }
       catch (error) { if (products.length > 0) return { products: products.slice(0, 24), truncated: true, failure: error }; throw error; }
       for (const raw of result.products) {
-        if (raw.type !== "variation") throw new WooReadError("INVALID_RESPONSE");
+        if (raw.type !== "variation") throw new WooReadError("INVALID_RESPONSE", undefined, "VARIANT_TYPE");
         const product = normalizeWooProduct(raw, store, timestamp(), parent);
-        if (product === undefined) throw new WooReadError("INVALID_RESPONSE");
+        if (product === undefined) throw new WooReadError("INVALID_RESPONSE", undefined, "VARIANT_BINDING");
         if (wooMatchesRequirements(product, requirements)) products.push(remember(product));
       }
       if (result.totalPages <= page) break;
@@ -125,7 +125,8 @@ export function createWooCommerceController(registryInput: WooRegistry, dependen
       }
       const available = candidates.filter((store) => unavailable(store.merchantId) === undefined);
       // Preserve diagnostics when every candidate is blocked, without issuing requests.
-      const planned = rankWooMerchants(available.length > 0 ? available : candidates, input).slice(0, 6);
+      const plan = planWooMerchants(available.length > 0 ? available : candidates, input);
+      const planned = plan.stores;
       const key = JSON.stringify([registry.version, input]);
       const cached = cache.get(key);
       if (cached !== undefined && cached.expires > now() && cached.value.stores.length === planned.length && planned.every((store, index) => cached.value.stores[index]?.merchantId === store.merchantId && unavailable(store.merchantId) === undefined)) {
@@ -187,6 +188,7 @@ export function createWooCommerceController(registryInput: WooRegistry, dependen
           const reason = error instanceof WooReadError ? error.reason : "UPSTREAM_UNAVAILABLE";
           result.status = collected.length > 0 ? "PARTIAL" : "UNAVAILABLE";
           result.reason = reason;
+          if (error instanceof WooReadError && error.failureDetail !== undefined) result.failureDetail = error.failureDetail;
           result.returned = collected.length;
           truncated = true;
           if (reason === "INVALID_RESPONSE") {
@@ -211,7 +213,7 @@ export function createWooCommerceController(registryInput: WooRegistry, dependen
         source: "WOOCOMMERCE_STORE_API", schemaVersion: 1, registryVersion: registry.version, requestId: randomUUID(),
         status: eligible.length === 0 ? "NOT_CONFIGURED" : stores.length > 0 && stores.every((store) => store.status === "COMPLETE") ? "COMPLETE" : succeeded > 0 ? "PARTIAL" : "UNAVAILABLE",
         snapshotAt: timestamp(), products: allProducts.slice(0, input.limit), stores,
-        diagnostics: { eligibleStores: eligible.length, plannedStores: planned.length, attemptedStores: stores.filter((store) => store.requests > 0).length,
+        diagnostics: { routing: plan.routing, eligibleStores: eligible.length, plannedStores: planned.length, attemptedStores: stores.filter((store) => store.requests > 0).length,
           succeededStores: succeeded, failedStores: stores.filter((store) => store.status === "UNAVAILABLE").length,
           skippedStores: Math.max(0, eligible.length - planned.length) + stores.filter((store) => store.status === "SKIPPED").length,
           physicalRequests: limits.requests, responseBytes: limits.bytes, cacheHits: 0, elapsedMs: Math.max(0, now() - started),

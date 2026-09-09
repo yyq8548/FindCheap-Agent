@@ -1,3 +1,5 @@
+import { createTaskStateStore } from "./task-state-store.js";
+import { createCodexTaskMetadataReader } from "./codex-task-metadata.js";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -58,6 +60,9 @@ const backend = createFindCheapBackend({
 });
 const server = createShoppingServer(shopifyPort, affiliateLinks, {
   backend,
+  taskState: createTaskStateStore(join(stateDirectory, "shopping-state-v1.sqlite")),
+  taskWatches: taskId => createJsonWatchStore(join(stateDirectory, "task-watches-v1", taskId), { kernelLock: true }),
+  taskLifecycle: createCodexTaskMetadataReader(),
   productCardResourceDomains: [...new Set([...productCardResourceDomains(process.env.AWIN_PRODUCT_SEARCH_URL), ...productCardResourceDomains(process.env.WOOCOMMERCE_API_BASE_URL)])],
 });
 

@@ -40,7 +40,7 @@ export function searchResult(products: ShopifyProduct[]): ShopifySearchResult {
 }
 
 export async function connectReplay(search: ShopifyPort["search"], dependencies: ShoppingServerDependencies = {},
-  elicitation?: (params: ElicitRequest["params"]) => Promise<ElicitResult>) {
+  elicitation?: (params: ElicitRequest["params"]) => Promise<ElicitResult>, clientName = "conversation-01a06df9-replay") {
   const network = vi.fn(async () => { throw new Error("NETWORK_FORBIDDEN_IN_CONVERSATION_REPLAY"); });
   vi.stubGlobal("fetch", network);
   const server = createShoppingServer({ search }, undefined, {
@@ -49,7 +49,7 @@ export async function connectReplay(search: ShopifyPort["search"], dependencies:
     ...dependencies
   });
   // An explicit simulated host approval is test evidence, not actual desktop/user consent.
-  const client = new Client({ name: "conversation-01a06df9-replay", version: "1.0.0" },
+  const client = new Client({ name: clientName, version: "1.0.0" },
     elicitation === undefined ? {} : { capabilities: { elicitation: { form: {} } } });
   if (elicitation !== undefined) client.setRequestHandler(ElicitRequestSchema, (request) => elicitation(request.params));
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();

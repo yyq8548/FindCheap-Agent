@@ -35,20 +35,20 @@ describe("reviewed 50-merchant Woo expansion", () => {
     const request = vi.fn(async () => response([]));
     const controller = createWooCommerceController(originalRegistry, { resolve, request });
     const first = await controller.search({ query: "findcheapboundedcoverage", limit: 3, market: "US", currency: "USD" });
-    expect(first.diagnostics).toMatchObject({ eligibleStores: 50, plannedStores: 6, physicalRequests: 6, registryCoverageComplete: false });
-    expect(first.continuation?.attemptedMerchantIds).toHaveLength(6);
+    expect(first.diagnostics).toMatchObject({ eligibleStores: 50, plannedStores: 2, physicalRequests: 2, registryCoverageComplete: false });
+    expect(first.continuation?.attemptedMerchantIds).toHaveLength(2);
     const second = await controller.search({ query: "findcheapboundedcoverage", limit: 3, market: "US", currency: "USD", continuation: first.continuation! });
-    expect(second.diagnostics).toMatchObject({ eligibleStores: 50, plannedStores: 6, physicalRequests: 6, registryCoverageComplete: false });
-    expect(second.continuation).toBeUndefined();
-    expect(new Set([...first.stores, ...second.stores].map(store => store.merchantId)).size).toBe(12);
-    expect(request).toHaveBeenCalledTimes(12);
+    expect(second.diagnostics).toMatchObject({ eligibleStores: 50, plannedStores: 2, physicalRequests: 2, registryCoverageComplete: false });
+    expect(second.continuation?.attemptedMerchantIds).toHaveLength(4);
+    expect(new Set([...first.stores, ...second.stores].map(store => store.merchantId)).size).toBe(4);
+    expect(request).toHaveBeenCalledTimes(4);
   });
 
   it("selects a newly admitted brand within the existing six-store budget", async () => {
     const request = vi.fn(async () => response([]));
     const result = await createWooCommerceController(originalRegistry, { resolve, request }).search({ query: "Seymour Duncan", limit: 3, market: "US", currency: "USD" });
     expect(result.stores.some(store => store.merchantId === "seymour-duncan")).toBe(true);
-    expect(result.diagnostics.plannedStores).toBe(6);
+    expect(result.diagnostics).toMatchObject({ plannedStores: 3, routing: { relevantPlanned: 1, explorationPlanned: 2 } });
   });
 
   it.each(samples)("replays $merchantId product identity, selected dimensions, USD price and approved images", async sample => {

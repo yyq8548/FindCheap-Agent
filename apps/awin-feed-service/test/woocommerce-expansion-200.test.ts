@@ -29,18 +29,18 @@ describe("reviewed 200-merchant Woo expansion", () => {
     }
   });
 
-  it("keeps two complementary six-store passes and never labels 200-store coverage complete", async () => {
+  it("keeps complementary exploration bounded and never labels 200-store coverage complete", async () => {
     const send = request();
     const controller = createWooCommerceController(originalRegistry, { resolve, request: send });
     const input = WooSearchInputSchema.parse({ query: "bounded-200-store-coverage" });
     const first = await controller.search(input);
     const second = await controller.search({ ...input, continuation: first.continuation! });
     for (const result of [first, second]) {
-      expect(result.diagnostics).toMatchObject({ eligibleStores: 200, plannedStores: 6, physicalRequests: 6, registryCoverageComplete: false });
+      expect(result.diagnostics).toMatchObject({ eligibleStores: 200, plannedStores: 2, physicalRequests: 2, registryCoverageComplete: false });
     }
-    expect(new Set([...first.stores, ...second.stores].map(store => store.merchantId)).size).toBe(12);
-    expect(second.continuation).toBeUndefined();
-    expect(send).toHaveBeenCalledTimes(12);
+    expect(new Set([...first.stores, ...second.stores].map(store => store.merchantId)).size).toBe(4);
+    expect(second.continuation?.attemptedMerchantIds).toHaveLength(4);
+    expect(send).toHaveBeenCalledTimes(4);
   });
 
   it.each([
@@ -49,7 +49,7 @@ describe("reviewed 200-merchant Woo expansion", () => {
   ])("routes the real newly admitted $id brand within six merchants", async ({ query, id }) => {
     const result = await createWooCommerceController(originalRegistry, { resolve, request: request() }).search(WooSearchInputSchema.parse({ query }));
     expect(result.stores[0]?.merchantId).toBe(id);
-    expect(result.diagnostics.plannedStores).toBe(6);
+    expect(result.diagnostics).toMatchObject({ plannedStores: 3, routing: { relevantPlanned: 1, explorationPlanned: 2 } });
   });
 
   it.each(samples)("replays $merchantId observed identity, USD price, selected attributes and approved images", async sample => {

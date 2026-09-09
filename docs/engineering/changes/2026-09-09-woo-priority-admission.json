@@ -1,0 +1,245 @@
+{
+  "version": 1,
+  "checkedAt": "2026-09-09T15:29:37.640Z",
+  "records": [
+    {
+      "store": {
+        "merchantId": "recool-hair",
+        "name": "Recool Hair",
+        "origin": "https://www.recoolhair.com",
+        "apiPath": "/wp-json/wc/store/v1",
+        "productPathPrefixes": [
+          "/product/"
+        ],
+        "imageHosts": [],
+        "aliases": [],
+        "brands": [
+          "Recool Hair"
+        ],
+        "categories": [
+          "wig",
+          "human hair wig",
+          "hair extension",
+          "lace wig"
+        ],
+        "currency": "USD",
+        "marketEvidence": "https://www.recoolhair.com/product/ombre-brown-yaki-straight-pre-layered-cut-glueless-wig.html",
+        "requiresOptionSelection": true,
+        "reviewedAt": "2026-09-09",
+        "evidenceUrl": "https://www.recoolhair.com/wp-json/wc/store/v1/products/407531",
+        "enabled": true,
+        "capabilities": {
+          "search": true,
+          "variations": false
+        }
+      },
+      "checkedAt": "2026-09-09T15:29:35.968Z",
+      "listCount": 3,
+      "raw": {
+        "id": 407531,
+        "name": "Ombre Brown Color Yaki Straight Pre Layered Cut Glueless 6&#215;5 Closure Human Hair Wig 200% Density",
+        "type": "simple",
+        "permalink": "https://www.recoolhair.com/product/ombre-brown-yaki-straight-pre-layered-cut-glueless-wig.html",
+        "prices": {
+          "price": "17470",
+          "currency_code": "USD",
+          "currency_minor_unit": 2,
+          "regular_price": "37620",
+          "sale_price": "17470",
+          "price_range": null,
+          "currency_symbol": "$",
+          "currency_decimal_separator": ".",
+          "currency_thousand_separator": ",",
+          "currency_prefix": "$ ",
+          "currency_suffix": ""
+        },
+        "is_in_stock": true,
+        "is_purchasable": true,
+        "has_options": false,
+        "attributes": [
+          {
+            "name": "Hair Type",
+            "terms": [
+              {
+                "name": "Brazilian Hair",
+                "id": 182,
+                "slug": "brazilian-hair"
+              }
+            ],
+            "id": 8,
+            "taxonomy": "pa_hair-type",
+            "has_variations": false
+          },
+          {
+            "name": "Hair Texture",
+            "terms": [
+              {
+                "name": "Yaki Straight",
+                "id": 1663,
+                "slug": "yaki-straight"
+              }
+            ],
+            "id": 7,
+            "taxonomy": "pa_hair-texture",
+            "has_variations": false
+          },
+          {
+            "name": "Lace Size",
+            "terms": [
+              {
+                "name": "Upgrade 6x5 Lace",
+                "id": 1612,
+                "slug": "6x5-lace"
+              }
+            ],
+            "id": 20,
+            "taxonomy": "pa_lace-size",
+            "has_variations": false
+          },
+          {
+            "name": "Length Type",
+            "terms": [
+              {
+                "name": "Long Hair Wigs",
+                "id": 1610,
+                "slug": "long-hair-wigs"
+              }
+            ],
+            "id": 21,
+            "taxonomy": "pa_length-type",
+            "has_variations": false
+          },
+          {
+            "name": "Density",
+            "terms": [
+              {
+                "name": "180%",
+                "id": 609,
+                "slug": "180"
+              }
+            ],
+            "id": 16,
+            "taxonomy": "pa_density",
+            "has_variations": false
+          },
+          {
+            "name": "Color",
+            "terms": [
+              {
+                "name": "Ombre Color",
+                "id": 1442,
+                "slug": "ombre-color"
+              }
+            ],
+            "id": 9,
+            "taxonomy": "pa_color",
+            "has_variations": false
+          }
+        ]
+      },
+      "normalized": {
+        "merchantId": "recool-hair",
+        "productId": 407531,
+        "title": "Ombre Brown Color Yaki Straight Pre Layered Cut Glueless 6Ã—5 Closure Human Hair Wig 200% Density",
+        "productType": "simple",
+        "selectedAttributes": {},
+        "merchantUrl": "https://www.recoolhair.com/product/ombre-brown-yaki-straight-pre-layered-cut-glueless-wig.html",
+        "priceEvidence": {
+          "amountMinor": "17470",
+          "currency": "USD",
+          "currencyMinorUnit": 2,
+          "scope": "UNKNOWN",
+          "taxBasis": "UNKNOWN"
+        },
+        "availability": "UNKNOWN",
+        "checkedAt": "2026-09-09T15:29:35.968Z"
+      },
+      "requests": 2,
+      "bytes": 55076,
+      "admission": "SEARCH_ONLY_UNVERIFIED_MERCHANT_OPTIONS"
+    },
+    {
+      "store": {
+        "merchantId": "silent-sound-system",
+        "name": "Silent Sound System",
+        "origin": "https://silentsoundsystem.com",
+        "apiPath": "/wp-json/wc/store/v1",
+        "productPathPrefixes": [
+          "/product/"
+        ],
+        "imageHosts": [],
+        "aliases": [],
+        "brands": [
+          "Silent Sound System"
+        ],
+        "categories": [
+          "headphone",
+          "headphones",
+          "wireless headphone",
+          "silent disco",
+          "audio"
+        ],
+        "currency": "USD",
+        "marketEvidence": "https://silentsoundsystem.com/",
+        "requiresOptionSelection": true,
+        "reviewedAt": "2026-09-09",
+        "evidenceUrl": "https://silentsoundsystem.com/wp-json/wc/store/v1/products/61500",
+        "enabled": true,
+        "capabilities": {
+          "search": true,
+          "variations": false
+        }
+      },
+      "checkedAt": "2026-09-09T15:29:37.640Z",
+      "listCount": 3,
+      "raw": {
+        "id": 61500,
+        "name": "Custom Photo or Logo Bluetooth Over-Ear Stereo Headphones Wireless with Case",
+        "type": "simple",
+        "permalink": "https://silentsoundsystem.com/product/custom-photo-or-logo-bluetooth-over-ear-stereo-headphones-wireless-with-case/",
+        "prices": {
+          "price": "3700",
+          "currency_code": "USD",
+          "currency_minor_unit": 2,
+          "regular_price": "3700",
+          "sale_price": "3700",
+          "price_range": null,
+          "currency_symbol": "$",
+          "currency_decimal_separator": ".",
+          "currency_thousand_separator": ",",
+          "currency_prefix": "$",
+          "currency_suffix": ""
+        },
+        "is_in_stock": true,
+        "is_purchasable": true,
+        "has_options": false,
+        "attributes": []
+      },
+      "normalized": {
+        "merchantId": "silent-sound-system",
+        "productId": 61500,
+        "title": "Custom Photo or Logo Bluetooth Over-Ear Stereo Headphones Wireless with Case",
+        "productType": "simple",
+        "selectedAttributes": {},
+        "merchantUrl": "https://silentsoundsystem.com/product/custom-photo-or-logo-bluetooth-over-ear-stereo-headphones-wireless-with-case/",
+        "priceEvidence": {
+          "amountMinor": "3700",
+          "currency": "USD",
+          "currencyMinorUnit": 2,
+          "scope": "UNKNOWN",
+          "taxBasis": "UNKNOWN"
+        },
+        "availability": "UNKNOWN",
+        "checkedAt": "2026-09-09T15:29:37.640Z"
+      },
+      "requests": 2,
+      "bytes": 31055,
+      "admission": "SEARCH_ONLY_UNVERIFIED_MERCHANT_OPTIONS"
+    }
+  ],
+  "limitations": [
+    "Search access only; no new merchant trust or official status.",
+    "Required merchant options are absent from Store API; selected price and stock stay UNKNOWN.",
+    "Not evidence of Sony product coverage or a completed cross-merchant comparison."
+  ]
+}

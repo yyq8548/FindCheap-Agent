@@ -1,4 +1,5 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { randomUUID } from "node:crypto";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -22,6 +23,29 @@ const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
 const pluginRoot = process.env.FINDCHEAP_PLUGIN_ROOT ?? path.join(repoRoot, "plugins", "findcheap-agent");
 
 describe("installed plugin stdio", () => {
+  it("recovers clarification references across real bundle processes with synthetic trusted metadata", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "findcheap-task-stdio-")), id = randomUUID();
+    const environment = { FINDCHEAP_STATE_DIR: directory };
+    let first: Client | undefined, next: Client | undefined;
+    try {
+      first = await connectBundledClient(environment, "codex-mcp-client");
+      const original = await first.callTool({ name: "search_products", arguments: { query: "MacBook Pro", brand: "Apple",
+        productType: "laptop", maxItemPriceCents: 300000 }, _meta: { threadId: id } });
+      expect(original.isError, JSON.stringify(original.content)).not.toBe(true);
+      const card = original.structuredContent as { renderId: string; goalId: string };
+      await first.close(); first = undefined;
+      next = await connectBundledClient(environment, "codex-mcp-client");
+      const history = await next.callTool({ name: "get_shopping_history", arguments: {}, _meta: { threadId: id } });
+      expect(history.structuredContent).toMatchObject({ searches: [{ renderId: card.renderId, goalId: card.goalId, requirements: { maxItemPriceCents: 300000 } }] });
+      expect((await next.callTool({ name: "get_shopping_history", arguments: {}, _meta: { threadId: randomUUID() } })).structuredContent)
+        .toMatchObject({ searches: [] });
+      const continued = await next.callTool({ name: "search_products", arguments: { query: "MacBook Pro", contextMode: "CONTINUE_PREVIOUS_PRODUCT",
+        parentRenderId: card.renderId }, _meta: { threadId: id } });
+      expect(continued.structuredContent).toMatchObject({ goalId: card.goalId, goalRevision: 2, requirementsSummary: { maxItemPriceCents: 300000 } });
+      expect((await next.callTool({ name: "clear_shopping_history", arguments: {}, _meta: { threadId: id } })).structuredContent).toMatchObject({ status: "CLEARED" });
+      expect((await next.callTool({ name: "get_shopping_history", arguments: {}, _meta: { threadId: id } })).structuredContent).toMatchObject({ searches: [] });
+    } finally { await first?.close(); await next?.close(); await rm(directory, { recursive: true, force: true }); }
+  }, 30_000);
   it("continues clarification from model-visible text without reading structuredContent", async () => {
     const client = await connectBundledClient({});
     const context = (result: Awaited<ReturnType<Client["callTool"]>>) => {
@@ -139,12 +163,14 @@ describe("installed plugin stdio", () => {
       const tools = await client.listTools();
       const resources = await client.listResources();
       const productCards = await client.readResource({
-        uri: "ui://findcheap/product-cards/v44.html"
+        uri: "ui://findcheap/product-cards/v45.html"
       });
       const productComparison = await client.readResource({
-        uri: "ui://findcheap/product-comparison/v14.html"
+        uri: "ui://findcheap/product-comparison/v15.html"
       });
       expect(tools.tools.map((tool) => tool.name)).toEqual([
+        "get_shopping_history",
+        "clear_shopping_history",
         "search_products",
         "begin_web_search",
         "complete_web_search",
@@ -179,59 +205,59 @@ describe("installed plugin stdio", () => {
       const compareTool = tools.tools.find((tool) => tool.name === "compare_selected_products");
       const renderComparisonTool = tools.tools.find((tool) => tool.name === "render_product_comparison");
       expect(shopifyTool?._meta).toMatchObject({
-        ui: { resourceUri: "ui://findcheap/product-cards/v44.html" },
-        "openai/outputTemplate": "ui://findcheap/product-cards/v44.html"
+        ui: { resourceUri: "ui://findcheap/product-cards/v45.html" },
+        "openai/outputTemplate": "ui://findcheap/product-cards/v45.html"
       });
       expect(renderTool?._meta).toMatchObject({
         ui: {
-          resourceUri: "ui://findcheap/product-cards/v44.html",
+          resourceUri: "ui://findcheap/product-cards/v45.html",
           visibility: ["app"]
         }
       });
       expect(quoteTool?._meta).toMatchObject({
-        ui: { resourceUri: "ui://findcheap/product-cards/v44.html" },
-        "openai/outputTemplate": "ui://findcheap/product-cards/v44.html"
+        ui: { resourceUri: "ui://findcheap/product-cards/v45.html" },
+        "openai/outputTemplate": "ui://findcheap/product-cards/v45.html"
       });
       expect(quotedComparisonTool?._meta).toMatchObject({
-        ui: { resourceUri: "ui://findcheap/product-comparison/v14.html" },
-        "openai/outputTemplate": "ui://findcheap/product-comparison/v14.html"
+        ui: { resourceUri: "ui://findcheap/product-comparison/v15.html" },
+        "openai/outputTemplate": "ui://findcheap/product-comparison/v15.html"
       });
       expect(quotedComparisonTool?.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: false });
       expect(visualFinalizeTool?._meta).toMatchObject({
-        ui: { resourceUri: "ui://findcheap/product-cards/v44.html" },
-        "openai/outputTemplate": "ui://findcheap/product-cards/v44.html"
+        ui: { resourceUri: "ui://findcheap/product-cards/v45.html" },
+        "openai/outputTemplate": "ui://findcheap/product-cards/v45.html"
       });
       expect(compareTool?._meta).toMatchObject({
-        ui: { resourceUri: "ui://findcheap/product-comparison/v14.html" },
-        "openai/outputTemplate": "ui://findcheap/product-comparison/v14.html"
+        ui: { resourceUri: "ui://findcheap/product-comparison/v15.html" },
+        "openai/outputTemplate": "ui://findcheap/product-comparison/v15.html"
       });
       expect(compareTool?.annotations).toMatchObject({ readOnlyHint: true, destructiveHint: false });
       expect(renderComparisonTool?._meta).toMatchObject({
         ui: {
-          resourceUri: "ui://findcheap/product-comparison/v14.html",
+          resourceUri: "ui://findcheap/product-comparison/v15.html",
           visibility: ["app"]
         }
       });
       expect(resources.resources).toEqual(expect.arrayContaining([
         expect.objectContaining({
           name: "findcheap-product-cards",
-          uri: "ui://findcheap/product-cards/v44.html",
+          uri: "ui://findcheap/product-cards/v45.html",
           mimeType: "text/html;profile=mcp-app"
         }),
         expect.objectContaining({
           name: "findcheap-product-comparison",
-          uri: "ui://findcheap/product-comparison/v14.html",
+          uri: "ui://findcheap/product-comparison/v15.html",
           mimeType: "text/html;profile=mcp-app"
         })
       ]));
       expect(resources.resources).toHaveLength(2);
       expect(productCards.contents).toEqual([expect.objectContaining({
-        uri: "ui://findcheap/product-cards/v44.html",
+        uri: "ui://findcheap/product-cards/v45.html",
         mimeType: "text/html;profile=mcp-app",
         text: expect.stringContaining("ui/notifications/tool-result")
       })]);
       expect(productComparison.contents).toEqual([expect.objectContaining({
-        uri: "ui://findcheap/product-comparison/v14.html",
+        uri: "ui://findcheap/product-comparison/v15.html",
         mimeType: "text/html;profile=mcp-app",
         text: expect.stringContaining('make("table")')
       })]);
@@ -368,7 +394,7 @@ function resolveSchemaReference(root: Record<string, unknown>, value: unknown): 
   throw new Error("Published schema reference chain exceeded test limit");
 }
 
-async function connectBundledClient(extraEnvironment: Record<string, string>): Promise<Client> {
+async function connectBundledClient(extraEnvironment: Record<string, string>, name = "watch-lifecycle-stdio-smoke"): Promise<Client> {
   const transport = new StdioClientTransport({
     command: "node",
     args: ["./dist/mcp-server.js"],
@@ -376,7 +402,7 @@ async function connectBundledClient(extraEnvironment: Record<string, string>): P
     stderr: "pipe",
     env: { ...unconfiguredEnvironment(), ...extraEnvironment }
   });
-  const client = new Client({ name: "watch-lifecycle-stdio-smoke", version: "0.0.0" });
+  const client = new Client({ name, version: "0.0.0" });
   await client.connect(transport);
   return client;
 }

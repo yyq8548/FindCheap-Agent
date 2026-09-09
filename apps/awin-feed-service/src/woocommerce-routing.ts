@@ -10,7 +10,8 @@ const CATEGORY_TERMS = [
   ["backpack", "backpacking", "背包", "双肩包"],
   ["tent", "shelter", "帐篷"], ["hammock", "吊床"], ["quilt", "sleeping bag", "睡袋"],
   ["keyboard", "键盘", "机械键盘"], ["mouse", "鼠标"],
-  ["headphone", "earphone", "耳机"], ["amplifier", "amp", "功放", "放大器"],
+  ["headphone", "earphone", "earbud", "耳机"], ["wig", "hair extension", "假发", "接发"],
+  ["amplifier", "amp", "功放", "放大器"],
   ["guitar", "吉他"], ["pedal", "effect pedal", "效果器"],
   ["bicycle", "cycling", "bike", "自行车", "骑行"], ["tire", "tyre", "轮胎"],
   ["shoe", "footwear", "鞋"], ["boot", "靴", "靴子"],
@@ -39,15 +40,17 @@ const COFFEE_FORM_TERMS = [
   ["instant coffee", "速溶咖啡"]
 ].map(group => group.map(normalize));
 
-export function rankWooMerchants(stores: WooMerchant[], input: WooSearchInput): WooMerchant[] {
+function rankEntries(stores: WooMerchant[], input: WooSearchInput) {
   const query = normalize(input.query);
   const categoryText = normalize(`${input.query} ${input.productType ?? ""}`);
   const explicitBrand = normalize(input.brand ?? "");
   const matchedGroups = CATEGORY_TERMS.filter(group => group.some(term => phraseMatches(categoryText, term, true)));
   const requestedForms = COFFEE_FORM_TERMS.filter(group => group.some(term => phraseMatches(categoryText, term, true)));
+  const equipment = /\b(?:grinder|machine|maker|brewer|filter|dripper|kettle|accessor(?:y|ies)|equipment)\b|咖啡机|磨豆机|滤纸|配件/u;
+  const beverage = matchedGroups.some(group => group.includes("coffee")) && !equipment.test(categoryText);
   const ranked = stores.map(store => {
     const brands = [...store.brands, store.name].map(normalize);
-    const categories = [...new Set(store.categories.map(normalize))];
+    const categories = [...new Set(store.categories.map(normalize))].filter(label => !beverage || !equipment.test(label));
     const brand = explicitBrand !== "" && brands.some(label => label.replaceAll(" ", "") === explicitBrand.replaceAll(" ", "")) ? 2
       : brands.some(label => phraseMatches(query, label)) ? 1 : 0;
     const directCategories = categories.filter(label => phraseMatches(categoryText, label, true)).length;
@@ -59,7 +62,21 @@ export function rankWooMerchants(stores: WooMerchant[], input: WooSearchInput): 
     return { store, preferred, brand, form, category: directCategories + synonymCategories,
       tie: createHash("sha256").update(`${query}\n${explicitBrand}\n${normalize(input.productType ?? "")}\n${store.merchantId}`).digest("hex") };
   });
-  return ranked.sort((a, b) => b.preferred - a.preferred || b.brand - a.brand || b.form - a.form || b.category - a.category || a.tie.localeCompare(b.tie) || a.store.merchantId.localeCompare(b.store.merchantId)).map(item => item.store);
+  return ranked.sort((a, b) => b.preferred - a.preferred || b.brand - a.brand || b.form - a.form || b.category - a.category || a.tie.localeCompare(b.tie) || a.store.merchantId.localeCompare(b.store.merchantId));
+}
+
+export function rankWooMerchants(stores: WooMerchant[], input: WooSearchInput): WooMerchant[] {
+  return rankEntries(stores, input).map(item => item.store);
+}
+
+export function planWooMerchants(stores: WooMerchant[], input: WooSearchInput) {
+  const entries = rankEntries(stores, input);
+  const relevant = entries.filter(item => input.productUrl !== undefined || item.preferred + item.brand + item.form + item.category > 0);
+  const selected = relevant.slice(0, 6);
+  const exploration = entries.filter(item => !relevant.includes(item)).slice(0, Math.min(2, 6 - selected.length));
+  return { stores: [...selected, ...exploration].map(item => item.store), routing: {
+    scope: "CURRENT_PASS" as const, matchedStores: relevant.length, relevantPlanned: selected.length, explorationPlanned: exploration.length
+  } };
 }
 
 function normalize(value: string): string {

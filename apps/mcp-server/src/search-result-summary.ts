@@ -85,6 +85,8 @@ export function summarizeSearchProducts(products: Product[], evaluatedAtMs = Dat
     products.every((product, index) => products.slice(index + 1).every(peer => comparableSameProduct(product, peer)));
   return { productCount: products.length, merchantCount, recommendation,
     qualifiedMatchCount,
+    highRatedQualifiedCount: products.filter((product, index) => product.recommendationTier === "HIGH_RATED_UNVERIFIED" &&
+      assessments[index]!.displayEligible).length,
     recoveryCounts: { qualified, qualifiedMatches: qualifiedMatchCount,
       recommendable: assessments.filter(assessment => assessment.primaryEligible).length,
       awaitingVerification: products.length - qualified,

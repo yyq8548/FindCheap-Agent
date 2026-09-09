@@ -16,7 +16,7 @@ const PRIMARY_FORMS: ReadonlyArray<readonly [Exclude<CoffeeCategory, "COFFEE">, 
 const NON_COFFEE_PRODUCT = /\b(?:socks?|sweatshirts?|hoodies?|t shirts?|shirts?|apparel|clothing|mugs?|cups?|tumblers?|grinders?|machines?|makers?|brewers?|kettles?|filters?|drippers?|holders?|organizers?|racks?|storage|cleaning|descalers?|group ?head(?: replacement)? (?:brush(?:es)?|bristles)|phone (?:cases?|covers?)|books?|guides?|gift cards?|candles?)\b|袜|襪|卫衣|衛衣|衣服|服装|服裝|咖啡杯|磨豆机|磨豆機|咖啡机|咖啡機|书籍|書籍|滤纸|濾紙|礼品卡|禮品卡/u;
 const OTHER_FOOD = /\b(?:honey|syrup|chocolate|cocoa|cacao|tea|candy)\b|蜂蜜|糖浆|糖漿|巧克力|可可/u;
 const GREEN_COFFEE = /\b(?:green|unroasted|raw)\s+(?:coffee\s+)?beans?\b|\bgreen coffee\b|未烘焙|生咖啡豆|咖啡生豆/u;
-const FORM_DIMENSION = /^(?:grind(?: size| type| option)?|coffee (?:form|type)|form|format|研磨|研磨度|形态|形態)$/u;
+const FORM_DIMENSION = /^(?:grind(?: size| type| option)?|coffee (?:product form|form|type)|ground or whole bean|form|format|研磨|研磨度|形态|形態)$/u;
 const COFFEE_IDENTITY = /\b(?:coffees?|espresso)\b|咖啡/u;
 const EMPTY_CAPSULE = /\b(?:empty|refillable|reusable)\b|空[胶膠]囊|可重[复複]使用/u;
 

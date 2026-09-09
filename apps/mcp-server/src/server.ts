@@ -1,3 +1,6 @@
+import { TaskScope, mapCodec } from "./task-scope.js";
+import { TASK_HISTORY_TTL_MS, type TaskStateStore } from "./task-state-store.js";
+import { pauseTaskWatches, type TaskLifecycleReader } from "./task-lifecycle.js";
 import { candidateFingerprint } from "./visual-source-fingerprints.js";
 import { wooProductFacts, candidateProductFacts, dealProductId } from "./woocommerce-product.js";
 import { createWooProductAnchor } from "./woo-product-identity.js";
@@ -20,7 +23,7 @@ import { SearchRun, SearchBudgetError, SearchReadTimeoutError } from "./search-r
 import { buildVisualRetrievalQuery } from "./visual-retrieval-query.js";
 import { assessVisualVerdict, hasAdmissibleVisualConflict } from "./visual-review-policy.js";
 import { researchRecommendationMessage } from "./recommendation-message.js";
-import { searchDiagnostics, shopifySearchCoverage, wooSearchCoverage, type SearchOutcome } from "./search-diagnostics.js";
+import { searchDiagnostics, shopifySearchCoverage, wooSearchCoverage, wooRoutingExplanation, type SearchOutcome } from "./search-diagnostics.js";
 import { SourceValidationDetailsSchema } from "./source-failure.js";
 import { textSearchRecovery, TextSearchRecoverySchema } from "./text-search-recovery.js";
 import { WebRecoverySessions, WebConsentStatusSchema, WebDiscoveryOutcomeSchema, WebProductUrlSchema, WEB_SEARCH_LIMITS, webSearchQueries, readWebCandidates, type WebProductPagePort } from "./web-product-recovery.js";
@@ -52,6 +55,7 @@ import {
   type ShopifySearchResult
 } from "./shopify-client.js";
 import { assessRequestIdentity, classifyShopifyCandidate, hasSpecificProductIdentity } from "./shopify-match.js";
+import { hasAmbiguousSonyFamily, resolveSonyFamilyQuery } from "./sony-family.js";
 import { finalizeSnapshotProducts, reconcileComparison, searchFallbackExplanation, snapshotCardSummary, summarizeSearchProducts } from "./search-result-summary.js";
 import {
   ShopifyCartQuoteError,
@@ -108,6 +112,7 @@ import {
   WatchSpecInputSchema,
   WatchAutomationIdSchema,
   WatchStopIntentSchema,
+  WatchCompletionNotificationSchema,
   watchStopIntent,
   productWatchClarificationQuestions,
   createMemoryWatchStore,
@@ -868,6 +873,7 @@ const ShopifyProductsOutputShape = {
       .extend({ pass: z.union([z.literal(1), z.literal(2)]) })).max(2).optional(),
     cumulative: z.object({ scope: z.literal("CURRENT_SEARCH"), eligibleStores: z.number().int().nonnegative(),
       attemptedMerchantIds: z.array(z.string()).max(12), completedMerchantIds: z.array(z.string()).max(12),
+      attemptedStorePasses: z.number().int().nonnegative().max(12).optional(), failedStorePasses: z.number().int().nonnegative().max(12).optional(),
       physicalRequests: z.number().int().nonnegative(), responseBytes: z.number().int().nonnegative(),
       registryCoverageComplete: z.boolean() }).strict().optional()
   }).optional(),
@@ -1318,9 +1324,8 @@ function unifiedResult(
   const unavailableSource = Object.values(execution.sourceStatus).includes("UNAVAILABLE");
   const budgetExhausted = execution.searchRun?.diagnostics().budgetExhausted === true;
   const partialSource = Object.values(execution.sourceStatus).includes("PARTIAL") || budgetExhausted;
-  const highRatedUnverifiedCount = products.filter((product) =>
-    product.recommendationTier === "HIGH_RATED_UNVERIFIED"
-  ).length;
+  const summary = summarizeSearchProducts(products);
+  const highRatedUnverifiedCount = summary.highRatedQualifiedCount;
   const generalUnverifiedCount = products.filter((product) =>
     product.recommendationTier === "GENERAL_UNVERIFIED"
   ).length;
@@ -1332,7 +1337,6 @@ function unifiedResult(
   const preferenceEvidenceCount = products.filter((product) =>
     (product.preferenceEvidence?.length ?? 0) > 0
   ).length;
-  const summary = summarizeSearchProducts(products);
   const { merchantCount, recommendation } = summary;
   const coverage = unavailableSource || partialSource ? "PARTIAL" as const : "COMPLETE" as const;
   const locale = input.responseLocale ?? (/\p{Script=Han}/u.test(input.query) ? "zh-CN" as const : "en-US" as const);
@@ -1353,7 +1357,7 @@ function unifiedResult(
           "一个已配置的商品来源暂时不可用，因此不能据此判断没有商品。"
         )
       : "";
-  const message = products.length === 0
+  const resultMessage = products.length === 0
     ? sourceFailureMessage || chromeAdvice || (execution.searchIntent === "EXACT_PRODUCT"
       ? localized(
           "No qualifying match for the requested product returned; unrelated alternatives were not substituted.",
@@ -1432,6 +1436,7 @@ function unifiedResult(
           "结合卡片作答，不要重复所有字段；最后只给一个有用的下一步或限制。"
         )
       ].join(" ");
+  const message = [resultMessage, wooRoutingExplanation(wooCoverage, locale)].filter(Boolean).join(" ");
   const dataUnavailable = products.length === 0 && (
     execution.sourceStatus.woocommerce === "UNAVAILABLE" ||
     execution.sourceStatus.shopify === "UNAVAILABLE" ||
@@ -1509,7 +1514,7 @@ function unifiedResult(
         ]
       },
       comparison: summary.comparison,
-      questions: summary.identityUnverified > 0 && recommendation.state !== "READY"
+      questions: execution.searchIntent === "EXACT_PRODUCT" && summary.identityUnverified > 0 && recommendation.state !== "READY"
         ? [localized("Please confirm the product edition or provide its official product link.", "请确认具体版本，或提供对应的官网商品链接。")]
         : [],
       diagnostics: {
@@ -2007,6 +2012,9 @@ function awinUnavailableResult() {
 }
 
 export type ShoppingServerDependencies = {
+  taskState?: TaskStateStore;
+  taskWatches?: (taskId: string) => WatchStore;
+  taskLifecycle?: TaskLifecycleReader;
   webProducts?: WebProductPagePort;
   backend?: FindCheapBackend;
   awin?: AwinProductPort;
@@ -2227,7 +2235,6 @@ export function createShoppingServer(
   const ebayPort = backend.catalog.ebay;
   const woocommercePort = backend.catalog.woocommerce;
   const woocommerceProducts = backend.product.woocommerceProducts;
-  const watchStore = backend.watches;
   const cartQuotes = backend.product.cartQuotes;
   const awinShopifyQuotes = backend.product.awinShopifyQuotes;
   const selectedProducts = backend.product.selectedProducts;
@@ -2238,17 +2245,65 @@ export function createShoppingServer(
   shopifyPort = backend.catalog.shopify;
   affiliateLinks = backend.product.affiliateLinks;
   const executor = new ToolExecutor({ capabilities: backend.capabilities });
-  const toolRegistrar = createExecutedToolRegistrar(server, executor);
+  const taskScope = new TaskScope({ ...(dependencies.taskState === undefined ? {} : { store: dependencies.taskState }),
+    trustedHost: () => server.server.getClientVersion()?.name === "codex-mcp-client" });
+  const watchStore = taskScope.resource("watches", () => {
+    const id = taskScope.taskId();
+    return id === undefined ? backend.watches : dependencies.taskWatches?.(id) ?? createMemoryWatchStore();
+  });
+  const taskLifecycle = taskScope.resource("lifecycle", () => new Map<string, boolean>(), mapCodec(value => z.boolean().parse(value)));
+  const seenTasks = new Set<string>();
+  const applyLifecycle = async () => {
+    const id = taskScope.taskId();
+    if (id === undefined || dependencies.taskLifecycle === undefined) return "UNKNOWN" as const;
+    seenTasks.add(id);
+    if (seenTasks.size > 500) seenTasks.delete(seenTasks.values().next().value!);
+    const status = await dependencies.taskLifecycle.status(id);
+    if (status === "ARCHIVED") {
+      taskLifecycle.set("archived", true);
+      await pauseTaskWatches(watchStore, (dependencies.now?.() ?? new Date()).toISOString());
+    } else if (status === "ACTIVE") taskLifecycle.set("archived", false);
+    return status;
+  };
+  const toolRegistrar = createExecutedToolRegistrar(server, executor, (extra, handler, name) =>
+    taskScope.run(extra, async () => {
+      const status = await applyLifecycle();
+      if (taskLifecycle.get("archived") === true && !["clear_shopping_history", "pause_watch", "delete_watch", "list_watches"].includes(name)) return toolError("TASK_ARCHIVED");
+      if (taskScope.taskId() !== undefined && dependencies.taskLifecycle !== undefined && ["create_watch", "bind_watch_automation", "check_watch"].includes(name) && status !== "ACTIVE") return toolError("TASK_HOST_STATE_UNAVAILABLE");
+      return handler();
+    }, name === "clear_shopping_history"));
+  let lifecyclePolling = false;
+  const lifecycleTimer = dependencies.taskLifecycle === undefined ? undefined : setInterval(() => {
+    if (lifecyclePolling || server.server.getClientVersion()?.name !== "codex-mcp-client") return;
+    lifecyclePolling = true;
+    void (async () => {
+      for (const id of [...seenTasks].slice(-10)) {
+        try { await taskScope.run({ _meta: { threadId: id } }, applyLifecycle); }
+        catch { process.stderr.write("[findcheap-task-lifecycle] verification or pause pending; will retry\n"); }
+      }
+    })().finally(() => { lifecyclePolling = false; });
+  }, 30_000);
+  lifecycleTimer?.unref();
+  const previousClose = server.server.onclose;
+  server.server.onclose = () => {
+    if (lifecycleTimer !== undefined) clearInterval(lifecycleTimer);
+    dependencies.taskLifecycle?.close?.();
+    previousClose?.();
+  };
   const now = dependencies.now ?? (() => new Date());
-  const webSessions = new WebRecoverySessions(() => now().getTime());
+  const webSessions = taskScope.resource("webRecovery", () => new WebRecoverySessions(() => now().getTime()), {
+    encode: value => value.history(), decode: value => new WebRecoverySessions(() => now().getTime()).restoreHistory(value)
+  });
   const cardTelemetry = dependencies.cardTelemetry ?? {
     record: (event: ProductCardTelemetry) => {
       process.stderr.write(`[findcheap-product-card-metrics] ${JSON.stringify(event)}\n`);
     }
   };
   const watchChecks = new Map<string, Promise<WatchEvaluation>>();
-  const selections = new Map<string, { renderId: string; variantId: string; productKey: string }>();
-  const cardSelections = new Map<string, { revision: number; selectionIds: string[] }>();
+  const selections = taskScope.resource("selections", () => new Map<string, { renderId: string; variantId: string; productKey: string }>(),
+    mapCodec(value => z.object({ renderId: z.string().uuid(), variantId: z.string(), productKey: z.string() }).strict().parse(value)));
+  const cardSelections = taskScope.resource("cardSelections", () => new Map<string, { revision: number; selectionIds: string[] }>(),
+    mapCodec(value => z.object({ revision: z.number().int().nonnegative(), selectionIds: z.array(z.string().uuid()).max(4) }).strict().parse(value)));
   type VisualSearchSnapshot = {
     expiresAt: number;
     input: SearchProductsInput;
@@ -2264,8 +2319,10 @@ export function createShoppingServer(
     accepted: UnifiedCandidate[];
     retrievedProductHashes: Set<string>;
   };
-  const renderSnapshots = new Map<string, {
+  type RenderSnapshot = {
     expiresAt: number;
+    historyExpiresAt: number;
+    restored?: boolean;
     content: ProductCardContent & { renderId: string };
     sourceResult: ShopifySearchResult;
     sourceProductIndex: Map<string, SnapshotSourceProduct>;
@@ -2275,16 +2332,86 @@ export function createShoppingServer(
     searchRun?: SearchRun;
     visualRecovery?: VisualSearchSnapshot;
     chargingClarificationAsked: boolean;
-  }>();
-  const visualSearchSnapshots = new Map<string, VisualSearchSnapshot>();
-  const comparisonSnapshots = new Map<string, {
+  };
+  const snapshotCodec = mapCodec<RenderSnapshot>(value => {
+    const stored = z.object({ expiresAt: z.number().finite(), historyExpiresAt: z.number().finite(),
+      content: _ShopifyProductsOutputSchemaObject.extend({ renderId: z.string().uuid() }),
+      sourceResult: z.object({ source: z.literal("SHOPIFY_GLOBAL_CATALOG"), products: z.array(z.object({
+        merchantId: z.string(), sourceHost: z.string(), handle: z.string(), checkedAt: z.string() }).passthrough()).max(256) }).passthrough(),
+      sourceProductIndex: z.array(z.tuple([z.string(), z.object({ sourceKind: z.enum(["SHOPIFY_GLOBAL_CATALOG", "AWIN_PRODUCT_FEED", "EBAY_BROWSE", "WOOCOMMERCE_STORE_API"]), product: z.record(z.unknown()) }).strict()])).max(256),
+      resolvedAwinProducts: z.array(z.tuple([z.string(), z.record(z.unknown())])).max(18),
+      request: SearchProductsInputSchema.optional(), chargingClarificationAsked: z.boolean()
+    }).strict().parse(value);
+    const { request, ...required } = stored;
+    return { ...required, ...(request === undefined ? {} : { request: parseStoredSearchRequest(request) }),
+      restored: true, sourceResult: stored.sourceResult as ShopifySearchResult,
+      sourceProductIndex: new Map(stored.sourceProductIndex) as Map<string, SnapshotSourceProduct>,
+      resolvedAwinProducts: new Map(stored.resolvedAwinProducts) as Map<string, ShopifyProduct> };
+  });
+  const renderSnapshots = taskScope.resource("renderSnapshots", () => new Map<string, RenderSnapshot>(), {
+    decode: snapshotCodec.decode,
+    encode: values => [...values].map(([id, snapshot]) => {
+      const { searchRun: _run, visualRecovery: _visual, candidates: _candidates, restored: _restored, ...stored } = snapshot;
+      const request = stored.request === undefined ? undefined : structuredClone(stored.request);
+      if (request?.visualInput !== undefined) { delete request.visualInput.imageUrl; delete request.visualInput.sourcePageUrl; }
+      const keys = new Set(snapshot.content.products.map(productReferenceKey));
+      return [id, { ...stored, ...(request === undefined ? {} : { request }),
+        sourceResult: { ...stored.sourceResult, products: stored.sourceResult.products.filter(product => keys.has(productReferenceKey(product))) },
+        sourceProductIndex: [...snapshot.sourceProductIndex].filter(([key]) => keys.has(key)),
+        resolvedAwinProducts: [...snapshot.resolvedAwinProducts] }];
+    })
+  });
+  const visualSearchSnapshots = taskScope.resource("visualSearchSnapshots", () => new Map<string, VisualSearchSnapshot>());
+  const comparisonSnapshots = taskScope.resource("comparisonSnapshots", () => new Map<string, {
     expiresAt: number;
     content: ProductComparisonOutput;
-  }>();
-  const recordedCardTelemetry = new Set<string>();
-  const deleteSnapshot = (renderId: string) => {
-    webSessions.forget(renderId);
+  }>(), mapCodec(value => z.object({ expiresAt: z.number().finite(), content: ProductComparisonOutputSchema }).strict().parse(value)));
+  const recordedCardTelemetry = taskScope.resource("recordedCardTelemetry", () => new Set<string>());
+  toolRegistrar.registerTool("get_shopping_history", {
+    title: "Recover this task's shopping history",
+    description: "Read bounded shopping references and historical observations for this host task after restart. These are historical prices and stock, never fresh purchase advice. Use the original renderId to continue requirements with a new live search. This tool cannot access another task or restore web permission.",
+    inputSchema: z.object({}).strict(),
+    outputSchema: z.object({ status: z.literal("HISTORICAL"), message: z.string(),
+      searches: z.array(z.object({ renderId: z.string().uuid(), goalId: z.string().uuid().optional(), goalRevision: z.number().optional(),
+        query: z.string().optional(), requirements: z.record(z.unknown()).optional(), selectedIds: z.array(z.string().uuid()),
+        referenceExpiresAt: z.string(), historyExpiresAt: z.string(),
+        products: z.array(z.object({ selectionId: z.string().uuid().optional(), title: z.string(), merchant: z.string(),
+          checkedAt: z.string(), variantDimensions: z.record(z.string()), historicalItemPrice: z.unknown().optional() })) })),
+      comparisons: z.array(z.object({ comparisonId: z.string().uuid(), renderId: z.string().uuid().optional(), evaluatedAt: z.string().optional(), expiresAt: z.string(),
+        historicalComparison: ProductComparisonOutputSchema })) }),
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
+  }, async () => {
+    const message = "Historical observations only. Continue using the original reference for a live search; old price, stock and authorization are not refreshed.";
+    return { content: [{ type: "text" as const, text: message }], structuredContent: {
+      status: "HISTORICAL" as const, message,
+      searches: [...renderSnapshots.values()].filter(snapshot => snapshot.historyExpiresAt > now().getTime()).slice(-12).reverse().map(snapshot => ({
+        renderId: snapshot.content.renderId, goalId: snapshot.content.goalId, goalRevision: snapshot.content.goalRevision,
+        query: snapshot.request?.query, requirements: snapshot.content.requirementsSummary,
+        selectedIds: cardSelections.get(snapshot.content.renderId)?.selectionIds ?? [],
+        referenceExpiresAt: new Date(snapshot.expiresAt).toISOString(), historyExpiresAt: new Date(snapshot.historyExpiresAt).toISOString(),
+        products: snapshot.content.products.map(product => ({ selectionId: product.selectionId, title: product.title, merchant: product.merchant,
+          checkedAt: product.checkedAt, variantDimensions: product.variantDimensions, historicalItemPrice: product.itemPrice }))
+      })),
+      comparisons: [...comparisonSnapshots].filter(([, snapshot]) => snapshot.expiresAt + TASK_HISTORY_TTL_MS > now().getTime()).slice(-12).reverse().map(([comparisonId, snapshot]) => ({
+        comparisonId, renderId: snapshot.content.renderId, evaluatedAt: snapshot.content.evaluatedAt, expiresAt: new Date(snapshot.expiresAt).toISOString(),
+        historicalComparison: snapshot.content
+      }))
+    } };
+  });
+  toolRegistrar.registerTool("clear_shopping_history", {
+    title: "Clear this task's shopping history",
+    description: "Only after the user asks to clear shopping history: erase this trusted host task's saved requirements, product selections and comparisons. No taskId argument is accepted. Watch rules have separate pause/delete tools; this does not stop their host schedules.",
+    inputSchema: z.object({}).strict(), outputSchema: z.object({ status: z.literal("CLEARED"), message: z.string() }),
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false }
+  }, async () => {
+    taskScope.clear(["lifecycle"]);
+    const message = "This task's shopping history was cleared. Watch rules and host schedules require their own pause/delete operations.";
+    return { content: [{ type: "text" as const, text: message }], structuredContent: { status: "CLEARED" as const, message } };
+  });
+  const deleteSnapshot = (renderId: string, force = false) => {
     const snapshot = renderSnapshots.get(renderId);
+    if (!force && snapshot !== undefined && snapshot.historyExpiresAt > now().getTime()) return;
+    webSessions.forget(renderId);
     if (snapshot !== undefined) {
       for (const product of snapshot.content.products) {
         if (product.selectionId !== undefined) selections.delete(product.selectionId);
@@ -2371,7 +2498,10 @@ export function createShoppingServer(
     const parent = request?.parentRenderId === undefined ? undefined : renderSnapshots.get(request.parentRenderId);
     const finalizedProducts = finalizeSnapshotProducts(content.products, request?.brand !== undefined, now().getTime());
     const summary = summarizeSearchProducts(finalizedProducts, now().getTime());
-    if (finalizedProducts.length !== content.products.length || content.comparison.offerCount !== summary.productCount) {
+    const previousSummary = summarizeSearchProducts(content.products, now().getTime());
+    if (finalizedProducts.length !== content.products.length || content.comparison.offerCount !== summary.productCount ||
+      summary.qualifiedMatchCount !== previousSummary.qualifiedMatchCount ||
+      summary.recommendation.state !== previousSummary.recommendation.state) {
       content = { ...content, message: snapshotCardSummary(summary, content.locale ?? "en-US") +
         (content.coverage === "PARTIAL" ? content.locale === "zh-CN" ? " 检索覆盖尚不完整。" : " Search coverage remains incomplete." : "") };
     }
@@ -2397,6 +2527,7 @@ export function createShoppingServer(
       content = { ...content, recommendation: { ...content.recommendation, question: compatibilityQuestion.question } };
     }
     const goalId = request === undefined ? undefined : parent?.content.goalId ?? randomUUID();
+    if (parent?.restored === true && goalId !== undefined) webSessions.closeGoal(goalId, parent.content.renderId);
     const consent = webSessions.current(goalId ?? renderId);
     if (content.recovery?.action === "REQUEST_WEB_SEARCH" && consent !== undefined && !consent.retryable) {
       const message = content.locale === "zh-CN"
@@ -2448,6 +2579,7 @@ export function createShoppingServer(
     };
     renderSnapshots.set(renderId, {
       expiresAt: now().getTime() + PRODUCT_SELECTION_SNAPSHOT_TTL_MS,
+      historyExpiresAt: now().getTime() + (taskScope.taskId() === undefined ? PRODUCT_SELECTION_SNAPSHOT_TTL_MS : TASK_HISTORY_TTL_MS),
       content: snapshot,
       sourceResult,
       sourceProductIndex: snapshotProductIndex(sourceResult.products, candidates),
@@ -2460,7 +2592,7 @@ export function createShoppingServer(
     while (renderSnapshots.size > MAX_PRODUCT_SELECTION_SNAPSHOTS) {
       const oldest = renderSnapshots.keys().next().value as string | undefined;
       if (oldest === undefined) break;
-      deleteSnapshot(oldest);
+      deleteSnapshot(oldest, true);
     }
     if (request !== undefined) process.stderr.write(`[findcheap-shopping-goal] ${JSON.stringify({
       goalId, goalRevision, renderId, traceId: content.traceId, requirementsVersion: snapshot.requirementsVersion
@@ -2559,6 +2691,10 @@ export function createShoppingServer(
       QUOTE_REFERENCE_CHANGED: ["The original selection changed or expired during authorization.", "授权期间原商品选择已改变或过期。"],
       QUOTE_TARGET_UNVERIFIED: ["The selected product, variant or reviewed merchant quote interface could not be verified.",
         "所选商品、变体或已审核的商家报价接口未通过核验。"],
+      QUOTE_MERCHANT_UNVERIFIED: ["The selected merchant has not passed independent trust review; host approval was not requested.",
+        "所选商家尚未通过独立可信审核；尚未请求宿主授权。"],
+      QUOTE_UNSUPPORTED: ["At least one selected product requires merchant checkout and does not support this quote; host approval was not requested.",
+        "至少一个所选商品只支持商家结账，不支持本次报价；尚未请求宿主授权。"],
       QUOTE_CAPABILITY_NOT_CHECKED: ["The selected product's quote capability has not been verified; host approval was not requested.",
         "所选商品的报价能力尚未核验；尚未请求宿主授权。"]
     };
@@ -2597,6 +2733,18 @@ export function createShoppingServer(
   const selectedQuoteTarget = (snapshot: QuoteSnapshot, card: ProductCardProduct) =>
     ["DELIVERED_TOTAL_SUPPORTED", "ZIP_ESTIMATE_ONLY"].includes(card.quoteCapability)
       ? verifiedQuoteTarget(snapshot, card) : undefined;
+  const quoteEligibilityFailure = (snapshot: QuoteSnapshot, card: ProductCardProduct): string | undefined => {
+    if (!isTrustedMerchant({ level: card.merchantTrust.level, verification: card.merchantTrust.verification,
+      evidence: card.merchantTrust.evidence })) return "QUOTE_MERCHANT_UNVERIFIED";
+    if (card.quoteCapability === "MERCHANT_CHECKOUT_ONLY") return undefined;
+    // Awin may not yet have resolved a Shopify variant; this is unknown capability,
+    // while an already supplied Shopify target failing validation is invalid.
+    if (card.sourceKind === "AWIN_PRODUCT_FEED" && !snapshot.resolvedAwinProducts.has(productReferenceKey(card))) {
+      return "QUOTE_CAPABILITY_NOT_CHECKED";
+    }
+    if (verifiedQuoteTarget(snapshot, card) === undefined) return "QUOTE_TARGET_UNVERIFIED";
+    return card.quoteCapability === "NOT_CHECKED" ? "QUOTE_CAPABILITY_NOT_CHECKED" : undefined;
+  };
   const authorizeQuote = async (
     targets: ShopifyProduct[], zipCode: string, locale: string,
     extra: { signal: AbortSignal; requestId: string | number }, revalidate: () => boolean
@@ -2700,7 +2848,7 @@ export function createShoppingServer(
   const pruneComparisonSnapshots = () => {
     const currentTime = now().getTime();
     for (const [id, snapshot] of comparisonSnapshots) {
-      if (snapshot.expiresAt <= currentTime) comparisonSnapshots.delete(id);
+      if (snapshot.expiresAt + (taskScope.taskId() === undefined ? 0 : TASK_HISTORY_TTL_MS) <= currentTime) comparisonSnapshots.delete(id);
     }
     while (comparisonSnapshots.size > MAX_PRODUCT_COMPARISON_SNAPSHOTS) {
       const oldest = comparisonSnapshots.keys().next().value as string | undefined;
@@ -2966,7 +3114,7 @@ export function createShoppingServer(
       if (["CONTINUE_PREVIOUS_PRODUCT", "CORRECT_PREVIOUS_PRODUCT"].includes(parsedInput.contextMode)) {
         if (parsedInput.parentRenderId === undefined && parsedInput.goalId === undefined) return toolError("MISSING_REFERENCE_CONTEXT");
         const parent = resolveSearchParent(parsedInput);
-        if (parent?.request === undefined || parent.expiresAt <= now().getTime()) return unavailableReference(parent);
+        if (parent?.request === undefined || parent.historyExpiresAt <= now().getTime()) return unavailableReference(parent);
         try { parsedInput = mergeSearchRequirements({ ...parsedInput, parentRenderId: parent.content.renderId }, parent.request,
           parent.content.products.map(product => ({ title: product.title, brand: productIdentityBrand({
             sourceHost: product.sourceHost, merchantTrust: { level: product.merchantTrust.level,
@@ -2975,6 +3123,7 @@ export function createShoppingServer(
         catch (error) { return toolError(error instanceof Error && error.message === "PRODUCT_CONTEXT_CONFLICT"
           ? "PRODUCT_CONTEXT_CONFLICT" : "INVALID_ARGUMENTS"); }
       }
+      parsedInput = { ...parsedInput, query: resolveSonyFamilyQuery(parsedInput.query, parsedInput.productType) };
       let input = parsedInput.visualInput === undefined
         ? parsedInput
         : { ...parsedInput, visualInput: enforceVisualEvidenceAuthority(parsedInput.visualInput) };
@@ -3809,6 +3958,13 @@ export function createShoppingServer(
     },
     async (input) => {
       const validatedInput = ShopifyProductsInputSchema.parse(input);
+      if (hasAmbiguousSonyFamily(validatedInput.query)) {
+        const request = SearchProductsInputSchema.parse(validatedInput);
+        const clarification = highVarianceClarification(request)!;
+        const response = shopifyClarificationResult(request.selectionMode, request, { ...clarification, source: "UNIFIED_PRODUCT_SEARCH" });
+        return { ...response, structuredContent: rememberSnapshot(response.structuredContent, emptyShopifySearchResult(request),
+          undefined, undefined, request) };
+      }
       if (
         validatedInput.comparisonMode === "SAME_PRODUCT" &&
         validatedInput.query !== undefined &&
@@ -4253,7 +4409,8 @@ export function createShoppingServer(
         // Error results do not get the ordinary snapshot context projection.
         content: [...result.content, { type: "text" as const, text: JSON.stringify({ quoteOperation: operation }) }]
       });
-      if (selectedCard.quoteCapability === "NOT_CHECKED") return withTarget(quoteAuthorizationFailure("QUOTE_CAPABILITY_NOT_CHECKED", locale));
+      const eligibilityFailure = quoteEligibilityFailure(snapshot, selectedCard);
+      if (eligibilityFailure !== undefined) return withTarget(quoteAuthorizationFailure(eligibilityFailure, locale));
       if (selectedCard.quoteCapability === "MERCHANT_CHECKOUT_ONLY") {
         return withTarget(recoverableQuoteResult(
           snapshot,
@@ -4410,15 +4567,10 @@ export function createShoppingServer(
           "某个所选商品不属于该不可变搜索快照。"
         );
       }
-      if (selectedCards.some(product => product!.quoteCapability === "NOT_CHECKED")) return localizedError(
-        "Quote capability has not been verified for every selected product; no quote was requested.",
-        "至少一个所选商品的报价能力尚未核验；未请求报价。"
-      );
+      const eligibilityFailure = selectedCards.map(product => quoteEligibilityFailure(snapshot, product!)).find(code => code !== undefined);
+      if (eligibilityFailure !== undefined) return quoteAuthorizationFailure(eligibilityFailure, request.responseLocale);
       if (selectedCards.some((product) => product!.quoteCapability === "MERCHANT_CHECKOUT_ONLY")) {
-        return localizedError(
-          "Quote unsupported for at least one selected product: merchant checkout is required, so ZIP delivered totals cannot be compared.",
-          "至少一个所选商品不支持报价：只能在商家结账页计算总价，无法按 ZIP 比较到手价。"
-        );
+        return quoteAuthorizationFailure("QUOTE_UNSUPPORTED", request.responseLocale);
       }
       let quoteContextIsCurrent = () => true;
       try {
@@ -4786,7 +4938,7 @@ export function createShoppingServer(
     async ({ comparisonId }) => {
       pruneComparisonSnapshots();
       const snapshot = comparisonSnapshots.get(comparisonId);
-      if (snapshot === undefined) {
+      if (snapshot === undefined || snapshot.expiresAt <= now().getTime()) {
         return {
           isError: true,
           content: [{ type: "text" as const, text: "Product comparison snapshot is unavailable." }]
@@ -5030,7 +5182,7 @@ export function createShoppingServer(
     "check_watch",
     {
       title: "Check a shopping watch",
-      description: "Evaluate one persisted watch against current verified sources and update deduplication state.",
+      description: "Evaluate a persisted Watch. A completed restock may return its original completionNotification for recovery; DELIVERY_UNCONFIRMED is not a delivery ACK or a new stock observation. Repeated COMPLETED results must not trigger another product alert.",
       inputSchema: z.object({ watchId: z.string().uuid() }).strict(),
       outputSchema: {
         status: z.enum(["TRIGGERED", "NOT_TRIGGERED", "PAUSED", "EXPIRED", "COMPLETED", "NEEDS_CLARIFICATION", "NOT_SCHEDULED", "NOT_FOUND", "DATA_SOURCE_UNAVAILABLE"]),
@@ -5038,6 +5190,7 @@ export function createShoppingServer(
         watchId: z.string().uuid(),
         observation: z.record(z.string(), z.unknown()).optional(),
         completionEventId: z.string().uuid().optional(),
+        completionNotification: WatchCompletionNotificationSchema.optional(),
         stopIntent: WatchStopIntentSchema.optional()
       },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }
@@ -5078,6 +5231,7 @@ export function createShoppingServer(
         message: result.message,
         watchId,
         ...(result.watch.completionEventId === undefined ? {} : { completionEventId: result.watch.completionEventId }),
+        ...(result.watch.completionNotification === undefined ? {} : { completionNotification: result.watch.completionNotification }),
         ...(result.watch.stopIntent === undefined ? {} : { stopIntent: result.watch.stopIntent }),
         ...(result.observation === undefined ? {} : { observation: result.observation })
       } };
@@ -5094,6 +5248,7 @@ export function createShoppingServer(
         watchId: z.string().uuid(),
         status: z.string(),
         monitoringStatus: z.enum(["READY_TO_SCHEDULE", "ACTIVE", "PAUSED", "EXPIRED", "COMPLETED", "LEGACY_UNVERIFIED"]),
+        notificationStatus: z.literal("DELIVERY_UNCONFIRMED").optional(),
         automationId: WatchAutomationIdSchema.optional(),
         completionEventId: z.string().uuid().optional(),
         stopIntent: WatchStopIntentSchema.optional(),
@@ -5114,6 +5269,7 @@ export function createShoppingServer(
             : watch.automationId === undefined ? "READY_TO_SCHEDULE" as const : "ACTIVE" as const,
       ...(watch.automationId === undefined ? {} : { automationId: watch.automationId }),
       ...(watch.completionEventId === undefined ? {} : { completionEventId: watch.completionEventId }),
+      ...(watch.completionNotification === undefined ? {} : { notificationStatus: watch.completionNotification.status }),
       ...(watch.stopIntent === undefined ? {} : { stopIntent: watch.stopIntent }),
       query: watch.spec.query,
       condition: watch.spec.condition,
@@ -5133,6 +5289,10 @@ export function createShoppingServer(
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false }
     },
     async ({ watchId, paused, automationId }) => {
+      if (!paused && taskScope.taskId() !== undefined && dependencies.taskLifecycle !== undefined) {
+        const taskId = taskScope.taskId();
+        if (taskId === undefined || await dependencies.taskLifecycle.status(taskId) !== "ACTIVE") return toolError("TASK_HOST_STATE_UNAVAILABLE");
+      }
       const watch = await watchStore.get(watchId);
       if (watch === undefined) return { content: [{ type: "text" as const, text: "Watch not found." }], structuredContent: { status: "NOT_FOUND" as const, watchId } };
       if (automationId !== undefined && watch.automationId !== automationId) {

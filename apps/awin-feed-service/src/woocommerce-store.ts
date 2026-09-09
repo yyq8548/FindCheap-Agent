@@ -13,7 +13,7 @@ const RawProduct = z.object({
   // Page-builder markup can swamp this optional display field; omit it instead of relaxing identity or response bounds.
   description: z.string().transform(value => value.length <= 200_000 ? value : undefined).optional(), is_password_protected: z.boolean().optional(),
   prices: z.object({ price: z.string().max(32).optional(), currency_code: z.string().regex(/^[A-Z]{3}$/u), currency_minor_unit: z.number().int().min(0).max(6) }).passthrough(),
-  is_in_stock: z.boolean().optional(), is_purchasable: z.boolean().optional(), is_on_backorder: z.boolean().optional(), stock_status: z.string().max(40).optional(),
+  is_in_stock: z.boolean().optional(), is_purchasable: z.boolean().optional(), has_options: z.boolean().optional(), is_on_backorder: z.boolean().optional(), stock_status: z.string().max(40).optional(),
   average_rating: z.string().max(20).optional(), review_count: z.number().int().nonnegative().max(100_000_000).optional(),
   images: z.array(z.object({ id: z.number().int().nonnegative(), src: z.string().max(4_096) }).passthrough()).max(100).optional(),
   attributes: z.array(RawAttribute).max(24).optional(), categories: z.array(z.object({ name: z.string().max(300) }).passthrough()).max(100).optional(),
@@ -24,7 +24,8 @@ const RawProduct = z.object({
 export type WooRawProduct = z.infer<typeof RawProduct>;
 export type WooFailureReason = NonNullable<WooStoreResult["reason"]>;
 export class WooReadError extends Error {
-  constructor(readonly reason: WooFailureReason, readonly retryAfterMs?: number) { super(reason); }
+  constructor(readonly reason: WooFailureReason, readonly retryAfterMs?: number,
+    readonly failureDetail?: WooStoreResult["failureDetail"]) { super(reason); }
 }
 export type WooReadBudget = {
   signal: AbortSignal; requests: number; bytes: number; maxRequests: number; maxBytes: number;
@@ -54,12 +55,12 @@ export function createWooStoreReader(dependencies: Pick<FetchPolicy, "resolve" |
         },
         onRead(delta) {
           if (delta.requests !== undefined) {
-            if (budget.requests + delta.requests > budget.maxRequests) throw new WooReadError("BUDGET_EXHAUSTED");
+            if (budget.requests + delta.requests > budget.maxRequests) throw new WooReadError("BUDGET_EXHAUSTED", undefined, "REQUEST_LIMIT");
             budget.onRequest?.();
             budget.requests += delta.requests;
           }
           if (delta.bytes !== undefined) {
-            if (budget.bytes + delta.bytes > budget.maxBytes) throw new WooReadError("BUDGET_EXHAUSTED");
+            if (budget.bytes + delta.bytes > budget.maxBytes) throw new WooReadError("BUDGET_EXHAUSTED", undefined, "BYTE_LIMIT");
             budget.bytes += delta.bytes;
           }
         }
@@ -75,7 +76,7 @@ export function createWooStoreReader(dependencies: Pick<FetchPolicy, "resolve" |
         throw new WooReadError("RATE_LIMITED", Number.isFinite(delay) ? Math.max(0, delay) : 300_000);
       }
       if (!response.ok) throw new WooReadError("UPSTREAM_UNAVAILABLE");
-      if (!response.headers.get("content-type")?.toLowerCase().includes("application/json")) throw new WooReadError("INVALID_RESPONSE");
+      if (!response.headers.get("content-type")?.toLowerCase().includes("application/json")) throw new WooReadError("INVALID_RESPONSE", undefined, "CONTENT_TYPE");
       const value: unknown = await response.json();
       assertBoundedJson(value);
       const pages = Number(response.headers.get("x-wp-totalpages") ?? "1");
@@ -84,7 +85,8 @@ export function createWooStoreReader(dependencies: Pick<FetchPolicy, "resolve" |
       if (error instanceof WooReadError) throw error;
       if (budget.signal.aborted) throw new WooReadError(budget.signal.reason?.name === "TimeoutError" ? "TIMEOUT" : "CANCELLED");
       if (signal.aborted) throw new WooReadError("TIMEOUT");
-      if (error instanceof SyntaxError || error instanceof z.ZodError) throw new WooReadError("INVALID_RESPONSE");
+      if (error instanceof SyntaxError) throw new WooReadError("INVALID_RESPONSE", undefined, "JSON_SYNTAX");
+      if (error instanceof z.ZodError) throw new WooReadError("INVALID_RESPONSE", undefined, "PRODUCT_SCHEMA");
       if (error instanceof Error && /blocked|forbidden|too large|allowed host/iu.test(error.message)) throw new WooReadError("SECURITY_REJECTED");
       throw new WooReadError("UPSTREAM_UNAVAILABLE");
     } finally {
@@ -95,13 +97,13 @@ export function createWooStoreReader(dependencies: Pick<FetchPolicy, "resolve" |
     async list(store: WooMerchant, params: URLSearchParams, budget: WooReadBudget) {
       const result = await get(store, "", params, budget);
       const parsed = z.array(RawProduct).max(100).safeParse(result.value);
-      if (!parsed.success) throw new WooReadError("INVALID_RESPONSE");
+      if (!parsed.success) throw new WooReadError("INVALID_RESPONSE", undefined, "PRODUCT_SCHEMA");
       return { products: parsed.data, totalPages: result.totalPages };
     },
     async product(store: WooMerchant, id: number, budget: WooReadBudget) {
       const result = await get(store, `/${Id.parse(id)}`, new URLSearchParams(), budget);
       const parsed = RawProduct.safeParse(result.value);
-      if (!parsed.success) throw new WooReadError("INVALID_RESPONSE");
+      if (!parsed.success) throw new WooReadError("INVALID_RESPONSE", undefined, "PRODUCT_SCHEMA");
       if (parsed.data.id !== id) throw new WooReadError("SECURITY_REJECTED");
       return parsed.data;
     }
@@ -150,7 +152,9 @@ export function normalizeWooProduct(raw: WooRawProduct, store: WooMerchant, chec
   ] : [];
   const unresolvedVariation = requiredVariationDimensions.some(key => !Object.keys(selectedAttributes)
     .some(selected => normalizedWooAttributeName(selected) === normalizedWooAttributeName(key)));
-  const unpriced = unresolvedVariation || raw.is_purchasable === false;
+  // Some merchants expose paid custom choices as "simple" products, including
+  // has_options=false. An audited registry restriction takes precedence.
+  const unpriced = unresolvedVariation || raw.is_purchasable === false || raw.has_options === true || store.requiresOptionSelection === true;
   const amountMinor = raw.prices.price !== undefined && /^\d{1,16}$/u.test(raw.prices.price) ? raw.prices.price : undefined;
   const amountCents = amountMinor === undefined ? NaN : Number(amountMinor) * 10 ** (2 - raw.prices.currency_minor_unit);
   const canPrice = raw.type !== "variable" && !unpriced && raw.prices.currency_code === "USD" && Number.isSafeInteger(amountCents) && amountCents >= 0 && amountCents <= 100_000_000;
@@ -221,12 +225,12 @@ function cleanText(value: string): string {
     .replace(/&amp;/gu, "&").replace(/&#39;|&apos;/gu, "'").replace(/&quot;/gu, '"').replace(/&nbsp;/gu, " ").replace(/\s+/gu, " ").trim();
 }
 function assertBoundedJson(value: unknown, depth = 0): void {
-  if (depth > 16) throw new WooReadError("INVALID_RESPONSE");
+  if (depth > 16) throw new WooReadError("INVALID_RESPONSE", undefined, "JSON_STRUCTURE_LIMIT");
   if (Array.isArray(value)) {
-    if (value.length > 1_000) throw new WooReadError("INVALID_RESPONSE");
+    if (value.length > 1_000) throw new WooReadError("INVALID_RESPONSE", undefined, "JSON_STRUCTURE_LIMIT");
     for (const item of value) assertBoundedJson(item, depth + 1);
   } else if (value !== null && typeof value === "object") {
-    if (Object.keys(value).length > 200) throw new WooReadError("INVALID_RESPONSE");
+    if (Object.keys(value).length > 200) throw new WooReadError("INVALID_RESPONSE", undefined, "JSON_STRUCTURE_LIMIT");
     for (const item of Object.values(value)) assertBoundedJson(item, depth + 1);
   }
 }

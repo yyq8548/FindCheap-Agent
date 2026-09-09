@@ -24,7 +24,9 @@ export async function evaluateWatch(
   woocommerceProducts?: WooCommerceProductPort
 ): Promise<WatchEvaluation> {
   const started = performance.now();
-  if (watch.status === "COMPLETED") return { status: "COMPLETED", message: "Restock Watch is locally completed; no new notification. Host scheduler stop remains unverified.", watch };
+  if (watch.status === "COMPLETED") return { status: "COMPLETED", message: watch.completionNotification === undefined
+    ? "Restock Watch is locally completed; no new notification. Host scheduler stop remains unverified."
+    : "Restock Watch is locally completed; the original notification is recoverable, but delivery remains unconfirmed. This is not a new stock observation or trigger. Host scheduler stop remains unverified.", watch };
   if (watch.status === "EXPIRED" || (watch.spec.expiresAt !== undefined && Date.parse(watch.spec.expiresAt) <= now.getTime())) {
     const stopIntent = watchStopIntent(watch, "EXPIRED", now.toISOString());
     if (watch.status === "EXPIRED" && (stopIntent === undefined || watch.stopIntent !== undefined)) {
@@ -59,6 +61,7 @@ export async function evaluateWatch(
         : await observeProducts(watch, shopify, now);
     const triggered = observation.satisfied && watch.wasSatisfied !== true;
     const complete = triggered && watch.spec.condition === "RESTOCKED";
+    const completionEventId = complete ? randomUUID() : undefined;
     const stopIntent = complete ? watchStopIntent(watch, "RESTOCKED", now.toISOString()) : undefined;
     const updated = {
       ...watch,
@@ -66,7 +69,10 @@ export async function evaluateWatch(
       lastCheckedAt: now.toISOString(),
       wasSatisfied: observation.satisfied,
       lastObservation: observation.data,
-      ...(complete ? { status: "COMPLETED" as const, completionEventId: randomUUID() } : {}),
+      ...(completionEventId === undefined ? {} : { status: "COMPLETED" as const, completionEventId,
+        completionNotification: { eventId: completionEventId, createdAt: now.toISOString(),
+          status: "DELIVERY_UNCONFIRMED" as const, message: observation.triggerMessage,
+          observation: observation.data } }),
       ...(stopIntent === undefined ? {} : { stopIntent })
     };
     const saved = await store.save(updated);

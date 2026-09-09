@@ -11,6 +11,11 @@ describe("product identifiers exclude measurements", () => {
 });
 
 describe("request identity is distinct from same-product identity", () => {
+  it.each(["EXACT", "DISCOVERY_MATCH"] as const)("does not resolve Sony WH/WF from a %s candidate", status => {
+    expect(assessRequestIdentity("Sony 1000XM5", { title: "Sony WH-1000XM5", brand: "Sony" }, status)).toBe("NEEDS_VERIFICATION");
+    expect(assessRequestIdentity("1000XM6", { title: "Sony WF-1000XM6", brand: "Sony" }, status)).toBe("NEEDS_VERIFICATION");
+    expect(assessRequestIdentity("Sony WH-1000XM5", { title: "Sony WH-1000XM5", brand: "Sony" }, status)).toBe("CONFIRMED");
+  });
   const mild = { title: "Zero Pore Madecassoside Pads (Mild)", brand: "medicube",
     description: "medicube Zero Pore Pad. Net wt. 155g (70 pads)" };
   it("keeps an unspecified edition unresolved despite matching package copy", () => {

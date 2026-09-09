@@ -163,7 +163,7 @@ describe("approved high-rating display policy", () => {
         renderId: content.renderId, selectionId: content.products[0]!.selectionId, zipCode: "33065", responseLocale: "zh-CN"
       } });
       expect(result.isError).toBe(true);
-      expect(JSON.stringify(result.content)).toContain("QUOTE_CAPABILITY_NOT_CHECKED");
+      expect(JSON.stringify(result.content)).toContain("QUOTE_MERCHANT_UNVERIFIED");
       expect(consent).not.toHaveBeenCalled();
       expect(quote).not.toHaveBeenCalled();
     } finally { await replay.close(); }

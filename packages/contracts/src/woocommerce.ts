@@ -82,6 +82,7 @@ export const WooProductSchema = z.object({
 export const WooStoreResultSchema = z.object({
   merchantId: MerchantId, status: z.enum(["COMPLETE", "PARTIAL", "UNAVAILABLE", "SKIPPED"]),
   reason: z.enum(["TIMEOUT", "RATE_LIMITED", "ACCESS_DENIED", "SECURITY_REJECTED", "INVALID_RESPONSE", "UPSTREAM_UNAVAILABLE", "BUDGET_EXHAUSTED", "CIRCUIT_OPEN", "NOT_ELIGIBLE", "NOT_FOUND", "UNSUPPORTED", "CANCELLED"]).optional(),
+  failureDetail: z.enum(["CONTENT_TYPE", "JSON_SYNTAX", "JSON_STRUCTURE_LIMIT", "PRODUCT_SCHEMA", "VARIANT_TYPE", "VARIANT_BINDING", "REQUEST_LIMIT", "BYTE_LIMIT"]).optional(),
   boundedReasons: z.array(z.enum(["PRODUCT_PAGE_LIMIT", "VARIANT_PAGE_LIMIT", "VARIANT_LIMIT"]))
     .min(1).max(3).refine(values => new Set(values).size === values.length, "Duplicate bounded reason").optional(),
   requests: z.number().int().nonnegative().max(18), returned: z.number().int().nonnegative().max(100)
@@ -95,7 +96,9 @@ export const WooSearchResultSchema = z.object({
     attemptedStores: z.number().int().nonnegative().max(6), succeededStores: z.number().int().nonnegative().max(6),
     failedStores: z.number().int().nonnegative().max(6), skippedStores: z.number().int().nonnegative(),
     physicalRequests: z.number().int().nonnegative().max(18), responseBytes: z.number().int().nonnegative().max(8 * 1024 * 1024),
-    cacheHits: z.number().int().nonnegative().max(100), elapsedMs: z.number().nonnegative(), truncated: z.boolean(), registryCoverageComplete: z.boolean()
+    cacheHits: z.number().int().nonnegative().max(100), elapsedMs: z.number().nonnegative(), truncated: z.boolean(), registryCoverageComplete: z.boolean(),
+    routing: z.object({ scope: z.literal("CURRENT_PASS"), matchedStores: z.number().int().nonnegative(),
+      relevantPlanned: z.number().int().min(0).max(6), explorationPlanned: z.number().int().min(0).max(2) }).strict().optional()
   }).strict(), continuation: Continuation.optional()
 }).strict();
 export const WooLookupInputSchema = WooProductTargetSchema;

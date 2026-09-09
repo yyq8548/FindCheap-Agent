@@ -1,0 +1,111 @@
+{
+  "version": "0.18.4",
+  "evidence": "Actual Codex 0.153.4 native MCP metadata and isolated test task lifecycle; no product/approval/delivery acceptance",
+  "metadata": [
+    {
+      "observedAt": "2026-09-09T14:47:31.5Z",
+      "pid": 11256,
+      "client": {
+        "name": "codex-mcp-client",
+        "title": "Codex",
+        "version": "0.153.4"
+      },
+      "metadataKeys": [
+        "progressToken",
+        "callId",
+        "x-codex-turn-metadata",
+        "threadId",
+        "itemId"
+      ],
+      "threadId": "01a086a3-49f4-7b11-ad5e-4718b44ce8de",
+      "itemId": "ctc_0faed0265bba1b5a016aa171803ff887d08e598f7a1acf3995",
+      "callId": "exec-4ba3a84c-7d66-4809-bf31-8818adedd717"
+    },
+    {
+      "observedAt": "2026-09-09T14:48:25.345Z",
+      "pid": 35348,
+      "client": {
+        "name": "codex-mcp-client",
+        "title": "Codex",
+        "version": "0.153.4"
+      },
+      "metadataKeys": [
+        "progressToken",
+        "callId",
+        "x-codex-turn-metadata",
+        "threadId",
+        "itemId"
+      ],
+      "threadId": "01a086a4-1fcf-7fb0-bad7-f04f740b75b6",
+      "itemId": "ctc_046734c4dd0bca39016aa171b6626c87d0a20f5871f50cab7f",
+      "callId": "exec-eb4cfd67-0eea-4a87-9278-2a239f6a3715"
+    },
+    {
+      "observedAt": "2026-09-09T14:48:37.813Z",
+      "pid": 7516,
+      "client": {
+        "name": "codex-mcp-client",
+        "title": "Codex",
+        "version": "0.153.4"
+      },
+      "metadataKeys": [
+        "progressToken",
+        "callId",
+        "x-codex-turn-metadata",
+        "threadId",
+        "itemId"
+      ],
+      "threadId": "01a086a4-1fcf-7fb0-bad7-f04f740b75b6",
+      "itemId": "ctc_07a28f8b64faf176016aa171c37d4487d09224ea5da83fe4dc",
+      "callId": "exec-236969dc-58b0-4ef3-8d3c-4328332dd426"
+    },
+    {
+      "observedAt": "2026-09-09T14:48:48.728Z",
+      "pid": 33020,
+      "client": {
+        "name": "codex-mcp-client",
+        "title": "Codex",
+        "version": "0.153.4"
+      },
+      "metadataKeys": [
+        "progressToken",
+        "callId",
+        "x-codex-turn-metadata",
+        "threadId",
+        "itemId"
+      ],
+      "threadId": "01a086a4-7f7d-7e50-8599-39e96111d034",
+      "itemId": "ctc_0ea7c68c32307408016aa171cde63c87d08c3cde6cdb9dc78e",
+      "callId": "exec-f0629712-5829-4d80-93ef-29febdca35d0"
+    }
+  ],
+  "lifecycle": {
+    "threadId": "01a086a4-1fcf-7fb0-bad7-f04f740b75b6",
+    "states": [
+      {
+        "label": "active",
+        "activeFound": true,
+        "archivedFound": false
+      },
+      {
+        "label": "archived",
+        "activeFound": false,
+        "archivedFound": true
+      },
+      {
+        "label": "unarchived",
+        "activeFound": true,
+        "archivedFound": false
+      },
+      {
+        "label": "deleted",
+        "readError": {
+          "code": -32600,
+          "message": "thread not loaded: 01a086a4-1fcf-7fb0-bad7-f04f740b75b6"
+        },
+        "activeFound": false,
+        "archivedFound": false
+      }
+    ]
+  }
+}

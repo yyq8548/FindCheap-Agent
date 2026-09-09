@@ -28,13 +28,13 @@ describe("reviewed 1000-store Woo access registry", () => {
     expect(ledger.storefrontCount).toBe(1000);
     expect(ledger.stores).toHaveLength(800);
     expect(ledger.rawCoverageGaps).toEqual([]);
-    expect(DEFAULT_WOO_REGISTRY.stores).toHaveLength(1000);
+    expect(DEFAULT_WOO_REGISTRY.stores).toHaveLength(1002);
     expect(DEFAULT_WOO_REGISTRY.stores.slice(0, 200)).toEqual(ledger.baseline.entries);
-    expect(DEFAULT_WOO_REGISTRY.stores.slice(200)).toEqual(ledger.stores.map(store => store.entry));
+    expect(DEFAULT_WOO_REGISTRY.stores.slice(200, 1000)).toEqual(ledger.stores.map(store => store.entry));
     expect(WooRegistrySchema.parse(DEFAULT_WOO_REGISTRY)).toEqual(DEFAULT_WOO_REGISTRY);
     expect(Buffer.byteLength(JSON.stringify(DEFAULT_WOO_REGISTRY))).toBeLessThanOrEqual(2 * 1024 * 1024);
     const hosts = DEFAULT_WOO_REGISTRY.stores.map(store => new URL(store.origin).hostname.replace(/^www\./u, ""));
-    expect(new Set(hosts).size).toBe(1000);
+    expect(new Set(hosts).size).toBe(DEFAULT_WOO_REGISTRY.stores.length);
   });
 
   it("adds search access without implicit official, trusted, or affiliate status", () => {
@@ -98,15 +98,15 @@ describe("reviewed 1000-store Woo access registry", () => {
     expect(first).toEqual(expect.arrayContaining(expected));
   });
 
-  it("keeps two bounded six-store passes instead of claiming 1000-store search coverage", async () => {
+  it("keeps unmapped exploration bounded without claiming 1000-store search coverage", async () => {
     const request = vi.fn(async () => new Response("[]", { headers: { "content-type": "application/json" } }));
     const controller = createWooCommerceController(DEFAULT_WOO_REGISTRY, { resolve: async () => [{ address: "8.8.8.8", family: 4 }], request });
     const input = WooSearchInputSchema.parse({ query: "bounded-1000-store-contract" });
     const first = await controller.search(input);
     const second = await controller.search({ ...input, continuation: first.continuation! });
-    for (const result of [first, second]) expect(result.diagnostics).toMatchObject({ eligibleStores: 1000, plannedStores: 6, physicalRequests: 6, registryCoverageComplete: false });
-    expect(new Set([...first.stores, ...second.stores].map(store => store.merchantId)).size).toBe(12);
-    expect(second.continuation).toBeUndefined();
-    expect(request).toHaveBeenCalledTimes(12);
+    for (const result of [first, second]) expect(result.diagnostics).toMatchObject({ eligibleStores: DEFAULT_WOO_REGISTRY.stores.length, plannedStores: 2, physicalRequests: 2, registryCoverageComplete: false });
+    expect(new Set([...first.stores, ...second.stores].map(store => store.merchantId)).size).toBe(4);
+    expect(second.continuation?.attemptedMerchantIds).toHaveLength(4);
+    expect(request).toHaveBeenCalledTimes(4);
   });
 });

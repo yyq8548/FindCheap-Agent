@@ -22,6 +22,29 @@ async function harness(store: WatchStore = createMemoryWatchStore()) {
 }
 
 describe("Watch local lifecycle and unverified scheduler handoff", () => {
+  it("returns the same undelivered event for recovery without re-alerting or acknowledging delivery", async () => {
+    const { store, search, call } = await harness();
+    const created = await store.create(spec, checkedAt);
+    const completionEventId = randomUUID();
+    const completionNotification = { eventId: completionEventId, createdAt: checkedAt,
+      status: "DELIVERY_UNCONFIRMED" as const, message: "Black Lace Dress was observed in stock.",
+      observation: { availability: "IN_STOCK", checkedAt } };
+    const saved = await store.save({ ...created, status: "COMPLETED", completionEventId, completionNotification });
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const result = await call("check_watch", { watchId: saved.watchId });
+      expect(result.isError).not.toBe(true);
+      expect(result.structuredContent).toMatchObject({ status: "COMPLETED", completionEventId, completionNotification });
+      expect(JSON.stringify(result.content)).not.toContain(completionNotification.message);
+    }
+    const listed = await call("list_watches");
+    expect(listed.structuredContent).toMatchObject({ watches: [{ completionEventId, notificationStatus: "DELIVERY_UNCONFIRMED" }] });
+    expect(JSON.stringify(listed)).not.toContain(completionNotification.message);
+    expect(await store.get(saved.watchId)).toEqual(saved);
+    await call("delete_watch", { watchId: saved.watchId });
+    expect(JSON.stringify(await call("check_watch", { watchId: saved.watchId }))).not.toContain(completionNotification.message);
+    expect(search).not.toHaveBeenCalled();
+  });
+
   it("exposes one completed event without rechecking, rebinding or resuming", async () => {
     const { store, search, call } = await harness();
     const created = await store.create(spec, checkedAt);
