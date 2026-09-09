@@ -457,7 +457,8 @@ export async function searchProducts(
     : officialStoreSeed([], { ...rawInput, sourcePageUrl: knownProductUrl.sourcePageUrl });
   let resolvedRequest: SearchProductsInput | undefined;
   const directWooUrl = ports.woocommerce ? rawInput.wooAnchor?.url ??
-    (knownProductUrl?.storefront.platform === "WOOCOMMERCE" ? knownProductUrl.sourcePageUrl : wooProductUrl(rawInput.query)) : undefined;
+    (knownProductUrl === undefined ? wooProductUrl(rawInput.query) :
+      knownProductUrl.storefront.platform === "WOOCOMMERCE" ? knownProductUrl.sourcePageUrl : undefined) : undefined;
   let directWooResult: WooSearchResult | undefined;
   let directWooFailure: unknown;
   if (directSeed !== undefined && directSeed.platform !== "WOOCOMMERCE" && knownProductUrl !== undefined && ports.officialShopify !== undefined) {
