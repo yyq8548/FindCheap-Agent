@@ -185,12 +185,39 @@ export function assessCoffeeCompatibility(request: CoffeeRequest, candidate: Cof
   const facts = { ...(requestedSystem === undefined ? {} : { requestedSystem }), observedSystems };
   if (requestedSystem === undefined) return { ...facts, status: "UNKNOWN", evidence: "user machine model or capsule system is unverified" };
   if (observed.negative.has(requestedSystem)) return { ...facts, status: "CONTRADICTED", evidence: "selected capsule explicitly excludes the requested machine system" };
+  if (selected.length === 0 && observedSystems.length === 0 && assessCoffeeCategory("PODS", candidate).status === "MATCHED") {
+    const exclusiveSystem = exclusiveDescriptionSystem(candidate.description);
+    if (exclusiveSystem !== undefined && exclusiveSystem !== requestedSystem) {
+      return { ...facts, status: "CONTRADICTED", evidence: "current capsule description explicitly limits compatibility to another single system" };
+    }
+  }
   if (observedSystems.length !== 1 || selected.some(([, value]) => systemEvidence([value]).positive.size !== 1)) {
     return { ...facts, status: "UNKNOWN", evidence: "selected capsule system is missing or ambiguous" };
   }
   return observedSystems[0] === requestedSystem
     ? { ...facts, status: "MATCHED", evidence: "selected capsule system matches the explicitly requested system" }
     : { ...facts, status: "CONTRADICTED", evidence: "selected capsule system conflicts with the requested system" };
+}
+
+/** A current-capsule exclusive claim supplies counterevidence only. It cannot
+ * confirm compatibility, override a selected option or describe another item. */
+function exclusiveDescriptionSystem(description: string | undefined): CoffeeSystem | "LOR_BARISTA" | undefined {
+  if (description === undefined) return undefined;
+  const normalized = normalize(description).replace(/\bl[’'‘ʼ]or\b/gu, "lor");
+  if (/\b(?:other|another|also|options?|variants?|choose|selected|faq|if|unless|when)\b/u.test(normalized)) return undefined;
+  const patterns: ReadonlyArray<readonly [CoffeeSystem | "LOR_BARISTA", RegExp]> = [
+    ...SYSTEM_PATTERNS, ["LOR_BARISTA", /\blor barista\b/gu]
+  ];
+  const systems = patterns.filter(([, pattern]) => new RegExp(pattern.source, "u").test(normalized));
+  if (systems.length !== 1) return undefined;
+  const [system, pattern] = systems[0]!;
+  const target = new RegExp(`^(?:${pattern.source})(?: (?:systems?|machines?|brewers?))?(?:$| (?:(?:a|the|this|these|each) )(?=[a-z]))`, "u");
+  for (const rawClause of description.split(/[.!?;\r\n]/u)) {
+    const clause = normalize(rawClause).replace(/\bl[’'‘ʼ]or\b/gu, "lor");
+    const claim = /^(?:(?:these|this|our) )?(?:coffee )?(?:capsules?|pods?) (?:are|is) (?:(?:only|exclusively) compatible with|compatible (?:only|exclusively) with) (?:the )?(.+)$/u.exec(clause);
+    if (claim?.[1] !== undefined && target.test(claim[1])) return system;
+  }
+  return undefined;
 }
 
 function systemEvidence(values: readonly string[]): { positive: Set<CoffeeSystem>; negative: Set<CoffeeSystem> } {

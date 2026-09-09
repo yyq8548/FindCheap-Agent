@@ -106,3 +106,61 @@ describe("coffee evidence agrees across category and typed requirements", () => 
     expect(evaluateProductRequirements(candidate, { ...input, requiredFeatures: [], excludedFeatures: [requirement] }).unknown).toContain(`excluded: ${requirement}`);
   });
 });
+
+describe("current capsule exclusive-system counterevidence", () => {
+  const input = { query: "coffee capsules", productType: "coffee", requiredFeatures: ["Coffee capsules", "Compatible with Nespresso Original"],
+    excludedFeatures: ["Ground coffee"], preferences: [] as string[] };
+  // Complete source description from native task 01a0878f, Shopify variant 44558789574700.
+  const midtown = { title: "Midtown Roast Coffee Capsules", variantDimensions: {}, itemPrice: { amountCents: 1199, currency: "USD" },
+    description: "Midtown Roast Coffee Capsules Bright and slightly acidic roast coffee capsules designed for compatibility with L or Barista systems. COFFEE CAPSULES ARE EXCLUSIVELY COMPATIBLE with the L’OR BARISTA System A bright and slightly acidic roast that produces a smooth finish. This cup will remind you of warm nights hinting at caramelized sugars and melted chocolate." };
+
+  it("excludes the actual single-system Midtown capsules from Original results in both evaluators", () => {
+    expect(assessCoffeeCompatibility(input, midtown).status).toBe("CONTRADICTED");
+    for (const result of [evaluateProductRequirements(midtown, input), evaluateSearchProductRequirements(midtown, SearchProductsInputSchema.parse(input))]) {
+      expect(result.contradicted).toContain("Compatible with Nespresso Original");
+      expect(result.assessment.status).toBe("CONFLICT");
+    }
+  });
+
+  it.each([
+    "These coffee capsules are only compatible with the L'OR BARISTA system.",
+    "Coffee capsules are compatible exclusively with Nespresso Vertuo machines.",
+    "Our pods are exclusively compatible with Dolce Gusto."
+  ])("accepts only an explicit current-capsule exclusive-system claim: %s", description => {
+    expect(assessCoffeeCompatibility(input, { ...midtown, description }).status).toBe("CONTRADICTED");
+  });
+
+  it.each([
+    "L'OR espresso capsules, compatible with L'OR BARISTA.",
+    "Coffee capsules are compatible with the L'OR BARISTA System.",
+    "Other coffee capsules are exclusively compatible with the L'OR BARISTA System.",
+    "We also sell coffee capsules that are exclusively compatible with the L'OR BARISTA System.",
+    "Other product: Coffee capsules are exclusively compatible with the L'OR BARISTA System.",
+    "FAQ: Coffee capsules are exclusively compatible with the L'OR BARISTA System.",
+    "Coffee capsules are not exclusively compatible with the L'OR BARISTA System.",
+    "Coffee capsules are exclusively compatible with the L'OR BARISTA System or Nespresso Original.",
+    "Coffee capsules are exclusively compatible with the L'OR BARISTA System and other systems.",
+    "Coffee capsules are exclusively compatible with the L'OR BARISTA System if this option is selected.",
+    "Coffee capsules are exclusively compatible with an unspecified system.",
+    "Coffee capsules are exclusively compatible with the L'OR BARISTA System. These capsules are exclusively compatible with Nespresso Original.",
+    "Available systems: Nespresso Original / L'OR BARISTA. Coffee capsules are exclusively compatible with the L'OR BARISTA System."
+  ])("keeps marketing, other products and unresolved system claims unknown: %s", description => {
+    expect(assessCoffeeCompatibility(input, { ...midtown, description }).status).toBe("UNKNOWN");
+  });
+
+  it("does not use an exclusive description as positive compatibility evidence", () => {
+    expect(assessCoffeeCompatibility(input, { ...midtown,
+      description: "Coffee capsules are exclusively compatible with Nespresso Original." }).status).toBe("UNKNOWN");
+  });
+
+  it.each([["Nespresso Original", "MATCHED"], ["Choose a system", "UNKNOWN"], ["Nespresso Original / Nespresso Vertuo", "UNKNOWN"]])(
+    "keeps the selected system authoritative over the parent description: %s", (system, expected) => {
+      expect(assessCoffeeCompatibility(input, { ...midtown, variantDimensions: { System: system! } }).status).toBe(expected);
+    });
+
+  it("does not infer the user system or product form from the exclusive description", () => {
+    expect(assessCoffeeCompatibility({ query: "coffee capsules" }, midtown).status).toBe("UNKNOWN");
+    expect(assessCoffeeCompatibility(input, { ...midtown, title: "Midtown Blend" }).status).toBe("UNKNOWN");
+    expect(assessCoffeeCompatibility(input, { ...midtown, title: "Nespresso Original Coffee Capsules" }).status).toBe("MATCHED");
+  });
+});
