@@ -142,3 +142,15 @@ W4.S2完成：剩余第6次API补核200，获得第2页7个子项，形成父190
 最终集成首轮另发现两项新测试的NodeNext JSON import缺少type属性，补显式`with { type: "json" }`后新增12项再通过、`pnpm exec tsc --noEmit`通过（`hidden-secrets-import-green.log`、`hidden-secrets-typecheck.log`）。历史信任smoke仅对Orleans已批准canonical变更添加单记录例外，仍断言旧www来源及新旧两host集合相等；其余199条身份不放宽。后来搜索商家断言802更新为803，新增店不得自动信任断言完整保留。该smoke与新增两文件共19项通过（`hidden-secrets-smoke-green.log`）；主任务保留集成首次失败分母。
 
 更新后的有限覆盖结论：登记1003家；原W3记录的假发有价0是追加研究前结果，本轮以1家标准可选有价假发来源补齐技术来源缺口。没有声称主流假发全覆盖或可信推荐完成；≤USD350真耳机缺口仍保留。追加候选首轮8家API探针、5家未通过，Hidden Secrets完整controller首次schema失败和PDP体积拒绝均保留；补核6次API为后续新证据，不能重写首次失败。研究脚本首次正则语法错误发生在网络请求前，修正后执行，原日志保存在`hidden-secrets-controller-script-error.log`，不计作来源失败或真实成功。
+
+### W5 生产独立核验与一次有界恢复（2026-09-09）
+
+主任务另授权本分工独立核验发布。首次部署`1a6a750c-aeb7-40dd-bc7d-7f71f652064c`经官方CLI确认SUCCESS，SSH读取`/app/dist/main.cjs`的SHA与本地均为`9981ab1dc9c751c55e8092ea0eb4b3fd5b9d26888793847707f62fe087131ff0`。恰好5个公开GET全200：health、ready、official旧表示、official v2、merchant-trust。三个registry的版本、数量及递归规范化全部字段与不可变v0.18.4基线完全相同；数量111/248/393，未新增信任。完整报告`production-v0186-2026-09-09T20-44-48-425Z.json`。
+
+首次生产Feed验收仍FAIL：旧15:58:37Z快照69,409行，连续失败15，新productCoverage不存在。真实新容器终态日志20:43:11Z为`SOURCE_REQUEST_FAILED/SOURCE_RATE_LIMITED`、`quickRetryScheduled=false`。代码和只读账本确认是每Feed固定5次/小时本地预算耗尽，并非HTTP429；29 cache_hit、13 cache_recovered共42可用源，另11无缓存源被预算拒绝，按既有规则不发布不完整新聚合。旧快照staleSourceFeeds=0不能描述本轮13个旧缓存已发布。
+
+独立运维两案冻结于`production-v0186-budget-ops-plan.json`：A等待额度自然恢复后一次同SHA重部署，促使正常启动刷新；B等待约下一常规周期（360分钟，nextAt未持久化，按启动估计次日02:43Z）再观察。主任务基于用户已有部署授权选择A，未清账本、未调配额/360分钟、未设置额外刷新接口。只读取白名单配置得重试次数未设置，代码默认2，所需初始+2重试共3槽；24个受限源最晚3槽自然恢复21:09:05.902Z，冻结not-before为21:09:11Z。账本审计只输出匿名序号、时间、次数和是否已有缓存，不输出URL、完整key、token或商品。
+
+唯一恢复部署`58ce1060-5b38-4876-840e-a08df5f57d20`已在合法窗口后执行，实际HEAD和时刻保存于`production-v0186-recovery-up-once-intent.json`。前置时间、同SHA、source编译输入基线和CreateNew独占意图文件防止提前或重复up；与MCP/文档无关工作树改动不阻止此同source恢复。官方CLI轮询间隔超过60秒确认SUCCESS；再次SSH匹配同SHA。随后仅2个health/ready GET，不重复registry：21:09:58.718Z新快照ready、50有效源、3正常排除（未批准商品URL/币种不支持/无合格商品各1）、stale0、连续失败0；input71,206=published70,146+isolated1,060+deduplicated0，冲突530组。21:10:18.622Z真实`awin_feed_refresh_settled`确认ready、无快速重试。最终报告`production-v0186-final-verification.json`及`production-v0186-recovery-health-2026-09-09T21-11-30-677Z.json`。
+
+本步骤合计7个服务公开GET；只有1次经授权恢复up，由服务正常启动完成来源刷新，审计未直接请求Feed/商家。首次失败、辅助命令的PATH缺失/首次远端表达式引号无输出及本地时间格式转换问题均保留并澄清，不覆盖历史分母。最终生产刷新验收通过，不代替主任务仍在进行的原生业务矩阵或暂缓的人工图片验收。

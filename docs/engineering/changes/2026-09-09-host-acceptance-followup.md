@@ -134,3 +134,13 @@ parse5 8.0.1 及锁定 entities 8.1.0 已加入；entities 为 BSD-2-Clause、No
 NF04 共 42／42 PASS；最终 11 个相关文件 319／319 PASS，MCP build／notice、MCP tsc --noEmit、六个源码／测试文件 ESLint 均 PASS。公开捕获重放 2／2 PASS；20:27Z 最终 DOM + AST 源检查器再次真实读取两商家 .js／PDP，各 HTTP200，Glossier Espresso 为 USD16／IN_STOCK／NEW，Allbirds size5 为 USD105／IN_STOCK／UNKNOWN condition。未做新原生验收或购物车请求。
 
 此时 bundle 1,406,152 bytes，较引入解析器前增加 275,699 bytes，其中 DOM 修订相对上一 Acorn 阶段增加 152,915 bytes；哈希、许可和阶段性失败均存 `nf04-acorn-delivery-evidence.json.finalDom`。原生报价继续使用 Glossier 精确变体候选，由主任务在最终安装后建立新选择引用并等待真实用户表单。所有本子任务源码、依赖及构建修改停止，构建锁归还主任务。
+
+### F13 商品准备的真实原生回执（2026-09-09 21:02Z）
+
+任务 `01a087fa-8793-7201-a995-d4b25d9dc0cf`（v0.18.6 实测：Glossier 报价准备）完成69.142秒。原始rollout `C:/Users/chris/.codex/sessions/2026/09/09/rollout-2026-09-09T17-02-18-01a087fa-8793-7201-a995-d4b25d9dc0cf.jsonl` 第29行search／35行inspect的 `event_msg/item_completed.item.result`为回执；searchTrace.buildVersion0.18.6。实际调用仅search_products与inspect_selected_product，无报价、购物车或授权调用。
+
+精确目标 `https://www.glossier.com/products/balm-dotcom?variant=46731565826293`：inspect OK、SKU `BDC-467-00-00`、Flavor Espresso、USD1600美分、IN_STOCK，时间21:03:05.940Z。新render `3822e45e-de16-4866-a52a-8f64f39a48b0`、goal `2a608473-e7b6-46b1-b468-60b617c5a17f` revision2，目标selection `8b2b9caa-6741-4cb3-afe9-4186b2ab3706`，OFFICIAL_STORE／SATISFIED／唯一primary／DELIVERED_TOTAL_SUPPORTED。报价能力不是已收到ZIP报价；运税和到手价仍未知。
+
+来源为Awin COMPLETE、Shopify PARTIAL、Woo UNAVAILABLE，实际sourceFailures WOOCOMMERCE／SOURCE_REJECTED／retryable=false；未重试拒绝来源。派生快照仍含Trio与Quintet研究卡，Espresso UNKNOWN、NEEDS_VERIFICATION，但requestIdentityStatus错误CONFIRMED。此为另外的精确URL身份边界缺口，独立修复，不能因目标inspect成功将整轮或F13核销。
+
+人工验收入口与边界：F02需在真实UI勾选目标卡，再不传显式selectionId地验证宿主同步选择；恢复验收还需同一任务重启后继续引用，当前新任务成功启动不代替该步骤。F13需用户在Glossier最新目标卡上选择，并明确请求匿名运税报价、提供ZIP、在可交互宿主表单亲自同意；本机当前never策略不会由代理修改或代点同意。此记录保留准备证据，尚无表单展示／用户提交／实际quote回执。

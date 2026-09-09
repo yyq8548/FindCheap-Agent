@@ -26,3 +26,11 @@
 ## Implement / Test
 
 首次红：12项中11失败（既有错误既漏掉同款，也允许两个内部货况矛盾对象彼此比较）。C1最小修复后立即`pnpm build:mcp`退出0；6文件122项相关value/ranking/comparison/recommendation/summary断言全部通过。正式候选集成与原生比较尚未执行。
+
+### 安装后真实原生比较（2026-09-09 21:02Z）
+
+任务 `01a087fa-648c-7783-ac92-5f904a1909d0`（v0.18.6 实测：Sony 同款比较）完成66.563秒；原始rollout文件 `C:/Users/chris/.codex/sessions/2026/09/09/rollout-2026-09-09T17-02-09-01a087fa-648c-7783-ac92-5f904a1909d0.jsonl` 第27行search及37行compare的 `event_msg/item_completed.item.result`为实际回执。searchTrace.buildVersion0.18.6，要求Black／NEW／35000美分，renderId `ce9812f7-197b-41ce-a203-24d797a61334`。
+
+Sony官网29999美分、NEW、Black、库存UNKNOWN；GRAMOPHONE29800美分、NEW、Black及原始Condition New、IN_STOCK。真实compare_selected_products返回OK、SAME_PRODUCT_OFFERS、priceComparability SAME_PRODUCT、ITEM_PRICE、价差199美分；primary仍Sony。GRAMOPHONE trust UNKNOWN／UNVERIFIED，商品评分不代替商家审核。运费／税／到手价未报价，未承诺到手预算。F08此次两家同规格商品价比较成立；不等于全部商家覆盖或UI勾选链验收。
+
+sourceTrace为Awin COMPLETE、Shopify PARTIAL、Woo COMPLETE（累计6个店铺请求、0失败，不是1003全覆盖）、eBay SKIPPED；官方读取ACCEPTED。保持覆盖PARTIAL。原始首次失败与前版本固定响应证据保留。

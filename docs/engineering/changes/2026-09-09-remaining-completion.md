@@ -1,5 +1,13 @@
 # 9/9 剩余问题继续实施
 
+## 当前状态：R3 本地集成完成，交付待执行
+
+最终候选包 `0.18.6+codex.20260909214736` 已完成构建、typecheck、lint 和默认全套验证：`final-tests-r5.json` 为 **209 文件／4097 PASS／0 FAIL**。MCP SHA256 为 `af828bf8d1a821d535b7207e2ca69c81f73e9db812a0e1c2ccce9d0fc9c05502`；source bundle 未变化，SHA256 为 `9981ab1dc9c751c55e8092ea0eb4b3fd5b9d26888793847707f62fe087131ff0`。R3 运行代码／测试／包已提交推送 `3d6ac6e`；最终安装、CI 和原生验收尚待，下方 R2 安装／原生证据保留为历史，不代表该候选已安装验收。
+
+NF08 精确链接身份及审查新增回归已修：显式替代仍是研究替代、跨店已确认同款可在原商家同父商品显式换规格、Shopify 源 ID 与 URL variant 矛盾拒绝；Woo 私有锚点严格持久恢复通过，公共输入不能注入身份。29 项新增、11 文件 199 项相关断言及两次独立复核 7＋1 项全通过。F02 的 Woo 服务重建缺陷已修，真实桌面勾选／重启仍待验收；NF08 原生验证仍待最终安装。NF09 已补原有视觉参数限制说明，不放宽校验。NF07 用户未答，不实施策略变化。
+
+来源生产已经闭环：自然配额恢复后一次同 SHA 部署 `58ce1060-5b38-4876-840e-a08df5f57d20` 在 `2026-09-09T21:09:58.718Z` 发布新 Awin 快照，70,146 商品／35 商家；71,206 输入减 1,060 冲突行，530 冲突组、50 源、stale 0、连续刷新失败 0。首次配额失败保留，未改配额／账本；R3 无须再次部署未变化的来源服务。
+
 ## Research
 
 - 基线 main `7401b6d8a4e31b7b7b68cfbd2381f642ac334736`，v0.18.5，开始时工作树干净。用户要求继续全部完成并在不确定决策时确认；2026-09-09 再次明确 F09 原图与 F15 40+40 人工标注继续暂缓。此前提交、推送、部署、安装和独立原生 Astra Ultra 测试授权继续有效。
@@ -34,13 +42,21 @@
 
 ## Implement / Test
 
-最终本地集成已通过，发布及原生验收继续。首次失败与每次修正保存在 `artifacts/remaining-completion/`。
+下列为先前 R1／R2 实施和交付过程；当前候选以开头 R3 状态及后文 R3 门禁为准。首次失败与每次修正保存在 `artifacts/remaining-completion/`。
 
-### v0.18.6 最终本地门禁
+### v0.18.6 R1／R2 本地门禁（历史）
 
 统一版本为 `0.18.6`，包 `0.18.6+codex.20260909202818`。版本模块立即 MCP 构建及231相关断言通过；最终两包构建通过。首次全库 typecheck 暴露可选去重字段类型与两个 JSON import attribute，已最小修正；首次默认 suite 为207文件、4062 PASS／5 FAIL，三个旧版本/商家数/canonical断言和两个 runtime测试时钟竞态均保留。runtime测试改为等待真实脱敏 `awin_feed_refresh_settled` 终态后推进时钟，关闭时不报已安排重试，不增加生产重试/预算。最终 typecheck、全库lint加后续变更定向lint、207文件／4068断言全部通过；Windows PowerShell5.1安装行为测试通过。
 
 最终日志为 `final-*-r2`；初次 `final-tests.json` 与 `final-typecheck.log` 保留。MCP SHA256 `8eb0247d61adaafe3bb67608f48d582ffbd296ae00001db4161696c984a03b8d`，source SHA256 `9981ab1dc9c751c55e8092ea0eb4b3fd5b9d26888793847707f62fe087131ff0`。外部PostgreSQL integration不在默认分母，本轮未改数据库或迁移。原生30文字回合、图片开发回合、部署与安装仍独立执行；当前门禁不核销这些项。
+
+### R3 门禁与新增反例记录
+
+URL 身份修复及独立审查范围、两案、红绿保存在 [NF08 记录](2026-09-09-shopify-url-identity-followup.md)。真实 Glossier 精确 URL 的 Trio／Quintet 错误研究卡仍保留原生失败分母；本地修复不能替代最终安装后的原生复验。Woo 真实注册 MCP 搜索→SQLite 保存→关闭服务→同可信任务重建→render 原引用已通过，跨任务读取拒绝，不等于 UI 选中或桌面重启通过。
+
+全库 `final-tests-r3.json` 为 208 文件、4083 PASS／2 FAIL，均为新增技能说明超出原字数预算；压缩后的 `final-tests-r4.json` 为 209 文件、4095 PASS／2 FAIL，均为等义连接语 via／using 与静态合同锁定的 through／with each 不同，安全规则未删除。恢复合同原文后技能为 7177 UTF-8 字节，没有改预算或测试断言。`final-tests-r5.json` 为 209 文件、4097 PASS／0 FAIL；`final-typecheck-r4.log`、`final-lint-r4.log` 通过，两个分发 bundle 的 SHA 与预期一致。早期 r3/r4 和局部失败不删除，也不计作原生结果。默认分母不含外部 PostgreSQL integration，未修改数据库迁移。
+
+R3 运行代码／测试／包及 URL 工程记录已由主任务提交推送 `3d6ac6e`，本阶段四份发布文档另行提交；安装逐文件验证、安装版 stdio、CI、新任务版本和购物原生验收待主任务执行。F09/F15 用户暂缓、F03/F04 宿主依赖、F13 真实授权表单、F16 最终候选固定性能矩阵仍分别保留；NF07 用户待决策不能默认批准。
 
 ### 现场安装 R2（改动前冻结）
 
@@ -49,6 +65,10 @@
 此外，当前工作树与官方marketplace在plugin.json及三个技能reference文件仅换行不同，字节哈希仍确实不一致。方案A将已存在的LF分发合同扩大到本插件所有文本文件；方案B按平台生成不同校验值，无法实现跨平台同一分发字节。采用A：`.gitattributes`仅限定本插件路径为`text=auto eol=lf`，统一14个现有文本分发文件；自动文本识别不把未来二进制当文本。更新包cachebuster，运行模块构建和分发/stdio合同；不改变脚本语义、权限、来源数据或降低哈希检查。原哈希差异与CLI错误保留，发布后再由官方marketplace重新获取并逐文件验证。
 
 ### 后续用户决策
+
+现场R2后续真实交付：`bea1c85`已由主任务提交推送，installer1.2.1于21:01Z真实成功。先备份 `23b9e7cb4f274e098c0377c160d70a23`，再marketplace upgrade；严格验证新包 `0.18.6+codex.20260909204729` 后跳过冗余plugin add，finally恢复R1旧入口全部14文件，末尾installed/enabled和全量分发哈希再次通过。`actual-installer-r2.log`与原 `actual-installer.log`分别保存成功／首次失败。主任务随后独立兼容同步3目录42文件为R2，原安装备份留存；`installed-cache-verification.json`逐文件一致，`installed-stdio-r2.json` 5／5 PASS。兼容同步不是安装器自动覆盖行为，stdio不是原生UI验收。详细顺序及独立审查见[安装保护记录](2026-09-09-installer-marketplace-cache-guard.md)。
+
+原生功能任务21:02Z已使用searchTrace.buildVersion0.18.6：Sony同款比较任务 `01a087fa-648c-7783-ac92-5f904a1909d0` 已取得两个真实商家及SAME_PRODUCT_OFFERS、199美分价差；Glossier报价准备任务 `01a087fa-8793-7201-a995-d4b25d9dc0cf` 精确Espresso检查成功，尚未触发报价/购物车/授权表单。后者同时暴露精确URL锚点未保留导致Trio/Quintet两张研究卡混入，独立记录并修复；不能把本任务整体写为F13全PASS。两个回合66.563／69.142秒是功能回合事实，不并入尚未启动的正式文字性能矩阵。
 
 - 用户明确选择：自动删除与通知送达确认保留原设计目标，标为宿主依赖；完成所有插件可控修复。独立连接未收到其他连接删除事件的实证不能用 not-loaded 猜测替代。
 - 用户明确选择：Awin 只隔离跨 Feed 冲突商品的全部版本，保留其他商品与商家。当前审计530组不是硬编码上限或固定名单；每次刷新按实际冲突重算，单 Feed 内重复仍遵守原严格校验。证据和实施见 Awin 独立记录。
@@ -67,3 +87,9 @@
 - [Ulta原版页面](https://www.ulta.com/p/zero-pore-pad-pimprod2053434?sku=2645351) 明示70ct、item2645351、原版AHA/BHA配方，为同款零售来源线索；净重仍需对应包装证据。网页研究不自动注入已冻结搜索快照，也不证明插件已完成跨店比较。
 - [QVC包装PDF](https://static.qvc.it/p/media/temp/manuali/217319_medicube.pdf) 后续已用本地Poppler完整渲染并目视确认：原版ZERO PORE PAD、AHA/BHA、155g/70pads、EAN8800256119066。源PDF SHA256为 `66f2ef6ad7d996dd7aeca5eba68f0b2c8ddbd796ef1f01bfeaa55afcd06ed329`。美国官网当前SINGLE变体40542710825008/SKU PMEUS10002A00/EAN8809921779215与该欧洲包装条码不同；不能跨SKU借净重，也不能把JSON的weight318当净重。证明原版155g/70pads确实存在，不证明用户暂缓的原图或当前美国每个SKU已对应核验。
 - [Best Buy黑色WH-1000XM5页面](https://www.bestbuy.com/product/sony-wh-1000xm5-wireless-noise-canceling-over-the-ear-headphones-black/6505727) 明示型号WH1000XM5/B、SKU6505727、Sold by Best Buy，为F08第二商家线索；必须经正式读取和同快照比较取得当前价格/货况，网页研究不等于已完成原生比较。
+
+### R3 实际安装与 CI
+
+运行提交 `3d6ac6e6f2ec00c1d80cebe997a5f0fd2b1a4057` 的 plugin CI `34409785468` 与 Windows CI `34409785463` 均成功。installer1.2.1 于21:58:40Z先备份 `528b48ead21646efa9fecb58a5552cb6`，再 marketplace upgrade；21:58:45Z核验 R3 安装启用、跳过冗余 add，并恢复3个旧入口。随后按既有授权兼容同步4入口56文件，与源及marketplace每个分发文件逐字节一致。R2证据另存 `installed-cache-verification-r2.json`；R3为 `installed-cache-verification-r3.json`，未覆盖原失败。
+
+实际 canonical R3 路径经 FINDCHEAP_PLUGIN_ROOT 传入 stdio，21:59:10–21:59:18Z执行5/5 PASS；命令、环境绑定、包/MCP SHA、起止时间和退出码记录在 `installed-stdio-r3-binding.json`。原生新连接及UI/表单继续独立验证；本步骤不强制退出桌面，也不改宿主审批配置。source bundle未变，不重复部署。

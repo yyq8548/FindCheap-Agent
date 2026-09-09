@@ -9,7 +9,7 @@ English | [简体中文](README.zh-CN.md)
 
 Product form: **Codex Plugin Agent**.
 
-Current source package: **v0.18.6** — compatibility-query routing, Awin conflict isolation and refresh recovery, exact Shopify variant prices, product-edition evidence, same-product condition checks, and safer Windows upgrades. WooCommerce now has 1,003 search storefronts. Publication, deployment, installation and native acceptance are verified separately in the release record.
+Current source package: **v0.18.6** — compatibility-query routing, Awin conflict isolation and refresh recovery, exact Shopify variant prices and URL identity, product-edition evidence, same-product condition checks, private WooCommerce snapshot recovery, and safer Windows upgrades. WooCommerce now has 1,003 technical search storefronts; registration does not grant merchant trust. Publication, deployment, installation and native acceptance are verified separately in the release record.
 Nine-row comparisons and immutable selections remain.
 [v0.18.6 release and verification status](docs/releases/v0.18.6.md). [Native test instructions](docs/engineering/changes/2026-09-09-native-user-checks.md). [9/9 repair and test status](<改进计划 9_9.md>). [1,000-store baseline evidence](docs/engineering/changes/2026-09-08-woocommerce-expansion-1000-data.md). [Existing 200-merchant trust review](docs/product/woocommerce-merchant-trust-200.md).
 
@@ -63,7 +63,7 @@ Ask whether to buy a selected product now:
 Is this worth buying now, or should I wait?
 ```
 
-For a follow-up quote, refer to a result by its number or choose it from the card. FindCheap Agent reuses the original product and variant instead of searching its title again. Stable selections remain available for up to two hours in the active MCP process; the cache keeps at most 128 recent search snapshots and asks for a new search after expiry.
+For a follow-up quote, refer to a result by its number or choose it from the card. FindCheap Agent reuses the original product and variant instead of searching its title again. Active selections expire after two hours, and the active cache keeps at most 128 recent search snapshots. Supported persistence restores history within the same trusted task; it does not refresh prices or stock, or restore expired quotes and authorizations. Desktop restart and UI acceptance remain separate checks.
 
 ## Product search
 
@@ -72,6 +72,12 @@ The plugin uses one constrained search request with parallel, eligible Awin, Sho
 Coffee form and machine compatibility are separate checks. Capsule discovery preserves the shopping goal and other requirements, excludes equipment and conflicting forms, and asks for the machine system when needed. Unknown compatibility cannot produce a primary recommendation. Within the existing two-pass budget, Shopify uses an available cursor for a new page; receipts distinguish actual pages and merchants read from estimated totals. A Woo-specific limit or unsupported store does not block otherwise eligible independent recovery.
 
 Continuations bind an explicit `parentRenderId` or server-issued `goalId` plus exact `goalRevision`. Requirements and prior candidates are rechecked without mutating old cards or treating old prices as fresh observations. Correcting product identity does not silently withdraw unrelated requirements. No global latest-result lookup or persistent product catalog is used.
+
+After reading a supported official Shopify product URL, FindCheap retains its product path and selected variant through search and follow-ups. Another same-store product or variant cannot qualify merely by sharing the title; a Shopify variant ID that contradicts its own selected URL is rejected. Cross-store identity requires a shared GTIN or matching brand and MPN, together with the selected attributes. Merchant-local IDs are not compared across stores.
+
+Explicitly allowed alternatives remain labeled research candidates, not confirmed versions of the requested product. Continuing the request retains the URL identity; correcting or replacing the product releases that identity while other requirements follow the existing continuation rules. To change options on a verified same-item offer from another store, inspection must return one matching variant from the actual selected merchant and parent product. Inspecting an alternative cannot silently replace the original target.
+
+Shopify and WooCommerce identity anchors are private server state, not model-supplied search fields. WooCommerce snapshots now validate and persist the original merchant, product, selected variation and URL binding; old snapshots without anchors remain readable, and another task cannot read them. Public MCP contracts verify recovery across two server instances; final-package native acceptance remains pending. See the [URL identity and snapshot recovery record](docs/engineering/changes/2026-09-09-shopify-url-identity-followup.md).
 
 Explicit non-price requirements are hard filters, not ranking hints. The matcher normalizes display size, memory, storage, package count, volume, weight, resolution, refresh rate, power, apparel and shoe size, color, model generation, and compatibility wording. It understands common metric, US customary, and Chinese forms, including equivalent expressions such as `14-inch`, `14"`, and `35.56 cm`, along with minimum, maximum, and approximate requirements. Memory, storage, physical dimensions, quantity, and marketing refresh-rate labels remain separate so that a shared number does not create a false match.
 

@@ -45,3 +45,9 @@
 证据均为 ignored artifact：`installer-marketplace-guard-red.log`（exit1）、`installer-marketplace-guard-green.log`、`installer-marketplace-guard-ps1-dryrun.log`、`installer-marketplace-guard-cmd-dryrun.log`，位于 `artifacts/remaining-completion/`。实际旧失败 `actual-installer.log` 原样保留，未以修后隔离测试替换。
 
 独立审查 `/root/sony_fix` 只读核对，无新增可复现缺陷：确认备份覆盖首次变更、异常均恢复、双错误保留，旧版本／disabled／清单哈希不匹配不会跳过，真实入口末尾仍再校验。证明范围是升级后本地 marketplace 分发一致；远端更新仍依赖 marketplace CLI，不能凭本地哈希声称 GitHub远端最新。审查未安装或修改文件。
+
+### 第二轮真实交付（2026-09-09 21:01Z）
+
+主任务提交并推送 `bea1c85` 后真实运行 installer1.2.1。`actual-installer-r2.log` 显示17:01:32先备份到 `%LOCALAPPDATA%/FindCheapAgent/cache-backups/23b9e7cb4f274e098c0377c160d70a23`，再执行marketplace upgrade；17:01:36严格确认 `0.18.6+codex.20260909204729` installed/enabled及全部分发字节一致，跳过冗余plugin add。finally逐条恢复R1目录 `0.18.6+codex.20260909202818` 的14个缺失文件，17:01:37最终官方状态／全量哈希验证通过。此为真实安装成功；首次 `actual-installer.log` 的Access denied失败保留，不改写为成功。
+
+安装完成后，主任务单独兼容同步canonical、R1和旧0.18.4宿主入口为同一R2分发。`installed-cache-verification.json` 21:01:44Z记录3目录×14文件共42项一致；MCP SHA256为 `8eb0247d61adaafe3bb67608f48d582ffbd296ae00001db4161696c984a03b8d`。这一步是授权兼容同步，不是安装器自动覆盖旧文件；原始恢复备份保留。`installed-stdio-r2.json` 5／5 PASS，只算已安装bundle stdio，不替代原生UI与用户授权。
