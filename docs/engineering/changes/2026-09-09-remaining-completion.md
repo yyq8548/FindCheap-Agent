@@ -42,6 +42,12 @@
 
 最终日志为 `final-*-r2`；初次 `final-tests.json` 与 `final-typecheck.log` 保留。MCP SHA256 `8eb0247d61adaafe3bb67608f48d582ffbd296ae00001db4161696c984a03b8d`，source SHA256 `9981ab1dc9c751c55e8092ea0eb4b3fd5b9d26888793847707f62fe087131ff0`。外部PostgreSQL integration不在默认分母，本轮未改数据库或迁移。原生30文字回合、图片开发回合、部署与安装仍独立执行；当前门禁不核销这些项。
 
+### 现场安装 R2（改动前冻结）
+
+运行提交 `a5659136bea8255c11925eeafd06cd94ddcaf35c` 已推送。实际安装的marketplace升级已经把installed状态和canonical缓存更新到18.6，再进入原备份步骤；因此本次备份仅含新18.6的14文件，不能保护升级前宿主旧路径。后续plugin add仍Access denied，错误保留。扩大保护至首次marketplace mutation前由独立Windows步骤修复，不强制关闭应用。
+
+此外，当前工作树与官方marketplace在plugin.json及三个技能reference文件仅换行不同，字节哈希仍确实不一致。方案A将已存在的LF分发合同扩大到本插件所有文本文件；方案B按平台生成不同校验值，无法实现跨平台同一分发字节。采用A：`.gitattributes`仅限定本插件路径为`text=auto eol=lf`，统一14个现有文本分发文件；自动文本识别不把未来二进制当文本。更新包cachebuster，运行模块构建和分发/stdio合同；不改变脚本语义、权限、来源数据或降低哈希检查。原哈希差异与CLI错误保留，发布后再由官方marketplace重新获取并逐文件验证。
+
 ### 后续用户决策
 
 - 用户明确选择：自动删除与通知送达确认保留原设计目标，标为宿主依赖；完成所有插件可控修复。独立连接未收到其他连接删除事件的实证不能用 not-loaded 猜测替代。

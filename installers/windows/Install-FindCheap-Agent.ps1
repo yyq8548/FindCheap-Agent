@@ -7,7 +7,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 
-$InstallerVersion = "1.2.0"
+$InstallerVersion = "1.2.1"
 $MarketplaceName = "findcheap-agent"
 $MarketplaceRepository = "yyq8548/FindCheap-Agent"
 $PluginReference = "findcheap-agent@findcheap-agent"
@@ -272,14 +272,40 @@ function Install-CodexPlugin {
   param([string]$CodexCommand, [string]$CacheRoot)
 
   $snapshot = Save-PluginCache -CacheRoot $CacheRoot
+  $operationError = $null
+  $recoveryError = $null
   try {
-    $installExit = Invoke-Codex -CodexCommand $CodexCommand -Arguments @('plugin', 'add', 'findcheap-agent@findcheap-agent') -AllowFailure
+    $upgradeExit = Invoke-Codex -CodexCommand $CodexCommand -Arguments @('plugin', 'marketplace', 'upgrade', $MarketplaceName) -AllowFailure
+    if ($upgradeExit -ne 0) {
+      Write-InstallerLog "Marketplace upgrade returned exit $upgradeExit; trying to add the configured marketplace." 'WARN'
+      Invoke-Codex -CodexCommand $CodexCommand -Arguments @('plugin', 'marketplace', 'add', $MarketplaceRepository, '--ref', 'main') | Out-Null
+    }
+    $verifiedVersion = $null
+    try {
+      $verifiedVersion = Get-InstalledPluginVersion -CodexCommand $CodexCommand -CacheRoot $CacheRoot
+    } catch {
+      Write-InstallerLog "Plugin verification after marketplace update failed: $($_.Exception.Message). Continuing with plugin installation." 'WARN'
+    }
+    if ($null -ne $verifiedVersion) {
+      Write-InstallerLog "Marketplace update already installed and enabled the verified $verifiedVersion distribution; skipping redundant plugin add." 'OK'
+    } else {
+      $installExit = Invoke-Codex -CodexCommand $CodexCommand -Arguments @('plugin', 'add', 'findcheap-agent@findcheap-agent') -AllowFailure
+      if ($installExit -ne 0) {
+        throw "Codex plugin installation failed (exit $installExit). Close Codex and rerun this installer. Backup: $($snapshot.backupRoot)"
+      }
+    }
+  } catch {
+    $operationError = $_
   } finally {
-    Restore-MissingPluginCacheFiles -Snapshot $snapshot
+    try { Restore-MissingPluginCacheFiles -Snapshot $snapshot } catch { $recoveryError = $_ }
   }
-  if ($installExit -ne 0) {
-    throw "Codex plugin installation failed (exit $installExit). Previous files are preserved. Close Codex and rerun this installer. Backup: $($snapshot.backupRoot)"
+  if ($null -ne $operationError) {
+    if ($null -ne $recoveryError) {
+      throw "$($operationError.Exception.Message) Cache recovery also failed: $($recoveryError.Exception.Message)"
+    }
+    throw $operationError
   }
+  if ($null -ne $recoveryError) { throw $recoveryError }
 }
 
 function Test-InstalledPlugin {
@@ -338,7 +364,7 @@ if ($DryRun) {
   Write-Host "Installer version: $InstallerVersion"
   Write-Host "Marketplace: $MarketplaceRepository"
   Write-Host "Plugin: $PluginReference"
-  Write-Host "Planned actions: verify Codex, ensure Node.js 24, add or upgrade marketplace, install plugin, verify cache."
+  Write-Host "Planned actions: verify Codex, ensure Node.js 24, back up cache, add or upgrade marketplace, verify or install plugin, restore missing previous files, verify cache."
   exit 0
 }
 
@@ -360,12 +386,6 @@ try {
     throw "Codex was not found. Install or update Codex Desktop, then run this installer again."
   }
   Write-InstallerLog "Codex detected." "OK"
-
-  $upgradeExit = Invoke-Codex -CodexCommand $codexCommand -Arguments @("plugin", "marketplace", "upgrade", $MarketplaceName) -AllowFailure
-  if ($upgradeExit -ne 0) {
-    Write-InstallerLog "Marketplace is not installed yet; adding it from GitHub."
-    Invoke-Codex -CodexCommand $codexCommand -Arguments @("plugin", "marketplace", "add", $MarketplaceRepository, "--ref", "main") | Out-Null
-  }
 
   $codexRoot = if ([string]::IsNullOrWhiteSpace($env:CODEX_HOME)) { Join-Path $env:USERPROFILE '.codex' } else { $env:CODEX_HOME }
   $cacheRoot = Join-Path $codexRoot 'plugins\cache\findcheap-agent\findcheap-agent'
