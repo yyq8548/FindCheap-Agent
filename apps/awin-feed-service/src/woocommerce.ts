@@ -5,7 +5,7 @@ import { WooInspectionResultSchema, WooLookupResultSchema, WooProductTargetSchem
 import { createPinnedRequest, safeFetch, type FetchPolicy } from "../../../packages/network-safety/src/safe-fetch.js";
 import { createWooStoreReader, normalizeWooProduct, wooMatchesRequirements, WooReadError, type WooReadBudget, type WooRawProduct, type WooStoreReader } from "./woocommerce-store.js";
 import { WooRegistrySchema, wooMerchantForUrl, type WooMerchant, type WooRegistry } from "./woocommerce-registry.js";
-import { planWooMerchants } from "./woocommerce-routing.js";
+import { planWooMerchants, rankWooMerchants } from "./woocommerce-routing.js";
 
 export type WooCommerceController = {
   search(input: WooSearchInput, options?: { signal?: AbortSignal }): Promise<WooSearchResult>;
@@ -112,6 +112,8 @@ export function createWooCommerceController(registryInput: WooRegistry, dependen
       if (input.productUrl !== undefined && urlStore === undefined) throw new WooReadError("SECURITY_REJECTED");
       const unattempted = eligible.filter((store) => !attemptedBefore.has(store.merchantId));
       const candidates = urlStore === undefined ? unattempted.length > 0 ? unattempted : eligible : [urlStore];
+      const categoryCandidates = rankWooMerchants(candidates, input);
+      const categoryConflictOnly = candidates.length > 0 && categoryCandidates.length === 0;
       const searchScope = createHash("sha256").update(JSON.stringify(input.productUrl === undefined ? ["query", input.query] : ["url", paramsForProductUrl(input.productUrl).toString()])).digest("hex");
       const invalidKey = (id: string) => `${id}:${searchScope}`;
       function unavailable(id: string): "CIRCUIT_OPEN" | "INVALID_RESPONSE" | undefined {
@@ -123,9 +125,9 @@ export function createWooCommerceController(registryInput: WooRegistry, dependen
         if (until !== undefined) invalidSearches.delete(key);
         return undefined;
       }
-      const available = candidates.filter((store) => unavailable(store.merchantId) === undefined);
+      const available = categoryCandidates.filter((store) => unavailable(store.merchantId) === undefined);
       // Preserve diagnostics when every candidate is blocked, without issuing requests.
-      const plan = planWooMerchants(available.length > 0 ? available : candidates, input);
+      const plan = planWooMerchants(available.length > 0 ? available : categoryCandidates, input);
       const planned = plan.stores;
       const key = JSON.stringify([registry.version, input]);
       const cached = cache.get(key);
@@ -211,7 +213,7 @@ export function createWooCommerceController(registryInput: WooRegistry, dependen
       const attempted = [...attemptedBefore, ...stores.filter((store) => store.requests > 0).map((store) => store.merchantId)];
       const result = WooSearchResultSchema.parse({
         source: "WOOCOMMERCE_STORE_API", schemaVersion: 1, registryVersion: registry.version, requestId: randomUUID(),
-        status: eligible.length === 0 ? "NOT_CONFIGURED" : stores.length > 0 && stores.every((store) => store.status === "COMPLETE") ? "COMPLETE" : succeeded > 0 ? "PARTIAL" : "UNAVAILABLE",
+        status: eligible.length === 0 ? "NOT_CONFIGURED" : categoryConflictOnly || stores.length > 0 && stores.every((store) => store.status === "COMPLETE") ? "COMPLETE" : succeeded > 0 ? "PARTIAL" : "UNAVAILABLE",
         snapshotAt: timestamp(), products: allProducts.slice(0, input.limit), stores,
         diagnostics: { routing: plan.routing, eligibleStores: eligible.length, plannedStores: planned.length, attemptedStores: stores.filter((store) => store.requests > 0).length,
           succeededStores: succeeded, failedStores: stores.filter((store) => store.status === "UNAVAILABLE").length,
@@ -219,7 +221,7 @@ export function createWooCommerceController(registryInput: WooRegistry, dependen
           physicalRequests: limits.requests, responseBytes: limits.bytes, cacheHits: 0, elapsedMs: Math.max(0, now() - started),
           truncated: outputs.some((output) => output.truncated) || allProducts.length > input.limit,
           registryCoverageComplete: eligible.length > 0 && eligible.every((store) => stores.some((result) => result.merchantId === store.merchantId && result.status === "COMPLETE")) },
-        ...(attempted.length >= 12 ? {} : { continuation: { registryVersion: registry.version, attemptedMerchantIds: [...new Set(attempted)] } })
+        ...(categoryConflictOnly || attempted.length >= 12 ? {} : { continuation: { registryVersion: registry.version, attemptedMerchantIds: [...new Set(attempted)] } })
       });
       if (result.status === "COMPLETE") {
         const bytes = Buffer.byteLength(JSON.stringify(result));

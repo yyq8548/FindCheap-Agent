@@ -40,9 +40,62 @@ const COFFEE_FORM_TERMS = [
   ["instant coffee", "速溶咖啡"]
 ].map(group => group.map(normalize));
 
+type CategoryScope = { kinds: string[]; domain: string };
+// Domains only establish disjointness. Different specific kinds in the same
+// domain stay UNKNOWN; a broad/unrecognised label is not negative evidence.
+const CATEGORY_DOMAINS: Record<string, string> = {
+  coffee: "COFFEE", grinder: "COFFEE", espresso: "COFFEE",
+  backpack: "OUTDOOR", tent: "OUTDOOR", hammock: "OUTDOOR", quilt: "OUTDOOR", "yoga mat": "OUTDOOR",
+  keyboard: "ELECTRONICS", mouse: "ELECTRONICS", headphone: "ELECTRONICS", amplifier: "ELECTRONICS",
+  guitar: "ELECTRONICS", pedal: "ELECTRONICS", charger: "ELECTRONICS", "phone case": "ELECTRONICS", speaker: "ELECTRONICS",
+  bicycle: "TRANSPORT", tire: "TRANSPORT", shoe: "APPAREL", boot: "APPAREL", shirt: "APPAREL", dress: "APPAREL",
+  legging: "APPAREL", jacket: "APPAREL", skin: "PERSONAL_CARE", deodorant: "PERSONAL_CARE", sunscreen: "PERSONAL_CARE",
+  shampoo: "PERSONAL_CARE", serum: "PERSONAL_CARE", makeup: "PERSONAL_CARE", wig: "PERSONAL_CARE",
+  cleaner: "HOME", laundry: "HOME", cookware: "HOME", bedding: "HOME", "insulated bottle": "HOME", jar: "HOME", grill: "HOME",
+  toy: "TOYS", "board game": "TOYS", book: "PAPER", pen: "PAPER", notebook: "PAPER", sauce: "FOOD"
+};
+const AMBIGUOUS_CATEGORY_LABELS = new Set(["grinder", "manual grinder", "espresso", "beans", "pedal", "quilt", "notebook", "mouse"]);
+const COFFEE_CONTEXT_LABELS = new Set(["grinder", "manual grinder", "espresso", "beans"]);
+const CATEGORY_SCOPES = new Map<string, CategoryScope>();
+function addCategoryScope(terms: string[], scope: CategoryScope): void {
+  for (const term of terms.map(normalize)) {
+    if (AMBIGUOUS_CATEGORY_LABELS.has(term)) continue;
+    for (const label of [term, `${term}s`, `${term}es`, ...(term.endsWith("y") ? [`${term.slice(0, -1)}ies`] : [])]) {
+      CATEGORY_SCOPES.set(label, scope);
+    }
+  }
+}
+for (const terms of CATEGORY_TERMS) {
+  const kind = terms[0]!;
+  const domain = CATEGORY_DOMAINS[kind];
+  if (domain === undefined) continue;
+  const kinds = kind === "boot" ? ["shoe"] : kind === "skin" ? ["skin", "serum", "sunscreen", "lip balm", "toner pad"]
+    : kind === "makeup" ? ["makeup", "lip balm"] : [kind];
+  addCategoryScope(terms, { kinds, domain });
+}
+addCategoryScope(["lip balm", "润唇膏", "唇膏"], { kinds: ["lip balm"], domain: "PERSONAL_CARE" });
+addCategoryScope(["toner pad", "爽肤棉片"], { kinds: ["toner pad"], domain: "PERSONAL_CARE" });
+addCategoryScope(COFFEE_FORM_TERMS.flat(), { kinds: ["coffee"], domain: "COFFEE" });
+addCategoryScope(["coffee machine", "coffee maker"], { kinds: ["espresso"], domain: "COFFEE" });
+addCategoryScope(["portafilter"], { kinds: ["coffee accessory"], domain: "COFFEE" });
+
+function categoryCompatibility(store: WooMerchant, requested: CategoryScope): "COMPATIBLE" | "UNKNOWN" | "CONFLICT" {
+  const labels = store.categories.map(normalize);
+  const scopes = labels.map(label => CATEGORY_SCOPES.get(label));
+  // Only another explicit merchant category can disambiguate these coffee
+  // terms. Query words, the merchant name and brands cannot supply that proof.
+  const coffeeContext = scopes.some(scope => scope?.domain === "COFFEE");
+  const interpreted = scopes.map((scope, index) => scope ?? (coffeeContext && COFFEE_CONTEXT_LABELS.has(labels[index]!)
+    ? { kinds: ["coffee context"], domain: "COFFEE" } : undefined));
+  if (interpreted.some(scope => scope?.kinds.some(kind => requested.kinds.includes(kind)))) return "COMPATIBLE";
+  if (interpreted.length === 0 || interpreted.some(scope => scope === undefined || scope.domain === requested.domain)) return "UNKNOWN";
+  return "CONFLICT";
+}
+
 function rankEntries(stores: WooMerchant[], input: WooSearchInput) {
   const query = normalize(input.query);
   const categoryText = normalize(`${input.query} ${input.productType ?? ""}`);
+  const requestedCategory = input.productUrl === undefined ? CATEGORY_SCOPES.get(normalize(input.productType ?? "")) : undefined;
   const explicitBrand = normalize(input.brand ?? "");
   const matchedGroups = CATEGORY_TERMS.filter(group => group.some(term => phraseMatches(categoryText, term, true)));
   const requestedForms = COFFEE_FORM_TERMS.filter(group => group.some(term => phraseMatches(categoryText, term, true)));
@@ -60,9 +113,12 @@ function rankEntries(stores: WooMerchant[], input: WooSearchInput) {
     const preferred = input.preferredMerchantHost !== undefined && [new URL(store.origin).hostname, ...store.aliases]
       .some(host => host.replace(/^www\./u, "") === input.preferredMerchantHost!.replace(/^www\./u, "")) ? 1 : 0;
     return { store, preferred, brand, form, category: directCategories + synonymCategories,
+      categoryCompatibility: requestedCategory === undefined ? undefined : categoryCompatibility(store, requestedCategory),
       tie: createHash("sha256").update(`${query}\n${explicitBrand}\n${normalize(input.productType ?? "")}\n${store.merchantId}`).digest("hex") };
   });
-  return ranked.sort((a, b) => b.preferred - a.preferred || b.brand - a.brand || b.form - a.form || b.category - a.category || a.tie.localeCompare(b.tie) || a.store.merchantId.localeCompare(b.store.merchantId));
+  return ranked.filter(item => item.categoryCompatibility !== "CONFLICT").sort((a, b) =>
+    Number(b.categoryCompatibility === "COMPATIBLE") - Number(a.categoryCompatibility === "COMPATIBLE") ||
+    b.preferred - a.preferred || b.brand - a.brand || b.form - a.form || b.category - a.category || a.tie.localeCompare(b.tie) || a.store.merchantId.localeCompare(b.store.merchantId));
 }
 
 export function rankWooMerchants(stores: WooMerchant[], input: WooSearchInput): WooMerchant[] {
@@ -71,7 +127,8 @@ export function rankWooMerchants(stores: WooMerchant[], input: WooSearchInput): 
 
 export function planWooMerchants(stores: WooMerchant[], input: WooSearchInput) {
   const entries = rankEntries(stores, input);
-  const relevant = entries.filter(item => input.productUrl !== undefined || item.preferred + item.brand + item.form + item.category > 0);
+  const relevant = entries.filter(item => input.productUrl !== undefined || item.categoryCompatibility === "COMPATIBLE" ||
+    item.categoryCompatibility === undefined && item.preferred + item.brand + item.form + item.category > 0);
   const selected = relevant.slice(0, 6);
   const exploration = entries.filter(item => !relevant.includes(item)).slice(0, Math.min(2, 6 - selected.length));
   return { stores: [...selected, ...exploration].map(item => item.store), routing: {

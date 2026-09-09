@@ -9,7 +9,7 @@
 
 产品形式：**Codex 插件 Agent**。
 
-当前源码版本：**v0.18.7**。修复已知Shopify商品链接被误传为WooCommerce直读目标的问题；Woo接收编译后的商品文本，继续执行既有身份、安全和商家选择检查。包含此前搜索、变体、比较、恢复及Windows安装修复。WooCommerce技术搜索访问表为1,003家；登记不自动授予商家信任。发布、生产部署、安装和原生验收分别记录。[v0.18.7发布与验证状态](docs/releases/v0.18.7.md)；[具体原生测试指令](docs/engineering/changes/2026-09-09-native-user-checks.md)；[改进计划](<改进计划 9_9.md>)；[千店基线证据](docs/engineering/changes/2026-09-08-woocommerce-expansion-1000-data.md)。
+当前源码版本：**v0.18.7**。已知Shopify链接改为向Woo发送编译商品文本；最终候选同时加入明确品类优先及视觉品类传递，避免口味／颜色词选中类目明确冲突的商家。缺失、宽泛或不确定商家类目仍最多2家探索；商品身份、安全和信任检查保留。包含此前搜索、变体、比较、恢复及Windows安装修复。WooCommerce技术搜索访问表为1,003家；登记不自动授予商家信任。发布、生产部署、安装和原生验收分别记录。[v0.18.7发布与验证状态](docs/releases/v0.18.7.md)；[具体原生测试指令](docs/engineering/changes/2026-09-09-native-user-checks.md)；[改进计划](<改进计划 9_9.md>)；[千店基线证据](docs/engineering/changes/2026-09-08-woocommerce-expansion-1000-data.md)。
 
 FindCheap Agent 是一个 Codex 购物研究插件，支持商品搜索、商品匹配、价格查询、商品卡片、证据驱动对比视图、已验证优惠和购物监控。检索只读；报价和 Watch 有独立授权边界。每次最多返回 8 个商品，分为三层：最多 2 个官网结果、3 个可信或高评分匹配、3 个高性价比高匹配结果。
 

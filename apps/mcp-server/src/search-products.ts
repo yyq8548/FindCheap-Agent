@@ -801,7 +801,7 @@ export async function searchProducts(
       const request = { query, limit, market: "US" as const, currency: "USD" as const,
         ...(input.brand === undefined ? {} : { brand: input.brand }),
         ...(reviewedStore?.platform !== "WOOCOMMERCE" ? {} : { preferredMerchantHost: reviewedStore.host }),
-        ...(input.productType === undefined ? {} : { productType: input.productType }),
+        ...((input.productType ?? input.visualInput?.productType) === undefined ? {} : { productType: input.productType ?? input.visualInput?.productType }),
         ...(input.maxItemPriceCents === undefined ? {} : { maxItemPriceCents: input.maxItemPriceCents }),
         ...(directWooUrl === undefined ? {} : { productUrl: directWooUrl }),
         requirements: { ...(input.requiredSize === undefined ? {} : { size: input.requiredSize }), ...(color === undefined ? {} : { color }) },
