@@ -65,4 +65,4 @@ git diff --check
 
 本地最终 bundle 实测同一目标的咖啡、胶囊、Nespresso Original 三步，三来源均参与。胶囊候选成功保留，机器未知不设首选；Original 暂无确认兼容项。该 bundle 使用已配置的历史 200 店上游；千店实现另通过本地 controller 验证，不能混称千店已经上线。
 
-[实现与完整验收](../engineering/changes/2026-09-08-capsule-search-and-woocommerce-1000.md)；[1000 店数据与资格分母](../engineering/changes/2026-09-08-woocommerce-expansion-1000-data.md)。本轮尚未提交、推送、部署或替换安装缓存，原生宿主验收未执行。
+[实现与完整验收](../engineering/changes/2026-09-08-capsule-search-and-woocommerce-1000.md)；[1000 店数据与资格分母](../engineering/changes/2026-09-08-woocommerce-expansion-1000-data.md)。上述本地验收之后，[v0.18.3](../releases/v0.18.3.md) 已提交、推送、生产部署并核验新安装缓存；安装后的三步搜索和 stdio 均通过。原生宿主验收仍未执行。
