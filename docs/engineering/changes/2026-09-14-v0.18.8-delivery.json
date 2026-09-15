@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "version": "0.18.8+codex.20260915013729",
+  "runtimeCommit": "de7ecb2",
+  "local": {
+    "mcpSha256": "EFB0147CDA58A3B82D20E2948318DFCA7D982F88BDF217831D3065098E91430D",
+    "sourceServiceSha256": "F90A4A2660D1FD2C77BBE978D5BA546EAFAB3D40B6EE969A2831352F829FD8FD",
+    "testFilesPassed": 215,
+    "testsPassed": 4184,
+    "stdioPassed": 5
+  },
+  "github": {
+    "pluginCiRun": 34918252913,
+    "pluginCiConclusion": "success",
+    "installerCiRun": 34918252839,
+    "installerCiConclusion": "success",
+    "releaseTag": "v0.18.8"
+  },
+  "railway": {
+    "environment": "production",
+    "service": "FindCheap-Agent",
+    "deploymentId": "9c8e23bd-cc14-42f2-8c95-87d4eaa9e73b",
+    "deploymentStatus": "SUCCESS",
+    "runningSourceServiceSha256": "f90a4a2660d1fd2c77bbe978d5ba546eafab3d40b6ee969a2831352f829fd8fd",
+    "healthHttp": 200,
+    "readyHttp": 200,
+    "searchHttp": 200,
+    "feedStatus": "degraded",
+    "lastErrorCode": "FEED_INVALID",
+    "lastErrorDetailCode": "SOURCE_TOO_LARGE",
+    "preservedSnapshotRows": 70166,
+    "preservedSourceFeeds": 51,
+    "searchProductsReturned": 2
+  },
+  "installation": {
+    "installed": true,
+    "enabled": true,
+    "cacheRoot": "C:/Users/chris/.codex/plugins/cache/findcheap-agent/findcheap-agent/0.18.8+codex.20260915013729",
+    "backupReceipt": "C:/Users/chris/AppData/Local/FindCheapAgent/cache-backups/a0e6a2923ffc4cf08cec205897de8a36/recovery.json",
+    "sourceFiles": 14,
+    "installedFiles": 14,
+    "fileProblems": 0,
+    "installedMcpSha256": "EFB0147CDA58A3B82D20E2948318DFCA7D982F88BDF217831D3065098E91430D",
+    "stdioPassed": 5
+  },
+  "deferredOrHostDependent": [
+    "30 text and 6 image native matrix",
+    "medicube reference image and 40 business plus 40 real-image human set",
+    "authoritative task deletion event",
+    "notification delivery acknowledgement"
+  ]
+}
