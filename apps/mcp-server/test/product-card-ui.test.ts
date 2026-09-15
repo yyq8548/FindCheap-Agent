@@ -538,7 +538,7 @@ describe("product-card MCP Apps UI", () => {
       params: expect.objectContaining({
         name: "report_product_card_metrics",
         arguments: expect.objectContaining({
-          version: "0.18.7",
+          version: "0.18.8",
           terminalStage: "DOM_RENDERED",
           stages: expect.objectContaining({ DOM_RENDERED: expect.any(Number) })
         })
@@ -1051,7 +1051,7 @@ describe("product-card MCP Apps UI", () => {
               code: "SAVE20",
               discountPercent: 20,
               productApplicability: "MERCHANT_WIDE",
-              validTo: "2026-09-10T00:00:00.000Z"
+              validTo: "2099-09-10T00:00:00.000Z"
             }]
           },
           card: {
@@ -1080,7 +1080,7 @@ describe("product-card MCP Apps UI", () => {
               discountPercent: 20,
               productApplicability: "PRODUCT_CONFIRMED",
               assessment: { status: "CONFIRMED", recommendationEligible: true },
-              validTo: "2026-09-10T00:00:00.000Z"
+              validTo: "2099-09-10T00:00:00.000Z"
             }],
             estimatedItemPriceAfterCoupon: { amountCents: 3_200, currency: "USD" }
           },
@@ -1159,7 +1159,7 @@ describe("product-card MCP Apps UI", () => {
       method: "ui/initialize",
       params: {
         protocolVersion: "2026-01-26",
-        appInfo: { name: "FindCheap Agent product cards", version: "0.18.7" },
+        appInfo: { name: "FindCheap Agent product cards", version: "0.18.8" },
         appCapabilities: { availableDisplayModes: ["inline"] }
       }
     });

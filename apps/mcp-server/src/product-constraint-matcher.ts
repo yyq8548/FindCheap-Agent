@@ -3,8 +3,9 @@ import { functionalFeatureStatus } from "./functional-requirements.js";
 import { namedProductIdentity, normalizeNamedProductIdentity } from "./named-product-identity.js";
 
 type Comparator = "EXACT" | "MIN" | "MAX" | "APPROX";
-type QuantityKind = "LENGTH" | "MEMORY" | "STORAGE" | "DATA" | "VOLUME" | "MASS" | "COUNT" | "FREQUENCY" | "POWER";
+export type QuantityKind = "LENGTH" | "MEMORY" | "STORAGE" | "DATA" | "VOLUME" | "MASS" | "COUNT" | "FREQUENCY" | "POWER";
 type Quantity = { kind: QuantityKind; value: number; comparator: Comparator; displayContext?: boolean };
+export type MeasuredFeatureValue = { kind: QuantityKind; value: number; displayContext?: boolean };
 export type FeatureMatchStatus = "MATCHED" | "CONTRADICTED" | "UNKNOWN";
 
 const FEATURE_STOP_WORDS = new Set([
@@ -35,11 +36,20 @@ export function evaluateFeature(searchable: string, feature: string): FeatureMat
   const normalizedSearchable = normalize(searchable);
   const normalizedFeature = normalize(feature);
 
+  if (directlyNegatedFeature(normalizedSearchable, normalizedFeature)) return "CONTRADICTED";
+
   const alternatives = disjunctiveAlternatives(normalizedFeature);
   if (alternatives.length > 1) {
     const statuses = alternatives.map((alternative) => evaluateFeature(normalizedSearchable, alternative));
     if (statuses.includes("MATCHED")) return "MATCHED";
     return statuses.every((status) => status === "CONTRADICTED") ? "CONTRADICTED" : "UNKNOWN";
+  }
+
+  const conjunctions = conjunctiveRequirements(normalizedFeature);
+  if (conjunctions.length > 1) {
+    const statuses = conjunctions.map((part) => evaluateFeature(normalizedSearchable, part));
+    if (statuses.includes("CONTRADICTED")) return "CONTRADICTED";
+    return statuses.every((status) => status === "MATCHED") ? "MATCHED" : "UNKNOWN";
   }
 
   const hair = hairFeatureStatus(normalizedSearchable, normalizedFeature);
@@ -68,17 +78,22 @@ export function evaluateFeature(searchable: string, feature: string): FeatureMat
     return matched ? "MATCHED" : observedSizes.length > 0 ? "CONTRADICTED" : "UNKNOWN";
   }
 
-  const requestedQuantity = firstQuantity(normalizedFeature, true);
-  if (requestedQuantity !== undefined) {
-    const observed = quantities(normalizedSearchable, false)
-      .filter((entry) => quantityKindsCompatible(requestedQuantity.kind, entry.kind));
-    return observed.some((entry) => quantityMatches(requestedQuantity, entry))
-      ? "MATCHED"
-      : observed.length > 0 ? "CONTRADICTED" : "UNKNOWN";
+  const requestedQuantities = quantities(normalizedFeature, true);
+  if (requestedQuantities.length > 0) {
+    const observed = quantities(normalizedSearchable, false);
+    const statuses = requestedQuantities.map((requested) => {
+      const compatible = observed.filter((entry) => quantityKindsCompatible(requested.kind, entry.kind));
+      return compatible.some((entry) => quantityMatches(requested, entry))
+        ? "MATCHED" as const : compatible.length > 0 ? "CONTRADICTED" as const : "UNKNOWN" as const;
+    });
+    if (statuses.includes("CONTRADICTED")) return "CONTRADICTED";
+    return statuses.every((status) => status === "MATCHED") ? "MATCHED" : "UNKNOWN";
   }
 
   const semantic = semanticFeatureStatus(normalizedSearchable, normalizedFeature);
   if (semantic !== undefined) return semantic;
+
+  if (/^\d+(?:\.\d+)?$/u.test(normalizedFeature)) return "UNKNOWN";
 
   const requestedModel = compactModel(normalizedFeature);
   if (isModelLike(requestedModel)) {
@@ -142,6 +157,25 @@ function disjunctiveAlternatives(feature: string): string[] {
   return expression.split(/\s+or\s+/u).map((value) => value.trim()).filter(Boolean);
 }
 
+function conjunctiveRequirements(feature: string): string[] {
+  if (!/\band\b|并且|且/u.test(feature) || /\bbetween\b[^.;]*\band\b/u.test(feature)) return [];
+  const parts = feature.split(/\s+and\s+|\s*(?:并且|且)\s*/u)
+    .map((value) => value.trim()).filter(Boolean);
+  return parts.length > 1 && parts.length <= 8 ? parts : [];
+}
+
+/** A direct negative claim is authoritative for the named feature. Sentence
+ * boundaries prevent a negation in navigation or unrelated copy from leaking
+ * across the whole product description. */
+function directlyNegatedFeature(searchable: string, feature: string): boolean {
+  if (feature === "" || /\b(?:not|no|never|without)\b|(?:不|无|非|没有)/u.test(feature)) return false;
+  const escaped = escapeRegExp(feature).replaceAll("\\ ", "\\s+");
+  const english = new RegExp(`\\b(?:not(?!\\s+only\\b)|no|never|without)\\s+(?:the\\s+)?${escaped}(?:$|[^\\p{L}\\p{N}])`, "u");
+  const chinese = new RegExp(`(?:不(?:是|具备|支持|含)?|无|非|没有)\\s*${escaped}`, "u");
+  return searchable.split(/[.;!?。；！？\n]|\b(?:but|however)\b/u)
+    .some((clause) => english.test(clause) || chinese.test(clause));
+}
+
 type SemanticFeature = {
   aliases: readonly string[];
   conflicts?: readonly string[];
@@ -191,10 +225,6 @@ function phrasePresent(value: string, phrase: string): boolean {
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
-}
-
-function firstQuantity(value: string, requested: boolean): Quantity | undefined {
-  return quantities(value, requested)[0];
 }
 
 function quantities(value: string, requested: boolean): Quantity[] {
@@ -254,7 +284,7 @@ function quantities(value: string, requested: boolean): Quantity[] {
       comparator
     });
   }
-  for (const match of value.matchAll(/\b(\d+)\s*[-\s]*(pack|pk|count|ct|pieces?|pcs?|件|瓶)\b/gu)) {
+  for (const match of value.matchAll(/\b(\d+)\s*[-\s]*(pack|pk|count|ct|items?|units?|pieces?|pcs?|pads?|sponges?|capsules?|pods?|bottles?|cans?|jars?|bags?|rolls?|sheets?|tablets?|wipes?|ea|each)\b/gu)) {
     matches.push({ kind: "COUNT", value: Number(match[1]), comparator });
   }
   if (/\bpair\b/u.test(value)) matches.push({ kind: "COUNT", value: 2, comparator });
@@ -273,6 +303,18 @@ function quantities(value: string, requested: boolean): Quantity[] {
     matches.push({ kind: "POWER", value: Number(match[1]), comparator });
   }
   return matches;
+}
+
+export function measuredFeatureKinds(value: string, requested = false): readonly QuantityKind[] {
+  return [...new Set(measuredFeatureValues(value, requested).map((entry) => entry.kind))];
+}
+
+export function measuredFeatureValues(value: string, requested = false): readonly MeasuredFeatureValue[] {
+  return quantities(normalize(value), requested).map(({ kind, value: measuredValue, displayContext }) => ({
+    kind,
+    value: measuredValue,
+    ...(displayContext === undefined ? {} : { displayContext }),
+  }));
 }
 
 function quantityMatches(requested: Quantity, observed: Quantity): boolean {
@@ -418,7 +460,7 @@ function normalize(value: string): string {
     .replace(/(\d+(?:\.\d+)?)\s*盎司/gu, "$1 oz")
     .replace(/(\d+(?:\.\d+)?)\s*赫兹/gu, "$1 hz")
     .replace(/(\d+(?:\.\d+)?)\s*瓦/gu, "$1 w")
-    .replace(/(\d+)\s*(?:件|瓶|个)/gu, "$1 count")
+    .replace(/(\d+)\s*(?:件|瓶|个|片|枚)/gu, "$1 count")
     .replace(/(\d+(?:\.\d+)?)\s*g(?=\s*(?:内存|ram|memory))/gu, "$1gb")
     .replace(/(\d+(?:\.\d+)?)\s*t(?=\s*(?:存储|ssd|storage))/gu, "$1tb")
     .replaceAll("深空黑色", " space black ")

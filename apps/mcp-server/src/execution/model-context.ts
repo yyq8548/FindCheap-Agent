@@ -10,7 +10,7 @@ const CONTEXT_TOOLS = new Set([
 ]);
 const CONTEXT_FIELDS = [
   "status", "locale", "renderId", "goalId", "goalRevision", "requirementsVersion",
-  "requirementsSummary", "recommendation", "recovery", "coverage", "priceScope",
+  "requirementsSummary", "recommendation", "responseFacts", "recovery", "coverage", "priceScope",
   "visualSessionId", "webSessionId", "expiresAt", "workflow", "retryable",
   "queries", "limits", "comparisonId", "selectionId", "selectionSource", "selectionRevision", "mode", "priceBasis",
   "priceComparability", "priceDelta", "visualSearchOutcome"
@@ -50,13 +50,22 @@ function referenceRows(value: unknown, snapshotPositions = false): Record<string
     const row = pick(entry, [
       "selectionId", "candidateId", "variantId", "quoteReference", "source", "mimeType",
       "itemPrice", "condition", "availability", "matchStatus", "requestIdentityStatus", "quoteCapability", "variantDimensions",
-      "presentationGroup", "deliveredTotal", "deliveredTotalStatus",
+      "presentationGroup", "resultGroup", "deliveredTotal", "deliveredTotalStatus",
       "visualMatchGroup", "availabilityScope"
     ]);
     if (object(entry).visualReviewAssessment !== undefined) row.visualReviewAssessment = pick(object(entry).visualReviewAssessment,
       ["group", "structuralMatchCount", "matchCount", "recommendationScope"]);
     projectList(row, entry, "visualMatchEvidence", 1_000);
     projectList(row, entry, "availableSizes", 400);
+    projectList(row, entry, "requiredFeatureLimitations", 800);
+    const requirementAssessment = object(entry).requirementAssessment;
+    if (requirementAssessment !== undefined) {
+      const assessment = object(requirementAssessment);
+      const entries = Array.isArray(assessment.entries) ? assessment.entries.slice(0, 12).map(item =>
+        pick(item, ["requirement", "status", "source", "scope"])) : [];
+      row.requirementAssessment = { ...pick(assessment, ["policyVersion", "status"]), entries };
+      if (Array.isArray(assessment.entries) && assessment.entries.length > entries.length) row.requirementAssessmentTruncated = true;
+    }
     for (const key of ["title", "merchant"]) {
       const text = object(entry)[key];
       if (typeof text === "string") row[key] = text.slice(0, 240);

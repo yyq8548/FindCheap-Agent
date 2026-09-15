@@ -102,6 +102,15 @@ export function summarizeSearchProducts(products: Product[], evaluatedAtMs = Dat
   };
 }
 
+export function snapshotResponseFacts(products: Product[]) {
+  return {
+    returnedCardCount: products.length,
+    retainedResearchCardCount: products.filter(product => product.presentationGroup === "RESEARCH_ONLY").length,
+    verifiedRequirementCardCount: products.filter(product => product.requirementAssessment?.status === "SATISFIED").length,
+    returnedResearchCardMeaning: "RETAINED_NOT_EXCLUDED" as const,
+  };
+}
+
 /** Rebuild display prose only when final projection changed a prior card count.
  * Source counts and failure diagnostics remain separate structured evidence. */
 export function snapshotCardSummary(summary: ReturnType<typeof summarizeSearchProducts>, locale: "zh-CN" | "en-US"): string {

@@ -4687,6 +4687,16 @@
       "format": "esm",
       "imports": []
     },
+    "src/product-requirement-evidence.ts": {
+      "format": "esm",
+      "imports": [
+        {
+          "kind": "import-statement",
+          "original": "./product-constraint-matcher.js",
+          "path": "src/product-constraint-matcher.ts"
+        }
+      ]
+    },
     "src/product-requirements.ts": {
       "format": "esm",
       "imports": [
@@ -4739,6 +4749,41 @@
           "kind": "import-statement",
           "original": "./coffee-category.js",
           "path": "src/coffee-category.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./product-requirement-evidence.js",
+          "path": "src/product-requirement-evidence.ts"
+        }
+      ]
+    },
+    "src/product-snapshot-projection.ts": {
+      "format": "esm",
+      "imports": [
+        {
+          "kind": "import-statement",
+          "original": "./product-recommendation.js",
+          "path": "src/product-recommendation.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./search-result-summary.js",
+          "path": "src/search-result-summary.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./shopify-product-anchor.js",
+          "path": "src/shopify-product-anchor.ts"
+        }
+      ]
+    },
+    "src/product-snapshot-state.ts": {
+      "format": "esm",
+      "imports": [
+        {
+          "kind": "import-statement",
+          "original": "./search-requirements-context.js",
+          "path": "src/search-requirements-context.ts"
         }
       ]
     },
@@ -5261,6 +5306,16 @@
           "kind": "import-statement",
           "original": "./search-result-summary.js",
           "path": "src/search-result-summary.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./product-snapshot-projection.js",
+          "path": "src/product-snapshot-projection.ts"
+        },
+        {
+          "kind": "import-statement",
+          "original": "./product-snapshot-state.js",
+          "path": "src/product-snapshot-state.ts"
         },
         {
           "kind": "import-statement",
@@ -6131,7 +6186,7 @@
   },
   "outputs": {
     "../../plugins/findcheap-agent/dist/mcp-server.js": {
-      "bytes": 1412645,
+      "bytes": 1417935,
       "entryPoint": "src/stdio.ts",
       "exports": [],
       "imports": [
@@ -6954,7 +7009,7 @@
           "bytesInOutput": 2051
         },
         "src/execution/model-context.ts": {
-          "bytesInOutput": 2963
+          "bytesInOutput": 3366
         },
         "src/execution/tool-executor.ts": {
           "bytesInOutput": 2438
@@ -7014,7 +7069,7 @@
           "bytesInOutput": 12398
         },
         "src/product-constraint-matcher.ts": {
-          "bytesInOutput": 12930
+          "bytesInOutput": 14204
         },
         "src/product-recommendation.ts": {
           "bytesInOutput": 5949
@@ -7022,8 +7077,17 @@
         "src/product-reference.ts": {
           "bytesInOutput": 128
         },
+        "src/product-requirement-evidence.ts": {
+          "bytesInOutput": 1894
+        },
         "src/product-requirements.ts": {
-          "bytesInOutput": 7887
+          "bytesInOutput": 8052
+        },
+        "src/product-snapshot-projection.ts": {
+          "bytesInOutput": 2272
+        },
+        "src/product-snapshot-state.ts": {
+          "bytesInOutput": 1007
         },
         "src/product-value-evidence.ts": {
           "bytesInOutput": 5077
@@ -7056,13 +7120,13 @@
           "bytesInOutput": 6550
         },
         "src/search-result-summary.ts": {
-          "bytesInOutput": 5529
+          "bytesInOutput": 5810
         },
         "src/search-run.ts": {
           "bytesInOutput": 8103
         },
         "src/server.ts": {
-          "bytesInOutput": 218132
+          "bytesInOutput": 216126
         },
         "src/shopify-cart-quote.ts": {
           "bytesInOutput": 12443

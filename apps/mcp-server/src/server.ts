@@ -12,7 +12,7 @@ import { ErrorCode, McpError, type CallToolResult } from "@modelcontextprotocol/
 import { z } from "zod";
 import { productReferenceKey } from "./product-reference.js";
 import { RequirementAssessmentSchema, ambiguousShoeSize, normalizedSizeRequirement } from "./product-requirements.js";
-import { mergeSearchRequirements, shoppingRequirementLedger } from "./search-requirements-context.js";
+import { mergeSearchRequirements } from "./search-requirements-context.js";
 import { normalizePackageRequirements } from "./package-requirements.js";
 import { assessQualityEvidence, unitPriceEvidence, QualityEvidenceSchema, UnitPriceSchema, ValueEvidenceSchema } from "./product-value-evidence.js";
 import { createFindCheapBackend, type FindCheapBackend } from "./backend.js";
@@ -29,7 +29,7 @@ import { textSearchRecovery, TextSearchRecoverySchema } from "./text-search-reco
 import { WebRecoverySessions, WebConsentStatusSchema, WebDiscoveryOutcomeSchema, WebProductUrlSchema, WEB_SEARCH_LIMITS, webSearchQueries, readWebCandidates, type WebProductPagePort } from "./web-product-recovery.js";
 import { awaitWithSignal } from "./await-with-signal.js";
 import { evaluateRecoveredProducts, evaluateSearchProductRequirements, productIdentityBrand, woocommerceCandidate, resolveSearchIntent, parseStoredSearchRequest, requestedCoffeeCategory, StoredSearchProductsInputSchema } from "./search-products.js";
-import { inspectedShopifyProductAnchor, matchesShopifyProductAnchor, matchesSelectedShopifyInspection, hasConflictingShopifyVariantId } from "./shopify-product-anchor.js";
+import { inspectedShopifyProductAnchor, matchesShopifyProductAnchor, matchesSelectedShopifyInspection } from "./shopify-product-anchor.js";
 import { assessCoffeeCategory, assessCoffeeCompatibility, COFFEE_SYSTEMS } from "./coffee-category.js";
 import { createExecutedToolRegistrar } from "./execution/tool-registry.js";
 import {
@@ -57,7 +57,9 @@ import {
 } from "./shopify-client.js";
 import { assessRequestIdentity, classifyShopifyCandidate, hasSpecificProductIdentity } from "./shopify-match.js";
 import { hasAmbiguousSonyFamily, resolveSonyFamilyQuery } from "./sony-family.js";
-import { finalizeSnapshotProducts, reconcileComparison, searchFallbackExplanation, snapshotCardSummary, summarizeSearchProducts } from "./search-result-summary.js";
+import { reconcileComparison, searchFallbackExplanation, summarizeSearchProducts } from "./search-result-summary.js";
+import { projectProductSnapshot } from "./product-snapshot-projection.js";
+import { applyProductSnapshotState } from "./product-snapshot-state.js";
 import {
   ShopifyCartQuoteError,
   validateShopifyCartQuoteTarget,
@@ -91,7 +93,6 @@ import { MAX_PRODUCT_CARDS, candidateKey, compareRankedCandidates } from "./prod
 import {
   RECOMMENDATION_REASON_CODES,
   choosePrimaryRecommendation,
-  coffeeCompatibilityClarification,
   highVarianceClarification
 } from "./product-recommendation.js";
 import {
@@ -911,6 +912,12 @@ const ShopifyProductsOutputShape = {
     reasonCodes: z.array(z.enum(RECOMMENDATION_REASON_CODES)).max(3),
     question: z.string().optional()
   }).strict().optional(),
+  responseFacts: z.object({
+    returnedCardCount: z.number().int().nonnegative(),
+    retainedResearchCardCount: z.number().int().nonnegative(),
+    verifiedRequirementCardCount: z.number().int().nonnegative(),
+    returnedResearchCardMeaning: z.literal("RETAINED_NOT_EXCLUDED")
+  }).strict().optional(),
   comparison: z.object({
     status: z.enum(["SAME_PRODUCT", "DISCOVERY_ONLY", "NEEDS_CLARIFICATION", "UNAVAILABLE"]),
     identityType: z.enum(["GTIN", "BRAND_MPN", "UPID"]).optional(),
@@ -1259,9 +1266,14 @@ function recommendationInstruction(content: ProductCardContent): string {
       ? "服务器已在结构化结果中标出唯一首选；只能推荐该已返回卡片，且不要显示内部 ID。"
       : "The server marked one returned card as the only primary recommendation in structured data; recommend only that card and do not print internal IDs.";
   }
+  if ((content.responseFacts?.retainedResearchCardCount ?? 0) > 0) {
+    return chinese
+      ? "没有可安全推荐的首选商品；返回的调研卡是保留候选，并非已排除，且不能称为已核验匹配。"
+      : "No safe primary recommendation is available. Returned research cards are retained candidates, not excluded, and are not verified matches.";
+  }
   return chinese
-    ? "没有可安全推荐的首选商品；卡片仅供调研。"
-    : "No safe primary recommendation is available; treat the cards as research only.";
+    ? "没有可安全推荐的首选商品。"
+    : "No safe primary recommendation is available.";
 }
 
 function unifiedResult(
@@ -2497,42 +2509,9 @@ export function createShoppingServer(
   ): ProductCardContent & { renderId: string } => {
     const renderId = randomUUID();
     const parent = request?.parentRenderId === undefined ? undefined : renderSnapshots.get(request.parentRenderId);
-    const anchoredProducts = request?.shopifyAnchor === undefined ? content.products
-      : content.products.flatMap(product => product.sourceKind === "SHOPIFY_GLOBAL_CATALOG" && hasConflictingShopifyVariantId(product, request.shopifyAnchor!) ? []
-        : matchesShopifyProductAnchor(product, request.shopifyAnchor!) ? [product]
-        : request.allowAlternatives ? [{ ...product, matchStatus: "SIMILAR" as const, resultGroup: "ALTERNATIVE" as const,
-          requestIdentityStatus: "NEEDS_VERIFICATION" as const, card: { ...product.card, matchBadge: "SIMILAR" as const },
-          matchEvidence: [...new Set([...product.matchEvidence, "Different product or unverified identity relative to the source URL; explicitly requested alternative only"])] }] : []);
-    const finalizedProducts = finalizeSnapshotProducts(anchoredProducts, request?.brand !== undefined, now().getTime());
-    const summary = summarizeSearchProducts(finalizedProducts, now().getTime());
-    const previousSummary = summarizeSearchProducts(content.products, now().getTime());
-    if (finalizedProducts.length !== content.products.length || content.comparison.offerCount !== summary.productCount ||
-      summary.qualifiedMatchCount !== previousSummary.qualifiedMatchCount ||
-      summary.recommendation.state !== previousSummary.recommendation.state) {
-      content = { ...content, message: snapshotCardSummary(summary, content.locale ?? "en-US") +
-        (content.coverage === "PARTIAL" ? content.locale === "zh-CN" ? " 检索覆盖尚不完整。" : " Search coverage remains incomplete." : "") };
-    }
-    // A clarification is an explicit no-recommendation state, not an empty search.
-    const decision = content.recommendation?.state === "NEEDS_CLARIFICATION" ? undefined : summary.recommendation;
-    primaryProductIndex = decision?.primaryProductIndex;
-    content = { ...content, products: finalizedProducts, comparison: reconcileComparison(content.comparison, summary.comparison),
-      ...(content.recovery === undefined ? {} : { recovery: { ...content.recovery,
-        qualified: summary.recoveryCounts.qualified, qualifiedMatches: summary.recoveryCounts.qualifiedMatches,
-        recommendable: summary.recoveryCounts.recommendable, awaitingVerification: summary.recoveryCounts.awaitingVerification,
-        ...(content.recovery.comparableMerchants === undefined ? {} : { comparableMerchants: summary.recoveryCounts.comparableMerchants }),
-        ...(summary.productCount === 0 && content.recovery.reason === "MATCH_FOUND" ? { reason: "NO_QUALIFIED_MATCH" as const } : {}) } }),
-      quality: { ...content.quality, cardsReturned: finalizedProducts.length,
-        itemPricesVerified: finalizedProducts.length,
-        affiliateLinksApproved: finalizedProducts.filter(product => product.purchaseLink.kind === "APPROVED_AFFILIATE").length,
-        couponsVerified: new Set(finalizedProducts.flatMap(product => product.coupons.verified.map(deal =>
-          JSON.stringify([product.sourceHost.toLowerCase(), product.merchantId, deal.dealId])
-        ))).size },
-      ...(decision === undefined ? {} : { recommendation: { state: decision.state, reasonCodes: decision.reasonCodes } }) };
-    const compatibilityQuestion = request !== undefined && content.products.some(product => product.coffeeCompatibility?.status === "UNKNOWN")
-      ? coffeeCompatibilityClarification({ ...request, responseLocale: content.locale ?? request.responseLocale }, true) : undefined;
-    if (compatibilityQuestion !== undefined && content.recommendation !== undefined && content.recommendation.state !== "READY") {
-      content = { ...content, recommendation: { ...content.recommendation, question: compatibilityQuestion.question } };
-    }
+    const projected = projectProductSnapshot(content, request, now().getTime());
+    content = projected.content;
+    primaryProductIndex = projected.primaryProductIndex;
     const goalId = request === undefined ? undefined : parent?.content.goalId ?? randomUUID();
     if (parent?.restored === true && goalId !== undefined) webSessions.closeGoal(goalId, parent.content.renderId);
     const consent = webSessions.current(goalId ?? renderId);
@@ -2547,43 +2526,27 @@ export function createShoppingServer(
     const goalRevision = goalId === undefined ? undefined : Math.max(0, ...[...renderSnapshots.values()]
       .filter(snapshot => snapshot.content.goalId === goalId)
       .map(snapshot => snapshot.content.goalRevision ?? 0)) + 1;
-    let primarySelectionId: string | undefined;
-    const products = content.products.map((product, index) => {
-      // Every snapshot entry point uses the same static target checks as execution.
-      const quoteCapability = cartQuotes === undefined ? "MERCHANT_CHECKOUT_ONLY" as const
+    const applied = applyProductSnapshotState(content, {
+      renderId,
+      goalId,
+      goalRevision,
+      request,
+      primaryProductIndex,
+      requirementsVersion: request === undefined ? undefined
+        : (request.parentRenderId === undefined ? 0 : renderSnapshots.get(request.parentRenderId)?.content.requirementsVersion ?? 0) + 1,
+      createSelectionId: randomUUID,
+      productKey: productReferenceKey,
+      quoteCapability: product => cartQuotes === undefined ? "MERCHANT_CHECKOUT_ONLY"
         : ["DELIVERED_TOTAL_SUPPORTED", "ZIP_ESTIMATE_ONLY"].includes(product.quoteCapability) &&
           verifiedQuoteTarget({ sourceResult, resolvedAwinProducts }, product) === undefined
-          ? "NOT_CHECKED" as const : product.quoteCapability;
-      const selectionId = randomUUID();
-      if (primaryProductIndex !== undefined && index === primaryProductIndex) primarySelectionId = selectionId;
-      selections.set(selectionId, { renderId, variantId: product.handle, productKey: productReferenceKey(product) });
-      return {
-        ...product,
-        quoteCapability,
-        card: { ...product.card, quoteCapability },
-        selectionId,
-        quoteReference: { selectionId, renderId, variantId: product.handle }
-      };
+          ? "NOT_CHECKED" : product.quoteCapability,
     });
-    const snapshot = {
-      ...content,
-      ...(request === undefined ? {} : {
-        goalId, goalRevision,
-        requirementLedger: shoppingRequirementLedger(request),
-        requirementsVersion: (request.parentRenderId === undefined ? 0 : renderSnapshots.get(request.parentRenderId)?.content.requirementsVersion ?? 0) + 1,
-        requirementsSummary: { productType: request.productType, brand: request.brand,
-          maxItemPriceCents: request.maxItemPriceCents, requiredSize: request.requiredSize,
-          requiredFeatures: request.requiredFeatures, excludedFeatures: request.excludedFeatures,
-          primaryUse: request.primaryUse, preferences: request.preferences }
-      }),
+    const snapshot = applied.snapshot;
+    for (const reference of applied.references) selections.set(reference.selectionId, {
       renderId,
-      products,
-      ...(content.recommendation === undefined ? {} : {
-        recommendation: primarySelectionId === undefined
-          ? content.recommendation
-          : { ...content.recommendation, primarySelectionId }
-      })
-    };
+      variantId: reference.variantId,
+      productKey: reference.productKey,
+    });
     renderSnapshots.set(renderId, {
       expiresAt: now().getTime() + PRODUCT_SELECTION_SNAPSHOT_TTL_MS,
       historyExpiresAt: now().getTime() + (taskScope.taskId() === undefined ? PRODUCT_SELECTION_SNAPSHOT_TTL_MS : TASK_HISTORY_TTL_MS),

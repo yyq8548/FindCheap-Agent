@@ -8,6 +8,7 @@ import { isPartialPriceListing, namedProductEditionAssessment } from "./shopify-
 import { isTrustedMerchant, type MerchantTrustEvidence } from "./merchant-trust.js";
 import { requirementDomain } from "./merchant-requirements.js";
 import { assessCoffeeCategory, assessCoffeeCompatibility, coffeeCompatibilityRequirement, parseCoffeeCategory, requestedCoffeeSystem } from "./coffee-category.js";
+import { measuredRequirementEvidence } from "./product-requirement-evidence.js";
 
 /** Product/feed claims describe what the merchant says, not verified efficacy. */
 export const CandidateClaimEvidenceSchema = z.object({
@@ -150,11 +151,22 @@ export function evaluateProductRequirements(product: RequirementProduct, input: 
       status = evaluateFeature(observed, requirement);
       if (status === "UNKNOWN") source = "MISSING";
     } else {
-      status = evaluateFeature(observed, requirement);
-      const titleStatus = evaluateFeature(product.title, requirement);
-      const descriptionStatus = evaluateFeature(product.description ?? "", requirement);
-      if ((titleStatus === "MATCHED" && descriptionStatus === "CONTRADICTED") ||
-        (titleStatus === "CONTRADICTED" && descriptionStatus === "MATCHED")) status = "CONFLICT";
+      const measured = measuredRequirementEvidence(product, requirement);
+      if (measured !== undefined) {
+        status = measured.status;
+        source = measured.source;
+        observed = measured.observed;
+      } else {
+        status = evaluateFeature(observed, requirement);
+        const titleStatus = evaluateFeature(product.title, requirement);
+        const descriptionStatus = evaluateFeature(product.description ?? "", requirement);
+        if ((titleStatus === "MATCHED" && descriptionStatus === "CONTRADICTED") ||
+          (titleStatus === "CONTRADICTED" && descriptionStatus === "MATCHED")) status = "CONFLICT";
+        if (status === "UNKNOWN") {
+          source = "MISSING";
+          observed = "";
+        }
+      }
     }
     entries.push({ requirement: sanitizeExternalText(requirement, 200), status, source,
       ...(observed === "" ? {} : { observed: sanitizeExternalText(observed, 240) }) });
@@ -191,8 +203,10 @@ export function evaluateProductRequirements(product: RequirementProduct, input: 
       entries.push({ requirement: sanitizeExternalText(`excluded: ${excluded}`, 200), status: "UNKNOWN", source: "MISSING", observed: coffee.evidence });
       continue;
     }
-    if ((coffee?.status ?? namedProductAssessment(product, excluded)?.status ?? productClaimAssessment(product, excluded)?.status ?? evaluateFeature(isColorRequirement(excluded) ? colorText : text, excluded)) === "MATCHED") entries.push({
-      requirement: sanitizeExternalText(`excluded: ${excluded}`, 200), status: "CONTRADICTED", source: product.evidenceSource ?? "PRODUCT"
+    const measured = measuredRequirementEvidence(product, excluded);
+    if ((coffee?.status ?? namedProductAssessment(product, excluded)?.status ?? productClaimAssessment(product, excluded)?.status ?? measured?.status ?? evaluateFeature(isColorRequirement(excluded) ? colorText : text, excluded)) === "MATCHED") entries.push({
+      requirement: sanitizeExternalText(`excluded: ${excluded}`, 200), status: "CONTRADICTED",
+      source: measured?.source ?? product.evidenceSource ?? "PRODUCT"
     });
   }
   for (const gap of missingChargingRequirements(input)) entries.push({
@@ -206,7 +220,7 @@ export function evaluateProductRequirements(product: RequirementProduct, input: 
       : unknown.length > 0 ? "NEEDS_VERIFICATION" : "SATISFIED" };
   return { matched, contradicted, unknown,
     preferences: input.preferences.filter(feature =>
-      (merchantRequirementAssessment(product, feature)?.status ?? coffeeRequirementAssessment(product, input, feature)?.status ?? editionAssessment(product, input.query, feature)?.status ?? namedProductAssessment(product, feature)?.status ?? productClaimAssessment(product, feature)?.status ?? evaluateFeature(isColorRequirement(feature) ? colorText : text, feature)) === "MATCHED"), assessment };
+      (merchantRequirementAssessment(product, feature)?.status ?? coffeeRequirementAssessment(product, input, feature)?.status ?? editionAssessment(product, input.query, feature)?.status ?? namedProductAssessment(product, feature)?.status ?? productClaimAssessment(product, feature)?.status ?? measuredRequirementEvidence(product, feature)?.status ?? evaluateFeature(isColorRequirement(feature) ? colorText : text, feature)) === "MATCHED"), assessment };
 }
 
 function editionAssessment(product: RequirementProduct, query: string | undefined, requirement: string) {

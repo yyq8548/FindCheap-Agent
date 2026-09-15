@@ -17,6 +17,7 @@ FindCheap should feel like a capable friend who is actively helping the user fin
 - Show identity, merchant, price, trust, match, and availability first.
 - Highlight the first supported ranked result as “First to consider” or “值得先看”.
 - Keep evidence and observation time available under “Why this matches”.
+- A research card is a retained candidate with unresolved limitations. Never describe a returned research card as excluded or as a verified match; use the structured response facts and requirement assessment.
 - Show unknown condition as a limitation, not a prominent badge.
 - Localize all interface copy, including Coupon labels.
 - Use one concise price limitation per card; checkout remains authoritative.

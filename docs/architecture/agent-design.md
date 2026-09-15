@@ -42,19 +42,19 @@ flowchart TD
   C <--> X[本地 MCP 共享执行层]
   X <--> R[搜索 / 视觉 / 比较 / Watch 编排]
   R <--> D[需求 / 身份 / 信任 / 价格 / 排名规则]
-  R <--> S[当前进程内目标与商品快照]
+  R <--> S[TaskScope / SQLite-CAS / 不可变商品快照]
   R <--> B[FindCheapBackend 既有适配器]
   B <--> N[安全网络边界]
-  N <--> P[Shopify / 官网 / 已配置来源]
+  N <--> P[Shopify / Woo / 官网 / 网页恢复]
   N <--> A[Railway 来源服务]
-  A <--> F[Awin Feed / 优惠 / Registry / 已配置 eBay]
+  A <--> F[Awin Feed / 优惠 / Registry / 可选 eBay]
   B <--> W[本地持久化 Watch 状态]
   C <--> H[宿主授权 / Chrome / Automation]
   R --> V[不可变商品卡片与比较视图]
   V --> U
 ```
 
-这是逻辑责任图，不表示每次搜索都调用全部来源；具体 capability、配置和预算决定执行路径。目标中的持久化比较记忆和归档／删除桥接尚未画作现有能力。
+这是逻辑责任图，不表示每次搜索都调用全部来源；具体 capability、配置和预算决定执行路径。可信任务内的目标、需求、选择与比较历史已由 TaskScope 和 SQLite/CAS 持久化；短期网页授权、报价许可与部分视觉状态仍受当前进程和有效期约束。可靠的宿主删除事件与通知送达 ACK 仍是宿主依赖。
 
 2026-09-08 批准 WooCommerce 为与 Shopify Global Catalog 同级的独立 `Backend.catalog.woocommerce` 来源；无品牌品类查询也参与首轮并行，其他来源有结果不阻止它。Store API 是单店公开接口，由既有来源服务持有独立访问表并聚合，访问表不授予商家信任、品牌授权、配送保证或联盟关系。仅使用商品 GET；USD 商品价、父价范围及精确子变体证据分开，不接入 Woo Cart 或结账。
 
@@ -75,7 +75,9 @@ Railway 来源服务先加载有效 Feed／优惠快照并监听端口，再后�
 | 责任 | 当前代码入口 | 边界 |
 | --- | --- | --- |
 | 工具安全、输入输出校验、模型可见引用回执 | [execution](../../apps/mcp-server/src/execution/tool-executor.ts)、[model-context](../../apps/mcp-server/src/execution/model-context.ts) | 回执不授予权限，外部文本不是指令 |
-| 运行时与工具编排 | [server](../../apps/mcp-server/src/server.ts)、[stdio](../../apps/mcp-server/src/stdio.ts) | 当前商品、选择、比较与视觉快照主要在进程内 |
+| 运行时与工具编排 | [server](../../apps/mcp-server/src/server.ts)、[stdio](../../apps/mcp-server/src/stdio.ts) | 负责工具生命周期、权限、会话和存储边界；不拥有最终商品事实判断 |
+| 商品要求与证据 | [constraint matcher](../../apps/mcp-server/src/product-constraint-matcher.ts)、[requirement evidence](../../apps/mcp-server/src/product-requirement-evidence.ts)、[product requirements](../../apps/mcp-server/src/product-requirements.ts) | 同一评估入口处理受支持的否定、AND/OR、数量单位和所选规格；缺失或无法安全解析时保持未知 |
+| 快照事实投影与目标应用 | [snapshot projection](../../apps/mcp-server/src/product-snapshot-projection.ts)、[snapshot state](../../apps/mcp-server/src/product-snapshot-state.ts)、[result summary](../../apps/mcp-server/src/search-result-summary.ts) | 最终资格、计数、推荐、研究卡含义与引用创建集中；持久化和任务隔离仍由执行层管理 |
 | 需求继承与检索 | [search-products](../../apps/mcp-server/src/search-products.ts)、[requirements-context](../../apps/mcp-server/src/search-requirements-context.ts) | 改预算不等于新建无约束目标 |
 | 来源适配 | [backend](../../apps/mcp-server/src/backend.ts) | 包装已有 ports；Railway 不是购物模型运行位置 |
 | 视觉候选与复核 | [visual-product-discovery](../../apps/mcp-server/src/visual-product-discovery.ts)、[visual-review-policy](../../apps/mcp-server/src/visual-review-policy.ts) | 模型视觉结论仍经过服务端身份和快照校验 |
@@ -87,6 +89,8 @@ Railway 来源服务先加载有效 Feed／优惠快照并监听端口，再后�
 旧 Commerce API／ingestion 平台见 [归档说明](../../archive/commercial-platform/README.md)，不属于当前部署架构。
 
 ## 4. 查询与图片处理规则
+
+2026-09-14 本地修复把通用否定、受限 AND/OR 和全部带单位数量条件放入共享要求评估；数量、重量、容量、内存和存储先读取所选规格，同属性的所选字段冲突直接保留冲突，父商品多规格列表及其他商品文案不能补成当前规格事实。必选、排除和偏好复用同一事实，Shopify、Awin、Woo、网页恢复、规格检查及比较共用最终评估；不支持或证据不足的表达保持 UNKNOWN。最终快照额外提供结构化 `responseFacts`，明确研究卡是保留候选而非已排除。实现、红绿证据与验收边界见[要求证据修复记录](../engineering/changes/2026-09-14-requirement-evidence-remediation.md)。
 
 v0.18.5原生复核修复：选定研磨受控别名包括auto-drip、french、home-espresso；公共必选/排除/偏好评估共享形态和系统证据，描述不能推翻所选规格或填补未知。每条完整机器要求单独核验，未完整解析的复合AND/OR要求保持UNKNOWN。CORRECT与CONTINUE均可明确撤销原回执单项，其他条件/预算保留。Sony缺notSellable时保留经验证身份/价但可售未知；Woo明确订阅商品缺计费范围时保留原金额和库存，省略核实商品价。原生与交付记录见[复核修复记录](../engineering/changes/2026-09-09-native-followup-remediation.md)。
 

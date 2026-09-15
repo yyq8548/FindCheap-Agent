@@ -16,7 +16,10 @@ type ModelContext = {
   requirementsVersion: number;
   requirementsSummary: Record<string, unknown>;
   recovery?: { action: string };
-  products: Array<{ position: number; selectionId: string; title: string; itemPrice: { amountCents: number }; quoteCapability: string }>;
+  responseFacts?: { returnedCardCount: number; retainedResearchCardCount: number; verifiedRequirementCardCount: number; returnedResearchCardMeaning: string };
+  products: Array<{ position: number; selectionId: string; title: string; itemPrice: { amountCents: number }; quoteCapability: string;
+    presentationGroup?: string; resultGroup?: string; requiredFeatureLimitations?: string[];
+    requirementAssessment?: { status: string; entries: Array<{ requirement: string; status: string; source: string }> } }>;
   entries?: Array<{ selectionId: string; position?: number }>;
   variants?: Array<{ variantId: string; position?: number; variantDimensions: Record<string, string> }>;
   visualSessionId: string;
@@ -87,6 +90,40 @@ function twoProducts() {
 }
 
 describe("model-visible context replay (network forbidden)", () => {
+  it("exposes deterministic retained-research and missing-evidence facts to the model", async () => {
+    const item = product({
+      title: "Trail Daypack",
+      productType: "backpack",
+    });
+    delete item.description;
+    const replay = await connect(async () => searchResult([item]));
+    try {
+      const result = await replay.client.callTool({
+        name: "search_products",
+        arguments: { query: "backpack", productType: "backpack", requiredFeatures: ["waterproof"], responseLocale: "zh-CN" },
+      });
+      expect(visibleText(result)).toContain("保留候选，并非已排除");
+      const found = context(result);
+      expect(found.responseFacts).toEqual({
+        returnedCardCount: 1,
+        retainedResearchCardCount: 1,
+        verifiedRequirementCardCount: 0,
+        returnedResearchCardMeaning: "RETAINED_NOT_EXCLUDED",
+      });
+      expect(found.products[0]).toMatchObject({
+        presentationGroup: "RESEARCH_ONLY",
+        resultGroup: "DISCOVERY",
+        requiredFeatureLimitations: ["waterproof"],
+        requirementAssessment: {
+          status: "NEEDS_VERIFICATION",
+          entries: [{ requirement: "waterproof", status: "UNKNOWN", source: "MISSING" }],
+        },
+      });
+    } finally {
+      await replay.close();
+    }
+  });
+
   it("continues 01a07168 MacBook clarification and preserves use and size when only the budget changes", async () => {
     const search = vi.fn(async () => searchResult([]));
     const replay = await connect(search);
